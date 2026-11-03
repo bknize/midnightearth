@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=18 format=3]
 
 [ext_resource type="Script" path="res://board/board.gd" id="1_board"]
 [ext_resource type="PackedScene" path="res://addons/card_3d/scenes/card_collection_3d.tscn" id="2_collection"]
@@ -7,6 +7,7 @@
 [ext_resource type="Script" path="res://addons/card_3d/scripts/drag_controller.gd" id="4_drag"]
 [ext_resource type="Script" path="res://input/pointer_shim.gd" id="5_pointer"]
 [ext_resource type="PackedScene" path="res://board/board_hud.tscn" id="6_hud"]
+[ext_resource type="Script" path="res://board/card_lift.gd" id="8_lift"]
 
 [sub_resource type="Resource" id="Resource_player_fan"]
 script = ExtResource("3_fan")
@@ -36,6 +37,15 @@ transparency = 1
 shading_mode = 0
 albedo_color = Color(1, 0.85, 0.45, 0.18)
 
+[sub_resource type="QuadMesh" id="QuadMesh_dimmer"]
+size = Vector2(1, 1)
+
+[sub_resource type="StandardMaterial3D" id="Material_dimmer"]
+transparency = 1
+shading_mode = 0
+render_priority = -1
+albedo_color = Color(0, 0, 0, 0)
+
 [node name="Board" type="Node3D"]
 script = ExtResource("1_board")
 
@@ -43,6 +53,11 @@ script = ExtResource("1_board")
 transform = Transform3D(1, 0, 0, 0, 0.98639, 0.1644, 0, -0.1644, 0.98639, 0, 5, 30)
 current = true
 fov = 45.0
+
+[node name="Dimmer" type="MeshInstance3D" parent="Camera3D"]
+visible = false
+mesh = SubResource("QuadMesh_dimmer")
+material_override = SubResource("Material_dimmer")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.7071, 0.7071, 0, -0.7071, 0.7071, 0, 10, 10)
@@ -103,8 +118,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 36, 0, 0)
 
 [node name="Loose" type="Node3D" parent="."]
 
+[node name="CardLift" type="Node" parent="."]
+script = ExtResource("8_lift")
+
 [node name="BoardHud" parent="." instance=ExtResource("6_hud")]
 
+[connection signal="tapped" from="PointerShim" to="." method="_on_pointer_tapped"]
 [connection signal="cancelled" from="PointerShim" to="." method="_on_pointer_cancelled"]
 [connection signal="drag_started" from="DragController" to="." method="_on_drag_started"]
 [connection signal="drag_stopped" from="DragController" to="." method="_on_drag_stopped"]

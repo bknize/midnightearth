@@ -91,12 +91,14 @@ var _revealed_ids: Dictionary[int, bool] = {}
 @onready var player_row: CardCollection3D = $DragController/PlayerRow
 @onready var opponent_row: CardCollection3D = $DragController/OpponentRow
 @onready var opponent_hand: CardCollection3D = $DragController/OpponentHand
+@onready var card_lift: CardLift = $CardLift
 @onready var _hand_glow: MeshInstance3D = $DragController/PlayerHand/ZoneGlow
 @onready var _row_glow: MeshInstance3D = $DragController/PlayerRow/ZoneGlow
 @onready var _pointer: PointerShim = $PointerShim
 @onready var _entry: Marker3D = $EntryMarker
 @onready var _exit: Marker3D = $ExitMarker
 @onready var _loose: Node3D = $Loose
+@onready var _dimmer: MeshInstance3D = $Camera3D/Dimmer
 
 
 func _ready() -> void:
@@ -105,6 +107,11 @@ func _ready() -> void:
 	opponent_row.drag_strategy = _make_strategy(BoardDragStrategy.Role.OPPONENT)
 	opponent_hand.drag_strategy = _make_strategy(BoardDragStrategy.Role.OPPONENT)
 	hud.set_commit_enabled(false)
+	card_lift.setup($Camera3D as Camera3D, _loose, _dimmer, _spawn_card)
+	var lifted_err: int = card_lift.lifted.connect(_on_card_lifted)
+	var down_err: int = card_lift.put_down_finished.connect(_on_card_put_down)
+	if lifted_err != OK or down_err != OK:
+		push_warning("Board: could not connect the card lift signals")
 	_cards = CardDb.load_default()
 	if not _cards.is_valid():
 		push_error("Card data failed to load: %s" % _cards.load_error())
@@ -130,6 +137,10 @@ func _exit_tree() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
+		if card_lift.is_holding():
+			card_lift.put_down()
+			get_viewport().set_input_as_handled()
+			return
 		_open_pause()
 		get_viewport().set_input_as_handled()
 
@@ -138,6 +149,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func start_match(new_seed: int) -> void:
 	_serial += 1
 	_end_wait()
+	card_lift.drop_now()
 	_running = false
 	_halted = false
 	_input_locked = true
@@ -170,6 +182,8 @@ func submit_player(action: EngineAction) -> bool:
 ## autoplay, the match not over, the pause menu closed, and seat 0 awaited.
 func may_act() -> bool:
 	if driver == null or _autoplay or _input_locked or _paused or _halted:
+		return false
+	if card_lift.is_holding():
 		return false
 	if driver.is_over():
 		return false
@@ -249,6 +263,9 @@ func _run() -> void:
 	while true:
 		while not _queue.is_empty():
 			var step: BoardStep = _queue.pop_front()
+			await _release_held_for(step)
+			if serial != _serial:
+				return
 			await _play(step, serial)
 			if serial != _serial:
 				return
@@ -279,6 +296,20 @@ func _advance() -> void:
 	_input_locked = false
 	_refresh_commit_enabled()
 	player_turn_started.emit()
+
+
+## R8, R9: steps that do not touch the held card play on underneath it; one that would move,
+## flip or remove it sets the card down first.
+func _release_held_for(step: BoardStep) -> void:
+	var card: BoardCard = card_lift.held
+	if card == null:
+		return
+	var touches: bool = true
+	if is_instance_valid(card):
+		var staged: bool = staging.has(card.instance_id)
+		touches = LiftRules.step_touches(step, card.instance_id, _place_of(card), staged)
+	if touches:
+		await card_lift.put_down()
 
 
 func _play(step: BoardStep, serial: int) -> void:
@@ -582,7 +613,7 @@ func _make_strategy(role: BoardDragStrategy.Role) -> BoardDragStrategy:
 
 
 func _is_locked() -> bool:
-	return _input_locked
+	return _input_locked or card_lift.is_holding()
 
 
 ## True when the card (a seat-0 BoardCard; anything else is false) fits in the energy left
@@ -803,6 +834,64 @@ func _hide_glows() -> void:
 
 func _on_pointer_cancelled() -> void:
 	_drag_cancelled = true
+
+
+# --- Card pick-up (R1-R11) -----------------------------------------------------------------
+
+
+## The LiftRules.Place of a card, or -1 if it is in no collection.
+func _place_of(card: Card3D) -> int:
+	if player_hand.cards.has(card):
+		return LiftRules.Place.HAND
+	if player_row.cards.has(card):
+		return LiftRules.Place.ROW
+	if opponent_row.cards.has(card):
+		return LiftRules.Place.OPPONENT_ROW
+	if opponent_hand.cards.has(card):
+		return LiftRules.Place.OPPONENT_HAND
+	return -1
+
+
+## A tap puts a held card down and does nothing else (R5); otherwise it lifts the card under
+## it if the rules allow (R1, R2), never during a drag or a pause (R7).
+func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
+	if card_lift.is_holding():
+		card_lift.put_down()
+		return
+	if _paused or _drag_card != null:
+		return
+	var card: BoardCard = _card_from_hit(hit)
+	if card == null:
+		return
+	var place: int = _place_of(card)
+	if place < 0:
+		return
+	if LiftRules.may_lift(place as LiftRules.Place, not card.face_down):
+		card_lift.lift(card)
+
+
+func _card_from_hit(hit: Object) -> BoardCard:
+	var node: Node = hit as Node
+	if node == null:
+		return null
+	var card: BoardCard = node as BoardCard
+	if card == null:
+		card = node.get_parent() as BoardCard
+	return card
+
+
+func _on_card_lifted(_card: BoardCard) -> void:
+	hud.visible = false
+	player_hand.hover_disabled = true
+	player_row.hover_disabled = true
+	_refresh_commit_enabled()
+
+
+func _on_card_put_down(_card: BoardCard) -> void:
+	hud.visible = true
+	player_hand.hover_disabled = false
+	player_row.hover_disabled = false
+	_refresh_commit_enabled()
 
 
 # --- Commit, pause, concede, rematch (R16, R17, R40-R43) -----------------------------------
