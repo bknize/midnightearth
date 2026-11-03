@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "cards": [
+    {"id": "c01", "name": "Placeholder 01", "cost": 1, "power": 1},
+    {"id": "c02", "name": "Placeholder 02", "cost": 1, "power": 2},
+    {"id": "c03", "name": "Placeholder 03", "cost": 1, "power": 2},
+    {"id": "c04", "name": "Placeholder 04", "cost": 1, "power": 3},
+    {"id": "c05", "name": "Placeholder 05", "cost": 2, "power": 2},
+    {"id": "c06", "name": "Placeholder 06", "cost": 2, "power": 3},
+    {"id": "c07", "name": "Placeholder 07", "cost": 2, "power": 3},
+    {"id": "c08", "name": "Placeholder 08", "cost": 2, "power": 4},
+    {"id": "c09", "name": "Placeholder 09", "cost": 3, "power": 3},
+    {"id": "c10", "name": "Placeholder 10", "cost": 3, "power": 4},
+    {"id": "c11", "name": "Placeholder 11", "cost": 3, "power": 5},
+    {"id": "c12", "name": "Placeholder 12", "cost": 4, "power": 4},
+    {"id": "c13", "name": "Placeholder 13", "cost": 4, "power": 5},
+    {"id": "c14", "name": "Placeholder 14", "cost": 4, "power": 6},
+    {"id": "c15", "name": "Placeholder 15", "cost": 5, "power": 5},
+    {"id": "c16", "name": "Placeholder 16", "cost": 5, "power": 7},
+    {"id": "c17", "name": "Placeholder 17", "cost": 6, "power": 6},
+    {"id": "c18", "name": "Placeholder 18", "cost": 6, "power": 8},
+    {"id": "c19", "name": "Placeholder 19", "cost": 7, "power": 7},
+    {"id": "c20", "name": "Placeholder 20", "cost": 7, "power": 9}
+  ]
+}
