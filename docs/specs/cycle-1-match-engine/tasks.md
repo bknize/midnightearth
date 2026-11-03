@@ -6,7 +6,7 @@ related: ["[[specs/cycle-1-match-engine/spec]]", "[[specs/cycle-1-match-engine/p
 created: 2026-11-02
 updated: 2026-11-02
 uid: 8a1aed9b-5096-41d6-9115-53b871efdbe8
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-1-match-engine-19d44055ce13
 supersedes:
 ---
 
@@ -52,14 +52,13 @@ T01 and T02 can run in parallel. T08 can start once T06 lands, alongside T07.
 - [ ] `obsidian-cli vault=docs orphans` reports nothing new; links in this set checked
       with `backlinks`.
 
-## Linear
+## Linear (exercised 2026-11-02)
 
-Filled by `/exercise cycle-1-match-engine`. Empty until then.
-
-- Project:
-- Milestone: `DC-01 match-engine`
-- Labels: `area/engine`, `type/feature`, `spec/cycle-1-match-engine`
-- Issue mapping:
+Project [Cycle 1 — match engine](https://linear.app/night-science-llc/project/cycle-1-match-engine-19d44055ce13),
+state Planned until `/cycle plan DC-01` puts the issues into milestone `DC-01 match-engine`.
+Labels `area/engine`, `spec/cycle-1-match-engine`, and `type/feature` (T01–T10) or
+`type/chore` (T11, T12). Task n is issue `NSC-(n+21)`: T01 = NSC-22 … T12 = NSC-33,
+all in Todo with `blockedBy` from the Depends column.
 
 ## Commit plan
 

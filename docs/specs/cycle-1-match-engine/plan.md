@@ -6,7 +6,7 @@ related: ["[[specs/cycle-1-match-engine/spec]]", "[[specs/cycle-1-match-engine/t
 created: 2026-11-02
 updated: 2026-11-02
 uid: 46b0bcab-27ba-4afe-8c24-53e78ce931a6
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-1-match-engine-19d44055ce13
 supersedes:
 ---
 
