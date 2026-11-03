@@ -6,7 +6,7 @@ related: ["[[specs/cycle-2-board/spec]]", "[[specs/cycle-2-board/tasks]]", "[[sp
 created: 2026-11-03
 updated: 2026-11-03
 uid: c41f4b46-2293-4478-ac4e-31074a9d655f
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-2-board-b50bca125334
 supersedes:
 ---
 
@@ -27,7 +27,7 @@ recorded here so [[specs/cycle-2-board/tasks|tasks]] can point at it.
 | Shaders/cards | no | Placeholder faces use `Label3D` and plain `StandardMaterial3D`; no shader (C3) |
 | Tooling/scripts | one line | `scripts/check.sh` boot stage passes `-- --seed=1` so boot is reproducible |
 | Vault/docs | yes | This set, the specs MOC row, the DC-03 row in the cycles log |
-| Linear | yes | Filled by `/exercise`: project per spec, milestone `DC-03 board`, labels `area/scene`, `area/input`, `area/tooling`, `type/feature`, `type/chore`, `spec/cycle-2-board` |
+| Linear | yes | Filled by `/exercise`: project per spec, milestone `DC-03 board`, labels `area/cards` (all), `area/ui` (T06, T08), `area/tooling` (T09), `type/feature` (T01–T09), `type/chore` (T10, T11), `spec/cycle-2-board` |
 
 ## Module layout
 

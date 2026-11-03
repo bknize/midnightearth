@@ -6,7 +6,7 @@ related: ["[[specs/cycle-2-board/spec]]", "[[specs/cycle-2-board/plan]]", "[[pla
 created: 2026-11-03
 updated: 2026-11-03
 uid: ab3133b4-d3cd-4414-aa3f-67f548d02303
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-2-board-b50bca125334
 supersedes:
 ---
 
@@ -59,13 +59,13 @@ patch, the driver, the steps and the scenes.
       `Board:` line and the suite counts.
 - [ ] `obsidian-cli vault=docs unresolved` and `… orphans` report nothing new.
 
-## Linear
+## Linear (exercised 2026-11-03)
 
-Filled by `/exercise cycle-2-board`. Empty until then.
-
-- Project:
-- Milestone: `DC-03 board`
-- Issue mapping:
+Project [Cycle 2 — board](https://linear.app/night-science-llc/project/cycle-2-board-b50bca125334), state Planned until `/cycle plan DC-03` puts the
+issues into milestone `DC-03 board`. Labels `spec/cycle-2-board`, `area/cards` on all,
+`area/ui` on T06 and T08, `area/tooling` on T09, and `type/feature` (T01–T09) or
+`type/chore` (T10, T11). Task n is issue `NSC-(n+36)`: T01 = NSC-37 … T11 = NSC-47, all
+in Todo with `blockedBy` from the Depends column.
 
 ## Commit plan
 
