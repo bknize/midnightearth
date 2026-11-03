@@ -68,3 +68,15 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 36, 0, 0)
 [node name="Loose" type="Node3D" parent="."]
 
 [node name="BoardHud" parent="." instance=ExtResource("6_hud")]
+
+[connection signal="cancelled" from="PointerShim" to="." method="_on_pointer_cancelled"]
+[connection signal="drag_started" from="DragController" to="." method="_on_drag_started"]
+[connection signal="drag_stopped" from="DragController" to="." method="_on_drag_stopped"]
+[connection signal="card_moved" from="DragController" to="." method="_on_drag_card_moved"]
+[connection signal="mouse_enter_drop_zone" from="DragController/PlayerRow" to="." method="_on_row_zone_entered"]
+[connection signal="mouse_exit_drop_zone" from="DragController/PlayerRow" to="." method="_on_row_zone_exited"]
+[connection signal="commit_pressed" from="BoardHud" to="." method="_on_commit_pressed"]
+[connection signal="pause_pressed" from="BoardHud" to="." method="_on_pause_pressed"]
+[connection signal="resume_pressed" from="BoardHud" to="." method="_on_resume_pressed"]
+[connection signal="concede_pressed" from="BoardHud" to="." method="_on_concede_pressed"]
+[connection signal="rematch_pressed" from="BoardHud" to="." method="_on_rematch_pressed"]
