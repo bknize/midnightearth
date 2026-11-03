@@ -55,6 +55,14 @@ func focus_lost() -> Array[PointerEvent]:
 	return out
 
 
+## Cancels a held press from code (a pause menu opening, say); empty when not held.
+func cancel() -> Array[PointerEvent]:
+	var out: Array[PointerEvent] = []
+	if _held:
+		_cancel(Vector2.ZERO, out)
+	return out
+
+
 func _feed_button(event: InputEventMouseButton, out: Array[PointerEvent]) -> void:
 	if event.button_index != MOUSE_BUTTON_LEFT:
 		return

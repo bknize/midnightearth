@@ -305,6 +305,19 @@ func test_focus_lost_when_not_held_is_empty() -> void:
 	_expect(tracker.focus_lost(), [])
 
 
+func test_cancel_while_held_emits_one_cancel_then_release_is_silent() -> void:
+	var tracker: PointerTracker = _held_tracker()
+	tracker.feed(_mouse_motion(FAR, false))
+	_expect(tracker.cancel(), [PointerEvent.Kind.CANCEL])
+	assert_bool(tracker.is_held()).is_false()
+	_expect(tracker.feed(_mouse_button(FAR, false, false)), [])
+
+
+func test_cancel_when_not_held_is_empty() -> void:
+	var tracker: PointerTracker = PointerTracker.new()
+	_expect(tracker.cancel(), [])
+
+
 func test_cancel_events_for_stray_touch_when_not_held_are_ignored() -> void:
 	var tracker: PointerTracker = PointerTracker.new()
 	_expect(tracker.feed(_screen_touch(START, true, 1)), [])
