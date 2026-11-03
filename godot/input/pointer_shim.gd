@@ -85,8 +85,8 @@ func _gui_blocks(event: InputEvent) -> bool:
 		pressed_now = touch.pressed
 	if not pressed_now:
 		return false
-	var hovered: Control = get_viewport().gui_get_hovered_control()
-	return hovered != null and hovered.mouse_filter != Control.MOUSE_FILTER_IGNORE
+	var under: Control = get_viewport().gui_get_hovered_control()
+	return under != null and under.mouse_filter != Control.MOUSE_FILTER_IGNORE
 
 
 func _dispatch(events: Array[PointerEvent]) -> void:
