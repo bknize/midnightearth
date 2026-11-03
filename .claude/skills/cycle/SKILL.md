@@ -21,7 +21,9 @@ dispatch, you merge, you test. Implementers never run Godot; you do. `$ARGUMENTS
    the proposed set minus the largest item, (c) Ben's own pick.
 3. On the answer: `save_milestone` `DC-NN <theme>` on each touched project (a milestone
    belongs to a project; when the set spans projects, create the same-named milestone
-   in each), then `save_issue` each chosen issue with that milestone.
+   in each), then `save_issue` each chosen issue with that milestone and state `Todo`.
+   Linear statuses follow the lifecycle in `CLAUDE.md` (Linear); every verb below names
+   its move.
 4. Create the branch `git branch dc-NN-<theme> master` (never `git switch -c`: the main
    checkout stays on `master`) and keep it in its own worktree:
    `git worktree add <scratchpad>/dc-NN-<theme> dc-NN-<theme>`. On the cycle branch,
@@ -43,15 +45,19 @@ dispatch, you merge, you test. Implementers never run Godot; you do. `$ARGUMENTS
    parameter (assign to a typed local first); use the return values of `resize()`,
    `Dictionary.erase()` and `pop_back()` outside tests; no `.uid` files. Three or more
    independent issues in a wave may go through the Workflow tool instead, if Ben has
-   opted in.
+   opted in. Move each issue to `In Progress` in Linear in the same message as its
+   dispatch.
 3. When a wave returns: commit each worktree as `dc-NN: <issue id or Tnn> <title>`, then
    merge it from the cycle worktree into `dc-NN-<theme>` (`--no-ff`, message
    `cycle-NN: <issue id> <title>`); on conflict, resolve or re-dispatch with the
    conflict in the brief. Run `scripts/check.sh` there after every merge; after a green
    gate fold any generated `.uid` files into the merge commit. A red gate stops the
    wave: open the report, either fix a one-line problem yourself or re-dispatch the
-   issue with the gate output. Run planted-failure checks under `timeout 120`. Move the
-   issue to `In Review` in Linear with a one-line comment naming the merge commit.
+   issue with the gate output; the issue stays `In Progress` with a comment quoting the
+   failing stage. Run planted-failure checks under `timeout 120`. On a green gate move
+   the issue to `In Review` in Linear with a one-line comment naming the merge commit.
+   An issue dropped from the cycle goes back to `Backlog`, milestone removed, with a
+   comment saying why.
 4. Optional: dispatch `reviewer` on the wave's diff before merging when the wave touches
    `godot/engine/`.
 5. Report after each wave: merged, gate result, remaining waves.
@@ -75,9 +81,9 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
    only after 1–3 pass, from the main checkout. Do not push unless Ben asks.
 5. Linear: `save_status_update` on each touched project ("DC-NN done": gate summary,
    screenshots, what was verified, what was left out); move every DC-NN issue to
-   `Done`; create follow-up issues (`type/bug` or `type/chore`, label `spec/<slug>`) for
-   anything that failed or was skipped. Optionally `save_document` with the full test
-   note.
+   `Done` (only after the step 4 merge); create follow-up issues in `Backlog` (`type/bug`
+   or `type/chore`, label `spec/<slug>`) for anything that failed or was skipped.
+   Optionally `save_document` with the full test note.
 6. Append the outcome to `docs/planning/cycles.md`. Report to Ben with the screenshot
    paths and the follow-ups. Ben's manual click-through happens only at milestones; say
    whether this cycle is one.

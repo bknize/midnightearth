@@ -21,6 +21,9 @@ Hard rules:
   no `randi()` without the injected RNG, no wall-clock time, no Node dependencies.
 - Never edit `godot/addons/*`, `docs/.obsidian/`, `.env`. Never commit.
 - Keep the change small and inside the issue's scope; file nothing new in Linear.
+- You have no Linear access, so do not try to move the issue: the orchestrator sets it
+  to `In Progress` at dispatch and `In Review` after a green merge. Anything that
+  should keep it open (a blocker, an unmet acceptance check) goes in your report.
 
 Report in under 200 words: files changed, how the acceptance checks are met, what you
 could not verify without running Godot, and any spec ambiguity you resolved yourself.

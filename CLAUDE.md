@@ -61,6 +61,15 @@ cycle (`DC-NN <theme>`), labels `area/*`, `type/*`, `spec/<slug>`. Every issue c
 `## Spec` section with the vault uid link and the GitHub blob URL. The orchestrator pulls
 issues through the Linear MCP; nothing is pushed from Linear.
 
+Issue status is the orchestrator's job, moved when the event actually happens, never
+ahead of it: **Backlog** (follow-ups and ideas outside a cycle) → **Todo** (`/exercise`,
+or picked at `/cycle plan`) → **In Progress** (its implementer is dispatched; a red gate
+or re-dispatch keeps it here, with a comment quoting the failure) → **In Review** (merged
+into the cycle branch on a green gate; comment names the merge commit) → **Done** (the
+cycle branch is merged into `master` at `/cycle test`). An issue dropped from a cycle goes
+back to Backlog with its milestone removed and a comment saying why. Subagents have no
+Linear access; they report, and the orchestrator updates Linear.
+
 ## Git
 
 Work for a set lands on a branch named for the set (`cycle-0-scaffolding`,
