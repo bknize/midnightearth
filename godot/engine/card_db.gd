@@ -63,7 +63,7 @@ static func from_json(text: String) -> CardDb:
 	var root: Dictionary = data
 	if not root.has("version") or not _is_whole_number(root["version"]):
 		return _failed("%s: missing or non-integer version" % ERR_SHAPE)
-	var version: int = int(root["version"])
+	var version: int = _as_int(root["version"])
 	if version != FORMAT_VERSION:
 		return _failed("%s: %d (expected %d)" % [ERR_VERSION, version, FORMAT_VERSION])
 	if not root.has("cards") or not root["cards"] is Array:
@@ -156,7 +156,16 @@ static func _parse_entry(entry: Variant) -> CardDef:
 	var card_name: String = d["name"]
 	if card_id == "" or card_name == "":
 		return null
-	return CardDef.new(card_id, card_name, int(d["cost"]), int(d["power"]))
+	return CardDef.new(card_id, card_name, _as_int(d["cost"]), _as_int(d["power"]))
+
+
+## Converts a value already checked by _is_whole_number to int without an unsafe call.
+static func _as_int(value: Variant) -> int:
+	if value is int:
+		var whole: int = value
+		return whole
+	var number: float = value
+	return int(number)
 
 
 ## JSON numbers arrive as floats; accept ints and floats with no fractional part.
@@ -188,8 +197,8 @@ static func _validate(defs: Array[CardDef]) -> String:
 			)
 
 	var counts: Array[int] = []
-	counts.resize(MAX_COST + 1)
-	counts.fill(0)
+	for _slot: int in range(MAX_COST + 1):
+		counts.append(0)
 	for def: CardDef in defs:
 		if def.cost < MIN_COST or def.cost > MAX_COST:
 			return (
