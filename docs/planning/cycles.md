@@ -16,4 +16,4 @@ One row per cycle. The acceptance criterion is always "buildable and testable".
 
 | Cycle | Theme | Branch | Issues | Started | Done | Outcome |
 |---|---|---|---|---|---|---|
-| DC-00 | scaffolding | `cycle-0-scaffolding` | NIG-5 … NIG-20 | 2026-11-02 | | in progress; see [[specs/cycle-0-scaffolding/tasks]] |
+| DC-00 | scaffolding | `cycle-0-scaffolding` | NIG-5 … NIG-20 | 2026-11-02 | 2026-11-02 | done: 16 tasks, gate green in 7 s on a fresh clone, screenshot via Godot MCP; see [[specs/cycle-0-scaffolding/tasks]] |

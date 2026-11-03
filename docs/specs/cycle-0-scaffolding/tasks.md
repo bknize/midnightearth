@@ -37,12 +37,12 @@ only for the mechanical ports marked so. Every task is one commit on `master`.
 
 ## Verification task (16)
 
-- [ ] `git clone` the repo into a scratchpad directory, run `scripts/bootstrap.sh && make check`, exit 0 under 60 s.
-- [ ] Plant `godot/engine/_broken.gd` with a syntax error; `make check` exits 1 and prints the `Parse Error` line; remove the file.
-- [ ] Open `godot/` in the Godot 4.6.3 editor; from this session call `get_godot_status`, `run_scene` on the main scene, `get_runtime_log` (contains `Main ready`), `take_screenshot`; attach the screenshot to the Linear project status update.
-- [ ] `git grep -iE 'r8_[a-z0-9]{20,}|api[_-]?token\s*=\s*[^$]'` returns nothing.
-- [ ] `obsidian unresolved` and `obsidian orphans` are empty for `docs/`.
-- [ ] Post the Linear project status update "DC-00 done" with the screenshot and the `make check` summary; move every DC-00 issue to Done.
+- [x] Fresh clone (branch `cycle-0-scaffolding`): `scripts/bootstrap.sh && make check` exit 0 in 7 s (2026-11-02). `make` needed `DEVELOPER_DIR=/Library/Developer/CommandLineTools` because the Xcode license is unaccepted; documented in README.
+- [x] Planted `godot/engine/_broken.gd`: gate exits 1 at the lint stage with the error line; a typed-strict violation that gdlint passes is caught by the parse stage.
+- [x] Godot editor open: `get_godot_status` connected (server 0.6.1 = plugin 0.6.1), `run_scene` with runtime connected in 4.5 s, console log contains `Main ready`, `get_errors` 0, screenshot `godot/reports/DC-00/main-ready.png` (1063×598).
+- [x] Secret grep returns nothing.
+- [x] `obsidian-cli vault=docs unresolved` and `orphans` empty (14 notes).
+- [x] Linear status update "DC-00 done" posted with the screenshot; DC-00 issues moved to Done. The "Spec task" template remains Ben's manual step (follow-up issue).
 
 ## Linear (exercised 2026-11-02)
 
