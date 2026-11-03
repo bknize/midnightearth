@@ -18,3 +18,4 @@ written by `/spec <slug>` and exercised into Linear by `/exercise <slug>`.
 | Slug | Status | Linear |
 |---|---|---|
 | [[specs/cycle-0-scaffolding/spec|cycle-0-scaffolding]] ([[specs/cycle-0-scaffolding/plan|plan]], [[specs/cycle-0-scaffolding/tasks|tasks]]) | approved | [Cycle 0 — scaffolding](https://linear.app/night-science-llc/project/cycle-0-scaffolding-6db3f9c856a0) |
+| [[specs/cycle-1-match-engine/spec|cycle-1-match-engine]] ([[specs/cycle-1-match-engine/plan|plan]], [[specs/cycle-1-match-engine/tasks|tasks]]) | approved | – |
