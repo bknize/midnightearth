@@ -14,11 +14,11 @@ extends GdUnitTestSuite
 # Seed 1's bot-vs-bot result, in the smoke line's terms: winner, round wins as "a-b",
 # rounds played, end reason, accepted actions. While GOLDEN_WINNER is GOLDEN_UNPINNED the
 # golden test is skipped with GOLDEN_SKIP_NOTE. Pin by replacing these five literals.
-const GOLDEN_WINNER: int = -2
-const GOLDEN_WINS: String = "unpinned"
-const GOLDEN_ROUNDS: int = -2
-const GOLDEN_REASON: String = "unpinned"
-const GOLDEN_ACTIONS: int = -2
+const GOLDEN_WINNER: int = 0
+const GOLDEN_WINS: String = "4-0"
+const GOLDEN_ROUNDS: int = 4
+const GOLDEN_REASON: String = "wins"
+const GOLDEN_ACTIONS: int = 56
 # END GOLDEN
 
 ## Sentinel winner meaning "not pinned yet".
