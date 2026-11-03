@@ -88,7 +88,16 @@ func energy() -> int:
 	return _state.turn
 
 
-## The full-state read (R30), for tests and replay only: it includes hidden information.
+## The redacted view for seat 0 or 1 (R28, R29): no seed, no deck order and no id from
+## the opponent's hand, deck, face-down commit or burn. Null for any other seat.
+func view_for(seat: int) -> SeatView:
+	if seat < 0 or seat >= SEATS:
+		return null
+	return SeatView.build(_state, seat, awaited_seat(), energy())
+
+
+## The full-state read (R30), for tests and replay only: it includes hidden information,
+## everything view_for() omits (seed, stream state, decks, hands, pending, burns).
 func full_state() -> Dictionary:
 	return _state.to_dict()
 
