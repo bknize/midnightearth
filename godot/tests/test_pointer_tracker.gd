@@ -389,3 +389,17 @@ func test_touch_duplicate_of_blocked_press_is_blocked() -> void:
 	_expect(tracker.feed(_mouse_button(FAR, false, true)), [])
 	_expect(tracker.feed(_screen_touch(FAR, false)), [])
 	assert_bool(tracker.is_held()).is_false()
+
+
+func test_focus_lost_clears_a_blocked_press() -> void:
+	var tracker: PointerTracker = PointerTracker.new()
+	_expect(tracker.feed(_mouse_button(START, true, false), true), [])
+	_expect(tracker.focus_lost(), [])
+	_expect(tracker.feed(_mouse_motion(FAR, false)), [PointerEvent.Kind.HOVER])
+
+
+func test_cancel_clears_a_blocked_press() -> void:
+	var tracker: PointerTracker = PointerTracker.new()
+	_expect(tracker.feed(_mouse_button(START, true, false), true), [])
+	_expect(tracker.cancel(), [])
+	_expect(tracker.feed(_mouse_motion(FAR, false)), [PointerEvent.Kind.HOVER])

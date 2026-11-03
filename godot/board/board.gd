@@ -463,6 +463,8 @@ func _clear_table(step: BoardStep) -> void:
 ## once the driver is over.
 func _match_end(step: BoardStep) -> void:
 	print(driver.result_line())
+	if card_lift.is_holding():
+		card_lift.put_down()
 	var reason: String = step.source.payload["reason"]
 	_paused = false
 	hud.show_pause(false)
