@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://board/board.gd" id="1_board"]
 [ext_resource type="PackedScene" path="res://addons/card_3d/scenes/card_collection_3d.tscn" id="2_collection"]
@@ -22,6 +22,19 @@ max_width = 26.0
 [sub_resource type="Resource" id="Resource_opponent_row"]
 script = ExtResource("7_line")
 max_width = 26.0
+
+[sub_resource type="QuadMesh" id="QuadMesh_zone"]
+size = Vector2(14, 4)
+
+[sub_resource type="StandardMaterial3D" id="Material_hand_glow"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(1, 0.85, 0.45, 0.18)
+
+[sub_resource type="StandardMaterial3D" id="Material_row_glow"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(1, 0.85, 0.45, 0.18)
 
 [node name="Board" type="Node3D"]
 script = ExtResource("1_board")
@@ -49,12 +62,24 @@ card_layout_strategy = SubResource("Resource_player_fan")
 [node name="DropZone" parent="DragController/PlayerHand" index="0"]
 input_ray_pickable = false
 
+[node name="ZoneGlow" type="MeshInstance3D" parent="DragController/PlayerHand"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.2)
+visible = false
+mesh = SubResource("QuadMesh_zone")
+surface_material_override/0 = SubResource("Material_hand_glow")
+
 [node name="PlayerRow" parent="DragController" instance=ExtResource("2_collection")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3, 0)
 card_layout_strategy = SubResource("Resource_player_row")
 
 [node name="DropZone" parent="DragController/PlayerRow" index="0"]
 input_ray_pickable = false
+
+[node name="ZoneGlow" type="MeshInstance3D" parent="DragController/PlayerRow"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.2)
+visible = false
+mesh = SubResource("QuadMesh_zone")
+surface_material_override/0 = SubResource("Material_row_glow")
 
 [node name="OpponentRow" parent="DragController" instance=ExtResource("2_collection")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, 0)
@@ -86,6 +111,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 36, 0, 0)
 [connection signal="card_moved" from="DragController" to="." method="_on_drag_card_moved"]
 [connection signal="mouse_enter_drop_zone" from="DragController/PlayerRow" to="." method="_on_row_zone_entered"]
 [connection signal="mouse_exit_drop_zone" from="DragController/PlayerRow" to="." method="_on_row_zone_exited"]
+[connection signal="mouse_enter_drop_zone" from="DragController/PlayerHand" to="." method="_on_hand_zone_entered"]
+[connection signal="mouse_exit_drop_zone" from="DragController/PlayerHand" to="." method="_on_hand_zone_exited"]
 [connection signal="commit_pressed" from="BoardHud" to="." method="_on_commit_pressed"]
 [connection signal="pause_pressed" from="BoardHud" to="." method="_on_pause_pressed"]
 [connection signal="resume_pressed" from="BoardHud" to="." method="_on_resume_pressed"]
