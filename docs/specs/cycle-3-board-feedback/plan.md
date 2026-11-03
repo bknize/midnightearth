@@ -142,7 +142,7 @@ No engine state and nothing serialized. Board-side state:
 | P5 frontmatter and vault-root links | PASS | All three notes |
 | Do-not-touch list | PASS | Only `drag_controller.gd` under `addons/`, through a patch recorded in `THIRD_PARTY_LICENSES.md`. Screenshots land in gitignored `godot/reports/` |
 | Secrets only in `.env` | PASS | None involved |
-| Branch per changeset, one commit per task, `--no-ff` into `master` | PASS | `spec-cycle-3-board-feedback` for this set; `dc-04-board-feedback` for the cycle |
+| One branch per cycle, one commit per task, `--no-ff` into `master` (ADR 0002) | PASS | `cycle-3-board-feedback` carries the spec, the write-back, every task and the verification; it merges at `/cycle test` |
 | D2 Compatibility-clean visuals | PASS | Unshaded alpha materials only; no `SCREEN_TEXTURE`, no custom shader |
 | D1 Card3D in-house extras | PASS | Pick-up, glows and rims are project code on top of Card3D |
 

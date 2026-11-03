@@ -2,7 +2,7 @@
 type: tasks
 tags: [tasks, cycle-3-board-feedback, board]
 status: approved
-related: ["[[specs/cycle-3-board-feedback/spec]]", "[[specs/cycle-3-board-feedback/plan]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
+related: ["[[decisions/0002-one-branch-per-cycle]]", "[[specs/cycle-3-board-feedback/spec]]", "[[specs/cycle-3-board-feedback/plan]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-03
 updated: 2026-11-03
 uid: ad542daf-f955-4038-8e64-d121a9df705c
@@ -38,7 +38,7 @@ wave 3 is T05 and wave 4 is T06, because each of them edits `board.gd`. Then T07
 
 ## Verification task (8)
 
-Run on `dc-04-board-feedback` with the editor opened on the cycle worktree
+Run on `cycle-3-board-feedback` with the editor opened on the cycle worktree
 (`scripts/godot-editor.sh switch`). No screenshots beyond the two below (screenshot
 token rule).
 
@@ -89,9 +89,12 @@ milestone `DC-04 board-feedback`.
 
 ## Commit plan
 
-One commit per task on branch `dc-04-board-feedback`. Messages are
-`dc-04: T<nn> <task title>`, ending with the Co-Authored-By line the session provides.
-T07 commits only if the review produced fixes. When T08 passes, the branch merges into
-`master` with `git merge --no-ff`. The spec set is its own changeset: it is committed as
-`spec: cycle-3-board-feedback` on branch `spec-cycle-3-board-feedback` when Ben says to,
-and merged into `master` with `--no-ff` before `/exercise`. Never push without Ben.
+The whole cycle is one changeset on branch `cycle-3-board-feedback`
+([[decisions/0002-one-branch-per-cycle]]), cut from `master` at `/spec`. It carries the
+spec (`spec: cycle-3-board-feedback`), the Linear write-back
+(`exercise: cycle-3-board-feedback`), one commit per task (`dc-04: T<nn> <task title>`),
+review fixes (`dc-04: T07 review fixes`, only if the review produced any) and the
+verification outcome. Every message ends with the Co-Authored-By line the session
+provides. When T08 passes, `/cycle test` merges the branch into `master` with
+`git merge --no-ff` and rewrites the GitHub links in Linear to `master`. Never push
+without Ben.
