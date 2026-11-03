@@ -11,6 +11,8 @@ extends Node3D
 
 ## Emitted when the queue is empty and the human's commit is awaited. Input is unlocked.
 signal player_turn_started
+## Internal: emitted when the node-owned wait ends, or is cut short by a restart or exit.
+signal wait_finished
 
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
@@ -51,6 +53,9 @@ var _running: bool = false
 var _halted: bool = false
 ## Bumped by start_match so a runner from an earlier match stops touching the table.
 var _serial: int = 0
+## The node-owned wait behind _wait(): counted down in _process, so it always resumes.
+var _wait_left: float = 0.0
+var _waiting: bool = false
 var _queue: Array[BoardStep] = []
 ## Seat 0's cards by engine instance id.
 var _player_cards: Dictionary[int, BoardCard] = {}
@@ -96,6 +101,19 @@ func _ready() -> void:
 	start_match(_resolve_seed(args))
 
 
+func _process(delta: float) -> void:
+	if not _waiting:
+		return
+	_wait_left -= delta
+	if _wait_left <= 0.0:
+		_end_wait()
+
+
+func _exit_tree() -> void:
+	_serial += 1
+	_end_wait()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		_open_pause()
@@ -105,6 +123,7 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Starts a fresh match: new driver, empty table, the opening events as steps.
 func start_match(new_seed: int) -> void:
 	_serial += 1
+	_end_wait()
 	_running = false
 	_halted = false
 	_input_locked = true
@@ -205,7 +224,7 @@ func _enqueue(events: Array[MatchEvent]) -> void:
 ## more is queued. A second call while running is a no-op: the running loop picks up
 ## whatever was enqueued.
 func _run() -> void:
-	if _running:
+	if _running or not is_inside_tree():
 		return
 	_running = true
 	_input_locked = true
@@ -252,12 +271,24 @@ func _play(step: BoardStep, serial: int) -> void:
 	_apply(step)
 	if step.duration > 0.0:
 		await _wait(step.duration)
+		if serial != _serial:
+			return
 
 
 func _wait(seconds: float) -> void:
 	if not is_inside_tree():
 		return
-	await get_tree().create_timer(seconds).timeout
+	_wait_left = seconds
+	_waiting = true
+	await wait_finished
+
+
+## Ends the current wait, if any; the suspended runner resumes at once and checks its serial.
+func _end_wait() -> void:
+	if not _waiting:
+		return
+	_waiting = false
+	wait_finished.emit()
 
 
 # --- Step effects (R31-R38) --------------------------------------------------------------
