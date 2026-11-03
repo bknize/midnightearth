@@ -1,8 +1,9 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://board/board.gd" id="1_board"]
 [ext_resource type="PackedScene" path="res://addons/card_3d/scenes/card_collection_3d.tscn" id="2_collection"]
 [ext_resource type="Script" path="res://addons/card_3d/scripts/card_layouts/fan_card_layout.gd" id="3_fan"]
+[ext_resource type="Script" path="res://addons/card_3d/scripts/card_layouts/line_card_layout.gd" id="7_line"]
 [ext_resource type="Script" path="res://addons/card_3d/scripts/drag_controller.gd" id="4_drag"]
 [ext_resource type="Script" path="res://input/pointer_shim.gd" id="5_pointer"]
 [ext_resource type="PackedScene" path="res://board/board_hud.tscn" id="6_hud"]
@@ -13,6 +14,14 @@ script = ExtResource("3_fan")
 [sub_resource type="Resource" id="Resource_opponent_fan"]
 script = ExtResource("3_fan")
 direction = 1
+
+[sub_resource type="Resource" id="Resource_player_row"]
+script = ExtResource("7_line")
+max_width = 26.0
+
+[sub_resource type="Resource" id="Resource_opponent_row"]
+script = ExtResource("7_line")
+max_width = 26.0
 
 [node name="Board" type="Node3D"]
 script = ExtResource("1_board")
@@ -42,12 +51,14 @@ input_ray_pickable = false
 
 [node name="PlayerRow" parent="DragController" instance=ExtResource("2_collection")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3, 0)
+card_layout_strategy = SubResource("Resource_player_row")
 
 [node name="DropZone" parent="DragController/PlayerRow" index="0"]
 input_ray_pickable = false
 
 [node name="OpponentRow" parent="DragController" instance=ExtResource("2_collection")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, 0)
+card_layout_strategy = SubResource("Resource_opponent_row")
 
 [node name="DropZone" parent="DragController/OpponentRow" index="0"]
 input_ray_pickable = false

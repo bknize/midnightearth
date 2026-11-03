@@ -91,7 +91,22 @@ func show_pause(shown: bool) -> void:
 	_pause_menu.visible = shown
 
 
-func show_result(winner: int, wins: Array[int], reason: String) -> void:
+## The end reason as a phrase for the result panel (R23).
+static func reason_text(reason: String, winner: int, rounds: int) -> String:
+	match reason:
+		"wins":
+			return "First to 4 round wins"
+		"rounds":
+			return "Most round wins after %d rounds" % rounds
+		"sudden_death":
+			return "Won in sudden death"
+		"concede":
+			return "You conceded" if winner == 1 else "Opponent conceded"
+	push_warning("Unknown match end reason: %s" % reason)
+	return reason
+
+
+func show_result(winner: int, wins: Array[int], reason: String, rounds: int) -> void:
 	if winner == 0:
 		_result_title.text = "You win"
 	elif winner == 1:
@@ -101,7 +116,7 @@ func show_result(winner: int, wins: Array[int], reason: String) -> void:
 	var you: int = wins[0] if wins.size() > 0 else 0
 	var them: int = wins[1] if wins.size() > 1 else 0
 	_result_wins.text = "Rounds won: You %d - %d Opponent" % [you, them]
-	_result_reason.text = reason
+	_result_reason.text = reason_text(reason, winner, rounds)
 	_result_panel.visible = true
 
 

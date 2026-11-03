@@ -133,14 +133,11 @@ color = Color(0.2, 0.22, 0.3, 1)
 
 [node name="TopInfo" type="PanelContainer" parent="Root"]
 layout_mode = 1
-anchors_preset = 5
-anchor_left = 0.5
-anchor_right = 0.5
-offset_left = -110.0
-offset_top = 10.0
-offset_right = 110.0
-offset_bottom = 10.0
-grow_horizontal = 2
+anchors_preset = 0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 232.0
+offset_bottom = 12.0
 mouse_filter = 2
 
 [node name="Box" type="VBoxContainer" parent="Root/TopInfo"]
