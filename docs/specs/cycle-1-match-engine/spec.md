@@ -188,6 +188,8 @@ proven by gdUnit4 suites and a bot-vs-bot match that runs at boot.
 | C11 | Test depth | 3a: suite per module, a fixed-seed bot-vs-bot match plus replay, a 50-seed invariant sweep, under 10 s |
 | C12 | Screenshot for an engine-only cycle | Ben: worried about screenshot token spend; "we shouldn't do any screen recordings in automated tests". Round 4: 3a. P7's screenshot is waived for this cycle; the proof is `make check` plus the `Engine smoke:` boot line. P7 stays as written for visible cycles |
 | C13 | Save and resume | Ben: "Nothing" in scope this cycle; "THEORETICALLY in pve a human can save and resume" |
+| C14 | `rounds_played` after a concede (DC-01 review, NSC-34) | Ben, 2026-11-02: 2a. Counts completed rounds only, so it always equals the number of `ROUND_ENDED` events; a concede in round N reports N−1. A screen that needs "conceded in round N" reads the round number. No engine change |
+| C15 | Table state after `MATCH_ENDED` (DC-01 review, NSC-34) | Ben, 2026-11-02: 1a. The round that ends the match is not cleared: boards, hands and scores stay as they were at its end, so `view_for()` after `MATCH_ENDED` shows the final table on every end path, matching concede. Engine change tracked in NSC-34 |
 
 ## Scenarios
 

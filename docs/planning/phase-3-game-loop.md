@@ -108,3 +108,8 @@ Edge cases taken as defaults (stated 2026-11-02, Ben may override):
 
 Phase 3 is closed. Open items carried into specs: match length (49 turns) is a tuning
 knob, not a rule; lookahead bots, deck building and card effects are post-MVP.
+
+Parked (Ben, 2026-11-02, after DC-01): the DC-01 50-seed greedy-vs-greedy sweep went to
+sudden death in 9 of 50 matches (39 ended on 4 wins, 2 after round 7). The mirror deck and
+greedy bots may exaggerate this; revisit sudden-death frequency once a smarter bot or real
+playtests give better data. See [[specs/cycle-1-match-engine/spec]] and [[planning/cycles]].
