@@ -43,11 +43,11 @@ Filled by `/exercise <slug>`. Empty until then.
 
 ## Commit plan
 
-Every changeset has its own branch (`CLAUDE.md`, Git). One commit per task on a branch
-named for the set (`dc-NN-<theme>`). Messages: `<set>: T<nn> <task title>`, ending with
-the Co-Authored-By line the session provides. When the verification task passes, the
-branch merges into `master` with a merge commit (`git merge --no-ff`) so the set stays
-visible in history. The spec set itself is a separate changeset, written on branch
-`spec-<slug>` (cut before the first note), committed as `spec: <slug>` when Ben says to,
-and merged into `master` with `--no-ff` before `/exercise`. Nothing is committed
+The whole cycle is one changeset on one branch named for the spec slug
+(`cycle-N-<theme>`; `CLAUDE.md`, Git), cut from `master` at `/spec` before the first
+note. It carries the spec (`spec: <slug>`), the Linear write-back (`exercise: <slug>`),
+one commit per task (`dc-NN: T<nn> <task title>`), review fixes and the verification
+outcome, each message ending with the Co-Authored-By line the session provides. When the
+verification task passes, `/cycle test` merges the branch into `master` with a merge
+commit (`git merge --no-ff`) so the cycle stays visible in history. Nothing is committed
 directly on `master`.

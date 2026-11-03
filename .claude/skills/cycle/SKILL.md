@@ -10,6 +10,11 @@ The orchestrator's verbs. Read `CLAUDE.md` first. You are the orchestrator sessi
 dispatch, you merge, you test. Implementers never run Godot; you do. `$ARGUMENTS` is
 `<verb> DC-NN [theme]`.
 
+`<cycle branch>` below is the cycle's one branch, `cycle-N-<theme>`, named for its spec
+slug (`CLAUDE.md`, Git; `docs/decisions/0002-one-branch-per-cycle.md`). It already holds
+the spec and the `/exercise` write-back, takes every task merge, and merges into
+`master` only at `/cycle test`.
+
 ## /cycle plan DC-NN <theme>
 
 1. List candidate issues: `list_issues` with state `Todo` or `Backlog`, team `NSC`,
@@ -24,9 +29,11 @@ dispatch, you merge, you test. Implementers never run Godot; you do. `$ARGUMENTS
    in each), then `save_issue` each chosen issue with that milestone and state `Todo`.
    Linear statuses follow the lifecycle in `CLAUDE.md` (Linear); every verb below names
    its move.
-4. Create the branch `git branch dc-NN-<theme> master` (never `git switch -c`: the main
-   checkout stays on `master`) and keep it in its own worktree:
-   `git worktree add <scratchpad>/dc-NN-<theme> dc-NN-<theme>`. On the cycle branch,
+4. The cycle branch exists already when the cycle has a spec (cut by `/spec`). For a
+   cycle with no spec of its own, create it: `git branch cycle-N-<theme> master` with the
+   next unused N (never `git switch -c`). Put the main checkout back on `master` (clean;
+   `git switch master`), then keep the cycle branch in its own worktree:
+   `git worktree add <scratchpad>/<cycle branch> <cycle branch>`. On the cycle branch,
    record the plan row in `docs/planning/cycles.md` (create from the note template if
    missing): milestone, date, issues, theme. Report.
 
@@ -39,7 +46,7 @@ dispatch, you merge, you test. Implementers never run Godot; you do. `$ARGUMENTS
    (`implementer-engine` when the issue carries `area/engine` or touches
    `godot/engine/`), `isolation: "worktree"`, prompt = the issue's full description plus
    the spec section it points at plus: "Agent worktrees are cut from `master`: first run
-   `git merge --ff-only dc-NN-<theme>`. Do not run Godot or make. Never commit. Report
+   `git merge --ff-only <cycle branch>`. Do not run Godot or make. Never commit. Report
    files changed and anything unverified." Every brief also lists the typed-strict traps:
    no `:=`; typed loop variables; never pass a Variant into `int()`, `str()` or a typed
    parameter (assign to a typed local first); use the return values of `resize()`,
@@ -48,7 +55,7 @@ dispatch, you merge, you test. Implementers never run Godot; you do. `$ARGUMENTS
    opted in. Move each issue to `In Progress` in Linear in the same message as its
    dispatch.
 3. When a wave returns: commit each worktree as `dc-NN: <issue id or Tnn> <title>`, then
-   merge it from the cycle worktree into `dc-NN-<theme>` (`--no-ff`, message
+   merge it from the cycle worktree into `<cycle branch>` (`--no-ff`, message
    `cycle-NN: <issue id> <title>`); on conflict, resolve or re-dispatch with the
    conflict in the brief. Run `scripts/check.sh` there after every merge; after a green
    gate fold any generated `.uid` files into the merge commit. A red gate stops the
@@ -68,8 +75,8 @@ The acceptance ritual (P7). A cycle is done only when every box is ticked. A spe
 waive the screenshot for an engine- or tooling-only cycle (DC-01 C12): then the proof is
 the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
 
-1. `scripts/check.sh` on `dc-NN-<theme>`: must exit 0. Paste the stage summary.
-2. Point the editor at the cycle branch: `scripts/godot-editor.sh switch dc-NN-<theme>`.
+1. `scripts/check.sh` on `<cycle branch>`: must exit 0. Paste the stage summary.
+2. Point the editor at the cycle branch: `scripts/godot-editor.sh switch <cycle branch>`.
    It closes any open editor (the MCP port takes one at a time), opens the cycle
    worktree's `godot/` and waits for the MCP plugin. `get_godot_status` must report that
    worktree's path. `run_scene` on the main scene: `get_console_log` must contain
@@ -81,13 +88,16 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
    `godot/reports/DC-NN/<issue>.png` (gitignored) and upload each to Linear with
    `prepare_file_upload` for the status update.
 4. On the cycle branch, append the outcome row to `docs/planning/cycles.md` and commit
-   it, then merge `dc-NN-<theme>` into `master` with `--no-ff` (message
+   it, then merge `<cycle branch>` into `master` with `--no-ff` (message
    `cycle-NN: <theme>`), only after 1–3 pass, from the main checkout. Hand the editor
    back with `scripts/godot-editor.sh switch main`. Do not push unless Ben asks.
 5. Linear: `save_status_update` on each touched project ("DC-NN done": gate summary,
    screenshots, what was verified, what was left out); move every DC-NN issue to
    `Done` (only after the step 4 merge); create follow-up issues in `Backlog` (`type/bug`
    or `type/chore`, label `spec/<slug>`) for anything that failed or was skipped.
+   After the step 4 merge, rewrite the GitHub links: in the project description and in
+   every issue of the project, replace `blob/<cycle branch>/` with `blob/master/` (they
+   resolve once Ben has `master` pushed; ask whether to push).
    Optionally `save_document` with the full test note.
 6. Report to Ben with the screenshot paths and the follow-ups. Ben's manual
    click-through happens only at milestones; say whether this cycle is one.
