@@ -75,18 +75,8 @@ func _feed_button(
 ) -> void:
 	if event.button_index != MOUSE_BUTTON_LEFT:
 		return
-	var touch: bool = event.device == InputEvent.DEVICE_ID_EMULATION
 	if event.pressed:
-		if _held:
-			return
-		_blocked = gui_blocked
-		if _blocked:
-			return
-		_held = true
-		_dragging = false
-		_press_position = event.position
-		_press_from_touch = touch
-		out.append(PointerEvent.new(PointerEvent.Kind.PRESS, event.position, touch))
+		_feed_press(event, gui_blocked, out)
 		return
 	if _blocked:
 		_blocked = false
@@ -101,6 +91,23 @@ func _feed_button(
 		kind = PointerEvent.Kind.RELEASE
 	out.append(PointerEvent.new(kind, event.position, _press_from_touch))
 	_clear()
+
+
+## A left-button press: starts a gesture, or blocks it when the GUI took the press (R25).
+func _feed_press(
+	event: InputEventMouseButton, gui_blocked: bool, out: Array[PointerEvent]
+) -> void:
+	if _held:
+		return
+	_blocked = gui_blocked
+	if _blocked:
+		return
+	var touch: bool = event.device == InputEvent.DEVICE_ID_EMULATION
+	_held = true
+	_dragging = false
+	_press_position = event.position
+	_press_from_touch = touch
+	out.append(PointerEvent.new(PointerEvent.Kind.PRESS, event.position, touch))
 
 
 func _feed_motion(event: InputEventMouseMotion, out: Array[PointerEvent]) -> void:
