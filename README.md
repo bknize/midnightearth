@@ -20,6 +20,9 @@ make check             # import → lint → parse → boot → test; exit 0 mea
 ```
 
 Godot 4.6.3 is expected at `/Applications/Godot 4.6.app`; set `GODOT_BIN` to override.
+If `make` stops with "You have not agreed to the Xcode license agreements", either accept it
+(`sudo xcodebuild -license accept`) or run make through the command-line tools:
+`export DEVELOPER_DIR=/Library/Developer/CommandLineTools`. `scripts/check.sh` works either way.
 Launch Claude Code through `scripts/claude-with-env.sh` so `.mcp.json` sees the tokens in `.env`.
 
 Work is planned in `docs/specs/<slug>/` and tracked in Linear; see `CLAUDE.md` for the rules.
