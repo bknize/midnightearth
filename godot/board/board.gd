@@ -49,6 +49,8 @@ var staging: Staging = Staging.new()
 var _cards: CardDb = null
 var _autoplay: bool = false
 var _input_locked: bool = true
+## Whether seat 0 is awaited; refreshed once per step in _advance(), false while steps run.
+var _awaited: bool = false
 var _running: bool = false
 var _halted: bool = false
 ## Bumped by start_match so a runner from an earlier match stops touching the table.
@@ -128,6 +130,7 @@ func start_match(new_seed: int) -> void:
 	_running = false
 	_halted = false
 	_input_locked = true
+	_awaited = false
 	_paused = false
 	_queue.clear()
 	driver = MatchDriver.create(new_seed, _cards, _autoplay)
@@ -159,7 +162,7 @@ func may_act() -> bool:
 		return false
 	if driver.is_over():
 		return false
-	return driver.view().is_awaited()
+	return _awaited
 
 
 ## A turn starts (R15, R16): staging is emptied for the turn's energy and Commit waits for
@@ -177,6 +180,7 @@ func _submit(action: EngineAction) -> bool:
 		_last_error = result.error
 		return false
 	_input_locked = true
+	_awaited = false
 	_refresh_commit_enabled()
 	_enqueue(driver.last_events())
 	_run()
@@ -257,8 +261,10 @@ func _advance() -> void:
 			push_error("Board: the bot's action was rejected (code %d)" % result.error)
 			_halted = true
 			return
+		_awaited = false
 		_enqueue(driver.last_events())
 		return
+	_awaited = driver.view().is_awaited()
 	_input_locked = false
 	_refresh_commit_enabled()
 	player_turn_started.emit()
@@ -521,6 +527,7 @@ func _add_tween(
 
 ## Frees every card now and clears the HUD, for a new match.
 func _clear_table_now() -> void:
+	_pointer.cancel()
 	for collection: CardCollection3D in _collections():
 		var removed: Array[Card3D] = collection.remove_all()
 		for card: Card3D in removed:
