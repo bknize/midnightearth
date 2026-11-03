@@ -1,0 +1,82 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://board/board.gd" id="1_board"]
+[ext_resource type="PackedScene" path="res://addons/card_3d/scenes/card_collection_3d.tscn" id="2_collection"]
+[ext_resource type="Script" path="res://addons/card_3d/scripts/card_layouts/fan_card_layout.gd" id="3_fan"]
+[ext_resource type="Script" path="res://addons/card_3d/scripts/drag_controller.gd" id="4_drag"]
+[ext_resource type="Script" path="res://input/pointer_shim.gd" id="5_pointer"]
+[ext_resource type="PackedScene" path="res://board/board_hud.tscn" id="6_hud"]
+
+[sub_resource type="Resource" id="Resource_player_fan"]
+script = ExtResource("3_fan")
+
+[sub_resource type="Resource" id="Resource_opponent_fan"]
+script = ExtResource("3_fan")
+direction = 1
+
+[node name="Board" type="Node3D"]
+script = ExtResource("1_board")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.98639, 0.1644, 0, -0.1644, 0.98639, 0, 5, 30)
+current = true
+fov = 45.0
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.7071, 0.7071, 0, -0.7071, 0.7071, 0, 10, 10)
+
+[node name="PointerShim" type="Node" parent="." node_paths=PackedStringArray("camera")]
+script = ExtResource("5_pointer")
+camera = NodePath("../Camera3D")
+
+[node name="DragController" type="Node3D" parent="." node_paths=PackedStringArray("pointer")]
+script = ExtResource("4_drag")
+pointer = NodePath("../PointerShim")
+
+[node name="PlayerHand" parent="DragController" instance=ExtResource("2_collection")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -8.5, 0)
+card_layout_strategy = SubResource("Resource_player_fan")
+
+[node name="DropZone" parent="DragController/PlayerHand" index="0"]
+input_ray_pickable = false
+
+[node name="PlayerRow" parent="DragController" instance=ExtResource("2_collection")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3, 0)
+
+[node name="DropZone" parent="DragController/PlayerRow" index="0"]
+input_ray_pickable = false
+
+[node name="OpponentRow" parent="DragController" instance=ExtResource("2_collection")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, 0)
+
+[node name="DropZone" parent="DragController/OpponentRow" index="0"]
+input_ray_pickable = false
+
+[node name="OpponentHand" parent="DragController" instance=ExtResource("2_collection")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8.5, 0)
+card_layout_strategy = SubResource("Resource_opponent_fan")
+
+[node name="DropZone" parent="DragController/OpponentHand" index="0"]
+input_ray_pickable = false
+
+[node name="EntryMarker" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -36, 0, 0)
+
+[node name="ExitMarker" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 36, 0, 0)
+
+[node name="Loose" type="Node3D" parent="."]
+
+[node name="BoardHud" parent="." instance=ExtResource("6_hud")]
+
+[connection signal="cancelled" from="PointerShim" to="." method="_on_pointer_cancelled"]
+[connection signal="drag_started" from="DragController" to="." method="_on_drag_started"]
+[connection signal="drag_stopped" from="DragController" to="." method="_on_drag_stopped"]
+[connection signal="card_moved" from="DragController" to="." method="_on_drag_card_moved"]
+[connection signal="mouse_enter_drop_zone" from="DragController/PlayerRow" to="." method="_on_row_zone_entered"]
+[connection signal="mouse_exit_drop_zone" from="DragController/PlayerRow" to="." method="_on_row_zone_exited"]
+[connection signal="commit_pressed" from="BoardHud" to="." method="_on_commit_pressed"]
+[connection signal="pause_pressed" from="BoardHud" to="." method="_on_pause_pressed"]
+[connection signal="resume_pressed" from="BoardHud" to="." method="_on_resume_pressed"]
+[connection signal="concede_pressed" from="BoardHud" to="." method="_on_concede_pressed"]
+[connection signal="rematch_pressed" from="BoardHud" to="." method="_on_rematch_pressed"]

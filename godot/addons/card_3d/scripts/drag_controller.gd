@@ -33,6 +33,12 @@ signal card_moved(card, from_collection, to_collection, from_index, to_index)
 		_card_drag_threshold_squared = value*value
 		card_drag_threshold = value
 
+## Pointer source (patch: replaces physics picking and _unhandled_input, see THIRD_PARTY_LICENSES.md).
+@export var pointer: PointerShim
+
+## Height in points a touch drag lifts the card above the finger.
+const _TOUCH_LIFT_POINTS: float = 48.0
+
 var _camera: Camera3D # camera used for determining where mouse is on drag plane
 var _dragging_card: Card3D # card that is being dragged
 var _drag_from_collection: CardCollection3D # collection card being dragged from
@@ -44,6 +50,9 @@ var _hovered_collection: CardCollection3D # collection about to drop card into
 var _hovered_collection_plane: Plane
 var _hovered_collection_layout_direction: Vector3
 var _card_collections: Array[CardCollection3D] = []
+var _drag_from_touch: bool = false
+var _pointer_pressed_card = null # card under the latest pointer press (untyped: may be freed)
+var _pointer_hovered_card = null # card under the real mouse (untyped: may be freed)
 
 func _ready():
 	var window = get_window()
@@ -52,6 +61,15 @@ func _ready():
 	for child in get_children():
 		if child is CardCollection3D:
 			add_card_collection(child)
+
+	if pointer != null:
+		pointer.pressed.connect(_on_pointer_pressed)
+		pointer.drag_started.connect(_on_pointer_drag_started)
+		pointer.drag_moved.connect(_on_pointer_drag_moved)
+		pointer.released.connect(_on_pointer_released)
+		pointer.tapped.connect(_on_pointer_tapped)
+		pointer.cancelled.connect(_on_pointer_cancelled)
+		pointer.hovered.connect(_on_pointer_hovered)
 
 func add_card_collection(card_collection: CardCollection3D) -> void:
 	_card_collections.append(card_collection)
@@ -67,21 +85,127 @@ func remove_card_collection(card_collection: CardCollection3D) -> void:
 		card_collection.mouse_exit_drop_zone.disconnect(_on_collection_mouse_exit_drop_zone.bind(card_collection))
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
-		if event.is_released() and event.button_index == 1:
-			_on_collection_card_deselected()
-	if event is InputEventMouseMotion:
-		_current_mouse_position = get_viewport().get_mouse_position()
-		if _dragging:
-			_handle_drag_event()
-		elif _dragging_card:
-			if _selection_start_mouse_position.distance_squared_to(_current_mouse_position) > _card_drag_threshold_squared:
-				_drag_card_start()
+func _on_pointer_pressed(pos: Vector2, hit: Object) -> void:
+	_current_mouse_position = pos
+	_pointer_pressed_card = null
+	if _dragging:
+		return
+	var card: Card3D = _card_from_hit(hit)
+	if card == null or _collection_of(card) == null:
+		return
+	_pointer_pressed_card = card
+	card.card_3d_mouse_down.emit()
+
+
+func _on_pointer_drag_started(pos: Vector2, from_touch: bool) -> void:
+	if _dragging_card == null or _drag_from_collection == null or _dragging:
+		return
+	_drag_from_touch = from_touch
+	if is_instance_valid(_pointer_hovered_card):
+		_pointer_hovered_card.card_3d_mouse_exit.emit()
+	_pointer_hovered_card = null
+	_hovered_collection = null
+	_drag_card_start()
+	_update_drag(pos)
+
+
+func _on_pointer_drag_moved(pos: Vector2, _hit: Object) -> void:
+	if _dragging and _dragging_card != null:
+		_update_drag(pos)
+
+
+func _on_pointer_released(pos: Vector2, _hit: Object) -> void:
+	_current_mouse_position = pos
+	_end_press(false, true)
+
+
+func _on_pointer_tapped(pos: Vector2, _hit: Object) -> void:
+	_current_mouse_position = pos
+	_end_press(true, true)
+
+
+func _on_pointer_cancelled() -> void:
+	_end_press(false, false)
+
+
+func _on_pointer_hovered(hit: Object) -> void:
+	var card: Card3D = _card_from_hit(hit)
+	if card != null and _collection_of(card) == null:
+		card = null
+	if card == _pointer_hovered_card:
+		return
+	var old = _pointer_hovered_card
+	_pointer_hovered_card = card
+	if is_instance_valid(old):
+		old.card_3d_mouse_exit.emit()
+	if card != null:
+		card.card_3d_mouse_over.emit()
+
+
+## Ends a press. A tap (click = true) lets the collection emit card_clicked through card_3d_mouse_up.
+## A release after a drag or a cancel clears the collection's _pressed_card directly so no click fires.
+## A cancel (reorder = false) sends a dragged card back to where it started.
+func _end_press(click: bool, reorder: bool) -> void:
+	var card = _pointer_pressed_card
+	_pointer_pressed_card = null
+	var from_collection: CardCollection3D = _drag_from_collection
+	if _dragging and not reorder and _hovered_collection != null:
+		_hovered_collection._on_drop_zone_mouse_exited()
+	if click and from_collection != null and is_instance_valid(card) and _collection_of(card) != null:
+		card.card_3d_mouse_up.emit()
+	elif from_collection != null:
+		from_collection._pressed_card = null
+	if _dragging:
+		_stop_drag(reorder)
+	else:
+		_on_collection_card_deselected()
+
+
+## Finds the hovered drop zone under the real pointer, then moves the dragged card.
+func _update_drag(pos: Vector2) -> void:
+	_current_mouse_position = pos
+	var zone_collection: CardCollection3D = _collection_from_zone(pointer.ray_hit(pos, pointer.drop_zone_mask))
+	if zone_collection != _hovered_collection:
+		if _hovered_collection != null:
+			_hovered_collection._on_drop_zone_mouse_exited() # also resets the collection's preview index
+		if zone_collection != null:
+			zone_collection._on_drop_zone_mouse_entered()
+	_handle_drag_event()
+
+
+## The Card3D whose StaticBody3D (or root) was hit, else null.
+func _card_from_hit(hit) -> Card3D:
+	var node: Node = hit as Node
+	if node == null:
+		return null
+	if node is Card3D:
+		return node
+	var parent: Node = node.get_parent()
+	if parent is Card3D:
+		return parent
+	return null
+
+
+## The collection whose DropZone body was hit, else null.
+func _collection_from_zone(hit) -> CardCollection3D:
+	var node: Node = hit as Node
+	if node == null:
+		return null
+	var parent: Node = node.get_parent()
+	if parent is CardCollection3D and _card_collections.has(parent):
+		return parent
+	return null
+
+
+func _collection_of(card: Card3D) -> CardCollection3D:
+	for collection in _card_collections:
+		if collection.cards.has(card):
+			return collection
+	return null
 
 
 func _on_collection_card_selected(card: Card3D, collection: CardCollection3D):
-	_selection_start_mouse_position = get_viewport().get_mouse_position()
+	_selection_start_mouse_position = _current_mouse_position
 	_drag_from_collection = collection
 	_dragging_card = card
 
@@ -102,9 +226,11 @@ func _on_collection_mouse_enter_drop_zone(collection: CardCollection3D):
 
 
 func _on_collection_mouse_exit_drop_zone(_collection: CardCollection3D):
+	if _hovered_collection == null:
+		return
 	if _hovered_collection != _drag_from_collection:
 		_hovered_collection.apply_card_layout()
-	else:
+	elif _dragging_card != null:
 		_hovered_collection.preview_card_remove(_dragging_card)
 
 	_hovered_collection = null
@@ -119,9 +245,9 @@ func _set_hovered_collection(collection: CardCollection3D):
 	_hovered_collection_plane = Plane(collection.global_transform.basis.z, collection.global_position)
 
 
-func _return_card_to_collection(mouse_position: Vector2):
+func _return_card_to_collection(mouse_position: Vector2, reorder: bool = true):
 	_drag_from_collection.is_dragging_card = true
-	if _drag_from_collection.can_reorder_card(_dragging_card):
+	if reorder and _drag_from_collection.can_reorder_card(_dragging_card):
 		_set_hovered_collection(_drag_from_collection)
 		var current_index = _drag_from_collection.card_indicies[_dragging_card]
 		var new_index = _get_hovered_collection_index_at_mouse_pos(mouse_position)
@@ -176,16 +302,16 @@ func _drag_card_start():
 	drag_started.emit(_dragging_card)
 
 
-func _stop_drag():
+func _stop_drag(reorder: bool = true):
 	var can_insert: bool = true
 
 	if _hovered_collection != null:
 		can_insert = _hovered_collection.can_insert_card(_dragging_card, _drag_from_collection) and _drag_from_collection.can_remove_card(_dragging_card)
 
 	if not can_insert:
-		_return_card_to_collection(_current_mouse_position)
+		_return_card_to_collection(_current_mouse_position, reorder)
 	elif _hovered_collection == null or _hovered_collection == _drag_from_collection:
-		_return_card_to_collection(_current_mouse_position)
+		_return_card_to_collection(_current_mouse_position, reorder)
 	elif _hovered_collection != null and _hovered_collection != _drag_from_collection:
 		_drop_card_to_another_collection(_current_mouse_position)
 
@@ -207,7 +333,11 @@ func _stop_drag():
 	drag_stopped.emit(card)
 
 func _handle_drag_event():
-	var position_3d = card_drag_plane.intersects_ray(_camera.project_ray_origin(_current_mouse_position), _camera.project_ray_normal(_current_mouse_position))
+	# a touch drag lifts the card above the finger; the insertion index below uses the real pointer
+	var lifted_position: Vector2 = _current_mouse_position
+	if _drag_from_touch and pointer != null:
+		lifted_position.y -= _TOUCH_LIFT_POINTS * pointer.units_per_point
+	var position_3d = card_drag_plane.intersects_ray(_camera.project_ray_origin(lifted_position), _camera.project_ray_normal(lifted_position))
 	var card_position = _dragging_card.global_position
 
 	var x_distance = position_3d.x - card_position.x

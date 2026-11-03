@@ -1,9 +1,11 @@
 extends Node3D
-## Placeholder main scene. Runs the engine smoke match (R39, R40) and prints the lines the
-## build gate looks for: the "Engine smoke:" line, then "Main ready".
+## Main scene. Runs the engine smoke match (R39, R40), then instances the board (R1, R44)
+## and prints the lines the build gate looks for: the "Engine smoke:" line, then
+## "Main ready" once the board is in the tree.
 
 const SMOKE_SEED: int = 1
 const MAX_ACTIONS: int = 2000
+const BOARD_PATH: String = "res://board/board.tscn"
 
 
 func _ready() -> void:
@@ -13,6 +15,12 @@ func _ready() -> void:
 		return
 	if not _run_smoke(cards):
 		return
+	var board_scene: PackedScene = load(BOARD_PATH) as PackedScene
+	if board_scene == null:
+		push_error("Board scene failed to load: %s" % BOARD_PATH)
+		return
+	var board: Node = board_scene.instantiate()
+	add_child(board)
 	print("Main ready")
 
 
