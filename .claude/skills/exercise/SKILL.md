@@ -38,11 +38,12 @@ Read `CLAUDE.md` first. Requires the Linear MCP (connected in this repo's `.mcp.
      subagent add "Suitable for a <who> subagent."
    Create all issues first, then a second pass per issue with `blockedBy` from the
    Depends column (task n → the identifier created for row n) and `state` `Todo`.
-4. **Write back.** Put the project URL into the `linear:` field of spec.md, plan.md and
+4. **Write back.** First cut the write-back's branch, before any edit:
+   `git switch -c exercise-<slug> master` from a clean `master`. Then put the project URL into the `linear:` field of spec.md, plan.md and
    tasks.md, and append a `## Linear (exercised <date>)` section to tasks.md with the
-   project link and the row → identifier mapping. Do not commit unless Ben asks; the
-   write-back is its own changeset, committed on branch `exercise-<slug>` cut from
-   `master` (never on `master`), then merged with `--no-ff` when Ben says.
+   project link and the row → identifier mapping. Do not commit unless Ben asks; when he
+   does, commit on `exercise-<slug>` (never on `master`), `git switch master`, and merge
+   with `--no-ff` when Ben says.
 5. **Report** in a short table: issue identifier, title, blockers. Say the next verb is
    `/cycle plan DC-NN` and that the project is in `planned` until a cycle picks it up.
 
