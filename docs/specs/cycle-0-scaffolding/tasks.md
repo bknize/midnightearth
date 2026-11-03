@@ -53,9 +53,11 @@ created through the MCP and is Ben's step.
 
 ## Commit plan
 
-One commit per task, directly on `master` (cycle 0 predates PRs and the Linear GitHub
-integration). Messages: `cycle-0: <task title>`; the spec/plan/tasks commit comes first
-as `spec: cycle-0-scaffolding`.
+One commit per task on branch `cycle-0-scaffolding`, named for the set (Ben, 2026-11-02).
+Messages: `cycle-0: <task title>`. When T16 passes, the branch merges into `master` with a
+merge commit (`--no-ff`) so the set stays visible in history. Later cycles follow the same
+pattern with the branch named for the milestone (`dc-01-<theme>`). The spec set itself was
+committed on `master` first as `spec: cycle-0-scaffolding`.
 
 ## Manual steps for Ben (not tasks)
 
