@@ -6,7 +6,8 @@ extends RefCounted
 ##
 ## Flow: _begin_round() -> _begin_turn() -> commit (first, face down) -> commit (second)
 ## -> _reveal() -> _end_turn() -> next _begin_turn(), or after turn 7 _end_round() ->
-## _after_round(). Concede goes straight to _end_match().
+## _after_round(), which either ends the match (R20-R22) or begins the next round.
+## Concede goes straight to _end_match().
 ##
 ## Randomness: one MatchRng seeded from the match seed. Each round start draws seat 0's
 ## shuffle, seat 1's shuffle, then a coin flip only while no round has been won (plan,
@@ -172,16 +173,19 @@ func _begin_round() -> void:
 			_deal_card(seat)
 
 
-## Turn 1's first committer (R18, C9). The most recent round winner goes second; before
-## any round is won, a coin flip from the engine stream decides. T05 owns and tests the
-## rule beyond round 1; this is the only coin flip in the engine.
+## Turn 1's first committer (R18, C9). The most recent round winner of the match goes
+## second, looking past tied rounds and including sudden-death rounds; before any round is
+## won, a coin flip from the engine stream decides. This is the only coin flip in the
+## engine, so the stream is consumed by coins only until the first won round.
 func _round_first_seat() -> int:
 	if _state.last_round_winner >= 0:
 		return 1 - _state.last_round_winner
 	return _rng.coin_flip()
 
 
-## Round end (R19, R24): the higher board wins the round; equal boards award no win.
+## Round end (R19, R24): the higher board wins the round; equal boards award no win. The
+## event carries the turn-7 scores; then both boards and hands are cleared, and the board
+## scores with them (a board score is the power on that board), before _after_round().
 func _end_round() -> void:
 	var winner: int = _leader()
 	if winner >= 0:
@@ -196,12 +200,43 @@ func _end_round() -> void:
 			"wins": _pair(_state.wins),
 		}
 	)
-	_after_round()
+	_clear_table()
+	_after_round(winner)
 
 
-## T05 seam: decide whether the match ends (R20-R22, via _end_match) before starting the
-## next round. Until T05 lands, every round leads to the next.
-func _after_round() -> void:
+## Empties both hands, both boards and the face-down commit, and zeroes the board scores.
+## Decks and burns stay until the next _begin_round() refills them.
+func _clear_table() -> void:
+	for seat: int in range(SEATS):
+		var piles: MatchState.SeatPiles = _state.seats[seat]
+		piles.hand.clear()
+		piles.board.clear()
+	_state.pending.clear()
+	_state.scores[0] = 0
+	_state.scores[1] = 0
+
+
+## Match end checks after a round (R20-R22), in this order:
+## - a won sudden-death round ends the match, reason sudden_death, even when that win is
+##   the seat's fourth (3-3 after round 7 into a sudden-death win);
+## - a seat on 4 wins ends it, reason wins;
+## - after round 7, the seat with more wins takes it, reason rounds.
+## Otherwise the next round starts; past round 7 it is a sudden-death round, so a tied
+## sudden-death round starts another.
+func _after_round(winner: int) -> void:
+	var played: int = _state.round_number
+	if _state.sudden_death:
+		if winner >= 0:
+			_end_match(winner, REASON_SUDDEN_DEATH, played)
+			return
+	elif winner >= 0 and _state.wins[winner] >= MatchRules.WINS_TO_TAKE:
+		_end_match(winner, REASON_WINS, played)
+		return
+	elif _state.round_number >= MatchRules.ROUNDS:
+		var leader: int = _wins_leader()
+		if leader >= 0:
+			_end_match(leader, REASON_ROUNDS, played)
+			return
 	_begin_round()
 	_begin_turn()
 
@@ -291,19 +326,22 @@ func _end_turn() -> void:
 # --- Match end ------------------------------------------------------------------------
 
 
-## Concede (R23): the other seat wins at once, whoever was awaited.
+## Concede (R23): the other seat wins at once, whoever was awaited. A concede always falls
+## inside a round, and that unfinished round does not count as played.
 func _concede(seat: int) -> void:
 	_emit(MatchEvent.Kind.CONCEDED, {"seat": seat})
-	_end_match(1 - seat, REASON_CONCEDE)
+	_end_match(1 - seat, REASON_CONCEDE, _state.round_number - 1)
 
 
-## Ends the match (R25). T05 calls this for the wins, rounds and sudden-death endings.
-func _end_match(winner: int, reason: String) -> void:
+## Ends the match (R25). `rounds_played` counts completed rounds, sudden death included,
+## so it equals the number of ROUND_ENDED events in the match. Every later action fails
+## with MATCH_OVER (_check).
+func _end_match(winner: int, reason: String, rounds_played: int) -> void:
 	_state.phase = MatchState.Phase.OVER
 	_state.result = {
 		"winner": winner,
 		"reason": reason,
-		"rounds_played": _state.round_number,
+		"rounds_played": rounds_played,
 	}
 	_emit(
 		MatchEvent.Kind.MATCH_ENDED,
@@ -311,7 +349,7 @@ func _end_match(winner: int, reason: String) -> void:
 			"winner": winner,
 			"reason": reason,
 			"wins": _pair(_state.wins),
-			"rounds_played": _state.round_number,
+			"rounds_played": rounds_played,
 		}
 	)
 
@@ -374,6 +412,15 @@ func _leader() -> int:
 	if _state.scores[0] > _state.scores[1]:
 		return 0
 	if _state.scores[1] > _state.scores[0]:
+		return 1
+	return -1
+
+
+## The seat with more round wins, or -1 when they are level.
+func _wins_leader() -> int:
+	if _state.wins[0] > _state.wins[1]:
+		return 0
+	if _state.wins[1] > _state.wins[0]:
 		return 1
 	return -1
 
