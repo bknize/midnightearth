@@ -38,41 +38,55 @@ wave 3 is T05 and wave 4 is T06, because each of them edits `board.gd`. Then T07
 
 ## Verification task (8)
 
-Run on `cycle-3-board-feedback` with the editor opened on the cycle worktree
-(`scripts/godot-editor.sh switch`). No screenshots beyond the two below (screenshot
-token rule).
+Run 2026-11-03 on `cycle-3-board-feedback` with the editor opened on the cycle worktree
+(`scripts/godot-editor.sh switch cycle-3-board-feedback`). Two screenshots in all.
 
-- [ ] `make check` exits 0. `test_lift_rules`, `test_result_text` and the extended
-      `test_pointer_tracker` pass.
-- [ ] The boot log and the seed-1 autoplay `Board: match ended seed=1 winner=0 wins=4-0
-      rounds=4 end=wins actions=56` line are unchanged (R30).
-- [ ] **Pick-up** on `board/verify/board_seed1.tscn`. Tap a hand card, then check by node
-      query: `CardLift.held` is that card, it is hidden and still in `PlayerHand`, the
-      stand-in sits at the lift pose, the dimmer alpha is 0.6, and the HUD is hidden.
-      **Screenshot 1:** `godot/reports/DC-04/card-held.png`. Tap again: the card is
-      visible in its slot, the stand-in is freed, the dimmer is clear and the HUD is back
-      (R1–R6). Escape while holding: the card is put down and pause does not open.
-- [ ] Tapping a face-down opponent card leaves the table unchanged (R2). After a reveal,
-      tapping the revealed opponent card lifts it.
-- [ ] Lift a staged card, then press Commit by calling the handler directly. The queue
-      keeps playing (R8). At the next turn start the card is put down before it returns
-      to the hand (R9). Lift a card before a round sweep: it is put down first. Rematch
-      while holding: dropped at once (R10).
-- [ ] **Zones**: mid-drag of an affordable hand card, both `ZoneGlow` are visible and the
-      row is in its hover look over the row. Mid-drag of an unaffordable card over the
-      row, the row is in its refuse look. After release and after a cancel, both are
-      hidden (R12–R16).
-- [ ] **Rims**: two staged cards are unseen; after Commit they are still unseen; after
-      each one's reveal it is not; an unstaged card is not (R17–R21).
-      **Screenshot 2:** `godot/reports/DC-04/drag-zones-rims.png`, mid-drag with both
-      zones glowing and the staged cards rimmed.
-- [ ] **NSC-48**: at 1280 × 720 the opponent fan's projected bounds do not overlap
-      `TopInfo`'s rect. A row of eight cards has no overlap between neighbours' face
-      rects. Names wrap only at spaces. Each reason phrase is checked by the suite (R22–R24).
-- [ ] **NSC-50 / NSC-49**: a click on Commit over a hand card commits, and the card gets
-      no press and is not lifted (R25). A scripted Pause → Concede run with cards on the row
-      under the menu concedes 10 times out of 10, each followed by Rematch (R29).
-- [ ] `obsidian-cli vault=docs unresolved` and `… orphans` report nothing new.
+- [x] `make check` exits 0 (24 s, 258 cases: 237 from DC-03, plus `test_result_text` 6,
+      `test_lift_rules` 10 and `test_pointer_tracker` 5 new).
+- [x] Boot log and seed-1 autoplay unchanged (R30). Headless `--fixed-fps 60` autoplay
+      prints `Board: match ended seed=1 winner=0 wins=4-0 rounds=4 end=wins actions=56`.
+      The editor run of the main scene showed one GDScript warning: `pointer_shim.gd:88`, a
+      local `hovered` shadowing the shim's signal. Fixed as `dc-04: T08 verification fix`;
+      after that, 0 errors and 0 warnings.
+- [x] **Pick-up** on `board_seed1.tscn`, turn 1. A tap on hand card id 8 lifted it:
+      `CardLift.held` was the card, the card was hidden and still in `PlayerHand`, the
+      stand-in sat at the lift pose, the dimmer alpha was 0.6 and the HUD was hidden (R1,
+      R3, R4). **Screenshot 1:** `godot/reports/DC-04/card-held.png`. The card faces the
+      camera, fills about 90% of the height, and the table is dimmed with no table text
+      showing through. A tap elsewhere put it down: the card was visible in its slot, the
+      stand-in freed, the dimmer off, the HUD back, and pause did not open (R5). Escape
+      while holding put the card down without opening pause; Escape with nothing held
+      opened pause (C9). While paused, a tap did not lift (R7).
+- [x] A tap on a face-down opponent hand card was ignored. A tap on a revealed opponent
+      row card (id 23) lifted it (R2).
+- [x] A real click on Commit, then a tap on the committed card, lifted it during the
+      animations. The queue played on underneath, and the card was put down before its
+      own reveal (R8, R9). Conceding while holding put the card down and showed the
+      result panel, reading "You conceded" (review fix 2, R24). `start_match` while
+      holding dropped the card in the same frame: stand-in freed, dimmer off, HUD on,
+      `Loose` empty (R10).
+- [x] **Zones.** An unaffordable drag (id 6, cost 2, energy 1) showed the row in the refuse
+      look (red, 0.35) and the hand idle (gold, 0.18). On release the card was refused
+      and both glows were hidden. An affordable drag showed the row in the hover look
+      (gold, 0.35); after the drop, both glows were hidden (R12–R15).
+- [x] **Rims.** A staged card has a rim. Dragging it along the row keeps the rim (R20).
+      A committed card keeps its rim until its reveal, then loses it. An unstaged card has
+      none (R17–R19, R21). **Screenshot 2:**
+      `godot/reports/DC-04/drag-zones-rims.png`, a staged card mid-drag along the row, rim
+      visible, row glow in the hover look, hand glow idle. It was retaken once: in the
+      first take, Card3D's drag tilt turned the card edge-on after a 90 px synthesized
+      jump.
+- [x] **NSC-48.** In both screenshots the opponent fan sits clear of `TopInfo`, now top
+      left. Eight cards need 23.5 units under a 26-unit `max_width`, so each card takes
+      its full 3.0 step with no overlap. Names wrap only at spaces ("Placeholder 20" on one
+      line at size 28). All four reason phrases are checked by `test_result_text`
+      (R22–R24).
+- [x] **NSC-50 / NSC-49.** A gitignored harness, deleted after the run, made 10 scripted
+      Pause → Concede runs through `Input.parse_input_event`. Each run had two cards on the
+      row and a card under the Concede button. Result: `DC04 concede runs: 10/10`, each
+      followed by Rematch, with 0 errors (R25, R29).
+- [x] `obsidian-cli vault=docs orphans` reports nothing new (`unresolved` is not available
+      in this CLI build).
 
 ## Linear (exercised 2026-11-03)
 
