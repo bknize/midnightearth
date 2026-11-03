@@ -20,6 +20,12 @@ const NORMAL_SPEED: float = 1.0
 const SEED_ARG: String = "--seed="
 const AUTOPLAY_ARG: String = "--autoplay"
 ## Shortest tween the collections are given, so a zero-length step never divides or stalls.
+enum GlowLook { IDLE, HOVER, REFUSE }
+const GLOW_GOLD: Color = Color(1.0, 0.85, 0.45)
+const GLOW_RED: Color = Color(0.95, 0.25, 0.2)
+const GLOW_IDLE_ALPHA: float = 0.18
+const GLOW_HOVER_ALPHA: float = 0.35
+
 const MIN_TWEEN_TIME: float = 0.01
 ## Seconds at 1x for a player commit to slide onto the row when it is not already there.
 const PLAYER_COMMIT_TIME: float = 0.25
@@ -84,6 +90,8 @@ var _revealed_ids: Dictionary[int, bool] = {}
 @onready var player_row: CardCollection3D = $DragController/PlayerRow
 @onready var opponent_row: CardCollection3D = $DragController/OpponentRow
 @onready var opponent_hand: CardCollection3D = $DragController/OpponentHand
+@onready var _hand_glow: MeshInstance3D = $DragController/PlayerHand/ZoneGlow
+@onready var _row_glow: MeshInstance3D = $DragController/PlayerRow/ZoneGlow
 @onready var _pointer: PointerShim = $PointerShim
 @onready var _entry: Marker3D = $EntryMarker
 @onready var _exit: Marker3D = $ExitMarker
@@ -548,6 +556,7 @@ func _clear_table_now() -> void:
 	_refresh_rims()
 	_turn_energy = 0
 	staging.reset(0)
+	_hide_glows()
 	_drag_card = null
 	_drag_from_hand = false
 	_over_row = false
@@ -716,6 +725,9 @@ func _on_drag_started(card: Card3D) -> void:
 	# so the release over the row can be told apart from a release elsewhere (R14).
 	if _drag_from_hand and may_act() and not _card_affordable(card):
 		player_row.enable_drop_zone()
+	if _drag_card != null and may_act():
+		_set_glow(_hand_glow, GlowLook.IDLE)
+		_set_glow(_row_glow, _row_look(false))
 
 
 ## After every drag, refused or cancelled or not: flash on a refused drop (R14) and make
@@ -731,6 +743,7 @@ func _on_drag_stopped(card: Card3D) -> void:
 	)
 	if refused:
 		hud.flash_energy()
+	_hide_glows()
 	_drag_card = null
 	_drag_from_hand = false
 	_over_row = false
@@ -741,10 +754,50 @@ func _on_drag_stopped(card: Card3D) -> void:
 
 func _on_row_zone_entered() -> void:
 	_over_row = true
+	if _row_glow.visible:
+		_set_glow(_row_glow, _row_look(true))
 
 
 func _on_row_zone_exited() -> void:
 	_over_row = false
+	if _row_glow.visible:
+		_set_glow(_row_glow, _row_look(false))
+
+
+func _on_hand_zone_entered() -> void:
+	if _hand_glow.visible:
+		_set_glow(_hand_glow, GlowLook.HOVER)
+
+
+func _on_hand_zone_exited() -> void:
+	if _hand_glow.visible:
+		_set_glow(_hand_glow, GlowLook.IDLE)
+
+
+## The row panel's look: red when it would refuse the dragged card (R14), else idle/hover.
+func _row_look(hovered: bool) -> GlowLook:
+	if _drag_from_hand and _drag_card != null and not _card_affordable(_drag_card):
+		return GlowLook.REFUSE
+	return GlowLook.HOVER if hovered else GlowLook.IDLE
+
+
+## Shows a drop-zone panel in the given look (R12, R13).
+func _set_glow(glow: MeshInstance3D, look: GlowLook) -> void:
+	var mat: StandardMaterial3D = glow.get_surface_override_material(0) as StandardMaterial3D
+	var colour: Color = GLOW_GOLD
+	var alpha: float = GLOW_IDLE_ALPHA
+	if look == GlowLook.HOVER:
+		alpha = GLOW_HOVER_ALPHA
+	elif look == GlowLook.REFUSE:
+		colour = GLOW_RED
+		alpha = GLOW_HOVER_ALPHA
+	mat.albedo_color = Color(colour, alpha)
+	glow.visible = true
+
+
+func _hide_glows() -> void:
+	_hand_glow.visible = false
+	_row_glow.visible = false
 
 
 func _on_pointer_cancelled() -> void:
