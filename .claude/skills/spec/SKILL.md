@@ -7,7 +7,7 @@ description: >
   change a rule, scene, shader, tool, skill or convention in Midnight Earth. Prevents
   agent drift by capturing intent, constraints (in EARS) and done-criteria up front
   instead of generating from a vague prompt.
-allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, WebSearch]
+allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, WebSearch, Agent, SendMessage]
 license: MIT
 ---
 
@@ -17,6 +17,35 @@ A repeatable workflow that turns a fuzzy request into three reviewable notes (sp
 plan, tasks) before any code is written. It interviews first, then emits the artifacts,
 constrained by the project constitution in the root `CLAUDE.md`. It is step one of the
 cycle lifecycle: `/spec <slug>` then `/exercise <slug>` then `/cycle plan|run|test`.
+
+## Who runs it
+
+Two roles split this skill (`CLAUDE.md`, Roles):
+
+- **The orchestrator** (the session Ben invoked `/spec` in) does step 0, dispatches the
+  interrogator, relays every message between it and Ben, and commits after sign-off. It
+  does not interview, write the notes or answer for Ben.
+- **The interrogator** (`.claude/agents/interrogator.md`, Fable) does steps 1 to 7.2 and
+  the link audit: it reads the context, asks the rounds, writes spec, plan and tasks,
+  and sets `status: approved` on sign-off.
+
+The relay, because a subagent cannot talk to Ben:
+
+1. After step 0, dispatch with `Agent`, `subagent_type` `interrogator`, no worktree
+   isolation (it writes in the main checkout on the cycle branch, so the vault shows
+   the notes). The prompt carries the slug, the change type, Ben's request in his own
+   words and anything this conversation already settled (with who settled it).
+2. The interrogator ends every message with a `ROUND n`, `SIGN-OFF` or `DONE` block
+   (see its agent file). Show Ben a `ROUND` or `SIGN-OFF` block word for word, as plain
+   text with no widget, adding at most one line of your own above it. Do not reword,
+   drop or answer its questions.
+3. Send Ben's reply back unchanged with `SendMessage` to the interrogator's agent id,
+   prefixed `Ben:`. A question of your own to the interrogator goes prefixed
+   `Orchestrator:`; never present it as Ben's. Never send a reply Ben did not give.
+4. On `DONE`, read the three notes before reporting: frontmatter complete, `status:
+   approved`, a task table ending in verification. Then step 7.3.
+5. If the interrogator cannot be dispatched or stops answering, tell Ben and ask whether
+   to run the interview in this session instead; do not switch silently.
 
 ## Why this exists
 
@@ -61,7 +90,7 @@ Round 1 of the interview (3 questions)
 
 ## Workflow (specify -> clarify -> plan -> tasks -> analyze)
 
-### 0. Frame
+### 0. Frame (orchestrator)
 Pick the slug (kebab-case, e.g. `committed-reveal`; cycle-wide sets use
 `cycle-N-<theme>`) and the change type: `engine`, `scene`, `shader`, `tooling` or
 `vault`. All types land in `docs/specs/<slug>/`; the plan records which areas the work
@@ -73,7 +102,7 @@ named for the slug and is the cycle branch: it carries the spec, the `/exercise`
 write-back and the whole dev cycle, and merges into `master` only at `/cycle test`.
 `git switch -c <slug> master` from a clean `master` (or `git switch <slug>` when updating
 a set whose cycle has not merged yet). Every note this skill writes lands on that
-branch.
+branch. Then dispatch the interrogator (Who runs it); steps 1 to 7.2 are its work.
 
 ### 1. Interrogate
 Do NOT skip to drafting. Ask the batteries in `reference/interview-batteries.md`,
@@ -133,9 +162,9 @@ check and who does it: `implementer`, `implementer-engine` (anything under
 1. Write the three notes to `docs/specs/<slug>/spec.md`, `plan.md`, `tasks.md`, each
    with the P5 frontmatter (below). Generate a fresh `uid` per file with
    `uuidgen | tr A-Z a-z`. Set `created` and `updated` to today.
-2. Present a short summary and ask for Ben's sign-off. On sign-off set `status:
-   approved` on all three.
-3. **The skill stops at Ben's sign-off.** Commit only when Ben says to, on the
+2. Present a short summary and ask for Ben's sign-off (the interrogator's `SIGN-OFF`
+   block, relayed). On sign-off set `status: approved` on all three.
+3. **The skill stops at Ben's sign-off.** The orchestrator commits only when Ben says to, on the
    `<slug>` branch cut in step 0, never on `master`: `git add docs/specs/<slug>`
    (plus the specs MOC row if you added one), `git commit -m "spec: <slug>"` with the
    Co-Authored-By line the session provides. Stay on the branch: `/exercise` runs on it
@@ -143,10 +172,11 @@ check and who does it: `implementer`, `implementer-engine` (anything under
    (`docs/decisions/0002-one-branch-per-cycle.md`). Never push.
 4. Tell Ben the next verb is `/exercise <slug>`, which turns the tasks into Linear
    issues. Implementation is a separate step.
-5. Final link audit: if `obsidian-cli` is on PATH (`command -v obsidian-cli`), run
-   `obsidian-cli vault=docs unresolved` (the `vault=` flag goes before the command)
-   and fix any broken link in the three new notes. If it is not on PATH, skip
-   silently.
+5. Final link audit (the interrogator, before `DONE`): if `obsidian-cli` is on PATH
+   (`command -v obsidian-cli`), run `obsidian-cli vault=docs unresolved` and
+   `obsidian-cli vault=docs orphans` (the `vault=` flag goes before the command; skip
+   `unresolved` if this CLI build lacks it) and fix any broken link in the three new
+   notes. If it is not on PATH, skip silently.
 
 ## Frontmatter (every file)
 
