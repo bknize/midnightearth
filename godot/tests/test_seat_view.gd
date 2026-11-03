@@ -115,7 +115,8 @@ func _owner(card: int) -> int:
 func _pass_until_turn(engine: MatchEngine, turn: int) -> void:
 	var none: Array[int] = []
 	while engine.energy() < turn:
-		engine.apply(EngineAction.commit(engine.awaited_seat(), none))
+		if not engine.apply(EngineAction.commit(engine.awaited_seat(), none)).ok:
+			return
 
 
 ## The first legal set of exactly `size` cards, or an empty list when none exists.

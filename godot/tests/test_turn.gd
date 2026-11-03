@@ -105,7 +105,8 @@ func _pass(engine: MatchEngine) -> ApplyResult:
 ## Both seats pass until the given turn of round 1 is awaiting its first commit.
 func _pass_until_turn(engine: MatchEngine, turn: int) -> void:
 	while engine.energy() < turn:
-		_pass(engine)
+		if not _pass(engine).ok:
+			return
 
 
 func _kinds(events: Array[MatchEvent]) -> Array[int]:

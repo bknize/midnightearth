@@ -267,7 +267,8 @@ func test_higher_board_wins_when_both_seats_play() -> void:
 	for match_seed: int in range(1, SEARCH_SEEDS + 1):
 		var engine: MatchEngine = _started(match_seed)
 		while engine.energy() < MatchRules.TURNS:
-			_pass(engine)
+			if not _pass(engine).ok:
+				break
 		var first: int = engine.awaited_seat()
 		var second: int = 1 - first
 		var strong: int = _strongest(_hand(engine, first))
