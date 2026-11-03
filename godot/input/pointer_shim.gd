@@ -51,6 +51,11 @@ func _notification(what: int) -> void:
 		_dispatch(_tracker.focus_lost())
 
 
+## Ends any press in progress: the next release emits nothing and `cancelled` fires once.
+func cancel() -> void:
+	_dispatch(_tracker.cancel())
+
+
 ## The collider of the first body on mask under the viewport position, or null.
 func ray_hit(position: Vector2, mask: int) -> Object:
 	if camera == null or not camera.is_inside_tree():

@@ -38,7 +38,7 @@ var driver: MatchDriver = null
 ## True while any step is queued or running (R39).
 var input_locked: bool:
 	get:
-		return _input_locked
+		return _input_locked or _paused
 
 ## Seconds divisor for every step: 1 normally, 4 under autoplay.
 var speed: float = NORMAL_SPEED
@@ -80,6 +80,7 @@ var _last_error: int = EngineError.Code.NONE
 @onready var player_row: CardCollection3D = $DragController/PlayerRow
 @onready var opponent_row: CardCollection3D = $DragController/OpponentRow
 @onready var opponent_hand: CardCollection3D = $DragController/OpponentHand
+@onready var _pointer: PointerShim = $PointerShim
 @onready var _entry: Marker3D = $EntryMarker
 @onready var _exit: Marker3D = $ExitMarker
 @onready var _loose: Node3D = $Loose
@@ -741,6 +742,7 @@ func _open_pause() -> void:
 	if _paused or driver == null or driver.is_over():
 		return
 	_paused = true
+	_pointer.cancel()
 	hud.show_pause(true)
 	_refresh_commit_enabled()
 

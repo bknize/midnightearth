@@ -101,6 +101,9 @@ func _on_pointer_drag_started(pos: Vector2, from_touch: bool) -> void:
 	if _dragging_card == null or _drag_from_collection == null or _dragging:
 		return
 	_drag_from_touch = from_touch
+	if is_instance_valid(_pointer_hovered_card):
+		_pointer_hovered_card.card_3d_mouse_exit.emit()
+	_pointer_hovered_card = null
 	_hovered_collection = null
 	_drag_card_start()
 	_update_drag(pos)
