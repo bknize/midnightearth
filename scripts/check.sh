@@ -18,6 +18,9 @@ BOOT_FRAMES="${BOOT_FRAMES:-120}"          # ~2 s at 60 fps
 LOG_DIR="$GODOT_DIR/reports"
 OVERRIDE="$GODOT_DIR/override.cfg"
 
+# shellcheck source=lib/strict-override.sh
+source "$REPO_ROOT/scripts/lib/strict-override.sh"   # write_override <file> <strict|tests>
+
 say()  { printf 'check: %s\n' "$*"; }
 fail() { printf 'check: FAIL %s\n' "$*" >&2; }
 
@@ -65,19 +68,6 @@ stage_lint() {
   return 0
 }
 
-write_override() {  # $1 = strict|tests
-  cat >"$OVERRIDE" <<'CFG'
-[debug]
-gdscript/warnings/untyped_declaration=2
-gdscript/warnings/inferred_declaration=2
-gdscript/warnings/unsafe_property_access=2
-gdscript/warnings/unsafe_method_access=2
-gdscript/warnings/unsafe_cast=2
-gdscript/warnings/unsafe_call_argument=2
-CFG
-  [ "$1" = strict ] && echo 'gdscript/warnings/return_value_discarded=2' >>"$OVERRIDE"
-}
-
 stage_parse() {
   # Typed-strict per-file parse. --check-only exits 0 even on a parse error, so the output
   # is what counts. Test suites use fluent assertions whose return values are discarded by
@@ -89,7 +79,7 @@ stage_parse() {
   while IFS= read -r file; do
     [ -n "$file" ] || continue
     case "$file" in ./tests/*) mode=tests ;; *) mode=strict ;; esac
-    write_override "$mode"
+    write_override "$OVERRIDE" "$mode"
     checked=$((checked + 1))
     out="$("$GODOT_BIN" --headless --path . --check-only -s "res://${file#./}" 2>&1)"
     if grep -qE "$ERR_RE" <<<"$out"; then

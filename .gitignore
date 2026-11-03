@@ -21,6 +21,9 @@ docs/.smart-env/
 # switcher and this entry can go.
 /.obsidian/
 
+# Claude Code agent worktrees (isolation: worktree)
+.claude/worktrees/
+
 # Python tooling
 __pycache__/
 *.pyc
