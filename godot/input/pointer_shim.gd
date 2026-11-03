@@ -43,7 +43,7 @@ func _ready() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	_dispatch(_tracker.feed(event))
+	_dispatch(_tracker.feed(event, _gui_blocks(event)))
 
 
 func _notification(what: int) -> void:
@@ -71,6 +71,22 @@ func ray_hit(position: Vector2, mask: int) -> Object:
 		return null
 	var collider: Object = result.get("collider")
 	return collider
+
+
+## True for a press (mouse button down or screen-touch press) over a Control that takes the
+## mouse, so a HUD button press never reaches the cards (R25).
+func _gui_blocks(event: InputEvent) -> bool:
+	var pressed_now: bool = false
+	var button: InputEventMouseButton = event as InputEventMouseButton
+	if button != null:
+		pressed_now = button.pressed
+	var touch: InputEventScreenTouch = event as InputEventScreenTouch
+	if touch != null:
+		pressed_now = touch.pressed
+	if not pressed_now:
+		return false
+	var under: Control = get_viewport().gui_get_hovered_control()
+	return under != null and under.mouse_filter != Control.MOUSE_FILTER_IGNORE
 
 
 func _dispatch(events: Array[PointerEvent]) -> void:

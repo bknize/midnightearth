@@ -14,11 +14,18 @@ signal player_turn_started
 ## Internal: emitted when the node-owned wait ends, or is cut short by a restart or exit.
 signal wait_finished
 
+## The drop-zone glow looks (R12-R14).
+enum GlowLook { IDLE, HOVER, REFUSE }
+
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
 const NORMAL_SPEED: float = 1.0
 const SEED_ARG: String = "--seed="
 const AUTOPLAY_ARG: String = "--autoplay"
+const GLOW_GOLD: Color = Color(1.0, 0.85, 0.45)
+const GLOW_RED: Color = Color(0.95, 0.25, 0.2)
+const GLOW_IDLE_ALPHA: float = 0.18
+const GLOW_HOVER_ALPHA: float = 0.35
 ## Shortest tween the collections are given, so a zero-length step never divides or stalls.
 const MIN_TWEEN_TIME: float = 0.01
 ## Seconds at 1x for a player commit to slide onto the row when it is not already there.
@@ -49,6 +56,8 @@ var staging: Staging = Staging.new()
 var _cards: CardDb = null
 var _autoplay: bool = false
 var _input_locked: bool = true
+## Whether seat 0 is awaited; refreshed once per step in _advance(), false while steps run.
+var _awaited: bool = false
 var _running: bool = false
 var _halted: bool = false
 ## Bumped by start_match so a runner from an earlier match stops touching the table.
@@ -74,16 +83,22 @@ var _drag_from_hand: bool = false
 var _over_row: bool = false
 var _drag_cancelled: bool = false
 var _last_error: int = EngineError.Code.NONE
+## Instance ids of the player's cards already revealed to the opponent (no unseen rim).
+var _revealed_ids: Dictionary[int, bool] = {}
 
 @onready var hud: BoardHud = $BoardHud
 @onready var player_hand: CardCollection3D = $DragController/PlayerHand
 @onready var player_row: CardCollection3D = $DragController/PlayerRow
 @onready var opponent_row: CardCollection3D = $DragController/OpponentRow
 @onready var opponent_hand: CardCollection3D = $DragController/OpponentHand
+@onready var card_lift: CardLift = $CardLift
+@onready var _hand_glow: MeshInstance3D = $DragController/PlayerHand/ZoneGlow
+@onready var _row_glow: MeshInstance3D = $DragController/PlayerRow/ZoneGlow
 @onready var _pointer: PointerShim = $PointerShim
 @onready var _entry: Marker3D = $EntryMarker
 @onready var _exit: Marker3D = $ExitMarker
 @onready var _loose: Node3D = $Loose
+@onready var _dimmer: MeshInstance3D = $Camera3D/Dimmer
 
 
 func _ready() -> void:
@@ -92,6 +107,11 @@ func _ready() -> void:
 	opponent_row.drag_strategy = _make_strategy(BoardDragStrategy.Role.OPPONENT)
 	opponent_hand.drag_strategy = _make_strategy(BoardDragStrategy.Role.OPPONENT)
 	hud.set_commit_enabled(false)
+	card_lift.setup($Camera3D as Camera3D, _loose, _dimmer, _spawn_card)
+	var lifted_err: int = card_lift.lifted.connect(_on_card_lifted)
+	var down_err: int = card_lift.put_down_finished.connect(_on_card_put_down)
+	if lifted_err != OK or down_err != OK:
+		push_warning("Board: could not connect the card lift signals")
 	_cards = CardDb.load_default()
 	if not _cards.is_valid():
 		push_error("Card data failed to load: %s" % _cards.load_error())
@@ -117,6 +137,10 @@ func _exit_tree() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
+		if card_lift.is_holding():
+			card_lift.put_down()
+			get_viewport().set_input_as_handled()
+			return
 		_open_pause()
 		get_viewport().set_input_as_handled()
 
@@ -125,9 +149,11 @@ func _unhandled_input(event: InputEvent) -> void:
 func start_match(new_seed: int) -> void:
 	_serial += 1
 	_end_wait()
+	card_lift.drop_now()
 	_running = false
 	_halted = false
 	_input_locked = true
+	_awaited = false
 	_paused = false
 	_queue.clear()
 	driver = MatchDriver.create(new_seed, _cards, _autoplay)
@@ -157,9 +183,11 @@ func submit_player(action: EngineAction) -> bool:
 func may_act() -> bool:
 	if driver == null or _autoplay or _input_locked or _paused or _halted:
 		return false
+	if card_lift.is_holding():
+		return false
 	if driver.is_over():
 		return false
-	return driver.view().is_awaited()
+	return _awaited
 
 
 ## A turn starts (R15, R16): staging is emptied for the turn's energy and Commit waits for
@@ -177,6 +205,7 @@ func _submit(action: EngineAction) -> bool:
 		_last_error = result.error
 		return false
 	_input_locked = true
+	_awaited = false
 	_refresh_commit_enabled()
 	_enqueue(driver.last_events())
 	_run()
@@ -234,6 +263,9 @@ func _run() -> void:
 	while true:
 		while not _queue.is_empty():
 			var step: BoardStep = _queue.pop_front()
+			await _release_held_for(step)
+			if serial != _serial:
+				return
 			await _play(step, serial)
 			if serial != _serial:
 				return
@@ -257,11 +289,27 @@ func _advance() -> void:
 			push_error("Board: the bot's action was rejected (code %d)" % result.error)
 			_halted = true
 			return
+		_awaited = false
 		_enqueue(driver.last_events())
 		return
+	_awaited = driver.view().is_awaited()
 	_input_locked = false
 	_refresh_commit_enabled()
 	player_turn_started.emit()
+
+
+## R8, R9: steps that do not touch the held card play on underneath it; one that would move,
+## flip or remove it sets the card down first.
+func _release_held_for(step: BoardStep) -> void:
+	var card: BoardCard = card_lift.held
+	if card == null:
+		return
+	var touches: bool = true
+	if is_instance_valid(card):
+		var staged: bool = staging.has(card.instance_id)
+		touches = LiftRules.step_touches(step, card.instance_id, _place_of(card), staged)
+	if touches:
+		await card_lift.put_down()
 
 
 func _play(step: BoardStep, serial: int) -> void:
@@ -370,11 +418,14 @@ func _player_commit(step: BoardStep) -> void:
 		if card == null or player_row.cards.has(card):
 			continue
 		_move_card(card, player_hand, player_row, PLAYER_COMMIT_TIME / speed)
+	_refresh_rims()
 
 
 func _reveal(step: BoardStep) -> void:
 	if step.seat == 0:
 		var own: BoardCard = _player_card(step.card)
+		_revealed_ids[step.card] = true
+		_refresh_rims()
 		if own != null:
 			_lift_and_settle(own, step.duration)
 	else:
@@ -402,6 +453,8 @@ func _clear_table(step: BoardStep) -> void:
 			_fly_out(removed[i], step.duration)
 	_player_cards.clear()
 	_committed_ids.clear()
+	_revealed_ids.clear()
+	_refresh_rims()
 	_scores.assign([0, 0])
 	hud.set_scores(_scores)
 
@@ -410,10 +463,13 @@ func _clear_table(step: BoardStep) -> void:
 ## once the driver is over.
 func _match_end(step: BoardStep) -> void:
 	print(driver.result_line())
+	if card_lift.is_holding():
+		card_lift.put_down()
 	var reason: String = step.source.payload["reason"]
 	_paused = false
 	hud.show_pause(false)
-	hud.show_result(step.seat, step.wins, reason)
+	var rounds: int = step.source.payload["rounds_played"]
+	hud.show_result(step.seat, step.wins, reason, rounds)
 	_refresh_commit_enabled()
 
 
@@ -468,6 +524,7 @@ func _move_card(
 	target.card_move_tween_duration = maxf(duration, MIN_TWEEN_TIME)
 	target.append_card(moved)
 	moved.global_transform = placed
+	_refresh_rims()
 
 
 func _flip_up(card: BoardCard, duration: float) -> void:
@@ -520,6 +577,7 @@ func _add_tween(
 
 ## Frees every card now and clears the HUD, for a new match.
 func _clear_table_now() -> void:
+	_pointer.cancel()
 	for collection: CardCollection3D in _collections():
 		var removed: Array[Card3D] = collection.remove_all()
 		for card: Card3D in removed:
@@ -528,8 +586,11 @@ func _clear_table_now() -> void:
 		child.queue_free()
 	_player_cards.clear()
 	_committed_ids.clear()
+	_revealed_ids.clear()
+	_refresh_rims()
 	_turn_energy = 0
 	staging.reset(0)
+	_hide_glows()
 	_drag_card = null
 	_drag_from_hand = false
 	_over_row = false
@@ -554,7 +615,7 @@ func _make_strategy(role: BoardDragStrategy.Role) -> BoardDragStrategy:
 
 
 func _is_locked() -> bool:
-	return _input_locked
+	return _input_locked or card_lift.is_holding()
 
 
 ## True when the card (a seat-0 BoardCard; anything else is false) fits in the energy left
@@ -590,6 +651,19 @@ func _refresh_staging_ui() -> void:
 	hud.set_energy(staging.energy_left(), _turn_energy)
 	hud.set_commit_label(not staging.cards().is_empty())
 	_refresh_commit_enabled()
+
+
+## Unseen rim (R17-R21): on for the player's row cards not yet revealed, off for the hand.
+## Opponent cards are never touched.
+func _refresh_rims() -> void:
+	for card: Card3D in player_row.cards:
+		var board_card: BoardCard = card as BoardCard
+		if board_card != null:
+			board_card.set_unseen(not _revealed_ids.has(board_card.instance_id))
+	for card: Card3D in player_hand.cards:
+		var in_hand: BoardCard = card as BoardCard
+		if in_hand != null:
+			in_hand.set_unseen(false)
 
 
 ## The uncommitted cards on the player's row, in row order.
@@ -638,6 +712,7 @@ func _resync_staging() -> void:
 		for card: BoardCard in rejected:
 			_move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
 	_refresh_staging_ui()
+	_refresh_rims()
 
 
 ## Sends every staged card back to the hand and empties staging for this turn's energy.
@@ -646,6 +721,7 @@ func _unstage_all() -> void:
 		_move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
 	staging.reset(_turn_energy)
 	_refresh_staging_ui()
+	_refresh_rims()
 
 
 ## The DragController moved a card (R12, R13). Staging follows the row.
@@ -671,6 +747,7 @@ func _on_drag_card_moved(
 		_normalize_row()
 		staging.move(id, _staged_index(card))
 	_resync_staging()
+	_refresh_rims()
 
 
 func _on_drag_started(card: Card3D) -> void:
@@ -682,6 +759,9 @@ func _on_drag_started(card: Card3D) -> void:
 	# so the release over the row can be told apart from a release elsewhere (R14).
 	if _drag_from_hand and may_act() and not _card_affordable(card):
 		player_row.enable_drop_zone()
+	if _drag_card != null and may_act():
+		_set_glow(_hand_glow, GlowLook.IDLE)
+		_set_glow(_row_glow, _row_look(false))
 
 
 ## After every drag, refused or cancelled or not: flash on a refused drop (R14) and make
@@ -697,23 +777,123 @@ func _on_drag_stopped(card: Card3D) -> void:
 	)
 	if refused:
 		hud.flash_energy()
+	_hide_glows()
 	_drag_card = null
 	_drag_from_hand = false
 	_over_row = false
 	_drag_cancelled = false
 	_resync_staging()
+	_refresh_rims()
 
 
 func _on_row_zone_entered() -> void:
 	_over_row = true
+	if _row_glow.visible:
+		_set_glow(_row_glow, _row_look(true))
 
 
 func _on_row_zone_exited() -> void:
 	_over_row = false
+	if _row_glow.visible:
+		_set_glow(_row_glow, _row_look(false))
+
+
+func _on_hand_zone_entered() -> void:
+	if _hand_glow.visible:
+		_set_glow(_hand_glow, GlowLook.HOVER)
+
+
+func _on_hand_zone_exited() -> void:
+	if _hand_glow.visible:
+		_set_glow(_hand_glow, GlowLook.IDLE)
+
+
+## The row panel's look: red when it would refuse the dragged card (R14), else idle/hover.
+func _row_look(hovered: bool) -> GlowLook:
+	if _drag_from_hand and _drag_card != null and not _card_affordable(_drag_card):
+		return GlowLook.REFUSE
+	return GlowLook.HOVER if hovered else GlowLook.IDLE
+
+
+## Shows a drop-zone panel in the given look (R12, R13).
+func _set_glow(glow: MeshInstance3D, look: GlowLook) -> void:
+	var mat: StandardMaterial3D = glow.material_override as StandardMaterial3D
+	var colour: Color = GLOW_GOLD
+	var alpha: float = GLOW_IDLE_ALPHA
+	if look == GlowLook.HOVER:
+		alpha = GLOW_HOVER_ALPHA
+	elif look == GlowLook.REFUSE:
+		colour = GLOW_RED
+		alpha = GLOW_HOVER_ALPHA
+	mat.albedo_color = Color(colour, alpha)
+	glow.visible = true
+
+
+func _hide_glows() -> void:
+	_hand_glow.visible = false
+	_row_glow.visible = false
 
 
 func _on_pointer_cancelled() -> void:
 	_drag_cancelled = true
+
+
+# --- Card pick-up (R1-R11) -----------------------------------------------------------------
+
+
+## The LiftRules.Place of a card, or -1 if it is in no collection.
+func _place_of(card: Card3D) -> int:
+	if player_hand.cards.has(card):
+		return LiftRules.Place.HAND
+	if player_row.cards.has(card):
+		return LiftRules.Place.ROW
+	if opponent_row.cards.has(card):
+		return LiftRules.Place.OPPONENT_ROW
+	if opponent_hand.cards.has(card):
+		return LiftRules.Place.OPPONENT_HAND
+	return -1
+
+
+## A tap puts a held card down and does nothing else (R5); otherwise it lifts the card under
+## it if the rules allow (R1, R2), never during a drag or a pause (R7).
+func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
+	if card_lift.is_holding():
+		card_lift.put_down()
+		return
+	if _paused or _drag_card != null:
+		return
+	var card: BoardCard = _card_from_hit(hit)
+	if card == null:
+		return
+	var place: int = _place_of(card)
+	if place < 0:
+		return
+	if LiftRules.may_lift(place as LiftRules.Place, not card.face_down):
+		card_lift.lift(card)
+
+
+func _card_from_hit(hit: Object) -> BoardCard:
+	var node: Node = hit as Node
+	if node == null:
+		return null
+	var card: BoardCard = node as BoardCard
+	if card == null:
+		card = node.get_parent() as BoardCard
+	return card
+
+
+func _on_card_lifted(_card: BoardCard) -> void:
+	hud.visible = false
+	player_hand.hover_disabled = true
+	player_row.hover_disabled = true
+	_refresh_commit_enabled()
+
+
+func _on_card_put_down(_card: BoardCard) -> void:
+	hud.visible = true
+	player_hand.hover_disabled = false
+	player_row.hover_disabled = false
+	_refresh_commit_enabled()
 
 
 # --- Commit, pause, concede, rematch (R16, R17, R40-R43) -----------------------------------

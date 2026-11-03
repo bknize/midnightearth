@@ -1,4 +1,4 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="PackedScene" path="res://addons/card_3d/scenes/card_3d.tscn" id="1_base"]
 [ext_resource type="Script" path="res://board/board_card.gd" id="2_script"]
@@ -12,6 +12,16 @@ albedo_color = Color(0.16, 0.2, 0.42, 1)
 resource_name = "CardFace"
 shading_mode = 0
 albedo_color = Color(0.93, 0.9, 0.8, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_rim"]
+resource_name = "CardRim"
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.35, 0.75, 1, 0.9)
+render_priority = -1
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_rim"]
+size = Vector2(2.5, 3.5)
 
 [node name="BoardCard" instance=ExtResource("1_base")]
 script = ExtResource("2_script")
@@ -28,9 +38,9 @@ pixel_size = 0.01
 double_sided = false
 modulate = Color(0.1, 0.1, 0.12, 1)
 outline_size = 0
-font_size = 40
+font_size = 28
 width = 200.0
-autowrap_mode = 3
+autowrap_mode = 2
 
 [node name="CostLabel" type="Label3D" parent="CardMesh" index="3"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.85, 1.35, 0.01)
@@ -47,6 +57,12 @@ double_sided = false
 modulate = Color(0.7, 0.12, 0.1, 1)
 outline_size = 0
 font_size = 64
+
+[node name="Rim" type="MeshInstance3D" parent="CardMesh" index="5"]
+transform = Transform3D(1.08, 0, 0, 0, -4.72e-08, -1.08, 0, 1.08, -4.72e-08, 0, 0, -0.005)
+visible = false
+mesh = SubResource("PlaneMesh_rim")
+surface_material_override/0 = SubResource("StandardMaterial3D_rim")
 
 [node name="StaticBody3D" parent="." index="1"]
 input_ray_pickable = false
