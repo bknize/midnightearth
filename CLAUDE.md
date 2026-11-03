@@ -33,9 +33,11 @@ warnings to errors, so every project `.gd` is fully typed; test suites are exemp
 ## Roles (P1)
 
 - **Orchestrator** — the Claude Code session (Opus 5.5). Owns a dev cycle, dispatches
-  implementers, runs `make check`, drives the Godot MCP, posts to Linear.
-- **Interrogator** (`.claude/agents/interrogator.md`, Fable 5.1) — interviews Ben in
-  plain-text rounds and writes spec/plan/tasks. Never writes code.
+  the interrogator and implementers, runs `make check`, drives the Godot MCP, posts to
+  Linear. At `/spec` it relays the interview word for word and never answers for Ben.
+- **Interrogator** (`.claude/agents/interrogator.md`, Fable 5.1) — dispatched by every
+  `/spec`; interviews Ben in plain-text rounds (relayed through the orchestrator) and
+  writes spec/plan/tasks. Never writes code.
 - **Implementer** (`implementer.md` Sonnet 5.5; `implementer-engine.md` Opus 5.5 for
   `godot/engine/`) — edits code in a worktree. **Never runs the game, Godot, or
   `make check`.** Its only feedback is the PostToolUse hook (gdlint + parse). It reports
