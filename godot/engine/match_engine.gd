@@ -102,6 +102,11 @@ func full_state() -> Dictionary:
 	return _state.to_dict()
 
 
+## The replayable log (R31): this match's seed and copies of its accepted actions only.
+func action_log() -> ActionLog:
+	return ActionLog.create(_state.match_seed, _accepted)
+
+
 func accepted_action_count() -> int:
 	return _accepted.size()
 
