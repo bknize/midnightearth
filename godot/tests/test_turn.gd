@@ -11,6 +11,7 @@ extends GdUnitTestSuite
 const SEED: int = 1
 const SEARCH_SEEDS: int = 100
 const ENGINE_DIR: String = "res://engine"
+const BOT_SCRIPT: String = "res://engine/bot/greedy_bot.gd"
 const FORBIDDEN_CALLS: Array[String] = [
 	"print(",
 	"printerr(",
@@ -18,6 +19,8 @@ const FORBIDDEN_CALLS: Array[String] = [
 	"printt(",
 	"print_rich(",
 	"print_verbose(",
+	"printraw(",
+	"print_debug(",
 	"push_error(",
 	"push_warning(",
 	"assert(",
@@ -258,6 +261,33 @@ func test_malformed_action_dicts_give_null() -> void:
 	]
 	for d: Dictionary in bad:
 		assert_object(EngineAction.from_dict(d)).is_null()
+
+
+func test_out_of_range_float_numbers_give_null() -> void:
+	# 2^53 + 2 is the first whole float above EngineAction.MAX_SAFE_FLOAT (2^53).
+	var above: float = EngineAction.MAX_SAFE_FLOAT + 2.0
+	var bad: Array[Dictionary] = [
+		{"k": "commit", "s": 0, "c": [1e30]},
+		{"k": "commit", "s": 0, "c": [-1e30]},
+		{"k": "commit", "s": 0, "c": [above]},
+		{"k": "commit", "s": 0, "c": [-above]},
+		{"k": "commit", "s": 0, "c": [3.0, 1e30]},
+		{"k": "commit", "s": 1e30, "c": []},
+		{"k": "concede", "s": -1e30},
+	]
+	for d: Dictionary in bad:
+		assert_object(EngineAction.from_dict(d)).override_failure_message(str(d)).is_null()
+
+
+func test_in_range_float_numbers_still_parse() -> void:
+	var at_bound: float = EngineAction.MAX_SAFE_FLOAT
+	var parsed: EngineAction = EngineAction.from_dict(
+		{"k": "commit", "s": 0.0, "c": [3.0, at_bound, -at_bound]}
+	)
+	assert_object(parsed).is_not_null()
+	if parsed != null:
+		assert_int(parsed.seat).is_equal(0)
+		assert_array(parsed.cards).is_equal(_typed([3, 9007199254740992, -9007199254740992]))
 
 
 # --- R1, R9, R11: round start ---------------------------------------------------------
@@ -753,18 +783,29 @@ func test_accepted_actions_are_recorded_in_order() -> void:
 
 
 func test_engine_source_never_prints_asserts_or_pushes_errors() -> void:
-	# R27 by inspection: no engine script calls a print, assert or push function.
-	var checked: int = 0
-	for file_name: String in DirAccess.get_files_at(ENGINE_DIR):
-		if not file_name.ends_with(".gd"):
-			continue
-		var text: String = FileAccess.get_file_as_string(ENGINE_DIR.path_join(file_name))
-		assert_str(text).is_not_empty()
+	# R27 by inspection: no engine script calls a print, assert or push function. The
+	# scan recurses, so subdirectories such as engine/bot/ are covered too.
+	var scripts: Array[String] = _engine_scripts(ENGINE_DIR)
+	for path: String in scripts:
+		var text: String = FileAccess.get_file_as_string(path)
+		assert_str(text).override_failure_message(path).is_not_empty()
 		for token: String in FORBIDDEN_CALLS:
 			if text.contains(token):
-				fail("%s contains %s" % [file_name, token])
-		checked += 1
-	assert_int(checked).is_greater_equal(5)
+				fail("%s contains %s" % [path, token])
+	assert_int(scripts.size()).is_greater_equal(5)
+	# A scan that stops at the top level would miss the bot.
+	assert_array(scripts).contains([BOT_SCRIPT])
+
+
+## Every .gd path under `dir`, subdirectories included, in a stable order.
+func _engine_scripts(dir: String) -> Array[String]:
+	var out: Array[String] = []
+	for file_name: String in DirAccess.get_files_at(dir):
+		if file_name.ends_with(".gd"):
+			out.append(dir.path_join(file_name))
+	for sub: String in DirAccess.get_directories_at(dir):
+		out.append_array(_engine_scripts(dir.path_join(sub)))
+	return out
 
 
 # --- Determinism ------------------------------------------------------------------------

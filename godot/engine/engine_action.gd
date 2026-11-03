@@ -11,6 +11,10 @@ const KEY_SEAT: String = "s"
 const KEY_CARDS: String = "c"
 const KIND_COMMIT: String = "commit"
 const KIND_CONCEDE: String = "concede"
+## 2^53. Larger whole floats cannot be told apart from their neighbours, and int() of a
+## float beyond the int64 range is platform-defined, so they are rejected. ActionLog
+## shares this bound for its header numbers.
+const MAX_SAFE_FLOAT: float = 9007199254740992.0
 
 var kind: int = Kind.COMMIT
 var seat: int = 0
@@ -50,7 +54,8 @@ func to_dict() -> Dictionary:
 
 ## Parses the dictionary form, accepting JSON floats with no fractional part as ints.
 ## Returns null when malformed: missing or mistyped keys, an unknown kind, a seat other
-## than 0 or 1, a commit without a card list, or a concede that carries one.
+## than 0 or 1, a commit without a card list, a concede that carries one, or a float
+## seat or card whose magnitude exceeds MAX_SAFE_FLOAT.
 static func from_dict(d: Dictionary) -> EngineAction:
 	if not (d.has(KEY_KIND) and d.has(KEY_SEAT)):
 		return null
@@ -96,5 +101,5 @@ static func _is_whole_number(value: Variant) -> bool:
 		return true
 	if value is float:
 		var f: float = value
-		return is_finite(f) and f == floorf(f)
+		return is_finite(f) and f == floorf(f) and absf(f) <= MAX_SAFE_FLOAT
 	return false
