@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3]
+[gd_scene load_steps=20 format=3]
 
 [ext_resource type="Script" path="res://board/board.gd" id="1_board"]
 [ext_resource type="PackedScene" path="res://addons/card_3d/scenes/card_collection_3d.tscn" id="2_collection"]
@@ -27,6 +27,12 @@ max_width = 26.0
 [sub_resource type="QuadMesh" id="QuadMesh_zone"]
 size = Vector2(14, 4)
 
+[sub_resource type="QuadMesh" id="QuadMesh_row_zone"]
+size = Vector2(26, 4)
+
+[sub_resource type="ConvexPolygonShape3D" id="ConvexPolygonShape3D_row_zone"]
+points = PackedVector3Array(-13, 2, 0, -13, -2, 0, 13, 2, 0, 13, -2, 0)
+
 [sub_resource type="StandardMaterial3D" id="Material_hand_glow"]
 transparency = 1
 shading_mode = 0
@@ -43,7 +49,7 @@ size = Vector2(1, 1)
 [sub_resource type="StandardMaterial3D" id="Material_dimmer"]
 transparency = 1
 shading_mode = 0
-render_priority = -1
+render_priority = 1
 albedo_color = Color(0, 0, 0, 0)
 
 [node name="Board" type="Node3D"]
@@ -86,6 +92,7 @@ material_override = SubResource("Material_hand_glow")
 [node name="PlayerRow" parent="DragController" instance=ExtResource("2_collection")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -3, 0)
 card_layout_strategy = SubResource("Resource_player_row")
+dropzone_collision_shape = SubResource("ConvexPolygonShape3D_row_zone")
 
 [node name="DropZone" parent="DragController/PlayerRow" index="0"]
 input_ray_pickable = false
@@ -93,7 +100,7 @@ input_ray_pickable = false
 [node name="ZoneGlow" type="MeshInstance3D" parent="DragController/PlayerRow"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.2)
 visible = false
-mesh = SubResource("QuadMesh_zone")
+mesh = SubResource("QuadMesh_row_zone")
 material_override = SubResource("Material_row_glow")
 
 [node name="OpponentRow" parent="DragController" instance=ExtResource("2_collection")]
