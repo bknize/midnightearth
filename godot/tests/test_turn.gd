@@ -19,6 +19,8 @@ const FORBIDDEN_CALLS: Array[String] = [
 	"printt(",
 	"print_rich(",
 	"print_verbose(",
+	"printraw(",
+	"print_debug(",
 	"push_error(",
 	"push_warning(",
 	"assert(",

@@ -161,7 +161,7 @@ func test_failed_card_data_makes_the_bot_pass() -> void:
 	var broken: CardDb = CardDb.from_json("{}")
 	assert_bool(broken.is_valid()).is_false()
 	var none: Array[int] = []
-	# With valid data, energy 4 over this hand commits c08, c04 and c01.
+	# Valid data would price every card in this hand; broken data prices none.
 	var hand: Array[int] = [0, 3, 7, 13]
 	var bot: GreedyBot = GreedyBot.new(1, broken)
 	var action: EngineAction = bot.choose(_view(1, hand, 4))
