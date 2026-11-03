@@ -23,6 +23,15 @@ var _cards: CardDb = null
 
 ## `cards` supplies card powers and costs; null loads CardDb.load_default(). The plan's
 ## signature is `_init(bot_seed)`, so the card database is an optional extra.
+##
+## A card database that failed to load (CardDb.is_valid() false) is kept, not reported:
+## every card then has cost -1 and power 0, the only legal set is the empty one, and
+## choose() always commits nothing, so a bot built on it passes every turn. The bot
+## does not signal this itself, since engine code never reports errors out of band
+## (R27). It cannot happen through the engine: the engine never builds a bot, and a
+## match cannot start without a valid card database (CARD_DATA_INVALID), so callers
+## that pass the database they started the match with always give the bot valid data.
+## Callers relying on the default load should check CardDb.load_default().is_valid().
 func _init(bot_seed: int, cards: CardDb = null) -> void:
 	_bot_seed = bot_seed
 	if cards == null:
