@@ -56,7 +56,7 @@ After writing notes run `obsidian-cli vault=docs unresolved` and `… orphans`
 
 ## Linear (P4)
 
-One team (key `NSC` once renamed from `NIG`), a project per spec, a milestone per dev
+One team (key `NSC`), a project per spec, a milestone per dev
 cycle (`DC-NN <theme>`), labels `area/*`, `type/*`, `spec/<slug>`. Every issue carries a
 `## Spec` section with the vault uid link and the GitHub blob URL. The orchestrator pulls
 issues through the Linear MCP; nothing is pushed from Linear.

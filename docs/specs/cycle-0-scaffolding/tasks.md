@@ -47,8 +47,8 @@ only for the mechanical ports marked so. Every task is one commit on `master`.
 ## Linear (exercised 2026-11-02)
 
 Project [Cycle 0 — scaffolding](https://linear.app/night-science-llc/project/cycle-0-scaffolding-6db3f9c856a0),
-milestone `DC-00 scaffolding`. Task n is issue `NIG-(n+4)`: T01 = NIG-5 … T16 = NIG-20.
-Keys become `NSC-n` after Ben renames the team. The "Spec task" template could not be
+milestone `DC-00 scaffolding`. Task n is issue `NSC-(n+4)`: T01 = NSC-5 … T16 = NSC-20.
+The "Spec task" template could not be
 created through the MCP and is Ben's step.
 
 ## Commit plan

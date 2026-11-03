@@ -47,5 +47,4 @@ Read `CLAUDE.md` first. Requires the Linear MCP (connected in this repo's `.mcp.
 - Never create a Linear team, cycle, or template (the MCP cannot; those are Ben's).
 - One task, one issue. Do not split or merge rows; if a row is too big, say so and stop.
 - Keep under the Free plan's 250 open issues: if the team has more than 200 open, warn.
-- Identifiers are `NSC-n` after Ben's key rename; before that they read `NIG-n`. Both
-  are the same issues.
+- Issue identifiers are `NSC-n`.
