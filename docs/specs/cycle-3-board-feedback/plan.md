@@ -6,7 +6,7 @@ related: ["[[specs/cycle-3-board-feedback/spec]]", "[[specs/cycle-3-board-feedba
 created: 2026-11-03
 updated: 2026-11-03
 uid: e53bb301-c199-436f-9e3f-666c08d82a57
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-3-board-feedback-df262f0f4d6f
 supersedes:
 ---
 

@@ -6,7 +6,7 @@ related: ["[[decisions/0002-one-branch-per-cycle]]", "[[specs/cycle-3-board-feed
 created: 2026-11-03
 updated: 2026-11-03
 uid: ad542daf-f955-4038-8e64-d121a9df705c
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-3-board-feedback-df262f0f4d6f
 supersedes:
 ---
 
@@ -74,18 +74,28 @@ token rule).
       under the menu concedes 10 times out of 10, each followed by Rematch (R29).
 - [ ] `obsidian-cli vault=docs unresolved` and `… orphans` report nothing new.
 
-## Linear
+## Linear (exercised 2026-11-03)
 
-Filled by `/exercise cycle-3-board-feedback`. Plan for it (C7): create the project
-"Cycle 3 — board feedback". Create issues for T03–T08 only. Move NSC-50 (T01) and NSC-48
-(T02) into the project and give them the `spec/cycle-3-board-feedback` label, keeping
-their Cycle 2 spec links and adding this spec's. Move NSC-49 in as well, with a
-`blockedBy` on T01 and a note that T08 closes it. `/cycle plan DC-04` puts all of them in
-milestone `DC-04 board-feedback`.
+Project [Cycle 3 — board feedback](https://linear.app/night-science-llc/project/cycle-3-board-feedback-df262f0f4d6f), state Planned until `/cycle plan DC-04` puts
+the issues into milestone `DC-04 board-feedback`. Label `spec/cycle-3-board-feedback` on
+all. New issues carry `area/cards` (plus `area/ui` on T06) and `type/feature` (T03–T06)
+or `type/chore` (T07, T08). GitHub links point at `cycle-3-board-feedback` until
+`/cycle test` rewrites them to `master` (ADR 0002).
 
-- Project: (empty until `/exercise`)
-- Milestone: DC-04 board-feedback
-- Issue mapping: T01 = NSC-50, T02 = NSC-48, T03 … T08 = new; NSC-49 closes with T08
+| Task | Issue | Blocked by |
+|---|---|---|
+| T01 | NSC-50 (moved from Cycle 2, retitled `T01 …`) | – |
+| T02 | NSC-48 (moved from Cycle 2, retitled `T02 …`) | – |
+| T03 | NSC-51 | – |
+| T04 | NSC-52 | NSC-50, NSC-48 |
+| T05 | NSC-53 | NSC-52 |
+| T06 | NSC-54 | NSC-51, NSC-53 |
+| T07 | NSC-55 | NSC-50, NSC-48, NSC-51 … NSC-54 |
+| T08 | NSC-56 | NSC-55 |
+| – | NSC-49 (moved from Cycle 2; closes with T08) | NSC-50 |
+
+All nine are in Todo. NSC-48, NSC-49 and NSC-50 keep their Cycle 2 spec links and gained
+a "Spec (cycle 3)" section.
 
 ## Commit plan
 
