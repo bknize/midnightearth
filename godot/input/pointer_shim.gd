@@ -37,7 +37,7 @@ var _last_from_touch: bool = false
 
 func _ready() -> void:
 	_update_units_per_point()
-	var err: Error = get_viewport().size_changed.connect(_update_units_per_point)
+	var err: int = get_viewport().size_changed.connect(_update_units_per_point)
 	if err != OK:
 		push_warning("PointerShim: could not watch viewport size (%d)" % err)
 
