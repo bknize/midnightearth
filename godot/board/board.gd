@@ -14,18 +14,19 @@ signal player_turn_started
 ## Internal: emitted when the node-owned wait ends, or is cut short by a restart or exit.
 signal wait_finished
 
+## The drop-zone glow looks (R12-R14).
+enum GlowLook { IDLE, HOVER, REFUSE }
+
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
 const NORMAL_SPEED: float = 1.0
 const SEED_ARG: String = "--seed="
 const AUTOPLAY_ARG: String = "--autoplay"
-## Shortest tween the collections are given, so a zero-length step never divides or stalls.
-enum GlowLook { IDLE, HOVER, REFUSE }
 const GLOW_GOLD: Color = Color(1.0, 0.85, 0.45)
 const GLOW_RED: Color = Color(0.95, 0.25, 0.2)
 const GLOW_IDLE_ALPHA: float = 0.18
 const GLOW_HOVER_ALPHA: float = 0.35
-
+## Shortest tween the collections are given, so a zero-length step never divides or stalls.
 const MIN_TWEEN_TIME: float = 0.01
 ## Seconds at 1x for a player commit to slide onto the row when it is not already there.
 const PLAYER_COMMIT_TIME: float = 0.25
@@ -783,7 +784,7 @@ func _row_look(hovered: bool) -> GlowLook:
 
 ## Shows a drop-zone panel in the given look (R12, R13).
 func _set_glow(glow: MeshInstance3D, look: GlowLook) -> void:
-	var mat: StandardMaterial3D = glow.get_surface_override_material(0) as StandardMaterial3D
+	var mat: StandardMaterial3D = glow.material_override as StandardMaterial3D
 	var colour: Color = GLOW_GOLD
 	var alpha: float = GLOW_IDLE_ALPHA
 	if look == GlowLook.HOVER:
