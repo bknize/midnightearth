@@ -38,18 +38,18 @@ T01 and T02 can run in parallel. T08 can start once T06 lands, alongside T07.
 
 ## Verification task (12)
 
-- [ ] `make check` exits 0; the test stage lists every new suite and takes under 10 s.
-- [ ] The boot log under `godot/reports/` carries `Engine smoke: seed=1 …` before
+- [x] `make check` exits 0; the test stage lists every new suite and takes under 10 s.
+- [x] The boot log under `godot/reports/` carries `Engine smoke: seed=1 …` before
       `Main ready` and no error line.
-- [ ] Pin the seed-1 winner, round wins, rounds played, end reason and action count from
+- [x] Pin the seed-1 winner, round wins, rounds played, end reason and action count from
       the smoke line into the golden constant in `test_full_match.gd`; `make check` green
       again.
-- [ ] The 50-seed sweep's longest match (actions) is noted in the status update.
-- [ ] Planted check: a temporary edit making one card power 20 fails `test_card_db.gd`
+- [x] The 50-seed sweep's longest match (actions) is noted in the status update.
+- [x] Planted check: a temporary edit making one card power 20 fails `test_card_db.gd`
       and the boot stage; reverted afterwards.
-- [ ] No screenshot and no recording (C12). The Linear status update is text: suite
+- [x] No screenshot and no recording (C12). The Linear status update is text: suite
       counts, the smoke line, the longest sweep match.
-- [ ] `obsidian-cli vault=docs orphans` reports nothing new; links in this set checked
+- [x] `obsidian-cli vault=docs orphans` reports nothing new; links in this set checked
       with `backlinks`.
 
 ## Linear (exercised 2026-11-02)
