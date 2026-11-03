@@ -1,9 +1,14 @@
 ---
 type: planning
-phase: 3-game-loop
+tags: [planning, phase-3]
 status: closed
+related: ["[[planning/planning-moc]]"]
 created: 2026-11-02
 updated: 2026-11-02
+uid: cf1602f7-03cf-44f4-b4d4-7cfa2339fe9a
+linear:
+supersedes:
+phase: 3-game-loop
 ---
 
 # Phase 3 — Game loop: the MVP rules

@@ -1,7 +1,7 @@
 ---
 type: tasks
 tags: [tasks, cycle-0, scaffolding]
-status: draft
+status: approved
 related: ["[[specs/cycle-0-scaffolding/spec]]", "[[specs/cycle-0-scaffolding/plan]]"]
 created: 2026-11-02
 updated: 2026-11-02
