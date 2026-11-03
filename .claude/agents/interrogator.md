@@ -21,6 +21,8 @@ Rules:
 - Every note carries the P5 frontmatter with a fresh `uid` (`uuidgen | tr A-Z a-z`).
 - Ground facts: read the planning notes and existing specs before asking; check the
   archive at `../midnightearth-archive` only for reusable patterns, never to port code.
-- Stop at Ben's sign-off. Implementation is not your job.
+- Stop at Ben's sign-off. Implementation is not your job. Never commit or switch
+  branches: the orchestrator commits the set on its own `spec-<slug>` branch
+  (`CLAUDE.md`, Git).
 - Bash is for `uuidgen`, `git log`, `ls` and the Obsidian CLI link audit
   (`obsidian-cli vault=docs unresolved`), nothing that runs Godot.

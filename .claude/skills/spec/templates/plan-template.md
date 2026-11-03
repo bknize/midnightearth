@@ -50,7 +50,7 @@ Verify against the root `CLAUDE.md`. Every relevant rule, with a verdict.
 | Notes carry P5 frontmatter (`type`, `tags`, `status`, `related`, `created`, `updated`, `uid`, `linear`, `supersedes`) and `[[path/from/vault/root]]` links | PASS/FAIL | |
 | No edits under the do-not-touch list (`docs/.obsidian/`, `godot/addons/*` outside a recorded patch, `.env`, `godot/.godot/`, `godot/reports/`, the archive) | PASS/FAIL | |
 | Secrets only in `.env`; `.mcp.json` uses `${VAR}` placeholders; no token in chat, notes, commits or Linear | PASS/FAIL | |
-| Small reversible commits: one per task on a branch named for the set, merged to `master` with `--no-ff` | PASS/FAIL | |
+| Each changeset on its own branch named for the set, one commit per task, nothing committed directly on `master`, merged with `--no-ff` | PASS/FAIL | |
 
 **Result:** PASS / needs revision.
 

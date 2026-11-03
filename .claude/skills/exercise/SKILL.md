@@ -16,6 +16,8 @@ Read `CLAUDE.md` first. Requires the Linear MCP (connected in this repo's `.mcp.
 2. `tasks.md` has the task table (`# | Task | Area | Depends on | Acceptance check | Who`).
 3. The three notes have a `uid`. If `linear` is already filled, this is a re-run: update
    existing issues by title prefix (`Tnn`) instead of creating duplicates.
+4. Branch `spec-<slug>` is merged into `master` (`git branch --merged master`), so the
+   GitHub links in step 2 resolve. Otherwise stop and ask Ben to merge it.
 
 ## Steps
 
@@ -38,7 +40,9 @@ Read `CLAUDE.md` first. Requires the Linear MCP (connected in this repo's `.mcp.
    Depends column (task n → the identifier created for row n) and `state` `Todo`.
 4. **Write back.** Put the project URL into the `linear:` field of spec.md, plan.md and
    tasks.md, and append a `## Linear (exercised <date>)` section to tasks.md with the
-   project link and the row → identifier mapping. Do not commit unless Ben asks.
+   project link and the row → identifier mapping. Do not commit unless Ben asks; the
+   write-back is its own changeset, committed on branch `exercise-<slug>` cut from
+   `master` (never on `master`), then merged with `--no-ff` when Ben says.
 5. **Report** in a short table: issue identifier, title, blockers. Say the next verb is
    `/cycle plan DC-NN` and that the project is in `planned` until a cycle picks it up.
 
