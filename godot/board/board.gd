@@ -76,6 +76,8 @@ var _drag_from_hand: bool = false
 var _over_row: bool = false
 var _drag_cancelled: bool = false
 var _last_error: int = EngineError.Code.NONE
+## Instance ids of the player's cards already revealed to the opponent (no unseen rim).
+var _revealed_ids: Dictionary[int, bool] = {}
 
 @onready var hud: BoardHud = $BoardHud
 @onready var player_hand: CardCollection3D = $DragController/PlayerHand
@@ -376,11 +378,14 @@ func _player_commit(step: BoardStep) -> void:
 		if card == null or player_row.cards.has(card):
 			continue
 		_move_card(card, player_hand, player_row, PLAYER_COMMIT_TIME / speed)
+	_refresh_rims()
 
 
 func _reveal(step: BoardStep) -> void:
 	if step.seat == 0:
 		var own: BoardCard = _player_card(step.card)
+		_revealed_ids[step.card] = true
+		_refresh_rims()
 		if own != null:
 			_lift_and_settle(own, step.duration)
 	else:
@@ -408,6 +413,8 @@ func _clear_table(step: BoardStep) -> void:
 			_fly_out(removed[i], step.duration)
 	_player_cards.clear()
 	_committed_ids.clear()
+	_revealed_ids.clear()
+	_refresh_rims()
 	_scores.assign([0, 0])
 	hud.set_scores(_scores)
 
@@ -475,6 +482,7 @@ func _move_card(
 	target.card_move_tween_duration = maxf(duration, MIN_TWEEN_TIME)
 	target.append_card(moved)
 	moved.global_transform = placed
+	_refresh_rims()
 
 
 func _flip_up(card: BoardCard, duration: float) -> void:
@@ -536,6 +544,8 @@ func _clear_table_now() -> void:
 		child.queue_free()
 	_player_cards.clear()
 	_committed_ids.clear()
+	_revealed_ids.clear()
+	_refresh_rims()
 	_turn_energy = 0
 	staging.reset(0)
 	_drag_card = null
@@ -600,6 +610,19 @@ func _refresh_staging_ui() -> void:
 	_refresh_commit_enabled()
 
 
+## Unseen rim (R17-R21): on for the player's row cards not yet revealed, off for the hand.
+## Opponent cards are never touched.
+func _refresh_rims() -> void:
+	for card: Card3D in player_row.cards:
+		var board_card: BoardCard = card as BoardCard
+		if board_card != null:
+			board_card.set_unseen(not _revealed_ids.has(board_card.instance_id))
+	for card: Card3D in player_hand.cards:
+		var in_hand: BoardCard = card as BoardCard
+		if in_hand != null:
+			in_hand.set_unseen(false)
+
+
 ## The uncommitted cards on the player's row, in row order.
 func _staged_cards() -> Array[BoardCard]:
 	var out: Array[BoardCard] = []
@@ -646,6 +669,7 @@ func _resync_staging() -> void:
 		for card: BoardCard in rejected:
 			_move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
 	_refresh_staging_ui()
+	_refresh_rims()
 
 
 ## Sends every staged card back to the hand and empties staging for this turn's energy.
@@ -654,6 +678,7 @@ func _unstage_all() -> void:
 		_move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
 	staging.reset(_turn_energy)
 	_refresh_staging_ui()
+	_refresh_rims()
 
 
 ## The DragController moved a card (R12, R13). Staging follows the row.
@@ -679,6 +704,7 @@ func _on_drag_card_moved(
 		_normalize_row()
 		staging.move(id, _staged_index(card))
 	_resync_staging()
+	_refresh_rims()
 
 
 func _on_drag_started(card: Card3D) -> void:
@@ -710,6 +736,7 @@ func _on_drag_stopped(card: Card3D) -> void:
 	_over_row = false
 	_drag_cancelled = false
 	_resync_staging()
+	_refresh_rims()
 
 
 func _on_row_zone_entered() -> void:
