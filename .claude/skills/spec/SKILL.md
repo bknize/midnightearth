@@ -30,8 +30,8 @@ GDScript engine, the shaders, the tooling and the vault.
 The project's non-negotiable rules live in the root `CLAUDE.md`. **Read it before
 interrogating** and treat every rule there as binding: fully typed GDScript, the
 deterministic engine, the `make check` gate, the P5 note frontmatter, the do-not-touch
-list, secrets only in `.env`, and small reversible commits on a branch named for the
-set. Also skim `docs/planning/phase-1-tech-stack.md` (decisions D1 to D8) so the
+list, secrets only in `.env`, and small reversible commits on a branch of its own
+named for the set (never directly on `master`). Also skim `docs/planning/phase-1-tech-stack.md` (decisions D1 to D8) so the
 interview never re-opens a closed decision unless Ben asks. Every plan this skill
 produces must pass the Constitution Check (step 5).
 
@@ -128,9 +128,13 @@ check and who does it: `implementer`, `implementer-engine` (anything under
    `uuidgen | tr A-Z a-z`. Set `created` and `updated` to today.
 2. Present a short summary and ask for Ben's sign-off. On sign-off set `status:
    approved` on all three.
-3. **The skill stops at Ben's sign-off.** Commit only when Ben says to commit, as
-   `spec: <slug>` on `master`: `git add docs/specs/<slug> && git commit -m "spec: <slug>"`
-   with the Co-Authored-By line the session provides. Never push.
+3. **The skill stops at Ben's sign-off.** The set is its own changeset (`CLAUDE.md`,
+   Git): commit only when Ben says to, on branch `spec-<slug>`, never on `master`:
+   `git switch -c spec-<slug> master`, `git add docs/specs/<slug>` (plus the specs MOC
+   row if you added one), `git commit -m "spec: <slug>"` with the Co-Authored-By line
+   the session provides, then `git switch master`. Ask Ben whether to merge it with
+   `git merge --no-ff spec-<slug>`; `/exercise` needs that merge, because its GitHub
+   links point at `master`. Never push.
 4. Tell Ben the next verb is `/exercise <slug>`, which turns the tasks into Linear
    issues. Implementation is a separate step.
 5. Final link audit: if `obsidian-cli` is on PATH (`command -v obsidian-cli`), run

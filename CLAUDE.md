@@ -72,10 +72,15 @@ Linear access; they report, and the orchestrator updates Linear.
 
 ## Git
 
-Work for a set lands on a branch named for the set (`cycle-0-scaffolding`,
-`dc-01-<theme>`), one commit per task, merged into `master` with `--no-ff`. Commit only
-when Ben asks or the task list says so. Commit messages end with the Co-Authored-By line
-the session provides.
+Every changeset gets its own branch, cut from `master` and named for the set:
+`spec-<slug>` for a spec set, `exercise-<slug>` for its Linear write-back,
+`dc-NN-<theme>` for a dev cycle, `tooling-<topic>` or `docs-<topic>` for anything else.
+Nothing is committed directly on `master`: it only takes `--no-ff` merges of those
+branches, made when Ben asks or a verb's steps say so (`/cycle test`). Cycle branches
+carry one commit per task. Commit only when Ben asks or the task list says so. Commit
+messages end with the Co-Authored-By line the session provides. Never push unless Ben
+asks. Leave the main checkout on `master` between changesets; when another session may
+share it, create the branch with `git branch` and work in a `git worktree`.
 
 ## Secrets (P6)
 

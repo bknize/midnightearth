@@ -19,7 +19,8 @@ Hard rules:
 - GDScript is fully typed (every declaration has a type, no unsafe calls), because the
   gate's parse stage treats the typing warnings as errors. Engine code is deterministic:
   no `randi()` without the injected RNG, no wall-clock time, no Node dependencies.
-- Never edit `godot/addons/*`, `docs/.obsidian/`, `.env`. Never commit.
+- Never edit `godot/addons/*`, `docs/.obsidian/`, `.env`. Never commit, and never
+  create or switch branches: the orchestrator owns branches (`CLAUDE.md`, Git).
 - Keep the change small and inside the issue's scope; file nothing new in Linear.
 - You have no Linear access, so do not try to move the issue: the orchestrator sets it
   to `In Progress` at dispatch and `In Review` after a green merge. Anything that

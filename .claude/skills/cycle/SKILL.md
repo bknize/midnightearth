@@ -77,16 +77,17 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
    programmatically) to the state that shows the feature, `take_screenshot`, save under
    `godot/reports/DC-NN/<issue>.png` (gitignored) and upload each to Linear with
    `prepare_file_upload` for the status update.
-4. Merge `dc-NN-<theme>` into `master` with `--no-ff` (message `cycle-NN: <theme>`),
-   only after 1–3 pass, from the main checkout. Do not push unless Ben asks.
+4. On the cycle branch, append the outcome row to `docs/planning/cycles.md` and commit
+   it, then merge `dc-NN-<theme>` into `master` with `--no-ff` (message
+   `cycle-NN: <theme>`), only after 1–3 pass, from the main checkout. Do not push unless
+   Ben asks.
 5. Linear: `save_status_update` on each touched project ("DC-NN done": gate summary,
    screenshots, what was verified, what was left out); move every DC-NN issue to
    `Done` (only after the step 4 merge); create follow-up issues in `Backlog` (`type/bug`
    or `type/chore`, label `spec/<slug>`) for anything that failed or was skipped.
    Optionally `save_document` with the full test note.
-6. Append the outcome to `docs/planning/cycles.md`. Report to Ben with the screenshot
-   paths and the follow-ups. Ben's manual click-through happens only at milestones; say
-   whether this cycle is one.
+6. Report to Ben with the screenshot paths and the follow-ups. Ben's manual
+   click-through happens only at milestones; say whether this cycle is one.
 
 ## Rules
 
@@ -94,5 +95,6 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
   exclude them, do not override with `tools` in the Agent call.
 - Never skip the screenshot unless the spec waives it: a cycle without one per feature
   is not done.
-- Never push, never force, never rewrite history on `master`.
+- Never push, never force, never rewrite history on `master`, never commit directly on
+  `master`: a fix found after the merge goes on a branch of its own (`CLAUDE.md`, Git).
 - Keep Linear truthful: state changes happen when the merge or test actually happened.
