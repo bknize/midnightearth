@@ -28,9 +28,9 @@ pixel_size = 0.01
 double_sided = false
 modulate = Color(0.1, 0.1, 0.12, 1)
 outline_size = 0
-font_size = 40
+font_size = 28
 width = 200.0
-autowrap_mode = 3
+autowrap_mode = 2
 
 [node name="CostLabel" type="Label3D" parent="CardMesh" index="3"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.85, 1.35, 0.01)

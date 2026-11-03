@@ -413,7 +413,8 @@ func _match_end(step: BoardStep) -> void:
 	var reason: String = step.source.payload["reason"]
 	_paused = false
 	hud.show_pause(false)
-	hud.show_result(step.seat, step.wins, reason)
+	var rounds: int = step.source.payload["rounds_played"]
+	hud.show_result(step.seat, step.wins, reason, rounds)
 	_refresh_commit_enabled()
 
 
