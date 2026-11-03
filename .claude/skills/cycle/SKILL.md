@@ -69,9 +69,12 @@ waive the screenshot for an engine- or tooling-only cycle (DC-01 C12): then the 
 the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
 
 1. `scripts/check.sh` on `dc-NN-<theme>`: must exit 0. Paste the stage summary.
-2. Open the Godot editor on `godot/` (ask Ben if it is not already open; the MCP needs
-   it). `get_godot_status` must report connected. `run_scene` on the main scene,
-   `get_runtime_log` must contain `Main ready` and no error pattern.
+2. Point the editor at the cycle branch: `scripts/godot-editor.sh switch dc-NN-<theme>`.
+   It closes any open editor (the MCP port takes one at a time), opens the cycle
+   worktree's `godot/` and waits for the MCP plugin. `get_godot_status` must report that
+   worktree's path. `run_scene` on the main scene: `get_console_log` must contain
+   `Main ready`, and `get_errors` must show no error or warning. If the switch reports an
+   editor that will not quit (a save prompt), ask Ben to close it.
 3. One screenshot per feature in the cycle: drive the scene through the Godot MCP
    (`send_input`, `call_method`, `set_node_properties`; keyboard and popups are driven
    programmatically) to the state that shows the feature, `take_screenshot`, save under
@@ -79,8 +82,8 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
    `prepare_file_upload` for the status update.
 4. On the cycle branch, append the outcome row to `docs/planning/cycles.md` and commit
    it, then merge `dc-NN-<theme>` into `master` with `--no-ff` (message
-   `cycle-NN: <theme>`), only after 1–3 pass, from the main checkout. Do not push unless
-   Ben asks.
+   `cycle-NN: <theme>`), only after 1–3 pass, from the main checkout. Hand the editor
+   back with `scripts/godot-editor.sh switch main`. Do not push unless Ben asks.
 5. Linear: `save_status_update` on each touched project ("DC-NN done": gate summary,
    screenshots, what was verified, what was left out); move every DC-NN issue to
    `Done` (only after the step 4 merge); create follow-up issues in `Backlog` (`type/bug`
