@@ -47,6 +47,7 @@ Every changeset has its own branch (`CLAUDE.md`, Git). One commit per task on a 
 named for the set (`dc-NN-<theme>`). Messages: `<set>: T<nn> <task title>`, ending with
 the Co-Authored-By line the session provides. When the verification task passes, the
 branch merges into `master` with a merge commit (`git merge --no-ff`) so the set stays
-visible in history. The spec set itself is a separate changeset: committed as
-`spec: <slug>` on branch `spec-<slug>` when Ben says to, and merged into `master` with
-`--no-ff` before `/exercise`. Nothing is committed directly on `master`.
+visible in history. The spec set itself is a separate changeset, written on branch
+`spec-<slug>` (cut before the first note), committed as `spec: <slug>` when Ben says to,
+and merged into `master` with `--no-ff` before `/exercise`. Nothing is committed
+directly on `master`.

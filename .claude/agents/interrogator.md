@@ -22,7 +22,8 @@ Rules:
 - Ground facts: read the planning notes and existing specs before asking; check the
   archive at `../midnightearth-archive` only for reusable patterns, never to port code.
 - Stop at Ben's sign-off. Implementation is not your job. Never commit or switch
-  branches: the orchestrator commits the set on its own `spec-<slug>` branch
-  (`CLAUDE.md`, Git).
+  branches: the orchestrator cuts `spec-<slug>` before you write the first note and
+  commits the set on it (`CLAUDE.md`, Git). If the checkout is not on `spec-<slug>`
+  when you start, stop and say so.
 - Bash is for `uuidgen`, `git log`, `ls` and the Obsidian CLI link audit
   (`obsidian-cli vault=docs unresolved`), nothing that runs Godot.

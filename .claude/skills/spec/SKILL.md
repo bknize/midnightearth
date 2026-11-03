@@ -68,6 +68,11 @@ Pick the slug (kebab-case, e.g. `committed-reveal`; cycle-wide sets use
 touches. Check `docs/specs/` for an existing set with that slug; if one exists, update
 it rather than starting a second.
 
+Then cut the set's branch before writing anything (`CLAUDE.md`, Git):
+`git switch -c spec-<slug> master` from a clean `master` (or `git switch spec-<slug>` when
+updating a set whose branch is not yet merged). Every note this skill writes lands on
+that branch.
+
 ### 1. Interrogate
 Do NOT skip to drafting. Ask the batteries in `reference/interview-batteries.md`,
 adapted to the change type, in rounds as described above. Cover at minimum: intent and
@@ -128,13 +133,12 @@ check and who does it: `implementer`, `implementer-engine` (anything under
    `uuidgen | tr A-Z a-z`. Set `created` and `updated` to today.
 2. Present a short summary and ask for Ben's sign-off. On sign-off set `status:
    approved` on all three.
-3. **The skill stops at Ben's sign-off.** The set is its own changeset (`CLAUDE.md`,
-   Git): commit only when Ben says to, on branch `spec-<slug>`, never on `master`:
-   `git switch -c spec-<slug> master`, `git add docs/specs/<slug>` (plus the specs MOC
-   row if you added one), `git commit -m "spec: <slug>"` with the Co-Authored-By line
-   the session provides, then `git switch master`. Ask Ben whether to merge it with
-   `git merge --no-ff spec-<slug>`; `/exercise` needs that merge, because its GitHub
-   links point at `master`. Never push.
+3. **The skill stops at Ben's sign-off.** Commit only when Ben says to, on the
+   `spec-<slug>` branch cut in step 0, never on `master`: `git add docs/specs/<slug>`
+   (plus the specs MOC row if you added one), `git commit -m "spec: <slug>"` with the
+   Co-Authored-By line the session provides, then `git switch master`. Ask Ben whether
+   to merge it with `git merge --no-ff spec-<slug>`; `/exercise` needs that merge,
+   because its GitHub links point at `master`. Never push.
 4. Tell Ben the next verb is `/exercise <slug>`, which turns the tasks into Linear
    issues. Implementation is a separate step.
 5. Final link audit: if `obsidian-cli` is on PATH (`command -v obsidian-cli`), run

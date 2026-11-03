@@ -72,7 +72,8 @@ Linear access; they report, and the orchestrator updates Linear.
 
 ## Git
 
-Every changeset gets its own branch, cut from `master` and named for the set:
+Every changeset gets its own branch, cut from `master` before its first edit (never at
+commit time) and named for the set:
 `spec-<slug>` for a spec set, `exercise-<slug>` for its Linear write-back,
 `dc-NN-<theme>` for a dev cycle, `tooling-<topic>` or `docs-<topic>` for anything else.
 Nothing is committed directly on `master`: it only takes `--no-ff` merges of those
