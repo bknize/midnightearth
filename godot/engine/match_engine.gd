@@ -198,8 +198,9 @@ func _round_first_seat() -> int:
 
 
 ## Round end (R19, R24): the higher board wins the round; equal boards award no win. The
-## event carries the turn-7 scores; then both boards and hands are cleared, and the board
-## scores with them (a board score is the power on that board), before _after_round().
+## event carries the turn-7 scores. The table is not cleared here (C15): when the match
+## goes on, the next _begin_round() resets scores, pending, hands, boards, burns and decks;
+## when this round ends the match, its boards, hands and scores stay as the final table.
 func _end_round() -> void:
 	var winner: int = _leader()
 	if winner >= 0:
@@ -214,20 +215,7 @@ func _end_round() -> void:
 			"wins": _pair(_state.wins),
 		}
 	)
-	_clear_table()
 	_after_round(winner)
-
-
-## Empties both hands, both boards and the face-down commit, and zeroes the board scores.
-## Decks and burns stay until the next _begin_round() refills them.
-func _clear_table() -> void:
-	for seat: int in range(SEATS):
-		var piles: MatchState.SeatPiles = _state.seats[seat]
-		piles.hand.clear()
-		piles.board.clear()
-	_state.pending.clear()
-	_state.scores[0] = 0
-	_state.scores[1] = 0
 
 
 ## Match end checks after a round (R20-R22), in this order:
@@ -236,7 +224,8 @@ func _clear_table() -> void:
 ## - a seat on 4 wins ends it, reason wins;
 ## - after round 7, the seat with more wins takes it, reason rounds.
 ## Otherwise the next round starts; past round 7 it is a sudden-death round, so a tied
-## sudden-death round starts another.
+## sudden-death round starts another. A match end leaves the finished round's table in
+## place (C15); only _begin_round() clears it.
 func _after_round(winner: int) -> void:
 	var played: int = _state.round_number
 	if _state.sudden_death:
@@ -348,8 +337,10 @@ func _concede(seat: int) -> void:
 
 
 ## Ends the match (R25). `rounds_played` counts completed rounds, sudden death included,
-## so it equals the number of ROUND_ENDED events in the match. Every later action fails
-## with MATCH_OVER (_check).
+## so it equals the number of ROUND_ENDED events in the match; a concede in round N
+## reports N-1 (C14). The table is left as it stands (C15): hands, boards and scores of
+## the last round, so view_for() shows the final table on every end path. Every later
+## action fails with MATCH_OVER (_check).
 func _end_match(winner: int, reason: String, rounds_played: int) -> void:
 	_state.phase = MatchState.Phase.OVER
 	_state.result = {

@@ -4,7 +4,9 @@ extends GdUnitTestSuite
 ## MatchEngine round and match end: R18 (turn-1 order per C9, coin flip only before the
 ## first won round), R19 (round winner, ties award nothing), R20 (4 wins), R21 (end after
 ## round 7 or into sudden death), R22 (sudden-death chains), R23 (concede out of turn),
-## R24 (round-end payload), R25 (match-end payload), and MATCH_OVER after the end.
+## R24 (round-end payload), R25 (match-end payload), MATCH_OVER after the end, C14
+## (`rounds_played` counts completed rounds, concede included) and C15 (the final table
+## stays in view_for() after MATCH_ENDED on every end path).
 ##
 ## Round outcomes come from real actions: both seats pass turns 1-6, and on turn 7 the
 ## chosen winner commits one card (any card is affordable at 7 energy and has power >= 1)
@@ -247,6 +249,11 @@ func test_won_round_payload_and_flow_into_the_next_round() -> void:
 	assert_int(_state_int(engine, "round")).is_equal(2)
 	assert_int(_state_int(engine, "turn")).is_equal(1)
 	assert_array(_state_ints(engine, "scores")).is_equal(_typed([0, 0]))
+	# The next round's start clears the old table (C15 keeps it only when the match ends).
+	for seat: int in range(2):
+		assert_array(_board(engine, seat)).is_empty()
+		assert_int(_hand(engine, seat).size()).is_equal(MatchRules.OPENING_HAND + 1)
+	assert_array(_state_ints(engine, "pending")).is_empty()
 
 
 func test_tied_round_awards_no_win() -> void:
@@ -316,17 +323,175 @@ func _weakest(hand: Array[int]) -> int:
 	return worst
 
 
-func test_round_end_clears_boards_and_hands() -> void:
-	# Observable once the match ends, since no new round re-deals.
-	var engine: MatchEngine = _started(SEED)
-	var outcomes: Array[int] = [0, 0, 0, 0]
-	_play_rounds(engine, outcomes)
+func _cost(card: int) -> int:
+	return _db().card_at(card % MatchRules.DECK_SIZE).cost
+
+
+func _cheapest(hand: Array[int]) -> int:
+	var best: int = hand[0]
+	for card: int in hand:
+		if _cost(card) < _cost(best):
+			best = card
+	return best
+
+
+func _board_power(board: Array[int]) -> int:
+	var total: int = 0
+	for card: int in board:
+		total += _power(card)
+	return total
+
+
+## The events from the last ROUND_STARTED on: the round in progress or the final round.
+func _last_round(events: Array[MatchEvent]) -> Array[MatchEvent]:
+	var kinds: Array[int] = _kinds(events)
+	var at: int = kinds.rfind(MatchEvent.Kind.ROUND_STARTED)
+	var out: Array[MatchEvent] = []
+	if at < 0:
+		fail("no ROUND_STARTED event")
+		return out
+	out.assign(events.slice(at))
+	return out
+
+
+## `seat`'s hand rebuilt from one round's full events: deals and draws in, commits out.
+func _hand_from(round_events: Array[MatchEvent], seat: int) -> Array[int]:
+	var hand: Array[int] = []
+	for event: MatchEvent in round_events:
+		if not event.payload.has("seat") or _payload_int(event, "seat") != seat:
+			continue
+		if event.kind == MatchEvent.Kind.CARD_DEALT or event.kind == MatchEvent.Kind.CARD_DRAWN:
+			hand.append(_payload_int(event, "card"))
+		elif event.kind == MatchEvent.Kind.COMMITTED:
+			for card: int in _payload_ints(event, "cards"):
+				hand.erase(card)
+	return hand
+
+
+## `seat`'s board rebuilt from one round's CARD_REVEALED events, in reveal order.
+func _board_from(round_events: Array[MatchEvent], seat: int) -> Array[int]:
+	var board: Array[int] = []
+	for event: MatchEvent in _of_kind(round_events, MatchEvent.Kind.CARD_REVEALED):
+		if _payload_int(event, "seat") == seat:
+			board.append(_payload_int(event, "card"))
+	return board
+
+
+## C15: after MATCH_ENDED each seat's view shows the final round's table: the boards
+## revealed in it, the hands left at its end and the ROUND_ENDED scores. `events` must run
+## from at least the final round's ROUND_STARTED to MATCH_ENDED.
+func _assert_final_table(engine: MatchEngine, events: Array[MatchEvent]) -> void:
 	assert_bool(engine.is_over()).is_true()
+	var round_events: Array[MatchEvent] = _last_round(events)
+	var round_end: MatchEvent = _last(round_events, MatchEvent.Kind.ROUND_ENDED)
+	var scores: Array[int] = _payload_ints(round_end, "scores")
+	var round_winner: int = _payload_int(round_end, "winner")
+	assert_int(round_winner).is_not_equal(TIE)
+	assert_int(scores[round_winner]).is_greater(0)
 	for seat: int in range(2):
-		assert_array(_hand(engine, seat)).is_empty()
-		assert_array(_board(engine, seat)).is_empty()
+		var opp: int = 1 - seat
+		var view: SeatView = engine.view_for(seat)
+		assert_int(view.phase).is_equal(MatchState.Phase.OVER)
+		assert_int(view.round_number).is_equal(_payload_int(round_end, "round"))
+		assert_int(view.turn).is_equal(MatchRules.TURNS)
+		assert_array(view.scores).is_equal(scores)
+		assert_array(view.own_board).is_equal(_board_from(round_events, seat))
+		assert_array(view.opponent_board).is_equal(_board_from(round_events, opp))
+		assert_int(_board_power(view.own_board)).is_equal(scores[seat])
+		var hand: Array[int] = _hand_from(round_events, seat)
+		assert_array(hand).is_not_empty()
+		assert_array(view.own_hand).is_equal(hand)
+		assert_int(view.opponent_hand_count).is_equal(_hand_from(round_events, opp).size())
+		assert_array(view.own_pending).is_empty()
+		assert_int(view.opponent_pending_count).is_equal(0)
+		if seat == round_winner:
+			assert_array(view.own_board).is_not_empty()
 	assert_array(_state_ints(engine, "pending")).is_empty()
-	assert_array(_state_ints(engine, "scores")).is_equal(_typed([0, 0]))
+
+
+## Both seats pass turns 1-6; on turn 7 the first committer plays its strongest card and
+## the second its weakest. When those powers are equal it stops before turn 7's commits
+## (the round would tie) and the caller tries another seed.
+func _play_contested_round(engine: MatchEngine) -> Array[MatchEvent]:
+	var seen: Array[MatchEvent] = []
+	while engine.energy() < MatchRules.TURNS:
+		var passed: ApplyResult = _pass(engine)
+		if not passed.ok:
+			fail("pass rejected with code %d" % passed.error)
+			return seen
+		seen.append_array(passed.events)
+	var first: int = engine.awaited_seat()
+	var second: int = 1 - first
+	var strong: int = _strongest(_hand(engine, first))
+	var weak: int = _weakest(_hand(engine, second))
+	if _power(strong) == _power(weak):
+		return seen
+	var a: Array[int] = [strong]
+	var b: Array[int] = [weak]
+	seen.append_array(engine.apply(EngineAction.commit(first, a)).events)
+	seen.append_array(engine.apply(EngineAction.commit(second, b)).events)
+	return seen
+
+
+# --- C15: the final table stays after MATCH_ENDED ---------------------------------------
+
+
+func test_wins_end_keeps_the_final_table() -> void:
+	# The fourth win's round is not cleared: seat 0's turn-7 card stays on its board.
+	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var outcomes: Array[int] = [0, 0, 0, 0]
+	var events: Array[MatchEvent] = _match_events(engine, outcomes)
+	_assert_match_ended(engine, events, 0, MatchEngine.REASON_WINS, _typed([4, 0]), 4)
+	_assert_final_table(engine, events)
+	assert_int(_board(engine, 0).size()).is_equal(1)
+	assert_array(_board(engine, 1)).is_empty()
+	var round_end: MatchEvent = _last(events, MatchEvent.Kind.ROUND_ENDED)
+	assert_array(_state_ints(engine, "scores")).is_equal(_payload_ints(round_end, "scores"))
+
+
+func test_rounds_end_keeps_the_final_table() -> void:
+	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var outcomes: Array[int] = [TIE, TIE, TIE, TIE, TIE, TIE, 1]
+	var events: Array[MatchEvent] = _match_events(engine, outcomes)
+	_assert_match_ended(engine, events, 1, MatchEngine.REASON_ROUNDS, _typed([0, 1]), 7)
+	_assert_final_table(engine, events)
+
+
+func test_sudden_death_end_keeps_the_final_table() -> void:
+	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var outcomes: Array[int] = [0, 1, 0, 1, 0, 1, TIE, 0]
+	var events: Array[MatchEvent] = _match_events(engine, outcomes)
+	_assert_match_ended(engine, events, 0, MatchEngine.REASON_SUDDEN_DEATH, _typed([4, 3]), 8)
+	_assert_final_table(engine, events)
+
+
+func test_contested_final_round_keeps_both_boards_on_every_end_path() -> void:
+	# The deciding round has a card on each board; whichever seat wins it ends the match.
+	var cases: Array[Array] = [
+		[0, 0, 0, 1, 1, 1],
+		[TIE, TIE, TIE, TIE, TIE, TIE],
+		[0, 1, 0, 1, 0, 1, TIE],
+	]
+	var reasons: Array[String] = [
+		MatchEngine.REASON_WINS, MatchEngine.REASON_ROUNDS, MatchEngine.REASON_SUDDEN_DEATH
+	]
+	for index: int in range(cases.size()):
+		var outcomes: Array[int] = _typed(cases[index])
+		var checked: bool = false
+		for match_seed: int in range(1, SEARCH_SEEDS + 1):
+			var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+			var events: Array[MatchEvent] = _match_events(engine, outcomes)
+			events.append_array(_play_contested_round(engine))
+			if not engine.is_over():
+				continue
+			var ended: MatchEvent = _last(events, MatchEvent.Kind.MATCH_ENDED)
+			assert_str(_payload_str(ended, "reason")).is_equal(reasons[index])
+			_assert_final_table(engine, events)
+			for seat: int in range(2):
+				assert_int(_board(engine, seat).size()).is_equal(1)
+			checked = true
+			break
+		assert_bool(checked).override_failure_message(reasons[index]).is_true()
 
 
 # --- R18, C9: turn-1 order --------------------------------------------------------------
@@ -594,6 +759,65 @@ func test_concede_in_sudden_death() -> void:
 	var result: ApplyResult = engine.apply(EngineAction.concede(1))
 	assert_bool(result.ok).is_true()
 	_assert_match_ended(engine, result.events, 0, MatchEngine.REASON_CONCEDE, _typed([3, 3]), 7)
+
+
+func test_concede_mid_round_counts_completed_rounds_and_keeps_the_table() -> void:
+	# C14: a concede in round 3 reports 2 rounds played (the round number still says 3).
+	# C15: the table is left exactly as it stood, a revealed card and a face-down commit
+	# included; only the phase, the result and the action count change.
+	var engine: MatchEngine = _started(SEED)
+	var outcomes: Array[int] = [0, TIE]
+	_play_rounds(engine, outcomes)
+	var play_turn: int = 5
+	while engine.energy() < play_turn:
+		var passed: ApplyResult = _pass(engine)
+		if not passed.ok:
+			fail("pass rejected with code %d" % passed.error)
+			return
+	var player: int = engine.awaited_seat()
+	var card: int = _cheapest(_hand(engine, player))
+	assert_int(_cost(card)).is_less_equal(play_turn)
+	var play: Array[int] = [card]
+	assert_bool(engine.apply(EngineAction.commit(player, play)).ok).is_true()
+	assert_bool(_pass(engine).ok).is_true()
+	# Turn 6: the player won turn 5, so it commits first, face down.
+	assert_int(engine.energy()).is_equal(play_turn + 1)
+	assert_int(engine.awaited_seat()).is_equal(player)
+	var held: Array[int] = [_cheapest(_hand(engine, player))]
+	assert_bool(engine.apply(EngineAction.commit(player, held)).ok).is_true()
+	assert_int(engine.awaited_seat()).is_equal(1 - player)
+	var before: Dictionary = engine.full_state()
+	var round_number: int = engine.view_for(0).round_number
+	assert_int(round_number).is_equal(3)
+	var result: ApplyResult = engine.apply(EngineAction.concede(player))
+	assert_bool(result.ok).is_true()
+	_assert_match_ended(
+		engine, result.events, 1 - player, MatchEngine.REASON_CONCEDE, _typed([1, 0]), 2
+	)
+	var ended: MatchEvent = _last(result.events, MatchEvent.Kind.MATCH_ENDED)
+	assert_int(_payload_int(ended, "rounds_played")).is_equal(round_number - 1)
+	# The full state differs from the pre-concede one only in phase, result and count.
+	var expected: Dictionary = before.duplicate(true)
+	var applied: int = before["actions_applied"]
+	expected["phase"] = MatchState.Phase.OVER
+	expected["result"] = {
+		"winner": 1 - player, "reason": MatchEngine.REASON_CONCEDE, "rounds_played": 2
+	}
+	expected["actions_applied"] = applied + 1
+	assert_dict(engine.full_state()).is_equal(expected)
+	assert_array(_state_ints(engine, "pending")).is_equal(held)
+	# Each view shows the table as left: hands, the revealed card and its score.
+	var power: int = _power(card)
+	for seat: int in range(2):
+		var view: SeatView = engine.view_for(seat)
+		assert_int(view.round_number).is_equal(round_number)
+		assert_int(view.turn).is_equal(play_turn + 1)
+		assert_array(view.own_hand).is_equal(_hand(engine, seat))
+		assert_array(view.own_hand).is_not_empty()
+		assert_array(view.board_of(player)).is_equal(play)
+		assert_array(view.board_of(1 - player)).is_empty()
+		assert_int(view.scores[player]).is_equal(power)
+		assert_int(view.scores[1 - player]).is_equal(0)
 
 
 # --- R25: match-end payload -------------------------------------------------------------
