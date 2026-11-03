@@ -96,7 +96,7 @@ stage_parse() {
 
 stage_boot() {
   local log="$LOG_DIR/boot.log"
-  timeout 60 "$GODOT_BIN" --headless --path . --quit-after "$BOOT_FRAMES" >"$log" 2>&1
+  timeout 60 "$GODOT_BIN" --headless --path . --quit-after "$BOOT_FRAMES" -- --seed=1 >"$log" 2>&1
   local code=$?
   [ "$code" -ne 124 ] || { fail "boot: did not quit after $BOOT_FRAMES frames within 60 s"; return 1; }
   if grep -qE "$ERR_RE" "$log"; then fail "boot reported errors:"; show_errors "$log"; return 1; fi
