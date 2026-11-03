@@ -1,0 +1,31 @@
+# Secrets (see .env.example and scripts/claude-with-env.sh)
+.env
+*.key
+
+# Godot per-machine caches and gate outputs
+godot/.godot/
+godot/reports/
+godot/override.cfg
+godot/addons/godot_mcp/cache/
+
+# Obsidian vault at docs/: per-machine state only. app.json, appearance.json,
+# core-plugins.json, community-plugins.json and plugin main.js/manifest.json are committed.
+docs/.obsidian/workspace.json
+docs/.obsidian/workspace-mobile.json
+docs/.obsidian/cache
+docs/.obsidian/plugins/*/data.json
+docs/.trash/
+docs/.smart-env/
+
+# Stale root vault left over from the archived repo; remove it from Obsidian's vault
+# switcher and this entry can go.
+/.obsidian/
+
+# Python tooling
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,37 @@
+[gd_scene load_steps=5 format=3 uid="uid://dxpc2iac0hjpw"]
+
+[ext_resource type="Script" uid="uid://d4d3temlx3l6a" path="res://addons/card_3d/scripts/card_3d.gd" id="1_ll0aq"]
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_a5dw2"]
+size = Vector2(2.5, 3.5)
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_o3bng"]
+size = Vector2(2.5, 3.5)
+
+[sub_resource type="ConvexPolygonShape3D" id="ConvexPolygonShape3D_21kd5"]
+points = PackedVector3Array(-1.25, 1.75, 0, -1.25, -1.75, 0, 1.25, -1.75, 0, 1.25, 1.75, 0)
+
+[node name="Card3D" type="Node3D"]
+script = ExtResource("1_ll0aq")
+
+[node name="CardMesh" type="Node3D" parent="."]
+
+[node name="CardBackMesh" type="MeshInstance3D" parent="CardMesh"]
+transform = Transform3D(-1, -8.74228e-08, -4.37114e-08, 4.37114e-08, 1.91069e-15, -1, 8.74228e-08, -1, 1.91069e-15, 0, 0, 0)
+mesh = SubResource("PlaneMesh_a5dw2")
+skeleton = NodePath("../..")
+
+[node name="CardFrontMesh" type="MeshInstance3D" parent="CardMesh"]
+transform = Transform3D(1, 0, 0, 0, -4.37114e-08, -1, 0, 1, -4.37114e-08, 0, 0, 0)
+mesh = SubResource("PlaneMesh_o3bng")
+skeleton = NodePath("../..")
+
+[node name="StaticBody3D" type="StaticBody3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StaticBody3D"]
+transform = Transform3D(1, 0, 0, 0, -1, 8.74228e-08, 0, -8.74228e-08, -1, 0, 0, 0)
+shape = SubResource("ConvexPolygonShape3D_21kd5")
+
+[connection signal="input_event" from="StaticBody3D" to="." method="_on_static_body_3d_input_event"]
+[connection signal="mouse_entered" from="StaticBody3D" to="." method="_on_static_body_3d_mouse_entered"]
+[connection signal="mouse_exited" from="StaticBody3D" to="." method="_on_static_body_3d_mouse_exited"]

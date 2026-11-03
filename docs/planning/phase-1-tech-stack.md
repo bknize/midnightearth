@@ -1,9 +1,14 @@
 ---
 type: planning
-phase: 1-tech-stack
+tags: [planning, phase-1]
 status: closed
+related: ["[[planning/planning-moc]]"]
 created: 2026-11-02
 updated: 2026-11-02
+uid: 0f3968e1-885c-4732-941f-388209e92578
+linear:
+supersedes:
+phase: 1-tech-stack
 ---
 
 # Phase 1 — Tech stack research and decisions

@@ -1,9 +1,14 @@
 ---
 type: planning
-phase: 2-dev-tools
+tags: [planning, phase-2]
 status: closed
+related: ["[[planning/planning-moc]]"]
 created: 2026-11-02
 updated: 2026-11-02
+uid: f15a4be6-95c4-4bbd-a816-517412cb4bde
+linear:
+supersedes:
+phase: 2-dev-tools
 ---
 
 # Phase 2 — Dev tools: Linear, Obsidian, orchestrator
