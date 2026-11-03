@@ -6,7 +6,7 @@ related: ["[[specs/cycle-2-board/plan]]", "[[specs/cycle-2-board/tasks]]", "[[sp
 created: 2026-11-03
 updated: 2026-11-03
 uid: 423d9379-b409-4570-b445-db2ed4a39bfb
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-2-board-b50bca125334
 supersedes:
 ---
 
