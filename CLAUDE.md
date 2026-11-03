@@ -58,7 +58,8 @@ After writing notes run `obsidian-cli vault=docs unresolved` and `… orphans`
 
 One team (key `NSC`), a project per spec, a milestone per dev
 cycle (`DC-NN <theme>`), labels `area/*`, `type/*`, `spec/<slug>`. Every issue carries a
-`## Spec` section with the vault uid link and the GitHub blob URL. The orchestrator pulls
+`## Spec` section with the vault uid link and the GitHub blob URL (on the cycle branch
+until `/cycle test` merges it, then rewritten to `master`). The orchestrator pulls
 issues through the Linear MCP; nothing is pushed from Linear.
 
 Issue status is the orchestrator's job, moved when the event actually happens, never
@@ -73,15 +74,22 @@ Linear access; they report, and the orchestrator updates Linear.
 ## Git
 
 Every changeset gets its own branch, cut from `master` before its first edit (never at
-commit time) and named for the set:
-`spec-<slug>` for a spec set, `exercise-<slug>` for its Linear write-back,
-`dc-NN-<theme>` for a dev cycle, `tooling-<topic>` or `docs-<topic>` for anything else.
-Nothing is committed directly on `master`: it only takes `--no-ff` merges of those
-branches, made when Ben asks or a verb's steps say so (`/cycle test`). Cycle branches
-carry one commit per task. Commit only when Ben asks or the task list says so. Commit
-messages end with the Co-Authored-By line the session provides. Never push unless Ben
-asks. Leave the main checkout on `master` between changesets; when another session may
-share it, create the branch with `git branch` and work in a `git worktree`.
+commit time) and named for the set. **A dev cycle is one changeset from spec to test**
+(`docs/decisions/0002-one-branch-per-cycle.md`): its branch is named for the spec slug,
+`cycle-N-<theme>`, cut at `/spec`, and carries the spec, the `/exercise` write-back, one
+commit per task, review fixes and the verification outcome. It merges into `master` only
+at `/cycle test`, when the cycle is complete. A cycle with no spec of its own cuts
+`cycle-N-<theme>` at `/cycle plan`, with the next unused N. Anything else is
+`tooling-<topic>` or `docs-<topic>`. Nothing is committed directly on `master`: it only
+takes `--no-ff` merges of those branches, made when Ben asks or a verb's steps say so
+(`/cycle test`). Commit only when Ben asks or the task list says so. Commit messages end
+with the Co-Authored-By line the session provides. Never push unless Ben asks.
+
+The main checkout sits on the cycle branch during `/spec` and `/exercise`, so the vault
+shows the new notes; from `/cycle plan` on, the branch lives in its own `git worktree`
+and the main checkout is back on `master`. Leave the main checkout on `master` between
+changesets; when another session may share it, create the branch with `git branch` and
+work in a worktree.
 
 ## Secrets (P6)
 
