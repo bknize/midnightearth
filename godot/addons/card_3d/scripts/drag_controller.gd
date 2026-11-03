@@ -98,7 +98,11 @@ func _on_pointer_pressed(pos: Vector2, hit: Object) -> void:
 
 
 func _on_pointer_drag_started(pos: Vector2, from_touch: bool) -> void:
-	if _dragging_card == null or _drag_from_collection == null or _dragging:
+	if _dragging_card == null or _drag_from_collection == null:
+		if not _dragging:
+			pointer.cancel() # nothing selected: leave the tracker's drag mode at once
+		return
+	if _dragging:
 		return
 	_drag_from_touch = from_touch
 	if is_instance_valid(_pointer_hovered_card):

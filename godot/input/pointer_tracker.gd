@@ -23,26 +23,33 @@ var _held: bool = false
 var _dragging: bool = false
 var _press_position: Vector2 = Vector2.ZERO
 var _press_from_touch: bool = false
+## A press the GUI took: it and the motion and release after it emit nothing (R25).
+var _blocked: bool = false
 
 
 func is_held() -> bool:
 	return _held
 
 
-## Feeds one input event; returns the pointer events it produces, in order.
-func feed(event: InputEvent) -> Array[PointerEvent]:
+## Feeds one input event; returns the pointer events it produces, in order. The shim passes
+## gui_blocked = true for a press over a Control that takes the mouse (R25).
+func feed(event: InputEvent, gui_blocked: bool = false) -> Array[PointerEvent]:
 	var out: Array[PointerEvent] = []
 	var button: InputEventMouseButton = event as InputEventMouseButton
 	if button != null:
-		_feed_button(button, out)
+		_feed_button(button, gui_blocked, out)
 		return out
 	var motion: InputEventMouseMotion = event as InputEventMouseMotion
 	if motion != null:
-		_feed_motion(motion, out)
+		if not _blocked:
+			_feed_motion(motion, out)
 		return out
 	var touch: InputEventScreenTouch = event as InputEventScreenTouch
 	if touch != null:
-		_feed_raw_touch(touch, out)
+		if touch.pressed and gui_blocked:
+			_blocked = true
+		elif not _blocked:
+			_feed_raw_touch(touch, out)
 	# InputEventScreenDrag and everything else never produce events.
 	return out
 
@@ -63,18 +70,26 @@ func cancel() -> Array[PointerEvent]:
 	return out
 
 
-func _feed_button(event: InputEventMouseButton, out: Array[PointerEvent]) -> void:
+func _feed_button(
+	event: InputEventMouseButton, gui_blocked: bool, out: Array[PointerEvent]
+) -> void:
 	if event.button_index != MOUSE_BUTTON_LEFT:
 		return
 	var touch: bool = event.device == InputEvent.DEVICE_ID_EMULATION
 	if event.pressed:
 		if _held:
 			return
+		_blocked = gui_blocked
+		if _blocked:
+			return
 		_held = true
 		_dragging = false
 		_press_position = event.position
 		_press_from_touch = touch
 		out.append(PointerEvent.new(PointerEvent.Kind.PRESS, event.position, touch))
+		return
+	if _blocked:
+		_blocked = false
 		return
 	if not _held:
 		return
