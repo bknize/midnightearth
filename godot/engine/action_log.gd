@@ -20,7 +20,8 @@ const INT64_MAX_DIGITS: String = "9223372036854775807"
 const INT64_MIN_TEXT: String = "-9223372036854775808"
 const INT64_MIN: int = -9223372036854775807 - 1
 ## Larger whole floats cannot be told apart from their neighbours, so they are rejected.
-const MAX_SAFE_FLOAT: float = 9007199254740992.0
+## The bound lives in EngineAction, which checks the action entries against it.
+const MAX_SAFE_FLOAT: float = EngineAction.MAX_SAFE_FLOAT
 const CHAR_ZERO: int = 48
 const CHAR_NINE: int = 57
 const CHAR_MINUS: int = 45

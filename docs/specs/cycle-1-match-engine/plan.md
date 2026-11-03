@@ -4,7 +4,7 @@ tags: [plan, cycle-1, match-engine]
 status: approved
 related: ["[[specs/cycle-1-match-engine/spec]]", "[[specs/cycle-1-match-engine/tasks]]", "[[planning/phase-1-tech-stack]]", "[[planning/phase-3-game-loop]]"]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-03
 uid: 46b0bcab-27ba-4afe-8c24-53e78ce931a6
 linear: https://linear.app/night-science-llc/project/cycle-1-match-engine-19d44055ce13
 supersedes:
@@ -119,7 +119,9 @@ either seat at any time before the match ends (R23), so `WRONG_SEAT` never appli
 | `CONCEDED` | `seat` | no |
 | `MATCH_ENDED` | `winner`, `reason` (`wins`, `rounds`, `sudden_death`, `concede`), `wins`, `rounds_played` | no |
 
-`ROUND_ENDED` implies both boards and hands are cleared; cycle 2 sweeps them off. The
+`ROUND_STARTED` implies both boards and hands are cleared; cycle 2 sweeps them off. The
+round that ends the match is not cleared (C15): after `MATCH_ENDED` the view keeps its
+final table. The
 redacted form of a private event keeps `seat` and replaces the card id with -1.
 
 ### Turn order (R17, R18, C9)

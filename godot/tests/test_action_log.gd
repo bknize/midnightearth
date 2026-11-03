@@ -682,6 +682,37 @@ func test_malformed_action_entries_give_null() -> void:
 		assert_object(ActionLog.from_json(text)).override_failure_message(text).is_null()
 
 
+func test_out_of_range_numbers_in_entries_give_null() -> void:
+	# 9007199254740994.0 is 2^53 + 2, the first whole float above MAX_SAFE_FLOAT. The
+	# fraction and exponent forms keep each a JSON float, never an int.
+	var entries: Array[String] = [
+		'{"k": "commit", "s": 0, "c": [1e30]}',
+		'{"k": "commit", "s": 0, "c": [-1e30]}',
+		'{"k": "commit", "s": 0, "c": [9007199254740994.0]}',
+		'{"k": "commit", "s": 0, "c": [-9007199254740994.0]}',
+		'{"k": "commit", "s": 0, "c": [3, 1e30]}',
+		'{"k": "commit", "s": 1e30, "c": []}',
+		'{"k": "concede", "s": -1e30}',
+	]
+	for entry: String in entries:
+		var text: String = _one_entry_log(entry)
+		assert_object(ActionLog.from_json(text)).override_failure_message(text).is_null()
+
+
+func test_in_range_card_numbers_in_entries_parse() -> void:
+	var text: String = _one_entry_log('{"k": "commit", "s": 1, "c": [3, 27.0, 9007199254740992.0]}')
+	var parsed: ActionLog = ActionLog.from_json(text)
+	assert_object(parsed).override_failure_message(text).is_not_null()
+	if parsed != null:
+		assert_int(parsed.actions.size()).is_equal(1)
+		assert_int(parsed.actions[0].seat).is_equal(1)
+		assert_array(parsed.actions[0].cards).is_equal(_typed([3, 27, 9007199254740992]))
+
+
+func _one_entry_log(entry: String) -> String:
+	return '{"format": 1, "rules": 1, "seed": "1", "actions": [' + entry + "]}"
+
+
 func test_valid_hand_written_log_parses_and_replays() -> void:
 	var engine: MatchEngine = _scripted(NEGATIVE_SEED, 0, 3)
 	var root: Dictionary = _parse(engine.action_log().to_json())

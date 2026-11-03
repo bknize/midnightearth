@@ -155,6 +155,21 @@ func test_commits_nothing_when_nothing_fits() -> void:
 	assert_array(_bot(1).choose(_view(1, none, 5)).cards).is_equal(none)
 
 
+func test_failed_card_data_makes_the_bot_pass() -> void:
+	# The documented fallback: with no valid card data no card is priced, so the only
+	# legal set is the empty one and the bot commits nothing for its own seat.
+	var broken: CardDb = CardDb.from_json("{}")
+	assert_bool(broken.is_valid()).is_false()
+	var none: Array[int] = []
+	# Valid data would price every card in this hand; broken data prices none.
+	var hand: Array[int] = [0, 3, 7, 13]
+	var bot: GreedyBot = GreedyBot.new(1, broken)
+	var action: EngineAction = bot.choose(_view(1, hand, 4))
+	assert_int(action.kind).is_equal(EngineAction.Kind.COMMIT)
+	assert_int(action.seat).is_equal(1)
+	assert_array(action.cards).is_equal(none)
+
+
 func test_commit_order_is_descending_power_then_ascending_id() -> void:
 	# Energy 5 affords all four: c05 (2/2), c04 (1/3), c03 (1/2), c02 (1/2).
 	var hand: Array[int] = [4, 3, 2, 1]
