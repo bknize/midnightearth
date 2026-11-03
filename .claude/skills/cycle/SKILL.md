@@ -22,9 +22,11 @@ dispatch, you merge, you test. Implementers never run Godot; you do. `$ARGUMENTS
 3. On the answer: `save_milestone` `DC-NN <theme>` on each touched project (a milestone
    belongs to a project; when the set spans projects, create the same-named milestone
    in each), then `save_issue` each chosen issue with that milestone.
-4. Create the branch `dc-NN-<theme>` from `master` (`git switch -c`). Record the set in
-   `docs/planning/cycles.md` (create from the note template if missing): milestone,
-   date, issues, theme. Report.
+4. Create the branch `git branch dc-NN-<theme> master` (never `git switch -c`: the main
+   checkout stays on `master`) and keep it in its own worktree:
+   `git worktree add <scratchpad>/dc-NN-<theme> dc-NN-<theme>`. On the cycle branch,
+   record the plan row in `docs/planning/cycles.md` (create from the note template if
+   missing): milestone, date, issues, theme. Report.
 
 ## /cycle run DC-NN
 
@@ -34,22 +36,31 @@ dispatch, you merge, you test. Implementers never run Godot; you do. `$ARGUMENTS
 2. For each wave: one `Agent` call per issue, `subagent_type` `implementer`
    (`implementer-engine` when the issue carries `area/engine` or touches
    `godot/engine/`), `isolation: "worktree"`, prompt = the issue's full description plus
-   the spec section it points at plus: "Branch from `dc-NN-<theme>`. Do not run Godot or
-   make. Report files changed and anything unverified." Three or more independent
-   issues in a wave may go through the Workflow tool instead, if Ben has opted in.
-3. When a wave returns: merge each worktree branch into `dc-NN-<theme>` (`--no-ff`,
-   message `cycle-NN: <issue id> <title>`); on conflict, resolve or re-dispatch with the
-   conflict in the brief. Run `scripts/check.sh` after every merge. A red gate stops the
+   the spec section it points at plus: "Agent worktrees are cut from `master`: first run
+   `git merge --ff-only dc-NN-<theme>`. Do not run Godot or make. Never commit. Report
+   files changed and anything unverified." Every brief also lists the typed-strict traps:
+   no `:=`; typed loop variables; never pass a Variant into `int()`, `str()` or a typed
+   parameter (assign to a typed local first); use the return values of `resize()`,
+   `Dictionary.erase()` and `pop_back()` outside tests; no `.uid` files. Three or more
+   independent issues in a wave may go through the Workflow tool instead, if Ben has
+   opted in.
+3. When a wave returns: commit each worktree as `dc-NN: <issue id or Tnn> <title>`, then
+   merge it from the cycle worktree into `dc-NN-<theme>` (`--no-ff`, message
+   `cycle-NN: <issue id> <title>`); on conflict, resolve or re-dispatch with the
+   conflict in the brief. Run `scripts/check.sh` there after every merge; after a green
+   gate fold any generated `.uid` files into the merge commit. A red gate stops the
    wave: open the report, either fix a one-line problem yourself or re-dispatch the
-   issue with the gate output. Move the issue to `In Review` in Linear with a one-line
-   comment naming the merge commit.
+   issue with the gate output. Run planted-failure checks under `timeout 120`. Move the
+   issue to `In Review` in Linear with a one-line comment naming the merge commit.
 4. Optional: dispatch `reviewer` on the wave's diff before merging when the wave touches
    `godot/engine/`.
 5. Report after each wave: merged, gate result, remaining waves.
 
 ## /cycle test DC-NN
 
-The acceptance ritual (P7). A cycle is done only when every box is ticked.
+The acceptance ritual (P7). A cycle is done only when every box is ticked. A spec may
+waive the screenshot for an engine- or tooling-only cycle (DC-01 C12): then the proof is
+the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
 
 1. `scripts/check.sh` on `dc-NN-<theme>`: must exit 0. Paste the stage summary.
 2. Open the Godot editor on `godot/` (ask Ben if it is not already open; the MCP needs
@@ -61,7 +72,7 @@ The acceptance ritual (P7). A cycle is done only when every box is ticked.
    `godot/reports/DC-NN/<issue>.png` (gitignored) and upload each to Linear with
    `prepare_file_upload` for the status update.
 4. Merge `dc-NN-<theme>` into `master` with `--no-ff` (message `cycle-NN: <theme>`),
-   only after 1–3 pass. Do not push unless Ben asks.
+   only after 1–3 pass, from the main checkout. Do not push unless Ben asks.
 5. Linear: `save_status_update` on each touched project ("DC-NN done": gate summary,
    screenshots, what was verified, what was left out); move every DC-NN issue to
    `Done`; create follow-up issues (`type/bug` or `type/chore`, label `spec/<slug>`) for
@@ -75,6 +86,7 @@ The acceptance ritual (P7). A cycle is done only when every box is ticked.
 
 - Never dispatch an implementer with Godot MCP tools or `make`; the agent files already
   exclude them, do not override with `tools` in the Agent call.
-- Never skip the screenshot: a cycle without one per feature is not done.
+- Never skip the screenshot unless the spec waives it: a cycle without one per feature
+  is not done.
 - Never push, never force, never rewrite history on `master`.
 - Keep Linear truthful: state changes happen when the merge or test actually happened.
