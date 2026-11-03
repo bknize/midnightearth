@@ -38,26 +38,36 @@ patch, the driver, the steps and the scenes.
 
 ## Verification task (11)
 
-- [ ] `make check` exits 0; the test stage lists `test_pointer_tracker`, `test_staging`,
-      `test_board_steps` and `test_match_driver`, all passing.
-- [ ] The boot log holds `Engine smoke: seed=1 …` then `Main ready`, and no error line.
-- [ ] MCP `run_scene` on `board/verify/board_autoplay.tscn`; `get_runtime_log` holds
+Run 2026-11-03 on `dc-03-board` with the editor opened on the cycle worktree.
+
+- [x] `make check` exits 0 (20 s, 237 cases); `test_pointer_tracker` (34),
+      `test_staging` (16), `test_board_steps` (10) and `test_match_driver` (4) all pass.
+- [x] The boot log holds `Engine smoke: seed=1 winner=0 wins=4-0 rounds=4 end=wins
+      actions=56` then `Main ready`, and no error line. The editor run of the main scene
+      first showed one GDScript warning (`pointer_shim.gd:40`, int assigned to `Error`);
+      fixed as `dc-03: T11 verification fix`, then 0 errors and 0 warnings.
+- [x] MCP `run_scene` on `board/verify/board_autoplay.tscn`: the editor output holds
       `Board: match ended seed=1 winner=0 wins=4-0 rounds=4 end=wins actions=56` and no
       error line.
-- [ ] MCP `run_scene` on `board/verify/board_seed1.tscn`; read seat 0's hand through
-      `query_runtime_node`; with `send_input` mouse press, motion and release: drag an
-      affordable card onto `PlayerRow` (staged, energy readout drops), drag a card that
-      costs more than the energy left (refused, back in hand), press and release without
-      moving (table unchanged).
-- [ ] **Screenshot 1:** mid-turn with a card staged on `PlayerRow`.
-- [ ] Click Commit; the runtime log or a node query shows the turn resolved.
-- [ ] Click the pause button, then Concede; the result panel shows the bot winning by
-      concede over the final table.
-- [ ] **Screenshot 2:** the match-end result panel.
-- [ ] Click Rematch; a node query shows round 1 dealt again.
-- [ ] Two screenshots in all (C11); the Linear status update carries both, the
-      `Board:` line and the suite counts.
-- [ ] `obsidian-cli vault=docs unresolved` and `… orphans` report nothing new.
+- [x] MCP `run_scene` on `board/verify/board_seed1.tscn`, turn 1, energy 1, hand ids 19,
+      8, 0, 6. A press and release without moving left the table unchanged (R20).
+      Dragging id 0 (cost 1) onto `PlayerRow` staged it and the readout showed
+      `Energy 0 / 1` with the button reading Commit. Dragging id 6 (cost 2) was refused:
+      mid-drag the controller held it over `PlayerRow`, which also shows mask-0 MCP motion
+      drags (R22); on release it was back in the hand and the energy flash tween ran.
+- [x] **Screenshot 1:** `godot/reports/DC-03/drag-staged.png` (gitignored).
+- [x] Clicking Commit resolved the turn: id 0 committed, scores 1–3, turn 2 awaited.
+- [x] Pause, then Concede. The first real click on Concede closed the menu without
+      conceding and did not reproduce; the same clicks after Rematch printed
+      `Board: match ended seed=2 winner=1 wins=0-0 rounds=0 end=concede actions=2` with
+      the result panel over the table. Follow-up filed.
+- [x] **Screenshot 2:** `godot/reports/DC-03/match-end.png`, the result panel over the
+      final table at the end of the seed-1 autoplay match.
+- [x] Clicking Rematch hid the result panel, cleared both rows and dealt a fresh 4-card
+      hand; the next match ran on seed 2 (seed 1 + 1, R43).
+- [x] Two screenshots kept (C11). A third, taken while probing the concede click, was
+      deleted unread.
+- [x] `obsidian-cli vault=docs unresolved` and `… orphans` report nothing new.
 
 ## Linear (exercised 2026-11-03)
 
