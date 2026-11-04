@@ -332,7 +332,7 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.WALK_STARTED:
 			keys = ["round", "turn", "first_seat"]
 		MatchEvent.Kind.CARD_SCORED:
-			keys = ["seat", "card", "slot", "flat", "bonus", "mult", "added", "score"]
+			keys = ["seat", "card", "slot", "flat", "bonus", "mult", "added", "score", "again"]
 		MatchEvent.Kind.TURN_ENDED:
 			keys = ["round", "turn", "scores", "winner"]
 		MatchEvent.Kind.ROUND_ENDED:

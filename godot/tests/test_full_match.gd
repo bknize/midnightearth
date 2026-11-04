@@ -12,11 +12,12 @@ extends GdUnitTestSuite
 ## seeded GreedyBot.seed_for(match_seed, seat), asked only for the awaited seat. A harness
 ## cap of MAX_ACTIONS fails a runaway match instead of hanging the test stage.
 
-# GOLDEN (re-pinned by the orchestrator at DC-05 T14, 2026-11-04)
+# GOLDEN (unpinned at DC-06 T01: rules version 3 changes the walk; re-pinned at DC-06 T09)
 # Seed 1's bot-vs-bot result, in the smoke line's terms: winner, round wins as "a-b",
 # rounds played, end reason, accepted actions. While GOLDEN_WINNER is GOLDEN_UNPINNED the
-# golden test is skipped with GOLDEN_SKIP_NOTE. Pin by replacing these five literals.
-const GOLDEN_WINNER: int = 0
+# golden test is skipped with GOLDEN_SKIP_NOTE. Pin by replacing these five literals (the
+# other four still hold the DC-05 values).
+const GOLDEN_WINNER: int = GOLDEN_UNPINNED
 const GOLDEN_WINS: String = "4-2"
 const GOLDEN_ROUNDS: int = 6
 const GOLDEN_REASON: String = "wins"
@@ -26,7 +27,7 @@ const GOLDEN_ACTIONS: int = 114
 ## Sentinel winner meaning "not pinned yet".
 const GOLDEN_UNPINNED: int = -2
 const GOLDEN_SKIP_NOTE: String = (
-	"re-pinned at DC-05 T14 (card data format 2): pin GOLDEN_WINNER, GOLDEN_WINS,"
+	"re-pinned at DC-06 T09 (rules version 3): pin GOLDEN_WINNER, GOLDEN_WINS,"
 	+ " GOLDEN_ROUNDS, GOLDEN_REASON and GOLDEN_ACTIONS from seed 1's smoke line"
 )
 const SEED: int = 1
@@ -455,7 +456,7 @@ func test_seed_1_is_the_same_match_every_time() -> void:
 
 
 ## The pinned golden result. Skipped, with GOLDEN_SKIP_NOTE as the reason, until the
-## orchestrator pins the GOLDEN block at DC-05 T14.
+## orchestrator pins the GOLDEN block at DC-06 T09.
 func test_seed_1_matches_the_golden_result(
 	_do_skip: bool = GOLDEN_WINNER == GOLDEN_UNPINNED, _skip_reason: String = GOLDEN_SKIP_NOTE
 ) -> void:
