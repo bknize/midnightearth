@@ -8,6 +8,8 @@ extends Control
 signal picked(deck_ids: Array[String])
 
 const COLUMN_TITLES: Array[String] = ["You", "Bot"]
+## A tile's minimum width; its text wraps rather than grow the column.
+const TILE_MIN_WIDTH: float = 240.0
 
 var _state: DeckPickState = DeckPickState.new()
 var _decks: DeckList = null
@@ -65,7 +67,10 @@ func _build_column(column: int) -> void:
 		tile.name = deck_id
 		tile.text = "%s\n%s" % [deck_name, theme_line]
 		tile.toggle_mode = true
-		tile.custom_minimum_size = Vector2(0, 96)
+		# The theme line wraps inside the column instead of widening the picker past the
+		# window (seen at T13: both columns ran off a 1280 px window).
+		tile.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tile.custom_minimum_size = Vector2(TILE_MIN_WIDTH, 96)
 		var err: int = tile.pressed.connect(_on_tile_pressed.bind(column, deck_id))
 		if err != OK:
 			push_warning("DeckPicker: could not connect tile %s" % deck_id)
