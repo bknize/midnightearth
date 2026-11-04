@@ -6,7 +6,7 @@ related: ["[[specs/cycle-5-walk-cursor/spec]]", "[[specs/cycle-5-walk-cursor/pla
 created: 2026-11-04
 updated: 2026-11-04
 uid: 1be9b5c2-635a-4d40-871c-af1d0f2e7ea2
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-5-the-walk-cursor-a06cd75587c4
 supersedes:
 ---
 
@@ -76,15 +76,27 @@ Owned by the orchestrator, on `cycle-5-walk-cursor`, editor opened on the cycle 
 - [ ] No GDScript warning in the editor run; `obsidian-cli vault=docs orphans` reports
       nothing new (`unresolved` if the CLI build has it).
 
-## Linear
+## Linear (exercised 2026-11-04)
 
-Filled by `/exercise cycle-5-walk-cursor`. Empty until then.
+- Project: [Cycle 5 — the walk cursor](https://linear.app/night-science-llc/project/cycle-5-the-walk-cursor-a06cd75587c4)
+  (P-NSC-6, `planned`)
+- Milestone: `DC-06 walk-cursor` (created at `/cycle plan`)
+- Label: `spec/cycle-5-walk-cursor`
 
-- Project: Cycle 5 — the walk cursor
-- Milestone: `DC-06 walk-cursor`
-- Issue mapping: task n is issue NSC-m (T01 = … T09 = …)
-- Follow-ups touched: NSC-73 closes at `/cycle test` (R33–R35); NSC-74 stays in Backlog
-  with the T09 numbers as a comment.
+| Task | Issue | Blocked by |
+|---|---|---|
+| T01 The slot cursor | NSC-76 | – |
+| T02 Destroyed as a card state | NSC-77 | NSC-76 |
+| T03 Preview and sweep | NSC-78 | NSC-77 |
+| T04 Board steps and score tracker | NSC-79 | NSC-76 |
+| T05 The destroyed look | NSC-80 | NSC-79 |
+| T06 Score chips, row tally and HUD count-up | NSC-81 | NSC-79, NSC-80 |
+| T07 The prompt reader | NSC-82 | NSC-81 |
+| T08 Review | NSC-83 | NSC-76 to NSC-82 |
+| T09 Verification | NSC-84 | NSC-76 to NSC-83 |
+
+Follow-ups touched: NSC-73 closes at `/cycle test` (R33–R35); NSC-74 stays in Backlog
+with the T09 numbers as a comment.
 
 ## Commit plan
 

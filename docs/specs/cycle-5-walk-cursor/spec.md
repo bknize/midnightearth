@@ -6,7 +6,7 @@ related: ["[[specs/cycle-5-walk-cursor/plan]]", "[[specs/cycle-5-walk-cursor/tas
 created: 2026-11-04
 updated: 2026-11-04
 uid: 7d2789fb-7ac5-4a11-9226-2e4b6d7bf00a
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-5-the-walk-cursor-a06cd75587c4
 supersedes:
 ---
 
