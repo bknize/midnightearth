@@ -27,6 +27,9 @@ static func step_touches(
 		BoardStep.Kind.STATS, BoardStep.Kind.DESTROY, BoardStep.Kind.CLEAR_DESTROYED:
 			# Restat, mark or clear: the step names the held card.
 			return held_id >= 0 and step.card == held_id
+		BoardStep.Kind.UNREVEAL, BoardStep.Kind.RECOVER:
+			# Flip down or take from a pile: the step names the held card.
+			return held_id >= 0 and step.card == held_id
 		BoardStep.Kind.RETURN, BoardStep.Kind.DISCARD, BoardStep.Kind.BURN:
 			# Remove or send away: the step names the held card.
 			return held_id >= 0 and step.card == held_id
@@ -49,7 +52,7 @@ static func step_touches(
 ## A swap reorders a whole row and its second half may name the other card, so any move on the
 ## row the held card sits on, or naming it, would move it.
 static func _moves_row_of(step: BoardStep, held_id: int, held_place: Place) -> bool:
-	if held_id >= 0 and step.card == held_id:
+	if held_id >= 0 and (step.card == held_id or step.cards.has(held_id)):
 		return true
 	if step.seat == 0:
 		return held_place == Place.ROW

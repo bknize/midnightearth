@@ -58,7 +58,17 @@ var _base_face: Color = Color.WHITE
 func show_def(def: CardDef) -> void:
 	_name_label.text = def.name
 	_cost_label.text = str(def.cost)
-	_set_numbers(def.flat, def.bonus)
+	var times: int = ScoreTracker.MULT_ONE
+	var plus: int = 0
+	if "times" in def or "plus" in def:
+		var raw_times: Variant = def.get("times")
+		var raw_plus: Variant = def.get("plus")
+		times = raw_times if raw_times is int else ScoreTracker.MULT_ONE
+		plus = raw_plus if raw_plus is int else 0
+	elif def.bonus != 0:
+		# Until CardDef carries {times, plus}: the printed bonus is a whole-number multiplier.
+		times = def.bonus * ScoreTracker.MULT_ONE
+	_set_numbers(def.flat, times, plus)
 	if def.effect != null:
 		_text_label.text = def.effect.text
 	else:
@@ -67,10 +77,10 @@ func show_def(def: CardDef) -> void:
 
 ## Updates the shown flat and bonus and pulses the label that changed (R42). The tweens are
 ## owned by the labels, so a card freed mid-pulse takes them along.
-func show_stats(flat: int, bonus: int) -> void:
+func show_stats(flat: int, times: int, plus: int) -> void:
 	var flat_changed: bool = _flat_label.text != str(flat)
-	var bonus_changed: bool = _bonus_label.text != _bonus_text(bonus)
-	_set_numbers(flat, bonus)
+	var bonus_changed: bool = _bonus_label.text != bonus_text(times, plus)
+	_set_numbers(flat, times, plus)
 	if flat_changed:
 		_flat_pulse = _pulse(_flat_label, _flat_pulse)
 	if bonus_changed:
@@ -131,9 +141,7 @@ func flash_note(text: String, seconds: float) -> void:
 	note.position = Vector3(0.0, 0.0, NOTE_Z)
 	add_child(note)
 	var tween: Tween = note.create_tween()
-	var fade: PropertyTweener = tween.tween_property(
-		note, "modulate:a", 0.0, maxf(seconds, 0.01)
-	)
+	var fade: PropertyTweener = tween.tween_property(note, "modulate:a", 0.0, maxf(seconds, 0.01))
 	if fade == null:
 		note.queue_free()
 		return
@@ -146,9 +154,7 @@ func flash_note(text: String, seconds: float) -> void:
 ## card, the sign alternating with slot parity so neighbours do not match.
 static func tilt_for_slot(slot: int) -> Vector3:
 	var sign_of: float = 1.0 if slot % 2 == 0 else -1.0
-	return Vector3(
-		deg_to_rad(TILT_X_DEGREES) * -sign_of, 0.0, deg_to_rad(TILT_Z_DEGREES) * sign_of
-	)
+	return Vector3(deg_to_rad(TILT_X_DEGREES) * -sign_of, 0.0, deg_to_rad(TILT_Z_DEGREES) * sign_of)
 
 
 ## Marks or unmarks the card as destroyed (R26). The dim, tilt and crack fade in over
@@ -208,16 +214,21 @@ func _fade_glow(alpha: float, source: Material) -> void:
 	set_glow(source, alpha)
 
 
-func _set_numbers(flat: int, bonus: int) -> void:
+func _set_numbers(flat: int, times: int, plus: int) -> void:
 	_flat_label.text = str(flat)
-	_bonus_label.text = _bonus_text(bonus)
-	_bonus_label.visible = bonus != 0
+	_bonus_label.text = bonus_text(times, plus)
+	_bonus_label.visible = _bonus_label.text != ""
 
 
-func _bonus_text(bonus: int) -> String:
-	if bonus == 0:
-		return ""
-	return "+%d" % bonus
+## The face's bonus text from a hundredths `times` and whole `plus`: "×1.25", "+1", "×1.25 +1"
+## when a card carries both, and "" for a vanilla card (R44).
+static func bonus_text(times: int, plus: int) -> String:
+	var parts: Array[String] = []
+	if times != ScoreTracker.MULT_ONE:
+		parts.append(ScoreChips.mult_text(times))
+	if plus != 0:
+		parts.append("+%d" % plus)
+	return " ".join(parts)
 
 
 func _pulse(label: Label3D, running: Tween) -> Tween:

@@ -1,3 +1,4 @@
+# gdlint: ignore=max-public-methods
 class_name BoardHud
 extends CanvasLayer
 ## The board's 2D overlay (R10, R14, R16, R40, R42, R43). Pure view: setters in, button
@@ -23,6 +24,7 @@ var _energy_tween: Tween
 var _action_button: Button = null
 
 var _score_labels: Array[Label] = []
+var _destroyed_labels: Array[Label] = []
 var _pip_rows: Array[HBoxContainer] = []
 ## The number each score label is heading for (what it shows once any count ends).
 var _shown: Array[int] = [0, 0]
@@ -30,6 +32,8 @@ var _count_tweens: Array[Tween] = [null, null]
 
 @onready var _score_label_0: Label = %ScoreLabel0
 @onready var _score_label_1: Label = %ScoreLabel1
+@onready var _destroyed_label_0: Label = %DestroyedLabel0
+@onready var _destroyed_label_1: Label = %DestroyedLabel1
 @onready var _pips_0: HBoxContainer = %Pips0
 @onready var _pips_1: HBoxContainer = %Pips1
 @onready var _round_label: Label = %RoundLabel
@@ -48,6 +52,8 @@ var _count_tweens: Array[Tween] = [null, null]
 func _ready() -> void:
 	_score_labels.append(_score_label_0)
 	_score_labels.append(_score_label_1)
+	_destroyed_labels.append(_destroyed_label_0)
+	_destroyed_labels.append(_destroyed_label_1)
 	_pip_rows.append(_pips_0)
 	_pip_rows.append(_pips_1)
 
@@ -109,6 +115,12 @@ func shown_score(seat: int) -> int:
 ## The text of `seat`'s score label.
 func score_label_text(seat: int) -> String:
 	return _score_labels[seat].text
+
+
+## Each side's destroyed-pile count (R46), seat 0 first.
+func set_destroyed(counts: Array[int]) -> void:
+	for seat: int in range(mini(counts.size(), _destroyed_labels.size())):
+		_destroyed_labels[seat].text = "Destroyed %d" % counts[seat]
 
 
 func set_wins(wins: Array[int]) -> void:

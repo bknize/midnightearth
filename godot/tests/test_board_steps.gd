@@ -332,8 +332,9 @@ func _scored_event(card: int, seat: int = 0) -> MatchEvent:
 			"card": card,
 			"slot": 1,
 			"flat": 2,
-			"bonus": 1,
-			"mult": 3,
+			"times": 150,
+			"plus": 0,
+			"mult": 150,
 			"added": 9,
 			"score": 12,
 		}
@@ -370,8 +371,9 @@ func test_reveal_then_score_is_one_flip_pulse() -> void:
 	assert_int(pulse.card).is_equal(4)
 	assert_int(pulse.slot).is_equal(1)
 	assert_int(pulse.flat).is_equal(2)
-	assert_int(pulse.bonus).is_equal(1)
-	assert_int(pulse.mult).is_equal(3)
+	assert_int(pulse.times).is_equal(150)
+	assert_int(pulse.plus).is_equal(0)
+	assert_int(pulse.mult).is_equal(150)
 	assert_int(pulse.added).is_equal(9)
 	assert_int(pulse.score).is_equal(12)
 
@@ -396,7 +398,7 @@ func test_a_score_with_no_reveal_is_a_revealed_pulse() -> void:
 	assert_float(step.chip_delay).is_equal_approx(0.0, EPSILON)
 	assert_float(step.delay).is_equal_approx(0.0, EPSILON)
 	assert_int(step.added).is_equal(9)
-	assert_int(step.mult).is_equal(3)
+	assert_int(step.mult).is_equal(150)
 
 
 func test_effect_event_steps_and_durations() -> void:
