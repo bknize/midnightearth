@@ -14,7 +14,7 @@ const MULT_ONE: int = 100
 var tally: Array[int] = [0, 0]
 var tally_mults: Array[int] = [MULT_ONE, MULT_ONE]
 ## Cards in each seat's destroyed pile: grows at DESTROYED_CLEARED, shrinks at RECOVER, and
-## empties at CLEAR_TABLE (round start burns the piles).
+## empties at ROUND_END and CLEAR_TABLE (the round end burns the piles).
 var destroyed: Array[int] = [0, 0]
 ## The HUD's score per seat: the last turn's total.
 var held: Array[int] = [0, 0]
@@ -41,6 +41,9 @@ func apply(step: BoardStep) -> void:
 			tally_mults.assign([MULT_ONE, MULT_ONE])
 		BoardStep.Kind.CLEAR_TABLE:
 			reset()
+		BoardStep.Kind.ROUND_END:
+			# The engine moves each pile into burned at round end (P6).
+			destroyed.assign([0, 0])
 		BoardStep.Kind.CLEAR_DESTROYED:
 			_count_pile(step.seat, 1 if step.pile else 0)
 		BoardStep.Kind.RECOVER:

@@ -387,6 +387,7 @@ func _end_wait() -> void:
 
 
 func _apply(step: BoardStep) -> void:
+	_fx.note_step(step)
 	_tracker.apply(step)
 	hud.set_destroyed(_tracker.destroyed)
 	match step.kind:

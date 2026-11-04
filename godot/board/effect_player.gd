@@ -29,6 +29,8 @@ var glow_material: Material = null
 var player_cards: Dictionary[int, BoardCard] = {}
 var committed_ids: Dictionary[int, bool] = {}
 var face_down_ids: Dictionary[int, bool] = {}
+## The seat whose RECOVER played just before the current step; -1 when none.
+var _recovered_seat: int = -1
 
 # --- The walk ---------------------------------------------------------------------------
 
@@ -115,15 +117,58 @@ func clear_destroyed(step: BoardStep) -> void:
 	_sweep_off_row(step.seat, card, step.duration)
 
 
-## A burn from a row (a returned card that found a full hand): true when the card was on a
-## row and has swept off, false when it is a deck or hand burn the board spawns itself.
+## A burn of a card the board already holds: a returned card that found a full hand (on a row)
+## or a recovered one that found a full hand (in the hand, R19). True when the card has swept
+## off; false when it is a deck burn the board spawns itself.
 func burn_from_row(step: BoardStep) -> bool:
-	if step.card < 0:
+	if step.card >= 0:
+		var card: BoardCard = _find_in_row(step.seat, step.card, -1)
+		if card != null and card.instance_id == step.card:
+			_sweep_off_row(step.seat, card, step.duration)
+			return true
+	return _burn_from_hand(step)
+
+
+## Tells the player which step just played, so a hidden burn right after the seat's RECOVER
+## is known to be that recovered card (the opponent's id is hidden).
+func note_step(step: BoardStep) -> void:
+	if step.kind == BoardStep.Kind.RECOVER:
+		_recovered_seat = step.seat
+	elif step.kind != BoardStep.Kind.BURN:
+		_recovered_seat = -1
+
+
+## Which hand card a burn takes, by index into `hand_ids` (the instance id of each hand card,
+## -1 for a back): the player's by its id; the opponent's hidden burn takes the last card when
+## `recovered_seat` says its recovery came just before. -1 for a deck burn.
+static func hand_burn_index(
+	hand_ids: Array[int], step_card: int, seat: int, recovered_seat: int
+) -> int:
+	if step_card >= 0:
+		return hand_ids.find(step_card) if seat == 0 else -1
+	if seat != 0 and recovered_seat == seat and not hand_ids.is_empty():
+		return hand_ids.size() - 1
+	return -1
+
+
+func _burn_from_hand(step: BoardStep) -> bool:
+	var hand: CardCollection3D = _hand_of(step.seat)
+	var ids: Array[int] = []
+	for held: Card3D in hand.cards:
+		var named: BoardCard = held as BoardCard
+		ids.append(-1 if named == null else named.instance_id)
+	var index: int = hand_burn_index(ids, step.card, step.seat, _recovered_seat)
+	_recovered_seat = -1
+	if index < 0:
 		return false
-	var card: BoardCard = _find_in_row(step.seat, step.card, -1)
-	if card == null or card.instance_id != step.card:
-		return false
-	_sweep_off_row(step.seat, card, step.duration)
+	var card: BoardCard = hand.cards[index] as BoardCard
+	var placed: Transform3D = card.global_transform
+	hand.card_move_tween_duration = maxf(step.duration, MIN_TWEEN_TIME)
+	var removed: Card3D = hand.remove_card(index)
+	loose.add_child(removed)
+	removed.global_transform = placed
+	_forget(card.instance_id)
+	fly_out(removed, step.duration)
 	return true
 
 
