@@ -33,7 +33,13 @@ extends RefCounted
 ## - DISCARD_OWN (DC-07 P12): OWN_HAND, every position.
 ## - DESTROY_OWN_THEN_DRAW, DESTROY_OWN_THEN_FLAT_UP (DC-07 P12): OWN_BOARD, every live card
 ##   but the source, revealed or not.
-## Any other verb needs no choice: eligible() gives zone -1 and no options.
+## - COPY_STATS (DC-07 P12): OPPONENT_BOARD, every revealed live card.
+## - MOVE_OPPONENT_LEFT (DC-07 P12): OPPONENT_BOARD, every position but slot 0, face down or
+##   destroyed included: a face-down card is chosen by its position and its id stays hidden.
+## - SWAP_OPPONENT_RIGHT (DC-07 P12): OPPONENT_BOARD, every position but the rightmost, face
+##   down or destroyed included.
+## Any other verb needs no choice: eligible() gives zone -1 and no options. The three
+## OPPONENT_BOARD verbs are DriftEffects' (DC-07 T07).
 ##
 ## Multi-select prompts (DC-07 P7, R22-R25): the prompt carries `multi` (KEY_MULTI) true;
 ## every prompt carries the key, false for a single-target one. is_valid_set() checks a set
@@ -85,6 +91,7 @@ static func needs_choice(verb: int) -> bool:
 		or verb == CardEffect.Verb.DISCARD_OWN
 		or verb == CardEffect.Verb.DESTROY_OWN_THEN_DRAW
 		or verb == CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP
+		or zone_for(verb) == Zone.OPPONENT_BOARD
 	)
 
 
@@ -132,6 +139,10 @@ static func zone_for(verb: int) -> int:
 			return Zone.BOTH_BOARDS
 		CardEffect.Verb.RECOVER_DESTROYED:
 			return Zone.BOTH_DESTROYED
+		CardEffect.Verb.COPY_STATS, CardEffect.Verb.MOVE_OPPONENT_LEFT:
+			return Zone.OPPONENT_BOARD
+		CardEffect.Verb.SWAP_OPPONENT_RIGHT:
+			return Zone.OPPONENT_BOARD
 	return NO_ZONE
 
 
@@ -243,6 +254,13 @@ static func _is_eligible(
 			return card != source and not state.is_destroyed(card)
 		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
 			return card != source and not state.is_destroyed(card)
+		CardEffect.Verb.COPY_STATS:
+			return _is_live_and_revealed(state, seat, zone, index, card)
+		CardEffect.Verb.MOVE_OPPONENT_LEFT:
+			return index > 0
+		CardEffect.Verb.SWAP_OPPONENT_RIGHT:
+			# A card stands to its right: the next position is on the same row.
+			return seat_at(state, seat, zone, index + 1) >= 0
 	return false
 
 

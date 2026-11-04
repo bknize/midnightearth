@@ -28,6 +28,11 @@ extends RefCounted
 ##   RuinEffects' (no prompt); DISCARD_OWN, DESTROY_OWN_THEN_DRAW and
 ##   DESTROY_OWN_THEN_FLAT_UP are prompt verbs (below). UNREVEAL_INSTEAD is an ongoing
 ##   marker read by destroy(); it never fires.
+## - The Drift verbs (DC-07 T07, P8, P11, P12, R26, R28, R29, R33, R34) are DriftEffects':
+##   MOVE_SELF_LEFT, MOVE_SELF_RIGHT, SHIFT_OWN_LEFT, REVERSE_OPPONENT_ROW and PLUS_ON_MOVED
+##   need no target; COPY_STATS, MOVE_OPPONENT_LEFT and SWAP_OPPONENT_RIGHT are prompt verbs
+##   whose consequence is DriftEffects.apply_choice(). NEIGHBOUR_TIMES and EDGE_LEFT_TIMES
+##   are ongoing parts read by ScoreWalk.effective(); they never fire.
 ## - FLAT_UP_ON_SCORE (amount): `flat_delta += amount`, STATS_CHANGED (cause flat_up).
 ## - CARRY_ENERGY (ongoing): `carry[owner] = budget - spent[owner]`, ENERGY_CARRIED
 ##   {seat, amount}. Only settle_energy() fires it, at turn end.
@@ -46,12 +51,13 @@ extends RefCounted
 ##     discards one card of the owner's hand to its burn pile: CARD_DISCARDED {seat, card},
 ##     private to the owner.
 ##   - SWAP_PLACES: the source and another card of the owner's row exchange slots: two
-##     CARD_MOVED {seat, card, from_slot, to_slot}, the source's first. A face-down card's
-##     move is private to its seat. The walk's slot cursor decides what scores next
-##     (DC-06 R5-R11, C23): a card moved behind the cursor is not reached again this walk,
-##     a card moved ahead of it is pulsed again there, and the pulse running the swap
-##     scores the card that landed on its slot (revealing it first if face down), not the
-##     source.
+##     CARD_MOVED {seat, card, from_slot, to_slot}, the source's first, through
+##     DriftEffects.swap() since DC-07 T07 (so a moved revealed card's ON_MOVED fires). A
+##     face-down card's move is private to its seat. The walk's slot cursor decides what
+##     scores next (DC-06 R5-R11, C23): a card moved behind the cursor is not reached again
+##     this walk, a card moved ahead of it is pulsed again there, and the pulse running the
+##     swap scores the card that landed on its slot (revealing it first if face down), not
+##     the source.
 ##   - DISCARD_OWN (DC-07 R27, C17): one card of the owner's hand to its burn pile, as
 ##     DRAW_THEN_DISCARD's discard (CARD_DISCARDED, private). An empty hand fizzles and the
 ##     card still scores. Every table row has amount 1: one choice, one discard.
@@ -163,28 +169,39 @@ static func apply(
 			_carry(state, seat, outcome)
 		CardEffect.Verb.DRAW_THEN_DISCARD:
 			_draw(state, seat, effect.amount, outcome)
-			_ask(state, cards, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, policy, seat, card, effect, outcome)
 		CardEffect.Verb.SWAP_PLACES, CardEffect.Verb.RETURN_AT_TURN_END:
 			# A target, then the verb.
-			_ask(state, cards, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, policy, seat, card, effect, outcome)
 		CardEffect.Verb.DISCARD_OWN, CardEffect.Verb.DESTROY_OWN_THEN_DRAW:
 			# A card of the owner's hand or row (DC-07 P12), then the verb.
-			_ask(state, cards, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, policy, seat, card, effect, outcome)
 		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
-			_ask(state, cards, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, policy, seat, card, effect, outcome)
 		CardEffect.Verb.DESTROY_LEFTMOST_OWN:
 			RuinEffects.destroy_leftmost(state, cards, seat, card, outcome)
 		CardEffect.Verb.BURST:
 			RuinEffects.burst(state, cards, rng, policy, seat, card, outcome)
 		CardEffect.Verb.RECOVER_DESTROYED:
 			# A card from either destroyed pile (DC-07 P12), then the recovery.
-			_ask(state, cards, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, policy, seat, card, effect, outcome)
 		CardEffect.Verb.SACRIFICE_DESTROY:
 			# A set of own live cards (DC-07 P7, P12), then as many random destroys.
 			_ask_set(state, cards, rng, policy, seat, card, effect, outcome)
+		CardEffect.Verb.MOVE_SELF_LEFT, CardEffect.Verb.MOVE_SELF_RIGHT:
+			DriftEffects.apply(state, cards, rng, policy, seat, card, effect, outcome)
+		CardEffect.Verb.SHIFT_OWN_LEFT, CardEffect.Verb.REVERSE_OPPONENT_ROW:
+			DriftEffects.apply(state, cards, rng, policy, seat, card, effect, outcome)
+		CardEffect.Verb.PLUS_ON_MOVED:
+			DriftEffects.apply(state, cards, rng, policy, seat, card, effect, outcome)
+		CardEffect.Verb.COPY_STATS, CardEffect.Verb.MOVE_OPPONENT_LEFT:
+			# A card of the opponent's row (DC-07 P12), then DriftEffects.apply_choice.
+			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+		CardEffect.Verb.SWAP_OPPONENT_RIGHT:
+			_ask(state, cards, rng, policy, seat, card, effect, outcome)
 		_:
-			# UNREVEAL_INSTEAD (read by destroy()) and the Drift verbs until T07 gives them
-			# behaviour: EFFECT_FIRED and nothing else.
+			# UNREVEAL_INSTEAD (read by destroy()), NEIGHBOUR_TIMES and EDGE_LEFT_TIMES (read by
+			# ScoreWalk.effective()) never fire: EFFECT_FIRED and nothing else.
 			pass
 	return outcome
 
@@ -241,20 +258,34 @@ static func settle_energy(state: MatchState, cards: MatchCards) -> Array[MatchEv
 ## Answers the open prompt of `state` with position `index` of its zone (plan P3, R32):
 ## clears the prompt, then applies the choice (apply_choice, `auto` false). The caller has
 ## checked the index is one of the options (Choice.is_offered). Empty when no prompt is
-## open. The walk resumes with the next ScoreWalk.step().
-static func answer(state: MatchState, cards: MatchCards, index: int) -> Array[MatchEvent]:
+## open. The walk resumes with the next ScoreWalk.step(). `rng` and `policy` are as
+## apply()'s (DC-07 T07: a move fires ON_MOVED, a copy runs the burst check).
+static func answer(
+	state: MatchState,
+	cards: MatchCards,
+	index: int,
+	rng: MatchRng = null,
+	policy: PreviewPolicy = null
+) -> Array[MatchEvent]:
 	var prompt: Dictionary = state.prompt
 	state.prompt = {}
 	if prompt.is_empty():
 		var none: Array[MatchEvent] = []
 		return none
-	return apply_choice(state, cards, prompt, index, false)
+	return apply_choice(state, cards, prompt, index, false, rng, policy)
 
 
 ## Applies `prompt`'s verb to position `index` of its zone: CHOICE_MADE, then the verb's
-## own events (see the class comment). Empty when the position names no card.
+## own events (see the class comment). Empty when the position names no card. `rng` and
+## `policy` are as apply()'s; the Drift verbs' events are not built under a policy.
 static func apply_choice(
-	state: MatchState, cards: MatchCards, prompt: Dictionary, index: int, auto: bool
+	state: MatchState,
+	cards: MatchCards,
+	prompt: Dictionary,
+	index: int,
+	auto: bool,
+	rng: MatchRng = null,
+	policy: PreviewPolicy = null
 ) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	var seat: int = prompt.get(KEY_SEAT, -1)
@@ -278,8 +309,18 @@ static func apply_choice(
 	match verb:
 		CardEffect.Verb.DRAW_THEN_DISCARD:
 			out.append(_discard(state, holder, target))
-		CardEffect.Verb.SWAP_PLACES:
-			out.append_array(_swap(state, holder, source, target))
+		CardEffect.Verb.SWAP_PLACES, CardEffect.Verb.COPY_STATS:
+			out.append_array(
+				DriftEffects.apply_choice(
+					state, cards, rng, policy, verb, seat, holder, source, target
+				)
+			)
+		CardEffect.Verb.MOVE_OPPONENT_LEFT, CardEffect.Verb.SWAP_OPPONENT_RIGHT:
+			out.append_array(
+				DriftEffects.apply_choice(
+					state, cards, rng, policy, verb, seat, holder, source, target
+				)
+			)
 		CardEffect.Verb.RETURN_AT_TURN_END:
 			state.card_state_for(target).return_marked = true
 		CardEffect.Verb.RECOVER_DESTROYED:
@@ -586,6 +627,7 @@ static func _carry(state: MatchState, seat: int, outcome: Outcome) -> void:
 static func _ask(
 	state: MatchState,
 	cards: MatchCards,
+	rng: MatchRng,
 	policy: PreviewPolicy,
 	seat: int,
 	card: int,
@@ -604,7 +646,7 @@ static func _ask(
 		var picked: int = options[0]
 		if policy != null:
 			picked = policy.option_for(options)
-		var made: Array[MatchEvent] = apply_choice(state, cards, prompt, picked, auto)
+		var made: Array[MatchEvent] = apply_choice(state, cards, prompt, picked, auto, rng, policy)
 		if not outcome.quiet:
 			outcome.events.append_array(made)
 		return
@@ -711,32 +753,6 @@ static func _recover(
 		return out
 	dest.hand.append(card)
 	return out
-
-
-## Exchanges the slots of `source` and `target` on `seat`'s row: two CARD_MOVED, the
-## source's first; a face-down card's move is private to `seat`.
-static func _swap(state: MatchState, seat: int, source: int, target: int) -> Array[MatchEvent]:
-	var out: Array[MatchEvent] = []
-	var piles: MatchState.SeatPiles = state.seats[seat]
-	var from_slot: int = piles.board.find(source)
-	var to_slot: int = piles.board.find(target)
-	if from_slot < 0 or to_slot < 0:
-		return out
-	piles.board[from_slot] = target
-	piles.board[to_slot] = source
-	out.append(_moved(piles, seat, source, from_slot, to_slot))
-	out.append(_moved(piles, seat, target, to_slot, from_slot))
-	return out
-
-
-static func _moved(
-	piles: MatchState.SeatPiles, seat: int, card: int, from_slot: int, to_slot: int
-) -> MatchEvent:
-	var owner: int = PUBLIC if piles.is_revealed(card) else seat
-	var payload: Dictionary = {
-		"seat": seat, "card": card, "from_slot": from_slot, "to_slot": to_slot
-	}
-	return MatchEvent.new(MatchEvent.Kind.CARD_MOVED, payload, owner)
 
 
 ## The amount of `card`'s effect, or 0 when it has none.

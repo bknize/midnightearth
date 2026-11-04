@@ -45,9 +45,11 @@ extends RefCounted
 ##   effect fires (R15), each time it scores (C4). The burst opens no prompt, so its
 ##   snapshot never pauses; should a later on-opponent-score verb prompt, the pulse pauses
 ##   at DONE and the rest of the snapshot and the on-score effect are skipped;
-## - ONGOING effects never fire in a pulse: effective() reads them (no deck card changes
-##   stats that way, the hook is kept) and turn end settles the energy carry
-##   (EffectResolver.settle_energy, called by MatchEngine).
+## - ONGOING effects never fire in a pulse: effective() reads them (the Drift neighbour and
+##   edge ×-parts, DC-07 T07) and turn end settles the energy carry
+##   (EffectResolver.settle_energy, called by MatchEngine);
+## - ON_MOVED effects fire inside the move that caused them (DriftEffects.rewrite_row), so
+##   within the firing of whatever effect moved the card.
 ## Destroyed cards (DC-06 R12-R15, P4): a destroy marks the card (CardState.destroyed) and
 ## leaves it in its slot, so the cursor still pulses that slot. The pulse of a destroyed
 ## card only reveals it when it is face down (CARD_REVEALED with `destroyed` true; every
@@ -116,11 +118,14 @@ static func next_card(state: MatchState) -> int:
 
 
 ## `card`'s shown stats (DC-07 P5, R13, R14): the base (the definition's, or the CardState's
-## `base_*` once a copy stored one), then `flat_delta` adds to the flat and `temp_plus` to
-## the +-part, then `no_bonus` makes the ×-part 100 and the +-part 0. The ongoing ×-parts of
-## revealed neighbours (Lodestone, Herald) join in DC-07 T07. Flat 0, ×1.00 and +0 for a
-## card with no definition. Every reader (the walk, previews, SeatView, STATS_CHANGED, the
-## destroy's preview rule) goes through this one function.
+## `base_*` once a copy stored one), then the positional ×-parts (DC-07 T07, R28: ×amount
+## for each adjacent revealed, live card carrying the ongoing NEIGHBOUR_TIMES, Lodestone;
+## ×amount when the card itself carries the ongoing EDGE_LEFT_TIMES, Herald, and holds slot
+## 0 of its row), each step times_hundredths(); then `flat_delta` adds to the flat and
+## `temp_plus` to the +-part, then `no_bonus` makes the ×-part 100 and the +-part 0. Flat 0,
+## ×1.00 and +0 for a card with no definition. Every reader (the walk, previews, SeatView,
+## STATS_CHANGED, the destroy's preview rule) goes through this one function, so it stays
+## cheap: the positional parts look at the card's two neighbours and its own slot only.
 static func effective(card: int, state: MatchState, cards: MatchCards) -> Effective:
 	var out: Effective = Effective.new()
 	var def: CardDef = _definition(card, cards)
@@ -139,6 +144,7 @@ static func effective(card: int, state: MatchState, cards: MatchCards) -> Effect
 		out.times = bonus
 	elif kind == CardDef.BonusKind.PLUS:
 		out.plus = bonus
+	out.times = _positional_times(card, state, cards, def, out.times)
 	if held != null:
 		out.flat += held.flat_delta
 		out.plus += held.temp_plus
@@ -146,6 +152,52 @@ static func effective(card: int, state: MatchState, cards: MatchCards) -> Effect
 			out.times = MatchRules.MULT_ONE
 			out.plus = 0
 	return out
+
+
+## `times` with `card`'s positional ×-parts (see effective()), `def` being its definition.
+## Unchanged for a card on neither row.
+static func _positional_times(
+	card: int, state: MatchState, cards: MatchCards, def: CardDef, times: int
+) -> int:
+	var seat: int = 0
+	var slot: int = state.seats[0].board.find(card)
+	if slot < 0:
+		seat = 1
+		slot = state.seats[1].board.find(card)
+	if slot < 0:
+		return times
+	var piles: MatchState.SeatPiles = state.seats[seat]
+	var out: int = times
+	for at: int in [slot - 1, slot + 1]:
+		if at < 0 or at >= piles.board.size():
+			continue
+		var lent: int = _neighbour_times(piles.board[at], piles, state, cards)
+		if lent != MatchRules.MULT_ONE:
+			out = times_hundredths(out, lent)
+	if slot == 0:
+		var edge: int = _ongoing_amount(def.effect, CardEffect.Verb.EDGE_LEFT_TIMES)
+		if edge > 0:
+			out = times_hundredths(out, edge)
+	return out
+
+
+## The ×-part `neighbour` (on the row `piles`) lends each adjacent card: its NEIGHBOUR_TIMES
+## amount while it is revealed and live, else ×1.00.
+static func _neighbour_times(
+	neighbour: int, piles: MatchState.SeatPiles, state: MatchState, cards: MatchCards
+) -> int:
+	if not piles.is_revealed(neighbour) or state.is_destroyed(neighbour):
+		return MatchRules.MULT_ONE
+	var effect: CardEffect = EffectResolver.effect_of(neighbour, cards)
+	var amount: int = _ongoing_amount(effect, CardEffect.Verb.NEIGHBOUR_TIMES)
+	return amount if amount > 0 else MatchRules.MULT_ONE
+
+
+## `effect`'s amount when it is the ongoing `verb`, else 0.
+static func _ongoing_amount(effect: CardEffect, verb: int) -> int:
+	if effect == null or effect.trigger != CardEffect.Trigger.ONGOING or effect.verb != verb:
+		return 0
+	return effect.amount
 
 
 ## `a * b` for two hundredths values, rounded to the nearest hundredth (DC-07 P4): the

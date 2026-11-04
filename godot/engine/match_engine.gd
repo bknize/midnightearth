@@ -190,8 +190,11 @@ func preview(seat: int, action: EngineAction) -> Array[int]:
 ## preview(): the clone applies the answer (EffectResolver.answer), marks the opponent's
 ## unrevealed row cards inert in their slots (_hide_opponent) and finishes the paused walk
 ## under the PreviewPolicy from the live cursor. The answer is applied before the marking,
-## so `index` means what it means to the live engine; the options never name an unrevealed
-## card of the opponent (Choice), and only the scores come back.
+## so `index` means what it means to the live engine. The options name an unrevealed card of
+## the opponent only by position (DC-07 T07: Hook's and Maelstrom's moves); such a move only
+## reorders slots, and the card is then marked inert like any other hidden card, so its
+## identity never reaches the scores. The answer runs under the policy (no stream, no
+## events built), and only the scores come back.
 func preview_choice(seat: int, index: int) -> Array[int]:
 	var none: Array[int] = []
 	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _prompt_seat() != seat:
@@ -202,7 +205,7 @@ func preview_choice(seat: int, index: int) -> Array[int]:
 	if not Choice.is_offered(_state.prompt, zone, index):
 		return none
 	var clone: MatchState = _state.duplicate()
-	var answered: Array[MatchEvent] = EffectResolver.answer(clone, _cards, index)
+	var answered: Array[MatchEvent] = EffectResolver.answer(clone, _cards, index, null, _policy)
 	answered.clear()  # A preview reports no events.
 	_hide_opponent(clone, seat)
 	clone.phase = MatchState.Phase.AWAIT_SECOND
@@ -655,7 +658,7 @@ func _run_walk() -> void:
 ## walk runs in (AWAIT_SECOND) until the walk pauses again or the turn ends.
 func _choose(index: int) -> void:
 	_state.phase = MatchState.Phase.AWAIT_SECOND
-	_events.append_array(EffectResolver.answer(_state, _cards, index))
+	_events.append_array(EffectResolver.answer(_state, _cards, index, _rng, null))
 	_run_walk()
 
 
