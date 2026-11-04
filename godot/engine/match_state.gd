@@ -51,9 +51,10 @@ var actions_applied: int = 0
 var card_states: Dictionary[int, CardState] = {}
 ## The score walk's resumable progress (plan P3), driven by ScoreWalk.
 var walk: WalkState = WalkState.new()
-## Per seat that will suffer it: the bonus-0 mark (R22). Set by the opponent's
-## OPPONENT_NEXT_NO_BONUS effect, spent by this seat's next reveal; a bool, so setting it
-## again before it is spent does not stack. Cleared at round start (MatchEngine).
+## Per seat that will suffer it: the no-bonus mark (R22; DC-07 R14, CardState.no_bonus).
+## Set by the opponent's OPPONENT_NEXT_NO_BONUS effect, spent by this seat's next reveal;
+## a bool, so setting it again before it is spent does not stack. Cleared at round start
+## (MatchEngine).
 var bonus_zero_pending: Array[bool] = [false, false]
 ## The open prompt (plan P9): {seat, card, verb, zone, options}, with `verb` a
 ## CardEffect.Verb, `zone` a Choice.Zone and `options` a plain Array of positions in that
@@ -284,7 +285,7 @@ class EnergyState:
 ## seat, the number of that row's slots the walk has passed (R1), so the next slot of a row
 ## is its cursor; `scored` holds every card scored at least once in this walk (a card moved
 ## in front of the cursor scores again, CARD_SCORED `again`); `mult` is each seat's
-## running multiplier.
+## running multiplier in hundredths, MatchRules.MULT_ONE (×1.00) at walk start (DC-07 P4).
 ## `paused_card` is the card whose stage a prompt interrupted (-1 when none): the card
 ## revealing or scoring in the pulse, which may not be the card the pulse started on (DC-06
 ## C23). `paused_slot` is the slot of the pulse's row it was pulsing (-1 when none), so a
@@ -299,7 +300,7 @@ class WalkState:
 	var next_seat: int = 0
 	var cursor: Array[int] = [0, 0]
 	var scored: Dictionary[int, bool] = {}
-	var mult: Array[int] = [1, 1]
+	var mult: Array[int] = [MatchRules.MULT_ONE, MatchRules.MULT_ONE]
 	## Cards revealed so far in this walk: the CARD_REVEALED `order` the board still reads
 	## (kept until the board moves to the walk's events, DC-05 T08 and T11).
 	var reveals: int = 0

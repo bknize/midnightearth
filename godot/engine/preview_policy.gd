@@ -39,8 +39,8 @@ static func destroy_slot(state: MatchState, cards: MatchCards, row: Array[int]) 
 	for i: int in range(row.size()):
 		if state.is_destroyed(row[i]):
 			continue
-		var stats: Vector2i = ScoreWalk.effective(row[i], state, cards)
-		var flat: int = stats.x
+		var stats: ScoreWalk.Effective = ScoreWalk.effective(row[i], state, cards)
+		var flat: int = stats.flat
 		if not found or flat < best_flat:
 			best = i
 			best_flat = flat

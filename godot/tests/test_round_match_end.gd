@@ -323,15 +323,19 @@ func _solo(card: int) -> int:
 	return _walk_score(row)
 
 
-## The P4 walk total of one row, from the definitions: the multiplier starts at 1 and
-## gains each card's bonus before that card's flat is multiplied in.
+## The P4 walk total of one row, from the definitions (DC-07 P4): the multiplier starts at
+## 100 (×1.00, hundredths), is multiplied by each card's ×-part (rounded to the nearest
+## hundredth) and gains its +-part before that card's flat is multiplied in, floored.
 func _walk_score(row: Array[int]) -> int:
-	var mult: int = 1
+	var mult: int = 100
 	var total: int = 0
 	for card: int in row:
 		var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
-		mult += def.legacy_bonus()
-		total += def.flat * mult
+		var times: int = def.bonus if def.bonus_kind == CardDef.BonusKind.TIMES else 100
+		var plus: int = def.bonus if def.bonus_kind == CardDef.BonusKind.PLUS else 0
+		mult = (mult * times + 50) / 100
+		mult += plus * 100
+		total += def.flat * mult / 100
 	return total
 
 

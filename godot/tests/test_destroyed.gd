@@ -203,14 +203,15 @@ func test_a_destroyed_card_flips_with_no_effect_no_mark_spent_and_no_score() -> 
 	# wakes the watcher and scores.
 	var expected: Array[int] = [REVEALED, SCORED, REVEALED, STATS, FIRED, DRAWN, SCORED]
 	assert_array(_kinds(events)).is_equal(expected)
-	var stats: Vector2i = ScoreWalk.effective(wreck, state, cards)
+	var stats: ScoreWalk.Effective = ScoreWalk.effective(wreck, state, cards)
 	var flipped: Dictionary = {
 		"seat": 0,
 		"card": wreck,
 		"def_id": cards.def_of(wreck).id,
 		"slot": 0,
-		"flat": stats.x,
-		"bonus": stats.y,
+		"flat": stats.flat,
+		"times": stats.times,
+		"plus": stats.plus,
 		"order": 0,
 		"destroyed": true,
 	}
@@ -219,14 +220,14 @@ func test_a_destroyed_card_flips_with_no_effect_no_mark_spent_and_no_score() -> 
 	assert_bool(live_flag).is_false()
 	# The mark went to the live card, not the wreck.
 	assert_int(_payload_int(events[3], "card")).is_equal(live)
-	assert_bool(state.card_state(live).bonus_zero).is_true()
-	assert_bool(state.card_state(wreck).bonus_zero).is_false()
+	assert_bool(state.card_state(live).no_bonus).is_true()
+	assert_bool(state.card_state(wreck).no_bonus).is_false()
 	assert_array(state.bonus_zero_pending).is_equal([false, false])
 	# The watcher fired once, for the live card only; the wreck's own draw never fired.
 	assert_array(_cards_of(events, FIRED)).is_equal(_typed([watcher]))
 	assert_array(state.seats[0].hand).is_empty()
 	assert_array(state.seats[0].deck).is_equal(own_deck)
-	# No score for the wreck: seat 0 scores only c03 (1, 0 after the mark).
+	# No score for the wreck: seat 0 scores only c03 (flat 1, no bonus after the mark).
 	assert_array(_cards_of(events, SCORED)).is_equal(_typed([watcher, live]))
 	assert_int(state.scores[0]).is_equal(1)
 	assert_bool(state.seats[0].is_revealed(wreck)).is_true()

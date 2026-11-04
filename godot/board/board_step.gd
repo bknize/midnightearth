@@ -32,7 +32,7 @@ enum Kind {
 	PROMPT,
 	## A choice was made (the bot's pick glows); `zone`, `index`, `target`.
 	CHOICE_SHOW,
-	## A card's shown flat and bonus changed.
+	## A card's shown flat, ×-part or +-part changed.
 	STATS,
 	## A card is marked destroyed in place: dim, tilt and crack; it stays on its row.
 	DESTROY,
@@ -68,7 +68,6 @@ var card: int = -1
 ## Index into the card database; -1 when unknown.
 var def_index: int = -1
 var flat: int = 0
-var bonus: int = 0
 ## The bonus as a hundredths multiplier (100 = none) and whole units added (STATS, PULSE).
 var times: int = 100
 var plus: int = 0

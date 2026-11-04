@@ -7,7 +7,7 @@ extends RefCounted
 ## commit's slots (R7), both deck counts, both
 ## board scores and walk multipliers, both round-win counts, both budgets, the round, the
 ## turn, the energy, the phase and the awaited seat. Each row also comes with every card's
-## shown flat and bonus and its revealed flag (own_row, opponent_row).
+## shown flat, ×-part and +-part and its revealed flag (own_row, opponent_row).
 ##
 ## Never holds the match seed, the stream state, any deck order, or the id of any card in
 ## the opponent's hand, deck, face-down commit or burn pile. `free_first` is this seat's
@@ -28,9 +28,10 @@ var own_pending: Array[int] = []
 var own_board: Array[int] = []
 var opponent_board: Array[int] = []
 ## The same rows with what each card shows (plan, SeatView additions): one entry per card
-## in slot order, {card, flat, bonus, revealed, destroyed}, the stats from
-## ScoreWalk.effective(). An opponent card not yet revealed (only possible mid-walk, while a
-## prompt pauses it) shows flat and bonus 0 and card MatchEvent.HIDDEN_CARD, as it does in
+## in slot order, {card, flat, times, plus, revealed, destroyed}, the stats from
+## ScoreWalk.effective() (`times` in hundredths, `plus` in whole units; DC-07 P5). An
+## opponent card not yet revealed (only possible mid-walk, while a prompt pauses it) shows
+## flat 0, times 100 and plus 0 (no bonus) and card MatchEvent.HIDDEN_CARD, as it does in
 ## `opponent_board`. `destroyed` is public for every card (DC-06 R20): a destroyed
 ## face-down card shows its slot as destroyed and still hides its id.
 var own_row: Array[Dictionary] = []
@@ -43,9 +44,9 @@ var opponent_pending_count: int = 0
 var opponent_pending_slots: Array[int] = []
 var deck_counts: Array[int] = [0, 0]
 var scores: Array[int] = [0, 0]
-## Each seat's walk multiplier (R14): the running value during a walk, the last walk's
-## final value after it, 1 before the round's first walk.
-var mults: Array[int] = [1, 1]
+## Each seat's walk multiplier in hundredths (R14; DC-07 P4): the running value during a
+## walk, the last walk's final value after it, 100 (×1.00) before the round's first walk.
+var mults: Array[int] = [MatchRules.MULT_ONE, MatchRules.MULT_ONE]
 var wins: Array[int] = [0, 0]
 ## Counts past MatchRules.ROUNDS in sudden death.
 var round_number: int = 0
@@ -74,7 +75,7 @@ var prompt: Dictionary = {}
 
 ## The view of `state` for `p_seat` (0 or 1). `p_awaited` and `p_budgets` come from the
 ## engine, which owns those derivations; `cards` gives the rows' shown stats (with none,
-## every card shows 0 and 0).
+## every card shows flat 0 and no bonus).
 static func build(
 	state: MatchState, p_seat: int, p_awaited: int, p_budgets: Array[int], cards: MatchCards = null
 ) -> SeatView:
@@ -160,15 +161,16 @@ static func _row(
 	var piles: MatchState.SeatPiles = state.seats[row_seat]
 	for card: int in piles.board:
 		var revealed: bool = piles.is_revealed(card)
-		var stats: Vector2i = Vector2i.ZERO
+		var stats: ScoreWalk.Effective = ScoreWalk.Effective.new()
 		var shown: int = MatchEvent.HIDDEN_CARD
 		if own or revealed:
 			stats = ScoreWalk.effective(card, state, cards)
 			shown = card
 		var entry: Dictionary = {
 			"card": shown,
-			"flat": stats.x,
-			"bonus": stats.y,
+			"flat": stats.flat,
+			"times": stats.times,
+			"plus": stats.plus,
 			"revealed": revealed,
 			"destroyed": state.is_destroyed(card),
 		}

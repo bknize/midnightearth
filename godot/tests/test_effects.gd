@@ -444,19 +444,24 @@ func test_bonus_zero_is_spent_on_the_opponents_next_reveal() -> void:
 	_assert_event(
 		events[5],
 		STATS,
-		{"seat": 1, "card": hit, "flat": 1, "bonus": 0, "cause": "bonus_zero"},
+		{"seat": 1, "card": hit, "flat": 1, "times": 100, "plus": 0, "cause": "bonus_zero"},
 		PUBLIC
 	)
-	# Applied before the card scores: c03 (1, 1) scores 1 x 1; c07 (2, 1) keeps its bonus.
-	assert_int(_payload_int(events[6], "bonus")).is_equal(0)
+	# Applied before the card scores (DC-07 R14): c03 (1, ×1.25) scores 1 × 1.00; c07
+	# (2, ×1.25) keeps its bonus: 2 × 1.25 = 2.5, so 2.
+	assert_int(_payload_int(events[6], "times")).is_equal(100)
+	assert_int(_payload_int(events[6], "plus")).is_equal(0)
+	assert_int(_payload_int(events[6], "mult")).is_equal(100)
 	assert_int(_payload_int(events[6], "added")).is_equal(1)
-	assert_int(_payload_int(events[8], "bonus")).is_equal(1)
-	assert_int(_payload_int(events[8], "added")).is_equal(4)
-	assert_array(state.scores).is_equal(_typed([5, 5]))
+	assert_int(_payload_int(events[8], "times")).is_equal(125)
+	assert_int(_payload_int(events[8], "mult")).is_equal(125)
+	assert_int(_payload_int(events[8], "added")).is_equal(2)
+	assert_array(state.scores).is_equal(_typed([5, 3]))
 	assert_array(state.bonus_zero_pending).is_equal([false, false])
-	assert_bool(state.card_state(hit).bonus_zero).is_true()
+	assert_bool(state.card_state(hit).no_bonus).is_true()
 	assert_object(state.card_state(spared)).is_null()
-	assert_vector(ScoreWalk.effective(hit, state, _defs())).is_equal(Vector2i(1, 0))
+	var shown: Dictionary = ScoreWalk.effective(hit, state, _defs()).to_dict()
+	assert_dict(shown).is_equal({"flat": 1, "times": 100, "plus": 0})
 
 
 func test_bonus_zero_does_not_stack() -> void:
@@ -480,7 +485,8 @@ func test_bonus_zero_does_not_stack() -> void:
 	assert_int(_payload_int(changed[0], "card")).is_equal(first)
 	assert_object(state.card_state(second)).is_null()
 	assert_array(state.bonus_zero_pending).is_equal([false, false])
-	assert_int(state.scores[1]).is_equal(1 + 2 * 2)
+	# c03 1 × 1.00, then c07 2 × 1.25 = 2.5, so 2.
+	assert_int(state.scores[1]).is_equal(1 + 2)
 
 
 func test_bonus_zero_waits_for_a_later_walk_and_ignores_the_setter_seat() -> void:
@@ -677,12 +683,20 @@ func test_flat_up_applies_after_each_scoring() -> void:
 		_assert_event(
 			events[at + 2],
 			STATS,
-			{"seat": 0, "card": card, "flat": 2 + walk, "bonus": 0, "cause": "flat_up"},
+			{
+				"seat": 0,
+				"card": card,
+				"flat": 2 + walk,
+				"times": 100,
+				"plus": 0,
+				"cause": "flat_up",
+			},
 			PUBLIC
 		)
 	# Pulsed three times: shown flat is base + 3.
 	assert_int(state.card_state(card).flat_delta).is_equal(3)
-	assert_vector(ScoreWalk.effective(card, state, _defs())).is_equal(Vector2i(4, 0))
+	var shown: Dictionary = ScoreWalk.effective(card, state, _defs()).to_dict()
+	assert_dict(shown).is_equal({"flat": 4, "times": 100, "plus": 0})
 
 
 # --- CARRY_ENERGY (R9, R20, P7, P14) --------------------------------------------------

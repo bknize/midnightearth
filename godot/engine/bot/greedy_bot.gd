@@ -49,6 +49,8 @@ extends RefCounted
 const SEED_TAG: int = 0x626F74
 ## Separates a prompt decision's seed from the commit decision of the same turn ("ask").
 const PROMPT_TAG: int = 0x61736B
+## The bonus rank of each +1 (stats_of), so +1 and +2 rank as the DC-05 bonus 1 and 2 did.
+const PLUS_RANK: int = 25
 
 ## Plan P13's fallback lever: false drops the flat-first order, halving the search, should
 ## the test stage outgrow its budget (plan, risks). True is the specified search.
@@ -235,16 +237,23 @@ func _preview_option(engine: MatchEngine, seat: int, option: int) -> Array[int]:
 	return engine.preview_choice(seat, option)
 
 
-## The definition's (flat, bonus) of a card instance (MatchCards.def_of, through its
+## The definition's (flat, bonus rank) of a card instance (MatchCards.def_of, through its
 ## origin's deck); (0, 0) when it has none. A hand card carries no modifiers (they leave
-## the board with it).
+## the board with it). The rank orders bonuses as the DC-05 integer bonus did until DC-07
+## T08 gives the bot P13's order: a ×-bonus ranks by its gain over ×1.00 in hundredths
+## (×1.25 → 25, ×1.5 → 50, ×2 → 100), a +n as n × PLUS_RANK (+1 → 25, +2 → 50).
 func stats_of(instance_id: int) -> Vector2i:
 	if instance_id < 0:
 		return Vector2i.ZERO
 	var def: CardDef = _cards.def_of(instance_id)
 	if def == null:
 		return Vector2i.ZERO
-	return Vector2i(def.flat, def.legacy_bonus())
+	var rank: int = 0
+	if def.bonus_kind == CardDef.BonusKind.TIMES:
+		rank = def.bonus - MatchRules.MULT_ONE
+	elif def.bonus_kind == CardDef.BonusKind.PLUS:
+		rank = def.bonus * PLUS_RANK
+	return Vector2i(def.flat, rank)
 
 
 ## Bonus-first order: higher bonus, then higher flat, then lower instance id.

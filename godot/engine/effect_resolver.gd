@@ -71,6 +71,8 @@ extends RefCounted
 
 const CAUSE_FLAT_UP: String = "flat_up"
 const CAUSE_BONUS_ZERO: String = "bonus_zero"
+## A card's `temp_plus` changed (DC-07 P5): cleared at the walk's end.
+const CAUSE_TEMP_PLUS: String = "temp_plus"
 const KEY_SEAT: String = "seat"
 const KEY_CARD: String = "card"
 const KEY_VERB: String = "verb"
@@ -150,9 +152,10 @@ static func draw_card(state: MatchState, seat: int) -> MatchEvent:
 	return MatchEvent.new(MatchEvent.Kind.CARD_DRAWN, {"seat": seat, "card": card}, seat)
 
 
-## The bonus-0 mark on `seat` (R22), at the reveal of its `card`: when the mark is set, the
-## card's bonus becomes 0 for the rest of the round (CardState.bonus_zero), the mark is
-## spent and STATS_CHANGED (cause bonus_zero) is returned. Empty when no mark is set.
+## The no-bonus mark on `seat` (R22; DC-07 R14), at the reveal of its `card`: when the mark
+## is set, the card has no bonus (×1.00, +0) while it stays on the board
+## (CardState.no_bonus), the mark is spent and STATS_CHANGED (cause bonus_zero) is
+## returned. Empty when no mark is set.
 ## ScoreWalk calls it right after CARD_REVEALED, before the card's effects and its score.
 static func spend_bonus_zero(
 	state: MatchState, cards: MatchCards, seat: int, card: int
@@ -161,8 +164,8 @@ static func spend_bonus_zero(
 	if not state.bonus_zero_pending[seat]:
 		return out
 	state.bonus_zero_pending[seat] = false
-	state.card_state_for(card).bonus_zero = true
-	out.append(_stats_changed(state, cards, seat, card, CAUSE_BONUS_ZERO))
+	state.card_state_for(card).no_bonus = true
+	out.append(stats_changed(state, cards, seat, card, CAUSE_BONUS_ZERO))
 	return out
 
 
@@ -347,7 +350,7 @@ static func _flat_up(
 ) -> void:
 	state.card_state_for(card).flat_delta += amount
 	if not outcome.quiet:
-		outcome.events.append(_stats_changed(state, cards, seat, card, CAUSE_FLAT_UP))
+		outcome.events.append(stats_changed(state, cards, seat, card, CAUSE_FLAT_UP))
 
 
 static func _carry(state: MatchState, seat: int, outcome: Outcome) -> void:
@@ -447,15 +450,21 @@ static func _fizzle(seat: int, card: int, verb: int, outcome: Outcome) -> void:
 # --- Helpers --------------------------------------------------------------------------
 
 
-## STATS_CHANGED for `card` with its effective stats after the change (R21).
-static func _stats_changed(
+## STATS_CHANGED for `card` with its effective stats after the change (R21; DC-07 P5):
+## {seat, card, flat, times, plus, cause}, public.
+static func stats_changed(
 	state: MatchState, cards: MatchCards, seat: int, card: int, cause: String
 ) -> MatchEvent:
-	var stats: Vector2i = ScoreWalk.effective(card, state, cards)
-	return MatchEvent.new(
-		MatchEvent.Kind.STATS_CHANGED,
-		{"seat": seat, "card": card, "flat": stats.x, "bonus": stats.y, "cause": cause}
-	)
+	var stats: ScoreWalk.Effective = ScoreWalk.effective(card, state, cards)
+	var payload: Dictionary = {
+		"seat": seat,
+		"card": card,
+		"flat": stats.flat,
+		"times": stats.times,
+		"plus": stats.plus,
+		"cause": cause,
+	}
+	return MatchEvent.new(MatchEvent.Kind.STATS_CHANGED, payload)
 
 
 ## The leftmost revealed, live (not destroyed, DC-06 R15) card on `seat`'s row with the

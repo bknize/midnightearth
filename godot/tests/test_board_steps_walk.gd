@@ -13,7 +13,16 @@ func _event(kind: int, payload: Dictionary) -> MatchEvent:
 func _reveal_event(card: int, seat: int = 0) -> MatchEvent:
 	return _event(
 		MatchEvent.Kind.CARD_REVEALED,
-		{"seat": seat, "card": card, "def_id": "c01", "slot": 1, "flat": 2, "bonus": 1, "order": 0}
+		{
+			"seat": seat,
+			"card": card,
+			"def_id": "c01",
+			"slot": 1,
+			"flat": 2,
+			"times": 125,
+			"plus": 0,
+			"order": 0,
+		}
 	)
 
 
@@ -50,7 +59,8 @@ func test_a_destroyed_reveal_yields_a_flip_only_pulse_with_no_score() -> void:
 			"def_id": "c01",
 			"slot": 0,
 			"flat": 2,
-			"bonus": 1,
+			"times": 125,
+			"plus": 0,
 			"order": 0,
 			"destroyed": true,
 		}

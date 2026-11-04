@@ -15,7 +15,7 @@ extends RefCounted
 ## prompt and match end are instant (a prompt
 ## waits on the player, not on a clock). BONUS_ZERO_SET, ENERGY_CARRIED and FREE_FIRST_SET
 ## have no step: the next TURN_STARTED carries their result (budgets, free_first), and
-## CARD_REVEALED / STATS_CHANGED carry the zeroed bonus.
+## CARD_REVEALED / STATS_CHANGED carry the cleared bonus (times 100, plus 0).
 
 const CLEAR_TIME: float = 0.40
 const DEAL_TIME: float = 0.30
@@ -181,7 +181,6 @@ static func _pulse(reveal: MatchEvent, scored: MatchEvent) -> BoardStep:
 	step.slot = payload.get("slot", -1)
 	step.destroyed = payload.get("destroyed", false)
 	step.flat = payload.get("flat", 0)
-	step.bonus = payload.get("bonus", 0)
 	step.times = payload.get("times", 100)
 	step.plus = payload.get("plus", 0)
 	if reveal != null and step.destroyed:
@@ -201,7 +200,6 @@ static func _pulse(reveal: MatchEvent, scored: MatchEvent) -> BoardStep:
 	if scored != null:
 		var values: Dictionary = scored.payload
 		step.flat = values.get("flat", step.flat)
-		step.bonus = values.get("bonus", step.bonus)
 		step.times = values.get("times", step.times)
 		step.plus = values.get("plus", step.plus)
 		step.mult = values.get("mult", ScoreTracker.MULT_ONE)
@@ -292,9 +290,7 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 		MatchEvent.Kind.STATS_CHANGED:
 			var stats: BoardStep = _card_step(BoardStep.Kind.STATS, event)
 			stats.flat = payload.get("flat", 0)
-			stats.bonus = payload.get("bonus", 0)
-			# Until the engine names {times, plus}, a whole-number bonus is a whole multiplier.
-			stats.times = payload.get("times", maxi(stats.bonus, 1) * ScoreTracker.MULT_ONE)
+			stats.times = payload.get("times", ScoreTracker.MULT_ONE)
 			stats.plus = payload.get("plus", 0)
 			stats.cause = payload.get("cause", "")
 			stats.duration = STATS_TIME

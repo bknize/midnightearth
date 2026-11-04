@@ -14,9 +14,6 @@ enum BonusKind { NONE, TIMES, PLUS }
 const KEY_TIMES: String = "x"
 ## JSON key of a PLUS bonus.
 const KEY_PLUS: String = "plus"
-## The DC-05 integer bonus a ×-bonus stood for: (hundredths - MULT_ONE) / this step, so
-## ×1.25 reads 1 and ×1.5 reads 2 (see legacy_bonus()).
-const _LEGACY_TIMES_STEP: int = 25
 
 var id: String = ""
 var name: String = ""
@@ -44,19 +41,6 @@ func _init(
 	bonus_kind = p_bonus_kind
 	bonus = p_bonus
 	effect = p_effect
-
-
-## The DC-05 integer bonus this card's bonus maps to, read by the integer-mult walk until
-## the hundredths mult lands (DC-07 T03 removes it): NONE 0, PLUS its units, TIMES
-## (hundredths - 100) / 25 (×1.25 → 1, ×1.5 → 2, ×2 → 4). The DC-05 fixture converted
-## bonus 1 to ×1.25 and 2 to ×1.5, so it reads back the DC-05 numbers.
-func legacy_bonus() -> int:
-	match bonus_kind:
-		BonusKind.TIMES:
-			return (bonus - MatchRules.MULT_ONE) / _LEGACY_TIMES_STEP
-		BonusKind.PLUS:
-			return bonus
-	return 0
 
 
 ## The bonus in its JSON form: null, {"x": hundredths} or {"plus": units}.
