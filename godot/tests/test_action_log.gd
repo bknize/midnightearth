@@ -10,8 +10,9 @@ extends GdUnitTestSuite
 ## and replay with slots, and a format-1 or rules-1 log fails replay on its version.
 ##
 ## Matches are driven by scripted actions on known seeds: the "player" seat commits the
-## legal set with the highest bitmask in LegalPlays order (often several cards), the
-## other seat passes. Completed matches use real won rounds (as in test_round_match_end).
+## legal set with the highest bitmask in LegalPlays order (often several cards) that holds
+## no prompt-verb card (DC-05 T05), the other seat passes. Completed matches use real won
+## rounds (as in test_round_match_end).
 
 const SEED: int = 1
 ## 2^53 + 1: the smallest positive int a JSON number (a double) cannot hold.
@@ -73,9 +74,32 @@ func _script_action(engine: MatchEngine, player: int) -> EngineAction:
 	var cards: Array[int] = []
 	if seat == player:
 		var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _db())
-		cards = _typed(sets[sets.size() - 1])
+		for at: int in range(sets.size() - 1, -1, -1):
+			var candidate: Array[int] = _typed(sets[at])
+			if not _has_prompt_card(candidate):
+				cards = candidate
+				break
 	var slots: Array[int] = LegalPlays.append_slots(_row_size(engine, seat), cards.size())
 	return EngineAction.commit(seat, cards, slots)
+
+
+## Whether any of `cards` carries an effect that may open a prompt (DC-05 T05). The scripts
+## skip them so every scripted step is a commit; choices in the log are in test_choices.gd.
+func _has_prompt_card(cards: Array[int]) -> bool:
+	for card: int in cards:
+		var effect: CardEffect = _db().card_at(card % MatchRules.DECK_SIZE).effect
+		if effect != null and Choice.needs_choice(effect.verb):
+			return true
+	return false
+
+
+## The first hand card of `seat` with no prompt-verb effect.
+func _first_promptless(engine: MatchEngine, seat: int) -> int:
+	var hand: Array[int] = _hand(engine, seat)
+	for card: int in hand:
+		if not _has_prompt_card(_typed([card])):
+			return card
+	return hand[0]
 
 
 ## A started match plus `count` scripted actions, every one accepted.
@@ -96,7 +120,7 @@ func _play_round(engine: MatchEngine, winner: int) -> void:
 		var seat: int = engine.awaited_seat()
 		var cards: Array[int] = []
 		if seat == winner and engine.energy() == MatchRules.TURNS:
-			cards.append(_hand(engine, seat)[0])
+			cards.append(_first_promptless(engine, seat))
 		var result: ApplyResult = engine.apply(EngineAction.commit(seat, cards))
 		if not result.ok:
 			fail("round action rejected with code %d" % result.error)

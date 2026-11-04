@@ -154,13 +154,29 @@ func _event_dicts(events: Array[MatchEvent]) -> Array[Dictionary]:
 	return out
 
 
-## The first legal set of exactly `size` cards, or an empty list when none exists.
+## The first legal set of exactly `size` cards, or an empty list when none exists. Sets
+## with no prompt-verb card come first (DC-05 T05): a prompt would pause the walk these
+## flow tests expect to finish; when every set holds one, the first such set is used.
 func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
+	var fallback: Array[int] = []
 	for s: Array in LegalPlays.enumerate(hand, energy, _db()):
-		if s.size() == size:
-			return _typed(s)
-	var none: Array[int] = []
-	return none
+		if s.size() != size:
+			continue
+		var cards: Array[int] = _typed(s)
+		if not _has_prompt_card(cards):
+			return cards
+		if fallback.is_empty():
+			fallback = cards
+	return fallback
+
+
+## Whether any of `cards` carries an effect that may open a prompt.
+func _has_prompt_card(cards: Array[int]) -> bool:
+	for card: int in cards:
+		var effect: CardEffect = _db().card_at(card % MatchRules.DECK_SIZE).effect
+		if effect != null and Choice.needs_choice(effect.verb):
+			return true
+	return false
 
 
 func _ids(seat: int) -> Array[int]:
@@ -788,7 +804,7 @@ func test_bad_slots_are_rejected_and_change_nothing() -> void:
 	)
 
 
-# --- DC-05 R31 (shape only until T05): a choice with no prompt open --------------------
+# --- DC-05 R31: a choice with no prompt open (the rest in test_choices.gd) -------------
 
 
 func test_choose_without_a_prompt_is_rejected() -> void:
@@ -873,7 +889,18 @@ func test_spent_is_recorded_and_the_free_first_card_is_consumed() -> void:
 func _scripted_action(engine: MatchEngine) -> EngineAction:
 	var seat: int = engine.awaited_seat()
 	var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _db())
-	return EngineAction.commit(seat, _typed(sets[sets.size() - 1]))
+	# The highest-mask set with no prompt-verb card (DC-05 T05), so every step is a commit
+	# and 20 of them still reach round 2; the empty set always qualifies.
+	for at: int in range(sets.size() - 1, -1, -1):
+		var cards: Array[int] = _typed(sets[at])
+		if not _has_prompt_card(cards):
+			return EngineAction.commit(seat, cards)
+	return EngineAction.commit(seat, _none_cards())
+
+
+func _none_cards() -> Array[int]:
+	var none: Array[int] = []
+	return none
 
 
 func test_same_seed_and_actions_give_equal_states_and_events() -> void:

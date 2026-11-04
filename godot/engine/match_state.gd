@@ -7,8 +7,10 @@ extends RefCounted
 ## and the awaited seat (from phase and first_seat).
 ## Card instance ids are seat * DECK_SIZE + definition index (R9, C5).
 
-## NOT_STARTED holds until start() succeeds; the plan's three phases follow it.
-enum Phase { NOT_STARTED, AWAIT_FIRST, AWAIT_SECOND, OVER }
+## NOT_STARTED holds until start() succeeds; the plan's three phases follow it. AWAIT_CHOICE
+## (DC-05 T05, appended so earlier ordinals hold) is a walk paused on an open `prompt`.
+## While a walk runs between two decisions the phase stays AWAIT_SECOND.
+enum Phase { NOT_STARTED, AWAIT_FIRST, AWAIT_SECOND, OVER, AWAIT_CHOICE }
 
 var match_seed: int = 0
 ## Mirror of the engine stream's state, refreshed by the engine after every change.
@@ -49,6 +51,10 @@ var walk: WalkState = WalkState.new()
 ## OPPONENT_NEXT_BONUS_ZERO effect, spent by this seat's next reveal; a bool, so setting it
 ## again before it is spent does not stack. Cleared at round start (MatchEngine).
 var bonus_zero_pending: Array[bool] = [false, false]
+## The open prompt (plan P9): {seat, card, verb, zone, options}, with `verb` a
+## CardEffect.Verb, `zone` a Choice.Zone and `options` a plain Array of positions in that
+## zone (Choice). Empty when no prompt is open.
+var prompt: Dictionary = {}
 
 
 func _init(p_match_seed: int = 0) -> void:
@@ -96,6 +102,7 @@ func to_dict() -> Dictionary:
 		"card_states": _card_states_dict(),
 		"walk": walk.to_dict(),
 		"bonus_zero_pending": _plain_flags(bonus_zero_pending),
+		"prompt": prompt.duplicate(true),
 	}
 
 
@@ -126,6 +133,7 @@ func duplicate() -> MatchState:
 		out.card_states[card] = held.copy()
 	out.walk = walk.copy()
 	out.bonus_zero_pending.assign(bonus_zero_pending)
+	out.prompt = prompt.duplicate(true)
 	return out
 
 
@@ -249,6 +257,9 @@ class EnergyState:
 ## ScoreWalk.begin() until a step finds no card left to pulse. `next_seat` is the seat whose
 ## row is tried first on the next pulse; `pulsed` holds every card pulsed in this walk, so
 ## nothing is pulsed twice whatever moves; `mult` is each seat's running multiplier.
+## `paused_card` is the card whose pulse a prompt interrupted (-1 when none), with the
+## ScoreWalk.Stage to resume at and, for an on-opponent-reveal prompt, the watcher that
+## opened it (DC-05 T05).
 class WalkState:
 	extends RefCounted
 
@@ -259,6 +270,9 @@ class WalkState:
 	## Cards revealed so far in this walk: the CARD_REVEALED `order` the board still reads
 	## (kept until the board moves to the walk's events, DC-05 T08 and T11).
 	var reveals: int = 0
+	var paused_card: int = -1
+	var paused_stage: int = 0
+	var paused_watcher: int = -1
 
 	## The pulsed card ids, ascending.
 	func pulsed_ids() -> Array[int]:
@@ -274,6 +288,9 @@ class WalkState:
 		out.pulsed.assign(pulsed)
 		out.mult.assign(mult)
 		out.reveals = reveals
+		out.paused_card = paused_card
+		out.paused_stage = paused_stage
+		out.paused_watcher = paused_watcher
 		return out
 
 	func to_dict() -> Dictionary:
@@ -283,4 +300,7 @@ class WalkState:
 			"pulsed": MatchState.plain(pulsed_ids()),
 			"mult": MatchState.plain(mult),
 			"reveals": reveals,
+			"paused_card": paused_card,
+			"paused_stage": paused_stage,
+			"paused_watcher": paused_watcher,
 		}

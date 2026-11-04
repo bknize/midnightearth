@@ -284,9 +284,18 @@ func test_engine_never_rejects_the_bot_over_full_matches() -> void:
 			assert_bool(view.is_awaited()).is_true()
 			var action: EngineAction = bots[seat].choose(view)
 			assert_int(action.seat).is_equal(seat)
-			# R36 on a sampled view: the commit reaches the view's best flat, in order.
-			assert_int(_flat(action.cards)).is_equal(_max_flat(view))
-			assert_bool(_is_commit_order(action.cards)).is_true()
+			if view.prompt.is_empty():
+				# R36 on a sampled view: the commit reaches the view's best flat, in order.
+				assert_int(action.kind).is_equal(EngineAction.Kind.COMMIT)
+				assert_int(_flat(action.cards)).is_equal(_max_flat(view))
+				assert_bool(_is_commit_order(action.cards)).is_true()
+			else:
+				# DC-05 T05's interim answer: the prompt's first option.
+				assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
+				var zone: int = view.prompt["zone"]
+				var options: Array = view.prompt["options"]
+				assert_int(action.zone).is_equal(zone)
+				assert_int(action.index).is_equal(options[0])
 			var result: ApplyResult = engine.apply(action)
 			actions += 1
 			if not result.ok:

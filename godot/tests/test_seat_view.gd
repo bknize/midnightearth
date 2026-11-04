@@ -11,7 +11,9 @@ extends GdUnitTestSuite
 ## commit to hide) and the passer reaches the hand cap and burns (a burn pile to hide).
 ## Each run is played once with each seat as the player.
 ## DC-05 R7: while awaited second, a seat sees the first committer's slots but not its
-## cards. Both seats' budgets are in every view.
+## cards. Both seats' budgets are in every view. DC-05 R34 (T05): the scripted runs answer
+## any prompt with its first option; the prompt and choice events and the view's prompt hold
+## no hand id for the other seat, and a face-down row card shows no id mid-walk.
 
 const SEED: int = 1
 const SEARCH_SEEDS: int = 100
@@ -21,7 +23,7 @@ const LEAK_SEEDS: Array[int] = [9_000_000_001, 123_456_789_012, 4_611_686_018_42
 const SCRIPT_COMMITS: int = 2 * 7 + 2
 ## Keys whose int values are card instance ids, in views and event payloads.
 const CARD_KEYS: Array[String] = [
-	"card", "cards", "own_hand", "own_pending", "own_board", "opponent_board"
+	"card", "cards", "target", "own_hand", "own_pending", "own_board", "opponent_board"
 ]
 const VIEW_KEYS: Array[String] = [
 	"seat",
@@ -47,6 +49,7 @@ const VIEW_KEYS: Array[String] = [
 	"awaited_seat",
 	"first_seat",
 	"sudden_death",
+	"prompt",
 ]
 ## Full-state keys that carry what the views omit.
 const HIDDEN_STATE_KEYS: Array[String] = ["seed", "rng_state", "deck", "hand", "pending", "burned"]
@@ -56,6 +59,22 @@ const PRIVATE_KINDS: Array[int] = [
 	MatchEvent.Kind.CARD_BURNED,
 	MatchEvent.Kind.COMMITTED,
 ]
+## Private in some cases only (DC-05): the destroy or move of a face-down card, a choice
+## of a hand or face-down card, and (public) the burn of a returned, revealed card.
+const SPLIT_KINDS: Array[int] = [
+	MatchEvent.Kind.CARD_DESTROYED,
+	MatchEvent.Kind.CARD_MOVED,
+	MatchEvent.Kind.CHOICE_MADE,
+	MatchEvent.Kind.CARD_BURNED,
+]
+## Kinds that may name a card in a hand, so the R34 case checks them.
+const PROMPT_KINDS: Array[int] = [
+	MatchEvent.Kind.CHOICE_REQUESTED,
+	MatchEvent.Kind.CHOICE_MADE,
+	MatchEvent.Kind.CARD_DISCARDED,
+]
+## Definition index of c09 (draw 2, then discard 1).
+const C09_DRAW_DISCARD: int = 8
 
 var _cached_db: CardDb = null
 
@@ -135,8 +154,16 @@ func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
 	return none
 
 
-## The scripted commit for whoever is awaited (see the suite comment).
+## The scripted commit for whoever is awaited (see the suite comment); while a prompt is
+## open (DC-05 T05), the prompted seat's first option instead.
 func _script_action(engine: MatchEngine, player: int) -> EngineAction:
+	var prompt: Dictionary = engine.open_prompt()
+	if not prompt.is_empty():
+		var asked: int = prompt["seat"]
+		var zone: int = prompt["zone"]
+		var options: Array = prompt["options"]
+		var first: int = options[0]
+		return EngineAction.choose(asked, zone, first)
 	var seat: int = engine.awaited_seat()
 	var cards: Array[int] = []
 	if seat == player:
@@ -173,7 +200,8 @@ func _scripted_steps(match_seed: int, player: int) -> Array[Step]:
 
 
 ## Every id of `seat`'s cards that its opponent may not know in `state`: its hand, deck
-## and burn pile, and its share of the face-down commit.
+## and burn pile, its share of the face-down commit, and its row's cards not yet revealed
+## (only while a prompt pauses a walk, DC-05 T05).
 func _hidden_ids(state: Dictionary, seat: int) -> Array[int]:
 	var out: Array[int] = []
 	for key: String in ["hand", "deck", "burned"]:
@@ -181,6 +209,20 @@ func _hidden_ids(state: Dictionary, seat: int) -> Array[int]:
 	for card: int in _state_ints(state, "pending"):
 		if _owner(card) == seat:
 			out.append(card)
+	var revealed: Array[int] = _state_list(state, "revealed", seat)
+	for card: int in _state_list(state, "board", seat):
+		if not revealed.has(card):
+			out.append(card)
+	return out
+
+
+## `row_seat`'s row as `viewer` sees it: an opponent card not yet revealed is HIDDEN_CARD.
+func _shown_board(state: Dictionary, row_seat: int, viewer: int) -> Array[int]:
+	var revealed: Array[int] = _state_list(state, "revealed", row_seat)
+	var out: Array[int] = []
+	for card: int in _state_list(state, "board", row_seat):
+		var shown: bool = row_seat == viewer or revealed.has(card)
+		out.append(card if shown else MatchEvent.HIDDEN_CARD)
 	return out
 
 
@@ -292,6 +334,16 @@ func _payload_keys(kind: int) -> Array:
 			keys = ["seat"]
 		MatchEvent.Kind.ENERGY_CARRIED:
 			keys = ["seat", "amount"]
+		MatchEvent.Kind.CHOICE_REQUESTED:
+			keys = ["seat", "card", "verb", "text", "zone", "options"]
+		MatchEvent.Kind.CHOICE_MADE:
+			keys = ["seat", "card", "zone", "index", "target", "auto"]
+		MatchEvent.Kind.CARD_MOVED:
+			keys = ["seat", "card", "from_slot", "to_slot"]
+		MatchEvent.Kind.CARD_RETURNED:
+			keys = ["seat", "card", "slot"]
+		MatchEvent.Kind.CARD_DISCARDED:
+			keys = ["seat", "card"]
 	return keys
 
 
@@ -333,8 +385,12 @@ func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: 
 		var flat: int = entry["flat"]
 		var bonus: int = entry["bonus"]
 		var shown: bool = entry["revealed"]
-		assert_int(card).is_equal(board[slot])
-		assert_bool(shown).is_equal(revealed.has(card))
+		assert_bool(shown).is_equal(revealed.has(board[slot]))
+		if own or shown:
+			assert_int(card).is_equal(board[slot])
+		else:
+			# Face down on the opponent's row (a walk paused on a prompt): no id (R29).
+			assert_int(card).is_equal(MatchEvent.HIDDEN_CARD)
 		if own or shown:
 			var stats: Vector2i = _shown_stats(state, card)
 			assert_int(flat).is_equal(stats.x)
@@ -352,7 +408,7 @@ func _assert_view_matches_state(view: SeatView, step: Step, seat: int) -> void:
 	assert_int(view.opponent).is_equal(opp)
 	assert_array(view.own_hand).is_equal(_state_list(state, "hand", seat))
 	assert_array(view.own_board).is_equal(_state_list(state, "board", seat))
-	assert_array(view.opponent_board).is_equal(_state_list(state, "board", opp))
+	assert_array(view.opponent_board).is_equal(_shown_board(state, opp, seat))
 	assert_array(view.board_of(seat)).is_equal(view.own_board)
 	assert_array(view.board_of(opp)).is_equal(view.opponent_board)
 	assert_int(view.opponent_hand_count).is_equal(_state_list(state, "hand", opp).size())
@@ -559,8 +615,9 @@ func test_views_and_redacted_events_never_leak() -> void:
 					# The events, against what was hidden before or after the step, less
 					# the cards this step revealed in public.
 					# Cards face up on the opponent's row before the step were public too: the
-					# walk scores them by id even when a round end then hides them again.
-					var public_before: Array[int] = _state_list(step.before, "board", opp)
+					# walk scores them by id even when a round end then hides them again. A
+					# card still face down there (a walk paused on a prompt) was not.
+					var public_before: Array[int] = _state_list(step.before, "revealed", opp)
 					var hidden_during: Array[int] = []
 					for card: int in _hidden_ids(step.before, opp) + hidden_now:
 						var shown: bool = revealed.has(card) or public_before.has(card)
@@ -598,7 +655,7 @@ func test_redaction_hides_card_ids_from_the_opponent_only() -> void:
 				for i: int in range(events.size()):
 					var original: MatchEvent = events[i]
 					var copy: MatchEvent = redacted[i]
-					assert_bool(PRIVATE_KINDS.has(original.kind)).is_equal(original.is_private())
+					_assert_privacy(original, step.before)
 					if not seen.has(original.kind):
 						seen.append(original.kind)
 					assert_int(copy.kind).is_equal(original.kind)
@@ -611,11 +668,35 @@ func test_redaction_hides_card_ids_from_the_opponent_only() -> void:
 		assert_bool(seen.has(kind)).override_failure_message("kind %d unseen" % kind).is_true()
 
 
-## A redacted private event keeps the seat (and a commit's count) and hides each card id.
+## Which kinds are private: PRIVATE_KINDS and the discard always; SPLIT_KINDS only for a
+## hand or face-down card (DC-05), a burn being public only for a card that was on a row
+## before the step (a returned card at the hand cap); every other kind never.
+func _assert_privacy(event: MatchEvent, before: Dictionary) -> void:
+	var label: String = "kind %d" % event.kind
+	if event.kind == MatchEvent.Kind.CARD_BURNED and not event.is_private():
+		var card: int = _payload_int(event, "card")
+		var seat: int = _payload_int(event, "seat")
+		var was_shown: bool = _state_list(before, "revealed", seat).has(card)
+		assert_bool(was_shown).override_failure_message(label).is_true()
+		return
+	if SPLIT_KINDS.has(event.kind):
+		return
+	var expect_private: bool = (
+		PRIVATE_KINDS.has(event.kind) or event.kind == MatchEvent.Kind.CARD_DISCARDED
+	)
+	assert_bool(event.is_private()).override_failure_message(label).is_equal(expect_private)
+
+
+## A redacted private event keeps the seat (and a commit's count) and hides each card id;
+## a private CHOICE_MADE keeps its (revealed) source card and hides its target.
 func _assert_redacted(copy: MatchEvent, original: MatchEvent) -> void:
 	assert_int(_payload_int(copy, "seat")).is_equal(_payload_int(original, "seat"))
 	assert_int(_payload_int(copy, "seat")).is_equal(original.owner_seat)
-	if original.kind == MatchEvent.Kind.COMMITTED:
+	if original.kind == MatchEvent.Kind.CHOICE_MADE:
+		assert_int(_payload_int(copy, "target")).is_equal(MatchEvent.HIDDEN_CARD)
+		assert_int(_payload_int(copy, "card")).is_equal(_payload_int(original, "card"))
+		assert_int(_payload_int(copy, "index")).is_equal(_payload_int(original, "index"))
+	elif original.kind == MatchEvent.Kind.COMMITTED:
 		var count: int = _payload_int(original, "count")
 		assert_int(_payload_int(copy, "count")).is_equal(count)
 		var hidden: Array[int] = []
@@ -673,6 +754,131 @@ func test_redaction_never_mutates_the_original_events() -> void:
 	assert_int(checked).is_greater(0)
 
 
+# --- DC-05 R34: prompts and choices hide hand cards -------------------------------------
+
+
+## A started engine paused on a hand prompt (c09, draw 2 then discard 1): turn 3, the first
+## committer plays its c09 alone and the other passes. Null when no seed in the search
+## range deals the first committer its c09 by turn 3. Scripted, no private fields.
+func _discard_prompt_engine() -> MatchEngine:
+	for match_seed: int in range(1, SEARCH_SEEDS + 1):
+		var engine: MatchEngine = _started(match_seed)
+		_pass_until_turn(engine, 3)
+		var first: int = engine.awaited_seat()
+		var c09: int = first * MatchRules.DECK_SIZE + C09_DRAW_DISCARD
+		if not _hand(engine, first).has(c09):
+			continue
+		var play: Array[int] = [c09]
+		var none: Array[int] = []
+		if not engine.apply(EngineAction.commit(first, play)).ok:
+			continue
+		if not engine.apply(EngineAction.commit(1 - first, none)).ok:
+			continue
+		if not engine.open_prompt().is_empty():
+			return engine
+	return null
+
+
+## No card key in `events` (prompt kinds only) holds an id from `hidden`.
+func _prompt_event_leaks(events: Array[MatchEvent], hidden: Array[int]) -> Array[int]:
+	var out: Array[int] = []
+	for event: MatchEvent in events:
+		if PROMPT_KINDS.has(event.kind):
+			out.append_array(_leaks(event.payload, hidden))
+	return out
+
+
+func test_prompt_and_choice_events_hold_no_hand_id_for_the_other_seat() -> void:
+	var engine: MatchEngine = _discard_prompt_engine()
+	assert_object(engine).override_failure_message("no seed gives c09 by turn 3").is_not_null()
+	if engine == null:
+		return
+	var asked: int = engine.awaited_seat()
+	var other: int = 1 - asked
+	var state: Dictionary = engine.full_state()
+	var hand: Array[int] = _state_list(state, "hand", asked)
+	var log_size: int = engine.accepted_action_count()
+	# The views: the prompted seat sees the zone and positions, the other only that it is open.
+	var own_prompt: Dictionary = engine.view_for(asked).prompt
+	var zone: int = own_prompt["zone"]
+	assert_int(zone).is_equal(Choice.Zone.OWN_HAND)
+	var options: Array = own_prompt["options"]
+	var positions: Array = range(hand.size())
+	assert_array(options).is_equal(positions)
+	assert_dict(engine.view_for(other).prompt).is_equal({"open": true, "seat": asked})
+	assert_array(_leaks(engine.view_for(other).to_dict(), hand)).is_empty()
+	# The answer: CHOICE_MADE hides its target and CARD_DISCARDED its card from the other.
+	var discarded: int = hand[1]
+	var before: Dictionary = engine.full_state()
+	var result: ApplyResult = engine.apply(EngineAction.choose(asked, zone, 1))
+	assert_bool(result.ok).is_true()
+	assert_int(engine.accepted_action_count()).is_equal(log_size + 1)
+	var hidden: Array[int] = _hidden_ids(before, asked) + _hidden_ids(engine.full_state(), asked)
+	var theirs: Array[MatchEvent] = result.events_for(other)
+	assert_array(_prompt_event_leaks(theirs, hidden)).is_empty()
+	var kinds: Array[int] = []
+	for event: MatchEvent in theirs:
+		kinds.append(event.kind)
+		if event.kind == MatchEvent.Kind.CHOICE_MADE:
+			assert_int(_payload_int(event, "target")).is_equal(MatchEvent.HIDDEN_CARD)
+			assert_int(_payload_int(event, "index")).is_equal(1)
+		if event.kind == MatchEvent.Kind.CARD_DISCARDED:
+			assert_int(_payload_int(event, "card")).is_equal(MatchEvent.HIDDEN_CARD)
+	assert_bool(kinds.has(MatchEvent.Kind.CHOICE_MADE)).is_true()
+	assert_bool(kinds.has(MatchEvent.Kind.CARD_DISCARDED)).is_true()
+	# The prompted seat's own copies name the discarded card.
+	for event: MatchEvent in result.events_for(asked):
+		if event.kind == MatchEvent.Kind.CHOICE_MADE:
+			assert_int(_payload_int(event, "target")).is_equal(discarded)
+		if event.kind == MatchEvent.Kind.CARD_DISCARDED:
+			assert_int(_payload_int(event, "card")).is_equal(discarded)
+	assert_bool(_hand(engine, asked).has(discarded)).is_false()
+	assert_dict(engine.view_for(other).prompt).is_empty()
+
+
+## The request itself, as the other seat sees it: positions only, no hand id.
+func test_choice_requested_names_positions_not_hand_ids() -> void:
+	for match_seed: int in range(1, SEARCH_SEEDS + 1):
+		var engine: MatchEngine = _started(match_seed)
+		_pass_until_turn(engine, 3)
+		var first: int = engine.awaited_seat()
+		var c09: int = first * MatchRules.DECK_SIZE + C09_DRAW_DISCARD
+		if not _hand(engine, first).has(c09):
+			continue
+		var play: Array[int] = [c09]
+		var none: Array[int] = []
+		engine.apply(EngineAction.commit(first, play))
+		var before: Dictionary = engine.full_state()
+		var result: ApplyResult = engine.apply(EngineAction.commit(1 - first, none))
+		assert_bool(result.ok).is_true()
+		var hidden: Array[int] = (
+			_hidden_ids(before, first) + _hidden_ids(engine.full_state(), first)
+		)
+		# The source, c09, was face down (pending) before this step and is revealed by it in
+		# public (CARD_REVEALED), so naming it in CHOICE_REQUESTED's `card` leaks nothing.
+		for event: MatchEvent in result.events:
+			if event.kind == MatchEvent.Kind.CARD_REVEALED:
+				var shown: int = _payload_int(event, "card")
+				while hidden.has(shown):
+					hidden.erase(shown)
+		assert_bool(hidden.has(c09)).is_false()
+		var theirs: Array[MatchEvent] = result.events_for(1 - first)
+		assert_array(_prompt_event_leaks(theirs, hidden)).is_empty()
+		var requested: int = 0
+		for event: MatchEvent in theirs:
+			if event.kind != MatchEvent.Kind.CHOICE_REQUESTED:
+				continue
+			requested += 1
+			assert_bool(event.is_private()).is_false()
+			var zone_name: String = event.payload["zone"]
+			assert_str(zone_name).is_equal("own_hand")
+			var options: Array = event.payload["options"]
+			assert_array(options).is_equal(range(_hand(engine, first).size()))
+		assert_int(requested).is_equal(1)
+		return
+	fail("no seed gives c09 by turn 3")
+
+
 # --- R30: the full-state read ---------------------------------------------------------
 
 
@@ -704,7 +910,9 @@ func test_full_state_includes_everything_the_views_omit() -> void:
 				var view_ids: Array[int] = []
 				_card_ids(view_dict, "", view_ids)
 				for card: int in view_ids:
-					assert_bool(all_ids.has(card)).is_true()
+					# HIDDEN_CARD stands for a face-down opponent card mid-walk (DC-05 T05).
+					if card != MatchEvent.HIDDEN_CARD:
+						assert_bool(all_ids.has(card)).is_true()
 				# What the view counts, the full state names.
 				var opp: int = 1 - seat
 				var opp_hand: Array[int] = _state_list(state, "hand", opp)
