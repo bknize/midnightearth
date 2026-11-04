@@ -8,6 +8,8 @@ const PULSE_SCALE: float = 1.4
 const PULSE_TIME: float = 0.2
 const GLOW_SIZE: Vector2 = Vector2(2.9, 3.9)
 const GLOW_PEAK_ALPHA: float = 0.6
+## Drawn after the prompt's dimmer (render priority 1), so a glowing card stays lit.
+const GLOW_PRIORITY: int = 2
 ## The glow and the note sit this far in front of the face.
 const GLOW_Z: float = 0.05
 const NOTE_Z: float = 0.1
@@ -66,6 +68,7 @@ func set_glow(source: Material, alpha: float) -> void:
 		material = source.duplicate() as StandardMaterial3D
 		if material == null:
 			return
+		material.render_priority = GLOW_PRIORITY
 		_glow.material_override = material
 	material.albedo_color = Color(material.albedo_color, alpha)
 	_glow.visible = alpha > 0.0

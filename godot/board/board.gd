@@ -13,6 +13,8 @@ extends Node3D
 signal player_turn_started
 ## Internal: emitted when the node-owned wait ends, or is cut short by a restart or exit.
 signal wait_finished
+## Internal: emitted when the open prompt is answered, or cut short by a restart or exit.
+signal prompt_resolved
 
 ## The drop-zone glow looks (R12-R14).
 enum GlowLook { IDLE, HOVER, REFUSE }
@@ -69,6 +71,8 @@ var _player_cards: Dictionary[int, BoardCard] = {}
 var _tracker: ScoreTracker = ScoreTracker.new()
 ## Plays the pulse, the effect steps and the shared card motions.
 var _fx: EffectPlayer = EffectPlayer.new()
+## The prompt on the table (R55-R57): banner, glows, dim and tap routing.
+var _prompt: PromptHost = PromptHost.new()
 ## True when the first seed was fixed (`fixed_seed` or --seed=), so a rematch uses seed + 1.
 var _seed_fixed: bool = false
 var _paused: bool = false
@@ -134,10 +138,16 @@ func _process(delta: float) -> void:
 func _exit_tree() -> void:
 	_serial += 1
 	_end_wait()
+	_prompt.drop()
+	prompt_resolved.emit()
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
+		if _prompt.is_open():
+			# R56: Escape does nothing while a prompt is open.
+			get_viewport().set_input_as_handled()
+			return
 		if card_lift.is_holding():
 			card_lift.put_down()
 			get_viewport().set_input_as_handled()
@@ -159,6 +169,13 @@ func _setup_effects() -> void:
 	_fx.player_cards = _player_cards
 	_fx.committed_ids = _committed_ids
 	_fx.face_down_ids = _face_down_ids
+	_prompt.player_hand = player_hand
+	_prompt.player_row = player_row
+	_prompt.opponent_row = opponent_row
+	_prompt.opponent_hand = opponent_hand
+	_prompt.card_lift = card_lift
+	_prompt.hud = hud
+	_prompt.glow_material = _row_glow.material_override
 
 
 ## Starts a fresh match: new driver, empty table, the opening events as steps.
@@ -172,6 +189,7 @@ func start_match(new_seed: int) -> void:
 	_awaited = false
 	_paused = false
 	_queue.clear()
+	_close_prompt()
 	driver = MatchDriver.create(new_seed, _cards, _autoplay)
 	_clear_table_now()
 	hud.show_pause(false)
@@ -225,6 +243,8 @@ func _submit(action: EngineAction) -> bool:
 	_awaited = false
 	_refresh_commit_enabled()
 	_enqueue(driver.last_events())
+	# A concede ends the match under an open prompt; the runner then plays on.
+	_close_prompt()
 	_run()
 	return true
 
@@ -339,6 +359,10 @@ func _play(step: BoardStep, serial: int) -> void:
 		await _wait(step.duration)
 		if serial != _serial:
 			return
+	if PromptRules.waits(step, _autoplay):
+		# R55: untimed. The runner holds here until a choice is accepted.
+		while _prompt.is_open() and serial == _serial:
+			await prompt_resolved
 
 
 func _wait(seconds: float) -> void:
@@ -390,8 +414,8 @@ func _apply(step: BoardStep) -> void:
 			_apply_effect(step)
 
 
-## The effect steps (P18, R53). BOT_WAIT is only its duration, and PROMPT stays an untimed
-## no-op until T12 opens the prompt: nothing here may block the runner.
+## The effect steps (P18, R53). BOT_WAIT is only its duration. PROMPT opens the prompt; the
+## runner holds in _play(), not here.
 func _apply_effect(step: BoardStep) -> void:
 	match step.kind:
 		BoardStep.Kind.EFFECT:
@@ -410,6 +434,8 @@ func _apply_effect(step: BoardStep) -> void:
 			_fx.return_card(step)
 		BoardStep.Kind.DISCARD:
 			_fx.discard(step)
+		BoardStep.Kind.PROMPT:
+			_open_prompt(step)
 
 
 ## The HUD shows the tracker: "score ×mult" during the walk, the plain score after (R50-R52).
@@ -504,6 +530,51 @@ func _match_end(step: BoardStep) -> void:
 	var rounds: int = step.source.payload["rounds_played"]
 	hud.show_result(step.seat, step.wins, reason, rounds)
 	_refresh_commit_enabled()
+
+
+# --- Prompts (R55-R58, C16) ----------------------------------------------------------------
+
+
+## Shows seat 0's open prompt. Under autoplay the bot answers through play_bot(), so there is
+## no banner and no wait (R58). If the engine holds no prompt for seat 0 nothing opens, and
+## the runner does not wait either.
+func _open_prompt(step: BoardStep) -> void:
+	if _autoplay:
+		return
+	var open: Dictionary = driver.open_prompt()
+	if open.is_empty():
+		push_warning("Board: a PROMPT step but the engine holds no prompt for seat 0")
+		return
+	_prompt.open(open, step.text, driver.view().own_board.size())
+	_refresh_commit_enabled()
+
+
+## Clears the banner, glows and dim, and lets a held runner continue (R57).
+func _close_prompt() -> void:
+	_prompt.close()
+	prompt_resolved.emit()
+
+
+## Submits the tapped option. A rejection leaves the prompt up (it should not happen).
+func _choose(index: int) -> void:
+	var open: Dictionary = _prompt.current()
+	var zone: int = open.get("zone", Choice.NO_ZONE)
+	var result: ApplyResult = driver.submit_choice(zone, index)
+	if not result.ok:
+		push_warning("Board: the engine rejected the choice (code %d)" % result.error)
+		return
+	_enqueue(driver.last_events())
+	_close_prompt()
+
+
+## One tap while the prompt is open: a glowing card decides, another face-up card lifts to be
+## read (C16), anything else does nothing.
+func _tap_prompt(card: BoardCard) -> void:
+	var tap: PromptTap = _prompt.tap(card, driver.view().own_board.size())
+	if tap.kind == PromptRules.Tap.CHOOSE:
+		_choose(tap.index)
+	elif tap.kind == PromptRules.Tap.LIFT:
+		card_lift.lift(card)
 
 
 # --- Card helpers ------------------------------------------------------------------------
@@ -805,6 +876,9 @@ func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
 		return
 	var card: BoardCard = _card_from_hit(hit)
 	if card == null:
+		return
+	if _prompt.is_open():
+		_tap_prompt(card)
 		return
 	var place: int = _place_of(card)
 	if place < 0:
