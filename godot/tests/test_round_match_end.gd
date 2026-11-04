@@ -137,7 +137,7 @@ func _play_round(engine: MatchEngine, winner: int) -> Array[MatchEvent]:
 		var seat: int = engine.awaited_seat()
 		var cards: Array[int] = []
 		if seat == winner and engine.energy() == MatchRules.TURNS:
-			cards.append(_hand(engine, seat)[0])
+			cards.append(_first_promptless(_hand(engine, seat)))
 		var result: ApplyResult = engine.apply(EngineAction.commit(seat, cards))
 		if not result.ok:
 			fail("round action rejected with code %d" % result.error)
@@ -147,6 +147,15 @@ func _play_round(engine: MatchEngine, winner: int) -> Array[MatchEvent]:
 	var ended: MatchEvent = _last(seen, MatchEvent.Kind.ROUND_ENDED)
 	assert_int(_payload_int(ended, "winner")).is_equal(winner)
 	return seen
+
+
+## The first card of `hand` whose effect cannot open a prompt (DC-05 T05: a prompt would
+## pause the walk, and these rounds are all commits), else the first card.
+func _first_promptless(hand: Array[int]) -> int:
+	for card: int in hand:
+		if not _is_prompt_card(card):
+			return card
+	return hand[0]
 
 
 ## Plays one round per outcome, in order; returns every event on the way.
@@ -358,12 +367,19 @@ func _cost(card: int) -> int:
 	return _db().card_at(card % MatchRules.DECK_SIZE).cost
 
 
+## The cheapest hand card, the first on a tie; cards that may open a prompt (DC-05 T05) are
+## passed over while the hand holds any other.
 func _cheapest(hand: Array[int]) -> int:
-	var best: int = hand[0]
+	var best: int = _first_promptless(hand)
 	for card: int in hand:
-		if _cost(card) < _cost(best):
+		if _cost(card) < _cost(best) and not _is_prompt_card(card):
 			best = card
 	return best
+
+
+func _is_prompt_card(card: int) -> bool:
+	var effect: CardEffect = _db().card_at(card % MatchRules.DECK_SIZE).effect
+	return effect != null and Choice.needs_choice(effect.verb)
 
 
 ## The events from the last ROUND_STARTED on: the round in progress or the final round.

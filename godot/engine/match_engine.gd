@@ -6,7 +6,9 @@ extends RefCounted
 ##
 ## Flow: _begin_round() -> _begin_turn() -> commit (first, face down, with its slots) ->
 ## commit (second) -> _resolve() (both commits merge into their rows, then the walk starts)
-## -> _run_walk() (ScoreWalk pulses every card on both rows) -> _end_turn() -> next
+## -> _run_walk() (ScoreWalk pulses every card on both rows; an effect with two or more
+## targets pauses it on a prompt, phase AWAIT_CHOICE, until apply(CHOOSE) from the prompted
+## seat resumes it, DC-05 T05) -> _end_turn() (return marks, energy) -> next
 ## _begin_turn(), or after turn 7 _end_round() ->
 ## _after_round(), which either ends the match (R20-R22) or begins the next round.
 ## Concede goes straight to _end_match().
@@ -81,19 +83,30 @@ func apply(action: EngineAction) -> ApplyResult:
 	_state.actions_applied += 1
 	if accepted.kind == EngineAction.Kind.CONCEDE:
 		_concede(accepted.seat)
+	elif accepted.kind == EngineAction.Kind.CHOOSE:
+		_choose(accepted.index)
 	else:
 		_commit(accepted.seat, accepted.cards, accepted.slots)
 	_state.rng_state = _rng.state
 	return ApplyResult.success(_events)
 
 
-## The seat whose commit is awaited; -1 before start() and once the match is over.
+## The seat whose decision is awaited: the committer, or while a prompt is open the
+## prompted seat (P9); -1 before start() and once the match is over.
 func awaited_seat() -> int:
 	if _state.phase == MatchState.Phase.AWAIT_FIRST:
 		return _state.first_seat
 	if _state.phase == MatchState.Phase.AWAIT_SECOND:
 		return 1 - _state.first_seat
+	if _state.phase == MatchState.Phase.AWAIT_CHOICE:
+		return _prompt_seat()
 	return -1
+
+
+## A copy of the open prompt (plan P9: {seat, card, verb, zone, options}), or {} when none.
+## It names no hidden card: options are positions (Choice) and the source is revealed.
+func open_prompt() -> Dictionary:
+	return _state.prompt.duplicate(true)
 
 
 func is_over() -> bool:
@@ -168,14 +181,27 @@ func _check(action: EngineAction) -> int:
 		# Either seat may concede at any time (R23).
 		return EngineError.Code.NONE
 	if action.kind == EngineAction.Kind.CHOOSE:
-		# No effect opens a prompt yet (T05), so a choice never has one to answer (R31).
-		return EngineError.Code.NO_PROMPT
+		return _check_choice(action)
 	return _check_commit(action)
 
 
-## A well-formed commit: the awaited seat, then LegalPlays.validate.
+## A well-formed choice (R31): a prompt is open (NO_PROMPT), the action is the prompted
+## seat's (WRONG_SEAT) and its zone and index are one of the prompt's options
+## (NOT_ELIGIBLE).
+func _check_choice(action: EngineAction) -> int:
+	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _state.prompt.is_empty():
+		return EngineError.Code.NO_PROMPT
+	if action.seat != _prompt_seat():
+		return EngineError.Code.WRONG_SEAT
+	if not Choice.is_offered(_state.prompt, action.zone, action.index):
+		return EngineError.Code.NOT_ELIGIBLE
+	return EngineError.Code.NONE
+
+
+## A well-formed commit: the awaited seat, then LegalPlays.validate. While a prompt is
+## open the engine awaits a choice, so every commit fails with WRONG_SEAT.
 func _check_commit(action: EngineAction) -> int:
-	if action.seat != awaited_seat():
+	if _state.phase == MatchState.Phase.AWAIT_CHOICE or action.seat != awaited_seat():
 		return EngineError.Code.WRONG_SEAT
 	var piles: MatchState.SeatPiles = _state.seats[action.seat]
 	return LegalPlays.validate(
@@ -227,6 +253,7 @@ func _begin_round() -> void:
 	# The boards clear, so every card leaves them: their modifiers go too (plan, card_states).
 	_state.card_states.clear()
 	_state.walk = MatchState.WalkState.new()
+	_state.prompt = {}
 	# Effects do not reach across rounds (see the class comment).
 	_state.energy = MatchState.EnergyState.new()
 	_state.bonus_zero_pending[0] = false
@@ -428,20 +455,43 @@ func _merge_into_row(seat: int, cards: Array[int], slots: Array[int]) -> void:
 ## are already revealed: no second CARD_REVEALED). Effects fire inside the pulses
 ## (ScoreWalk, EffectResolver) with the engine stream and no preview policy, and their
 ## events reach `_events` through `_emit` with their owners. A pulse that opens a prompt
-## pauses the walk here, and answering it calls this again (DC-05 T05); none does yet.
+## (DC-05 T05) pauses the walk here: phase AWAIT_CHOICE, the prompted seat awaited, the
+## turn not ended. _choose() applies the answer and calls this again, and the walk resumes
+## in the same pulse (ScoreWalk.step).
 func _run_walk() -> void:
 	var sink: Callable = _emit
 	while _state.walk.active:
 		if ScoreWalk.step(_state, _cards, _rng, sink, null):
+			_state.phase = MatchState.Phase.AWAIT_CHOICE
 			return
 	_end_turn()
 
 
-## Turn end (R17, plan P14): per-seat energy is settled first (EffectResolver.settle_energy:
-## a revealed carry card on the row carries `budget - spent`, else the carry is 0; DC-05 T05
-## resolves the return marks before it); then the scores are the walk totals and the higher
+## An accepted choice (R32, plan P3): the prompt closes, the choice applies (CHOICE_MADE and
+## the verb's events), and the walk resumes where it paused. The phase returns to the one a
+## walk runs in (AWAIT_SECOND) until the walk pauses again or the turn ends.
+func _choose(index: int) -> void:
+	_state.phase = MatchState.Phase.AWAIT_SECOND
+	_events.append_array(EffectResolver.answer(_state, _cards, index))
+	_run_walk()
+
+
+## The open prompt's seat, or -1 when none is open.
+func _prompt_seat() -> int:
+	if _state.prompt.is_empty():
+		return -1
+	var seat: int = _state.prompt.get(EffectResolver.KEY_SEAT, -1)
+	return seat
+
+
+## Turn end (R17, R24, plan P14), only once the walk is complete: the return marks resolve
+## first (EffectResolver.resolve_returns: each marked card goes back to its owner's hand,
+## or burns at the cap), then per-seat energy is settled (EffectResolver.settle_energy: a
+## revealed carry card on the row carries `budget - spent`, else the carry is 0, so a
+## returned carry card carries nothing); then the scores are the walk totals and the higher
 ## one wins the turn, as cycle 1 R16 did from power.
 func _end_turn() -> void:
+	_events.append_array(EffectResolver.resolve_returns(_state))
 	_events.append_array(EffectResolver.settle_energy(_state, _cards))
 	var winner: int = _leader()
 	_state.last_turn_winner = winner
@@ -477,6 +527,8 @@ func _concede(seat: int) -> void:
 ## action fails with MATCH_OVER (_check).
 func _end_match(winner: int, reason: String, rounds_played: int) -> void:
 	_state.phase = MatchState.Phase.OVER
+	# A concede can come while a prompt is open; nothing answers it any more.
+	_state.prompt = {}
 	_state.result = {
 		"winner": winner,
 		"reason": reason,

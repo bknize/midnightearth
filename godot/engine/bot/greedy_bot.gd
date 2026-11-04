@@ -46,8 +46,13 @@ static func seed_for(match_seed: int, seat: int) -> int:
 	return MatchRng.derive_seed(match_seed, parts)
 
 
-## A commit for `view.seat`: a highest-flat legal set, tie broken by the seeded pick.
+## A commit for `view.seat`: a highest-flat legal set, tie broken by the seeded pick. While
+## a prompt is open for `view.seat`, the answer instead: its first option (an interim rule,
+## DC-05 T05; T06 replaces it with the preview-best option, R37).
 func choose(view: SeatView) -> EngineAction:
+	var answer: EngineAction = answer_prompt(view)
+	if answer != null:
+		return answer
 	var best: Array[Array] = best_sets(view)
 	var picked: Array[int] = []
 	if not best.is_empty():
@@ -57,6 +62,21 @@ func choose(view: SeatView) -> EngineAction:
 		picked.assign(chosen)
 	picked.sort_custom(_plays_before)
 	return EngineAction.commit(view.seat, picked)
+
+
+## The choice answering the prompt open for `view.seat` (its first option), or null when no
+## prompt is open for that seat.
+func answer_prompt(view: SeatView) -> EngineAction:
+	var open: bool = view.prompt.get("open", false)
+	var asked: int = view.prompt.get("seat", -1)
+	if not open or asked != view.seat:
+		return null
+	var options: Array[int] = Choice.options_of(view.prompt)
+	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	var index: int = -1
+	if not options.is_empty():
+		index = options[0]
+	return EngineAction.choose(view.seat, zone, index)
 
 
 ## Every legal set for the view with the highest total flat, in LegalPlays.enumerate

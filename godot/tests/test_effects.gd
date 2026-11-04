@@ -6,8 +6,8 @@ extends GdUnitTestSuite
 ## reveal, no stacking), the random destroy (fizzle on an empty row, the engine stream, the
 ## preview's rule, hidden information), flat-up after every score, the energy carry (only
 ## while the card is on the row at turn end), the free first card (lost when unused),
-## on-opponent-reveal (an in-memory card: no deck card uses it), the prompt verbs' T05
-## placeholder, and the round boundary.
+## on-opponent-reveal (an in-memory card: no deck card uses it), and the round boundary.
+## The four prompt verbs (DC-05 T05) are in test_choices.gd.
 ##
 ## Walk cases build MatchStates directly. Engine cases play seed 1 and plant the effect
 ## card they need into a hand (_plant): a fixture shortcut, since which turn a given card
@@ -736,29 +736,6 @@ func test_on_opponent_reveal_needs_its_card_revealed_and_ignores_its_own_seat() 
 	assert_array(_kinds(events)).is_equal(expected)
 	assert_int(_payload_int(events[8], "card")).is_equal(theirs[2])
 	_assert_event(events[9], FIRED, _fired(0, watcher, "draw", "on_opponent_reveal"), PUBLIC)
-
-
-# --- Prompt verbs: T05 placeholders ---------------------------------------------------
-
-
-func test_prompt_verbs_fire_then_fizzle_until_t05() -> void:
-	for index: int in [C09_DRAW_DISCARD, C12_SWAP, C13_SWITCH, C17_RETURN]:
-		var card: int = _id(0, index)
-		var other: int = _id(1, C04)
-		var state: MatchState = _state(_typed([card]), _typed([other]), 0)
-		_reveal(state, 1, _typed([other]))
-		state.seats[0].deck.assign([_id(0, C02), _id(0, C03)])
-		var recorder: Recorder = Recorder.new()
-		_walk(state, _db(), MatchRng.new(SEED), recorder)
-		var events: Array[MatchEvent] = recorder.events
-		var verb: String = CardEffect.verb_name(_db().card_at(index).effect.verb)
-		var expected: Array[int] = [REVEALED, FIRED, FIZZLED, SCORED, SCORED]
-		assert_array(_kinds(events)).is_equal(expected)
-		_assert_event(events[1], FIRED, _fired(0, card, verb, "on_reveal"), PUBLIC)
-		_assert_event(events[2], FIZZLED, {"seat": 0, "card": card, "verb": verb}, PUBLIC)
-		assert_array(state.seats[0].hand).is_empty()
-		assert_dict(state.card_states).is_empty()
-		assert_array(state.seats[0].board).is_equal(_typed([card]))
 
 
 # --- Round boundaries (orchestrator decision) -----------------------------------------

@@ -5,9 +5,10 @@ extends RefCounted
 ##
 ## apply() handles one verb per branch and returns an Outcome: the events the firing caused,
 ## in order, always starting with EFFECT_FIRED {seat, card, verb, trigger} (verb and trigger
-## as their CardEffect JSON names), and the prompt the verb needs (the seam for DC-05 T05;
-## always empty here). ScoreWalk decides when an effect fires (the trigger hooks, P6) and
-## forwards the events to its sink on a live walk; a preview drops them.
+## as their CardEffect JSON names), and the prompt the verb needs (empty unless a prompt
+## verb found two or more targets on a live walk). ScoreWalk decides when an effect fires
+## (the trigger hooks, P6) and forwards the events to its sink on a live walk; a preview
+## drops them.
 ##
 ## Verbs here:
 ## - DRAW (amount): draws for the owner; a draw at the hand cap is burned (R25). Same
@@ -24,9 +25,25 @@ extends RefCounted
 ## - FLAT_UP_ON_SCORE (amount): `flat_delta += amount`, STATS_CHANGED (cause flat_up).
 ## - CARRY_ENERGY (ongoing): `carry[owner] = budget - spent[owner]`, ENERGY_CARRIED
 ##   {seat, amount}. Only settle_energy() fires it, at turn end.
-## - The prompt verbs (DRAW_THEN_DISCARD, SWAP_PLACES, SWITCH_STATS, RETURN_AT_TURN_END) are
-##   DC-05 T05. Until then each emits EFFECT_FIRED then EFFECT_FIZZLED {seat, card, verb},
-##   so deck cards c09, c12, c13 and c17 do nothing yet.
+## - The prompt verbs (DC-05 T05; R20, R26, R28-R34, plan P9, P10). Choice.eligible() lists
+##   the targets. With none the effect fizzles (EFFECT_FIZZLED {seat, card, verb}); with one
+##   it is chosen at once (CHOICE_MADE with `auto` true) and applied; with two or more the
+##   Outcome carries the prompt {seat, card, verb, zone, options} and the event
+##   CHOICE_REQUESTED {seat, card, verb, text, zone, options} (zone by name, options as
+##   positions: public). answer() applies the choice later. A preview (non-null policy)
+##   never prompts: it takes the first option at once (plan P12).
+##   - DRAW_THEN_DISCARD (amount): draws `amount` as DRAW does (burns at the cap), then
+##     discards one card of the owner's hand to its burn pile: CARD_DISCARDED {seat, card},
+##     private to the owner.
+##   - SWAP_PLACES: the source and another card of the owner's row exchange slots: two
+##     CARD_MOVED {seat, card, from_slot, to_slot}, the source's first. A face-down card's
+##     move is private to its seat. The walk's `pulsed` set keeps either from pulsing twice.
+##   - SWITCH_STATS: toggles the target's CardState.switched: STATS_CHANGED (cause switch).
+##   - RETURN_AT_TURN_END: sets the target's CardState.return_marked; resolve_returns()
+##     takes it back to its owner's hand at turn end, or burns it at the cap (R24, R25).
+##   CHOICE_MADE {seat, card, zone, index, target, auto} is private to the seat holding the
+##   target when the zone is a hand or the target is face down (R30, R34); MatchEvent
+##   redaction then hides `target` (only) from the other seat.
 ##
 ## Hidden information on destroy (orchestrator, DC-05 T04): instance ids map to card
 ## definitions, so naming a face-down card would leak it. When the destroyed card is still
@@ -43,6 +60,11 @@ extends RefCounted
 
 const CAUSE_FLAT_UP: String = "flat_up"
 const CAUSE_BONUS_ZERO: String = "bonus_zero"
+const CAUSE_SWITCH: String = "switch"
+const KEY_SEAT: String = "seat"
+const KEY_CARD: String = "card"
+const KEY_VERB: String = "verb"
+const PUBLIC: int = MatchEvent.PUBLIC
 
 
 ## The effect of `card` (an instance id), or null for a vanilla card or unknown id.
@@ -85,10 +107,12 @@ static func apply(
 			_flat_up(state, cards, seat, card, effect.amount, outcome)
 		CardEffect.Verb.CARRY_ENERGY:
 			_carry(state, seat, outcome)
+		CardEffect.Verb.DRAW_THEN_DISCARD:
+			_draw(state, seat, effect.amount, outcome)
+			_ask(state, cards, policy, seat, card, effect, outcome)
 		_:
-			# DRAW_THEN_DISCARD, SWAP_PLACES, SWITCH_STATS, RETURN_AT_TURN_END need a prompt:
-			# DC-05 T05 builds it here (Outcome.prompt). Until then they fizzle.
-			_fizzle(seat, card, effect.verb, outcome)
+			# SWAP_PLACES, SWITCH_STATS, RETURN_AT_TURN_END: a target, then the verb.
+			_ask(state, cards, policy, seat, card, effect, outcome)
 	return outcome
 
 
@@ -137,6 +161,87 @@ static func settle_energy(state: MatchState, cards: CardDb) -> Array[MatchEvent]
 			state.energy.carry[seat] = 0
 			continue
 		out.append_array(apply(state, cards, null, null, seat, carrier).events)
+	return out
+
+
+## Answers the open prompt of `state` with position `index` of its zone (plan P3, R32):
+## clears the prompt, then applies the choice (apply_choice, `auto` false). The caller has
+## checked the index is one of the options (Choice.is_offered). Empty when no prompt is
+## open. The walk resumes with the next ScoreWalk.step().
+static func answer(state: MatchState, cards: CardDb, index: int) -> Array[MatchEvent]:
+	var prompt: Dictionary = state.prompt
+	state.prompt = {}
+	if prompt.is_empty():
+		var none: Array[MatchEvent] = []
+		return none
+	return apply_choice(state, cards, prompt, index, false)
+
+
+## Applies `prompt`'s verb to position `index` of its zone: CHOICE_MADE, then the verb's
+## own events (see the class comment). Empty when the position names no card.
+static func apply_choice(
+	state: MatchState, cards: CardDb, prompt: Dictionary, index: int, auto: bool
+) -> Array[MatchEvent]:
+	var out: Array[MatchEvent] = []
+	var seat: int = prompt.get(KEY_SEAT, -1)
+	var source: int = prompt.get(KEY_CARD, -1)
+	var verb: int = prompt.get(KEY_VERB, -1)
+	var zone: int = prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	var target: int = Choice.resolve(state, seat, zone, index)
+	var holder: int = Choice.seat_at(state, seat, zone, index)
+	if target < 0 or holder < 0:
+		return out
+	var hidden: bool = Choice.is_hand(zone) or not state.seats[holder].is_revealed(target)
+	var made: Dictionary = {
+		"seat": seat,
+		"card": source,
+		"zone": Choice.zone_name(zone),
+		"index": index,
+		"target": target,
+		"auto": auto,
+	}
+	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_MADE, made, holder if hidden else PUBLIC))
+	match verb:
+		CardEffect.Verb.DRAW_THEN_DISCARD:
+			out.append(_discard(state, holder, target))
+		CardEffect.Verb.SWAP_PLACES:
+			out.append_array(_swap(state, holder, source, target))
+		CardEffect.Verb.SWITCH_STATS:
+			var held: CardState = state.card_state_for(target)
+			held.switched = not held.switched
+			out.append(_stats_changed(state, cards, holder, target, CAUSE_SWITCH))
+		CardEffect.Verb.RETURN_AT_TURN_END:
+			state.card_state_for(target).return_marked = true
+	return out
+
+
+## Turn end's return marks (R24, R25, plan P14), before energy settles: for each seat in
+## turn, each marked card on its row in slot order leaves the row (its modifiers go) for
+## its owner's hand, CARD_RETURNED {seat, card, slot}, public since the card was revealed.
+## When that hand already holds HAND_CAP cards the card is burned instead: CARD_BURNED
+## {seat, card}, the draw's burn event, made public for the same reason (both boards need
+## to see the card leave its row).
+static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
+	var out: Array[MatchEvent] = []
+	for seat: int in range(state.seats.size()):
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		var row: Array[int] = []
+		row.assign(piles.board)
+		for card: int in row:
+			var held: CardState = state.card_state(card)
+			if held == null or not held.return_marked:
+				continue
+			var slot: int = piles.board.find(card)
+			if state.take_from_row(seat, card):
+				pass  # Only revealed cards are ever marked; the event is public either way.
+			if piles.hand.size() >= MatchRules.HAND_CAP:
+				piles.burned.append(card)
+				var burned: Dictionary = {"seat": seat, "card": card}
+				out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, burned))
+				continue
+			piles.hand.append(card)
+			var returned: Dictionary = {"seat": seat, "card": card, "slot": slot}
+			out.append(MatchEvent.new(MatchEvent.Kind.CARD_RETURNED, returned))
 	return out
 
 
@@ -206,6 +311,81 @@ static func _carry(state: MatchState, seat: int, outcome: Outcome) -> void:
 	outcome.add(MatchEvent.Kind.ENERGY_CARRIED, {"seat": seat, "amount": amount})
 
 
+## A prompt verb's target (see the class comment): fizzle, choose the only one, or open a
+## prompt.
+static func _ask(
+	state: MatchState,
+	cards: CardDb,
+	policy: PreviewPolicy,
+	seat: int,
+	card: int,
+	effect: CardEffect,
+	outcome: Outcome
+) -> void:
+	var found: Dictionary = Choice.eligible(state, seat, effect.verb, card)
+	var zone: int = found[Choice.KEY_ZONE]
+	var options: Array[int] = Choice.options_of(found)
+	if options.is_empty():
+		_fizzle(seat, card, effect.verb, outcome)
+		return
+	var prompt: Dictionary = {
+		KEY_SEAT: seat,
+		KEY_CARD: card,
+		KEY_VERB: effect.verb,
+		Choice.KEY_ZONE: zone,
+		Choice.KEY_OPTIONS: MatchState.plain(options),
+	}
+	if options.size() == 1 or policy != null:
+		var auto: bool = options.size() == 1
+		outcome.events.append_array(apply_choice(state, cards, prompt, options[0], auto))
+		return
+	outcome.prompt = prompt
+	var requested: Dictionary = {
+		"seat": seat,
+		"card": card,
+		"verb": CardEffect.verb_name(effect.verb),
+		"text": effect.text,
+		"zone": Choice.zone_name(zone),
+		"options": MatchState.plain(options),
+	}
+	outcome.add(MatchEvent.Kind.CHOICE_REQUESTED, requested)
+
+
+## Discards `card` from `seat`'s hand to its burn pile (out of play for the round, so every
+## card stays in exactly one pile): CARD_DISCARDED, private to `seat`.
+static func _discard(state: MatchState, seat: int, card: int) -> MatchEvent:
+	var piles: MatchState.SeatPiles = state.seats[seat]
+	piles.hand.erase(card)
+	piles.burned.append(card)
+	return MatchEvent.new(MatchEvent.Kind.CARD_DISCARDED, {"seat": seat, "card": card}, seat)
+
+
+## Exchanges the slots of `source` and `target` on `seat`'s row: two CARD_MOVED, the
+## source's first; a face-down card's move is private to `seat`.
+static func _swap(state: MatchState, seat: int, source: int, target: int) -> Array[MatchEvent]:
+	var out: Array[MatchEvent] = []
+	var piles: MatchState.SeatPiles = state.seats[seat]
+	var from_slot: int = piles.board.find(source)
+	var to_slot: int = piles.board.find(target)
+	if from_slot < 0 or to_slot < 0:
+		return out
+	piles.board[from_slot] = target
+	piles.board[to_slot] = source
+	out.append(_moved(piles, seat, source, from_slot, to_slot))
+	out.append(_moved(piles, seat, target, to_slot, from_slot))
+	return out
+
+
+static func _moved(
+	piles: MatchState.SeatPiles, seat: int, card: int, from_slot: int, to_slot: int
+) -> MatchEvent:
+	var owner: int = PUBLIC if piles.is_revealed(card) else seat
+	var payload: Dictionary = {
+		"seat": seat, "card": card, "from_slot": from_slot, "to_slot": to_slot
+	}
+	return MatchEvent.new(MatchEvent.Kind.CARD_MOVED, payload, owner)
+
+
 static func _fizzle(seat: int, card: int, verb: int, outcome: Outcome) -> void:
 	outcome.add(
 		MatchEvent.Kind.EFFECT_FIZZLED,
@@ -257,16 +437,16 @@ static func _lowest_flat_index(state: MatchState, cards: CardDb, row: Array[int]
 	return best
 
 
-## What one firing caused: its events in order and, from DC-05 T05, the prompt it needs
-## (plan P9: {seat, card, verb, zone, options}). An empty prompt means the effect resolved.
+## What one firing caused: its events in order and the prompt it needs (plan P9: {seat,
+## card, verb, zone, options}, as MatchState.prompt). An empty prompt means it resolved.
 class Outcome:
 	extends RefCounted
 
 	var events: Array[MatchEvent] = []
-	## Empty until T05: no verb here opens a prompt.
+	## Empty unless a prompt verb found two or more targets on a live walk.
 	var prompt: Dictionary = {}
 
-	## Whether the walk must pause for a choice (always false before T05).
+	## Whether the walk must pause for a choice.
 	func needs_prompt() -> bool:
 		return not prompt.is_empty()
 

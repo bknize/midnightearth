@@ -25,7 +25,8 @@ var own_board: Array[int] = []
 var opponent_board: Array[int] = []
 ## The same rows with what each card shows (plan, SeatView additions): one entry per card
 ## in slot order, {card, flat, bonus, revealed}, the stats from ScoreWalk.effective(). An
-## opponent card not yet revealed (only possible mid-walk) shows flat and bonus 0.
+## opponent card not yet revealed (only possible mid-walk, while a prompt pauses it) shows
+## flat and bonus 0 and card MatchEvent.HIDDEN_CARD, as it does in `opponent_board`.
 var own_row: Array[Dictionary] = []
 var opponent_row: Array[Dictionary] = []
 var opponent_hand_count: int = 0
@@ -54,6 +55,12 @@ var awaited_seat: int = -1
 ## This turn's first committer, as announced by ROUND_STARTED and TURN_STARTED.
 var first_seat: int = 0
 var sudden_death: bool = false
+## The open prompt (plan, SeatView additions; DC-05 T05). Empty when none is open. For the
+## prompted seat: {open: true, seat, card, verb, text, zone, options}, with `verb` the
+## CardEffect.Verb, `zone` the Choice.Zone (relative to this seat) and `options` the
+## eligible positions in it, ready for EngineAction.choose(seat, zone, options[i]). For the
+## other seat only {open: true, seat}.
+var prompt: Dictionary = {}
 
 
 ## The view of `state` for `p_seat` (0 or 1). `p_awaited` and `p_budgets` come from the
@@ -69,7 +76,7 @@ static func build(
 	var other: MatchState.SeatPiles = state.seats[view.opponent]
 	view.own_hand.assign(own.hand)
 	view.own_board.assign(own.board)
-	view.opponent_board.assign(other.board)
+	view.opponent_board.assign(_shown_ids(other))
 	view.own_row = _row(state, view.seat, cards, true)
 	view.opponent_row = _row(state, view.opponent, cards, false)
 	view.opponent_hand_count = other.hand.size()
@@ -94,7 +101,44 @@ static func build(
 	view.awaited_seat = p_awaited
 	view.first_seat = state.first_seat
 	view.sudden_death = state.sudden_death
+	view.prompt = _prompt(state, view.seat, cards)
 	return view
+
+
+## The view's prompt (see `prompt`): the full prompt for the prompted seat, only that it is
+## open for the other.
+static func _prompt(state: MatchState, p_seat: int, cards: CardDb) -> Dictionary:
+	if state.prompt.is_empty():
+		return {}
+	var asked: int = state.prompt.get(EffectResolver.KEY_SEAT, -1)
+	if asked != p_seat:
+		return {"open": true, "seat": asked}
+	var source: int = state.prompt.get(EffectResolver.KEY_CARD, -1)
+	var verb: int = state.prompt.get(EffectResolver.KEY_VERB, -1)
+	var zone: int = state.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	var text: String = ""
+	var effect: CardEffect = EffectResolver.effect_of(source, cards)
+	if effect != null:
+		text = effect.text
+	return {
+		"open": true,
+		"seat": asked,
+		"card": source,
+		"verb": verb,
+		"text": text,
+		"zone": zone,
+		"options": MatchState.plain(Choice.options_of(state.prompt)),
+	}
+
+
+## A row's ids as the other seat may see them: a card not yet revealed (only possible while
+## a walk is paused on a prompt, DC-05 T05) shows as MatchEvent.HIDDEN_CARD, since an
+## instance id names its card definition (R29).
+static func _shown_ids(piles: MatchState.SeatPiles) -> Array[int]:
+	var out: Array[int] = []
+	for card: int in piles.board:
+		out.append(card if piles.is_revealed(card) else MatchEvent.HIDDEN_CARD)
+	return out
 
 
 ## `row_seat`'s row entries in slot order. `own` shows the stats of unrevealed cards too.
@@ -104,9 +148,11 @@ static func _row(state: MatchState, row_seat: int, cards: CardDb, own: bool) -> 
 	for card: int in piles.board:
 		var revealed: bool = piles.is_revealed(card)
 		var stats: Vector2i = Vector2i.ZERO
+		var shown: int = MatchEvent.HIDDEN_CARD
 		if own or revealed:
 			stats = ScoreWalk.effective(card, state, cards)
-		out.append({"card": card, "flat": stats.x, "bonus": stats.y, "revealed": revealed})
+			shown = card
+		out.append({"card": shown, "flat": stats.x, "bonus": stats.y, "revealed": revealed})
 	return out
 
 
@@ -158,4 +204,5 @@ func to_dict() -> Dictionary:
 		"awaited_seat": awaited_seat,
 		"first_seat": first_seat,
 		"sudden_death": sudden_death,
+		"prompt": prompt.duplicate(true),
 	}

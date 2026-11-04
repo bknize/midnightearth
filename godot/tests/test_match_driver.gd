@@ -47,10 +47,12 @@ func _event_card_ids(event: MatchEvent) -> Array[int]:
 
 
 ## The seat-1 card ids named by the private events in `events`, as strings for the message.
+## A public burn is skipped: since DC-05 T05 a card returned to a full hand burns in public,
+## having been face up on its row.
 func _opponent_leaks(events: Array[MatchEvent]) -> Array[String]:
 	var found: Array[String] = []
 	for event: MatchEvent in events:
-		if not PRIVATE_KINDS.has(event.kind):
+		if not PRIVATE_KINDS.has(event.kind) or not event.is_private():
 			continue
 		for card: int in _event_card_ids(event):
 			if card >= MatchRules.DECK_SIZE:

@@ -90,7 +90,8 @@ func _commit_cost(cards: Array[int]) -> int:
 
 
 ## Every id of `seat`'s cards its opponent may not know in `state`, as a set: its hand,
-## deck and burn pile, and its share of the face-down commit.
+## deck and burn pile, its share of the face-down commit, and the cards on its row not yet
+## revealed (only while a prompt pauses a walk, DC-05 T05).
 func _hidden_set(state: Dictionary, seat: int) -> Dictionary:
 	var out: Dictionary = {}
 	for key: String in ["hand", "deck", "burned"]:
@@ -98,6 +99,10 @@ func _hidden_set(state: Dictionary, seat: int) -> Dictionary:
 			out[card] = true
 	for card: int in _state_ints(state, "pending"):
 		if _owner(card) == seat:
+			out[card] = true
+	var revealed: Array[int] = _state_list(state, "revealed", seat)
+	for card: int in _state_list(state, "board", seat):
+		if not revealed.has(card):
 			out[card] = true
 	return out
 
@@ -112,13 +117,14 @@ func _view_card_ids(view: SeatView) -> Array[int]:
 	return out
 
 
-## Every int under an event payload's `card` or `cards` key.
+## Every int under an event payload's `card`, `target` (CHOICE_MADE) or `cards` key.
 func _event_card_ids(event: MatchEvent) -> Array[int]:
 	var out: Array[int] = []
-	var single: Variant = event.payload.get(MatchEvent.KEY_CARD)
-	if single is int:
-		var card: int = single
-		out.append(card)
+	for key: String in [MatchEvent.KEY_CARD, MatchEvent.KEY_TARGET]:
+		var single: Variant = event.payload.get(key)
+		if single is int:
+			var card: int = single
+			out.append(card)
 	var many: Variant = event.payload.get(MatchEvent.KEY_CARDS)
 	if many is Array:
 		var items: Array = many
@@ -168,7 +174,8 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 			return run
 		var action: EngineAction = bots[seat].choose(engine.view_for(seat))
 		# The seat's budget, not the turn: a carry card raises it (DC-05 T04, R9).
-		_check_commit(run, action, seat, engine.budget_for(seat))
+		var prompted: bool = not engine.open_prompt().is_empty()
+		_check_commit(run, action, seat, engine.budget_for(seat), prompted)
 		before = after
 		result = engine.apply(action)
 		if not result.ok:
@@ -187,14 +194,21 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 	return run
 
 
-## The bot's action is a commit for the awaited seat costing no more than its budget.
-func _check_commit(run: MatchRun, action: EngineAction, seat: int, energy: int) -> void:
+## The bot's action is for the awaited seat: a commit costing no more than its budget, or,
+## while a prompt is open (DC-05 T05), a choice.
+func _check_commit(
+	run: MatchRun, action: EngineAction, seat: int, energy: int, prompted: bool
+) -> void:
 	var where: String = "action %d" % run.actions
 	if action == null:
 		run.rejections.append(where + ": the bot returned null")
 		return
-	if action.kind != EngineAction.Kind.COMMIT or action.seat != seat:
-		run.rejections.append(where + ": not a commit for seat %d" % seat)
+	var kind: int = EngineAction.Kind.CHOOSE if prompted else EngineAction.Kind.COMMIT
+	if action.kind != kind or action.seat != seat:
+		run.rejections.append(where + ": not the awaited action kind for seat %d" % seat)
+	if prompted:
+		run.choices += 1
+		return
 	var cost: int = _commit_cost(action.cards)
 	if cost > energy:
 		run.energy_violations.append(where + ": cost %d over energy %d" % [cost, energy])
@@ -240,8 +254,9 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 		for card: Variant in revealed.keys():
 			hidden_during.erase(card)
 		# Cards face up on the opponent's row before the step were public; the walk scores
-		# them by id even when a round end then shuffles them back into a hidden pile.
-		for card: int in _state_list(before, "board", opp):
+		# them by id even when a round end then shuffles them back into a hidden pile. A
+		# card still face down there (a walk paused on a prompt) stays hidden.
+		for card: int in _state_list(before, "revealed", opp):
 			hidden_during.erase(card)
 		for event: MatchEvent in result.events_for(seat):
 			if event.is_private() and event.owner_seat == opp:
@@ -389,12 +404,14 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	longest_seed = 0
 	var face_down_seen: int = 0
 	var redacted_seen: int = 0
+	var choices: int = 0
 	var ended: int = 0
 	for match_seed: int in range(SWEEP_FIRST, SWEEP_LAST + 1):
 		var run: MatchRun = _play(match_seed, match_seed <= EVERY_STEP_SCAN_LAST)
 		_assert_run(run)
 		face_down_seen += run.face_down_seen
 		redacted_seen += run.redacted_seen
+		choices += run.choices
 		if run.engine.is_over():
 			ended += 1
 		if run.actions > longest_actions:
@@ -403,6 +420,8 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	assert_int(ended).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
 	assert_int(face_down_seen).is_greater(0)
 	assert_int(redacted_seen).is_greater(0)
+	# The sweep really answered prompts, so their leak scan and replay ran (DC-05 T05).
+	assert_int(choices).override_failure_message("no prompt in the sweep").is_greater(0)
 	# The longest match, readable from the static and from this message.
 	var longest: String = (
 		"longest match: seed %d, %d actions (cap %d)" % [longest_seed, longest_actions, MAX_ACTIONS]
@@ -426,6 +445,8 @@ class MatchRun:
 	var steps_scanned: int = 0
 	var face_down_seen: int = 0
 	var redacted_seen: int = 0
+	## Prompts the bots answered (DC-05 T05).
+	var choices: int = 0
 	var rejections: Array[String] = []
 	var hand_violations: Array[String] = []
 	var energy_violations: Array[String] = []
