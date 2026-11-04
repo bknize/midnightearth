@@ -4,7 +4,7 @@ tags: [planning, phase-3]
 status: closed
 related: ["[[planning/planning-moc]]"]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-04
 uid: cf1602f7-03cf-44f4-b4d4-7cfa2339fe9a
 linear:
 supersedes:
@@ -113,3 +113,14 @@ Parked (Ben, 2026-11-02, after DC-01): the DC-01 50-seed greedy-vs-greedy sweep 
 sudden death in 9 of 50 matches (39 ended on 4 wins, 2 after round 7). The mirror deck and
 greedy bots may exaggerate this; revisit sudden-death frequency once a smarter bot or real
 playtests give better data. See [[specs/cycle-1-match-engine/spec]] and [[planning/cycles]].
+
+Amended (DC-07, 2026-11-04, [[specs/cycle-6-constructed-decks/spec]] C2, C3, C6):
+
+- **R6** now reads: each seat plays a 20-card constructed deck chosen from the deck list
+  (Ruin and Drift ship first); the 4-4-3-3-2-2-2 cost mix is a design guideline, not a
+  loader rule, and flat may reach cost+4 on cards with a drawback. The DC-05 mirror deck is
+  a test fixture only.
+- **The multiplier** is a running mult in hundredths from ×1.00. A card carries at most one
+  bonus: a ×-bonus (×1.25, ×1.5, ×2) multiplies the mult, a +-bonus (+1, +2) adds to it,
+  and each card scores floor(flat × mult). Integer arithmetic only, so replays agree on
+  every platform.
