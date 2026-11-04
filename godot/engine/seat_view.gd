@@ -4,8 +4,9 @@ extends RefCounted
 ##
 ## Holds the seat's own hand and own face-down commit, both ordered rows, the opponent's
 ## hand and face-down commit counts and that commit's slots (R7), both deck counts, both
-## board scores, both round-win counts, both budgets, the round, the turn, the energy,
-## the phase and the awaited seat.
+## board scores and walk multipliers, both round-win counts, both budgets, the round, the
+## turn, the energy, the phase and the awaited seat. Each row also comes with every card's
+## shown flat and bonus and its revealed flag (own_row, opponent_row).
 ##
 ## Never holds the match seed, the stream state, any deck order, or the id of any card in
 ## the opponent's hand, deck, face-down commit or burn pile. Seat-indexed pairs
@@ -22,6 +23,11 @@ var own_pending: Array[int] = []
 ## The ordered rows (R4): a card's slot is its index. Pending cards are not on a row.
 var own_board: Array[int] = []
 var opponent_board: Array[int] = []
+## The same rows with what each card shows (plan, SeatView additions): one entry per card
+## in slot order, {card, flat, bonus, revealed}, the stats from ScoreWalk.effective(). An
+## opponent card not yet revealed (only possible mid-walk) shows flat and bonus 0.
+var own_row: Array[Dictionary] = []
+var opponent_row: Array[Dictionary] = []
 var opponent_hand_count: int = 0
 ## Size of the opponent's face-down commit while this seat is awaited second; else 0.
 var opponent_pending_count: int = 0
@@ -30,6 +36,9 @@ var opponent_pending_count: int = 0
 var opponent_pending_slots: Array[int] = []
 var deck_counts: Array[int] = [0, 0]
 var scores: Array[int] = [0, 0]
+## Each seat's walk multiplier (R14): the running value during a walk, the last walk's
+## final value after it, 1 before the round's first walk.
+var mults: Array[int] = [1, 1]
 var wins: Array[int] = [0, 0]
 ## Counts past MatchRules.ROUNDS in sudden death.
 var round_number: int = 0
@@ -48,9 +57,10 @@ var sudden_death: bool = false
 
 
 ## The view of `state` for `p_seat` (0 or 1). `p_awaited` and `p_budgets` come from the
-## engine, which owns those derivations.
+## engine, which owns those derivations; `cards` gives the rows' shown stats (with none,
+## every card shows 0 and 0).
 static func build(
-	state: MatchState, p_seat: int, p_awaited: int, p_budgets: Array[int]
+	state: MatchState, p_seat: int, p_awaited: int, p_budgets: Array[int], cards: CardDb = null
 ) -> SeatView:
 	var view: SeatView = SeatView.new()
 	view.seat = p_seat
@@ -60,6 +70,8 @@ static func build(
 	view.own_hand.assign(own.hand)
 	view.own_board.assign(own.board)
 	view.opponent_board.assign(other.board)
+	view.own_row = _row(state, view.seat, cards, true)
+	view.opponent_row = _row(state, view.opponent, cards, false)
 	view.opponent_hand_count = other.hand.size()
 	# `pending` belongs to the first committer while the second is awaited.
 	if state.phase == MatchState.Phase.AWAIT_SECOND:
@@ -72,6 +84,7 @@ static func build(
 		var piles: MatchState.SeatPiles = state.seats[index]
 		view.deck_counts[index] = piles.deck.size()
 		view.scores[index] = state.scores[index]
+		view.mults[index] = state.walk.mult[index]
 		view.wins[index] = state.wins[index]
 		view.budgets[index] = p_budgets[index]
 	view.round_number = state.round_number
@@ -82,6 +95,27 @@ static func build(
 	view.first_seat = state.first_seat
 	view.sudden_death = state.sudden_death
 	return view
+
+
+## `row_seat`'s row entries in slot order. `own` shows the stats of unrevealed cards too.
+static func _row(state: MatchState, row_seat: int, cards: CardDb, own: bool) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var piles: MatchState.SeatPiles = state.seats[row_seat]
+	for card: int in piles.board:
+		var revealed: bool = piles.is_revealed(card)
+		var stats: Vector2i = Vector2i.ZERO
+		if own or revealed:
+			stats = ScoreWalk.effective(card, state, cards)
+		out.append({"card": card, "flat": stats.x, "bonus": stats.y, "revealed": revealed})
+	return out
+
+
+## Deep, untyped copies of row entries, for to_dict().
+static func _plain_row(row: Array[Dictionary]) -> Array:
+	var out: Array = []
+	for entry: Dictionary in row:
+		out.append(entry.duplicate(true))
+	return out
 
 
 func is_awaited() -> bool:
@@ -107,11 +141,14 @@ func to_dict() -> Dictionary:
 		"own_pending": MatchState.plain(own_pending),
 		"own_board": MatchState.plain(own_board),
 		"opponent_board": MatchState.plain(opponent_board),
+		"own_row": _plain_row(own_row),
+		"opponent_row": _plain_row(opponent_row),
 		"opponent_hand_count": opponent_hand_count,
 		"opponent_pending_count": opponent_pending_count,
 		"opponent_pending_slots": MatchState.plain(opponent_pending_slots),
 		"deck_counts": MatchState.plain(deck_counts),
 		"scores": MatchState.plain(scores),
+		"mults": MatchState.plain(mults),
 		"wins": MatchState.plain(wins),
 		"round": round_number,
 		"turn": turn,

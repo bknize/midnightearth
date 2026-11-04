@@ -5,8 +5,9 @@ extends RefCounted
 ## seat's decision and returns every event on the way, in order (R4).
 ##
 ## Flow: _begin_round() -> _begin_turn() -> commit (first, face down, with its slots) ->
-## commit (second) -> _resolve() (both commits merge into their rows, then _reveal()) ->
-## _end_turn() -> next _begin_turn(), or after turn 7 _end_round() ->
+## commit (second) -> _resolve() (both commits merge into their rows, then the walk starts)
+## -> _run_walk() (ScoreWalk pulses every card on both rows) -> _end_turn() -> next
+## _begin_turn(), or after turn 7 _end_round() ->
 ## _after_round(), which either ends the match (R20-R22) or begins the next round.
 ## Concede goes straight to _end_match().
 ##
@@ -117,7 +118,7 @@ func budgets() -> Array[int]:
 func view_for(seat: int) -> SeatView:
 	if seat < 0 or seat >= SEATS:
 		return null
-	return SeatView.build(_state, seat, awaited_seat(), budgets())
+	return SeatView.build(_state, seat, awaited_seat(), budgets(), _cards)
 
 
 ## The full-state read (R30), for tests and replay only: it includes hidden information,
@@ -216,6 +217,9 @@ func _begin_round() -> void:
 	_state.last_turn_winner = -1
 	_state.pending.clear()
 	_state.pending_slots.clear()
+	# The boards clear, so every card leaves them: their modifiers go too (plan, card_states).
+	_state.card_states.clear()
+	_state.walk = MatchState.WalkState.new()
 	for seat: int in range(SEATS):
 		var piles: MatchState.SeatPiles = _state.seats[seat]
 		piles.deck.clear()
@@ -367,11 +371,10 @@ func _commit(seat: int, cards: Array[int], slots: Array[int]) -> void:
 	_state.pending.clear()
 	_state.pending_slots.clear()
 	_resolve(first_cards, first_slots, committed, committed_slots)
-	_end_turn()
 
 
 ## Resolution (R8, plan P2): both commits merge into their rows at their slots, first
-## committer first, before anything is revealed or scored; then the new cards reveal.
+## committer first, before anything is revealed or scored; then the walk runs.
 func _resolve(
 	first_cards: Array[int],
 	first_slots: Array[int],
@@ -381,7 +384,12 @@ func _resolve(
 	var first: int = _state.first_seat
 	_merge_into_row(first, first_cards, first_slots)
 	_merge_into_row(1 - first, second_cards, second_slots)
-	_reveal(first_cards, second_cards)
+	ScoreWalk.begin(_state)
+	_emit(
+		MatchEvent.Kind.WALK_STARTED,
+		{"round": _state.round_number, "turn": _state.turn, "first_seat": _state.first_seat}
+	)
+	_run_walk()
 
 
 ## Places `cards` into `seat`'s row at their final slots (plan P1): walks the merged row's
@@ -404,28 +412,21 @@ func _merge_into_row(seat: int, cards: Array[int], slots: Array[int]) -> void:
 	piles.board.assign(merged)
 
 
-## Reveal (R15): alternate first committer's card 1, second's card 1, first's card 2, and
-## so on, in slot order; when one list runs out the other reveals the rest in order. Each
-## card is already on its row; the event carries its slot.
-func _reveal(first_cards: Array[int], second_cards: Array[int]) -> void:
-	var first: int = _state.first_seat
-	var second: int = 1 - first
-	var order: int = 0
-	var longest: int = maxi(first_cards.size(), second_cards.size())
-	for i: int in range(longest):
-		if i < first_cards.size():
-			_reveal_card(first, first_cards[i], order)
-			order += 1
-		if i < second_cards.size():
-			_reveal_card(second, second_cards[i], order)
-			order += 1
+## The walk (R11-R17, plan P3): pulses until the walk ends, then ends the turn. Every walk
+## recomputes every card on both rows, so cards played in earlier turns score again (they
+## are already revealed: no second CARD_REVEALED). A pulse that opens a prompt pauses the
+## walk here, and answering it calls this again (DC-05 T05); none does yet.
+func _run_walk() -> void:
+	var sink: Callable = _emit
+	while _state.walk.active:
+		if ScoreWalk.step(_state, _cards, _rng, sink, null):
+			return
+	_end_turn()
 
 
-## Scoring (R16): each board score is the summed flat on that side; the higher one wins the
-## turn. Bonus and effects are loaded but not yet scored (DC-05 T03 adds the walk).
+## Turn end (R17): the scores are the walk totals; the higher one wins the turn, as cycle 1
+## R16 did from power.
 func _end_turn() -> void:
-	for seat: int in range(SEATS):
-		_state.scores[seat] = _board_flat(seat)
 	var winner: int = _leader()
 	_state.last_turn_winner = winner
 	_emit(
@@ -502,38 +503,6 @@ func _draw_card(seat: int) -> void:
 		return
 	piles.hand.append(card)
 	_emit(MatchEvent.Kind.CARD_DRAWN, {"seat": seat, "card": card}, seat)
-
-
-func _reveal_card(seat: int, card: int, order: int) -> void:
-	var piles: MatchState.SeatPiles = _state.seats[seat]
-	piles.revealed[card] = true
-	var def: CardDef = _cards.card_at(card % MatchRules.DECK_SIZE)
-	var def_id: String = ""
-	var flat: int = 0
-	if def != null:
-		def_id = def.id
-		flat = def.flat
-	_emit(
-		MatchEvent.Kind.CARD_REVEALED,
-		{
-			"seat": seat,
-			"card": card,
-			"def_id": def_id,
-			"flat": flat,
-			"order": order,
-			"slot": piles.board.find(card),
-		}
-	)
-
-
-func _board_flat(seat: int) -> int:
-	var piles: MatchState.SeatPiles = _state.seats[seat]
-	var total: int = 0
-	for card: int in piles.board:
-		var def: CardDef = _cards.card_at(card % MatchRules.DECK_SIZE)
-		if def != null:
-			total += def.flat
-	return total
 
 
 ## The seat with the higher board score, or -1 when they are equal.

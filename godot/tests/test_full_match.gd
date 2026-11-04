@@ -238,6 +238,10 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 		hidden_during.merge(hidden_now)
 		for card: Variant in revealed.keys():
 			hidden_during.erase(card)
+		# Cards face up on the opponent's row before the step were public; the walk scores
+		# them by id even when a round end then shuffles them back into a hidden pile.
+		for card: int in _state_list(before, "board", opp):
+			hidden_during.erase(card)
 		for event: MatchEvent in result.events_for(seat):
 			if event.is_private() and event.owner_seat == opp:
 				run.redacted_seen += 1

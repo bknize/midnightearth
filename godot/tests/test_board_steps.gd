@@ -148,25 +148,37 @@ func test_reveal_steps_carry_engine_order_and_flat() -> void:
 	assert_int(reveals).is_greater(0)
 
 
-## A turn's score is what its pulses added (the flat alone when a pulse has no score yet).
-func test_summed_reveal_flat_equals_the_turn_end_scores() -> void:
-	var turn_totals: Array[int] = [0, 0]
-	var previous: Array[int] = [0, 0]
+## Since DC-05 T03 a turn's scores are its walk's totals: each seat's last CARD_SCORED
+## score after the turn's WALK_STARTED (0 for a seat with no card), and every TURN_END step
+## carries them.
+func test_turn_end_scores_are_the_walk_totals() -> void:
+	var walk_totals: Array[int] = [0, 0]
 	var turn_ends: int = 0
-	for step: BoardStep in _steps(1.0):
-		if step.kind == BoardStep.Kind.TURN_START:
-			turn_totals = [0, 0]
-			if step.turn == 1:
-				previous = [0, 0]
-		elif step.kind == BoardStep.Kind.PULSE:
-			turn_totals[step.seat] += step.added if step.score >= 0 else step.flat
-		elif step.kind == BoardStep.Kind.TURN_END:
+	for event: MatchEvent in _match_events():
+		if event.kind == MatchEvent.Kind.WALK_STARTED:
+			walk_totals = [0, 0]
+		elif event.kind == MatchEvent.Kind.CARD_SCORED:
+			var seat: int = event.payload["seat"]
+			var score: int = event.payload["score"]
+			walk_totals[seat] = score
+		elif event.kind == MatchEvent.Kind.TURN_ENDED:
 			turn_ends += 1
-			assert_int(step.scores.size()).is_equal(2)
-			for seat: int in range(2):
-				assert_int(turn_totals[seat]).is_equal(step.scores[seat] - previous[seat])
-			previous = [step.scores[0], step.scores[1]]
+			var raw: Array = event.payload["scores"]
+			var ended: Array[int] = []
+			ended.assign(raw)
+			assert_array(ended).is_equal(walk_totals)
 	assert_int(turn_ends).is_greater(0)
+	var steps_seen: int = 0
+	for step: BoardStep in _steps(1.0):
+		if step.kind != BoardStep.Kind.TURN_END:
+			continue
+		steps_seen += 1
+		var source_scores: Array = step.source.payload["scores"]
+		assert_int(step.scores.size()).is_equal(2)
+		for seat: int in range(2):
+			var expected: int = source_scores[seat]
+			assert_int(step.scores[seat]).is_equal(expected)
+	assert_int(steps_seen).is_equal(turn_ends)
 
 
 # --- Burns ----------------------------------------------------------------------------
