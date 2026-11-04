@@ -259,16 +259,18 @@ func _destroy_then_swap(stop_before_walk: bool) -> MatchEngine:
 
 
 ## Preview equals live (DC-06 R23; plan "Risks": a card scored twice) on a walk with a
-## destroy and a forward swap. At the commit, preview() runs the destroy itself and takes
-## c12's first option (c19, backward): 7 + 4 + 1*2 + 3*2 = 19. On the paused walk, each
-## option's preview_choice() equals the live walk answered the same way: option 2 swaps
-## c12 forward onto slot 2, where it scores again (7 + 4 + 4 + 3 = 18; c03, now behind the
-## cursor, stays face down); option 3 swaps it onto slot 3, after c03 doubles the
-## multiplier (7 + 4 + 2 + 4*2 = 21). c14, destroyed, scores nothing throughout.
+## destroy and a forward swap. The score stage belongs to the slot (C23-C25): c12's slot 1
+## scores the card the swap puts there. At the commit, preview() runs the destroy itself
+## and takes c12's first option (c19, backward): c19 scores again on slot 1 and c12 never
+## scores, 7 + 7 + 1*2 + 3*2 = 22. On the paused walk, each option's preview_choice()
+## equals the live walk answered the same way: option 2 puts c03 on slot 1, where it
+## reveals and doubles the multiplier before c12 scores at slot 2 (7 + 1*2 + 4*2 + 3*2 =
+## 23); option 3 puts c04 on slot 1 and c12 on slot 3, after c03 (7 + 3 + 1*2 + 4*2 = 20).
+## c14, destroyed, scores nothing throughout.
 func test_preview_equals_live_with_a_forward_swap_and_a_destroy() -> void:
 	var fresh: MatchEngine = _destroy_then_swap(true)
-	assert_array(fresh.preview(0, EngineAction.commit(0, _none()))).is_equal(_typed([19, 0]))
-	var expected: Dictionary = {0: _typed([19, 0]), 2: _typed([18, 0]), 3: _typed([21, 0])}
+	assert_array(fresh.preview(0, EngineAction.commit(0, _none()))).is_equal(_typed([22, 0]))
+	var expected: Dictionary = {0: _typed([22, 0]), 2: _typed([23, 0]), 3: _typed([20, 0])}
 	for option: int in [0, 2, 3]:
 		var engine: MatchEngine = _destroy_then_swap(false)
 		assert_int(engine.awaited_seat()).is_equal(0)
@@ -297,12 +299,14 @@ func _hidden_slot_zero() -> MatchEngine:
 
 
 ## DC-06 R23 (spec scenario): mid-walk, the opponent's face-down c02 at slot 0 stays a slot
-## that scores nothing, so the preview pulses seat 1's slots in the live order. Option 2
-## (c12 onto c03's slot) leaves c19 at slot 1: it pulses after c02's slot and before c14's,
-## destroys c14 (the only live card the preview knows) and the preview reads 4 + 7 + 4 = 15
-## to 0. Dropping c02 instead would shift c14 to slot 0, score it before the destroy and
-## read 15 to 6. Option 1 (c12 onto c19's slot) leaves c19 face down behind the cursor:
-## 4 + 4 + 1*2 = 10 to c14's 6. The live walk then gives seat 0 the same 15.
+## that scores nothing, so the preview pulses seat 1's slots in the live order. c12's
+## slot 0 scores the card the swap puts there (C23, C24). Option 2 (c12 onto c03's slot)
+## reveals c03 on slot 0 (1*2) and leaves c19 at slot 1: it pulses after c02's slot and
+## before c14's, destroys c14 (the only live card the preview knows) and the preview reads
+## 2 + 7*2 + 4*2 = 24 to 0. Dropping c02 instead would shift c14 to slot 0, score it before
+## the destroy and read 24 to 6. Option 1 (c12 onto c19's slot) reveals c19 on slot 0,
+## which destroys c14 before its slot: 7 + 4 + 1*2 = 13 to 0. The live walk then gives
+## seat 0 the same 24.
 func test_preview_mid_walk_keeps_the_live_slot_order() -> void:
 	var engine: MatchEngine = _hidden_slot_zero()
 	var hidden: int = _id(1, C02)
@@ -321,10 +325,10 @@ func test_preview_mid_walk_keeps_the_live_slot_order() -> void:
 	assert_int(ScoreWalk.next_card(live)).is_equal(hidden)
 	assert_bool(clone.is_destroyed(hidden)).is_true()
 	assert_bool(live.is_destroyed(hidden)).is_false()
-	assert_array(engine.preview_choice(0, 1)).is_equal(_typed([10, 6]))
-	assert_array(engine.preview_choice(0, 2)).is_equal(_typed([15, 0]))
+	assert_array(engine.preview_choice(0, 1)).is_equal(_typed([13, 0]))
+	assert_array(engine.preview_choice(0, 2)).is_equal(_typed([24, 0]))
 	assert_bool(engine.apply(EngineAction.choose(0, Choice.Zone.OWN_BOARD, 2)).ok).is_true()
-	assert_int(_scores(engine)[0]).is_equal(15)
+	assert_int(_scores(engine)[0]).is_equal(24)
 
 
 ## A preview leaves its source alone (R35, DC-06 R23): the inert marking of the opponent's

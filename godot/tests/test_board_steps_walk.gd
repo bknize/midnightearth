@@ -113,8 +113,9 @@ func test_an_opponent_re_pulse_touches_the_card_being_read() -> void:
 
 
 func test_a_swap_mid_pulse_plays_the_move_before_the_score() -> void:
-	# c12 (card 40) flips at slot 0, swaps itself to slot 2, then scores there: the score
-	# is not folded into the flip, so its chips show after the move, at the new slot.
+	# c12 (card 40) flips at slot 0 and swaps itself to slot 2 with face-down card 41, which
+	# then reveals and scores on the pulsed slot 0 (DC-06 C23, C24); c12 does not score in
+	# this pulse. The flip carries no score, and 41's pulse plays after the moves.
 	var reveal: MatchEvent = _reveal_event(40)
 	var fired: MatchEvent = _event(
 		MatchEvent.Kind.EFFECT_FIRED, {"seat": 0, "card": 40, "verb": "swap_places"}
@@ -125,7 +126,9 @@ func test_a_swap_mid_pulse_plays_the_move_before_the_score() -> void:
 	var other: MatchEvent = _event(
 		MatchEvent.Kind.CARD_MOVED, {"seat": 0, "card": 41, "from_slot": 2, "to_slot": 0}
 	)
-	var events: Array[MatchEvent] = [reveal, fired, moved, other, _scored_event(40)]
+	var events: Array[MatchEvent] = [
+		reveal, fired, moved, other, _reveal_event(41), _scored_event(41)
+	]
 	var steps: Array[BoardStep] = BoardSteps.from_events(events, 1.0)
 	var kinds: Array[int] = []
 	for step: BoardStep in steps:
@@ -141,7 +144,8 @@ func test_a_swap_mid_pulse_plays_the_move_before_the_score() -> void:
 	)
 	assert_int(steps[0].score).is_equal(-1)
 	assert_bool(ScoreChips.chip_texts(steps[0]).is_empty()).is_true()
-	assert_int(steps[4].card).is_equal(40)
+	assert_int(steps[4].card).is_equal(41)
+	assert_bool(steps[4].revealed).is_false()
 	assert_int(steps[4].score).is_equal(12)
 	assert_bool(ScoreChips.chip_texts(steps[4]).is_empty()).is_false()
 

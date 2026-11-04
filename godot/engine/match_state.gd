@@ -272,10 +272,13 @@ class EnergyState:
 ## is its cursor; `scored` holds every card scored at least once in this walk (a card moved
 ## in front of the cursor scores again, CARD_SCORED `again`); `mult` is each seat's
 ## running multiplier.
-## `paused_card` is the card whose pulse a prompt interrupted (-1 when none), with the
-## ScoreWalk.Stage to resume at and, for the WATCHERS stage, the pulse's watcher snapshot
-## (the on-opponent-reveal cards in row order when the stage first ran; empty when it has
-## not run yet) and the snapshot index it goes on from (DC-05 T05, T13).
+## `paused_card` is the card whose stage a prompt interrupted (-1 when none): the card
+## revealing or scoring in the pulse, which may not be the card the pulse started on (DC-06
+## C23). `paused_slot` is the slot of the pulse's row it was pulsing (-1 when none), so a
+## resume scores whatever card holds that slot. With them, the ScoreWalk.Stage to resume at
+## and, for the WATCHERS stage, the watcher snapshot (the on-opponent-reveal cards in row
+## order when the stage first ran; empty when it has not run yet) and the snapshot index it
+## goes on from (DC-05 T05, T13).
 class WalkState:
 	extends RefCounted
 
@@ -288,6 +291,7 @@ class WalkState:
 	## (kept until the board moves to the walk's events, DC-05 T08 and T11).
 	var reveals: int = 0
 	var paused_card: int = -1
+	var paused_slot: int = -1
 	var paused_stage: int = 0
 	var paused_watchers: Array[int] = []
 	var paused_watcher_at: int = 0
@@ -308,6 +312,7 @@ class WalkState:
 		out.mult.assign(mult)
 		out.reveals = reveals
 		out.paused_card = paused_card
+		out.paused_slot = paused_slot
 		out.paused_stage = paused_stage
 		out.paused_watchers.assign(paused_watchers)
 		out.paused_watcher_at = paused_watcher_at
@@ -322,6 +327,7 @@ class WalkState:
 			"mult": MatchState.plain(mult),
 			"reveals": reveals,
 			"paused_card": paused_card,
+			"paused_slot": paused_slot,
 			"paused_stage": paused_stage,
 			"paused_watchers": MatchState.plain(paused_watchers),
 			"paused_watcher_at": paused_watcher_at,
