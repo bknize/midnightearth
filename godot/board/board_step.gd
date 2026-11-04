@@ -20,8 +20,28 @@ enum Kind {
 	OPPONENT_COMMIT,
 	## The viewer's own commit: the cards are already on the row.
 	PLAYER_COMMIT,
-	## A card flips face up and its power joins `seat`'s score.
-	REVEAL,
+	## The walk begins: both displayed scores go to 0 and both mults to 1.
+	WALK_START,
+	## The cursor pulses a card; `revealed = false` means it flips face up first.
+	PULSE,
+	## A card's effect fires (`verb`, `trigger`).
+	EFFECT,
+	## A card's effect found no target.
+	FIZZLE,
+	## The viewer's own prompt opens. Untimed: it waits on the player (T12).
+	PROMPT,
+	## A choice was made (the bot's pick glows); `zone`, `index`, `target`.
+	CHOICE_SHOW,
+	## A card's shown flat and bonus changed.
+	STATS,
+	## A card is destroyed.
+	DESTROY,
+	## A card moves between slots (`from_slot` to `slot`).
+	MOVE,
+	## A card returns to its owner's hand.
+	RETURN,
+	## A hand card is discarded off the exit side.
+	DISCARD,
 	## Both displayed scores are set from `scores`.
 	TURN_END,
 	## The round's winner (`seat`, -1 for a tie) lights a pip; `wins` is the tally.
@@ -36,11 +56,39 @@ var seat: int = -1
 var card: int = -1
 ## Index into the card database; -1 when unknown.
 var def_index: int = -1
-var power: int = 0
+var flat: int = 0
+var bonus: int = 0
+## Row index of the card (PULSE, DESTROY, RETURN, MOVE target); -1 when not named.
+var slot: int = -1
+var from_slot: int = -1
+## PULSE: the card was already face up, so no flip. STATS and others leave it true.
+var revealed: bool = true
+## PULSE: the seat's multiplier, the points this pulse added and the seat's running score
+## (-1 when the engine sent no CARD_SCORED for the card).
+var mult: int = 1
+var added: int = 0
+var score: int = -1
 ## Cards committed (opponent and player commits).
 var count: int = 0
-## Engine reveal order (REVEAL).
+## Row slots of the committed cards (commits).
+var slots: Array[int] = []
+## Engine reveal order (PULSE when the card was first revealed).
 var order: int = 0
+## TURN_START: the viewer's budget for the turn (turn plus carry) and whether its first
+## card is free.
+var budget: int = 0
+var free_first: bool = false
+## EFFECT, FIZZLE, PROMPT: the effect verb; EFFECT: the trigger; PROMPT: the rules text.
+var verb: String = ""
+var trigger: String = ""
+var text: String = ""
+## STATS: why the numbers changed.
+var cause: String = ""
+## CHOICE_SHOW, PROMPT: the zone chosen from and the pick.
+var zone: String = ""
+var index: int = -1
+var target: int = -1
+var options: Array[int] = []
 var scores: Array[int] = []
 var wins: Array[int] = []
 var round_number: int = 0

@@ -67,6 +67,25 @@ func submit_player(action: EngineAction) -> ApplyResult:
 	return result
 
 
+## Answers seat 0's open prompt with option `index` of `zone` (a `Choice.Zone` value), as
+## the plan's CHOOSE action (P3, P19). Rejected like any action when no prompt is open for
+## seat 0 or the option is not eligible; the caller reads `events_for(0)` of the result.
+func submit_choice(zone: int, index: int) -> ApplyResult:
+	return submit_player(EngineAction.choose(PLAYER_SEAT, zone, index))
+
+
+## Seat 0's open prompt (`{seat, card, verb, zone, options}`), or `{}` when none is open for
+## seat 0. Options are positions in the zone, never hidden ids (R34).
+func open_prompt() -> Dictionary:
+	var prompt: Dictionary = _engine.open_prompt()
+	if prompt.is_empty():
+		return {}
+	var seat: int = prompt.get("seat", -1)
+	if seat != PLAYER_SEAT:
+		return {}
+	return prompt
+
+
 ## True when the match is not over and the awaited seat is bot-driven.
 func bot_turn_due() -> bool:
 	if _engine.is_over():
@@ -84,7 +103,7 @@ func play_bot() -> ApplyResult:
 		return ApplyResult.failure(EngineError.Code.WRONG_SEAT)
 	var seat: int = _engine.awaited_seat()
 	var bot: GreedyBot = _bots[seat]
-	var action: EngineAction = bot.choose(_engine.view_for(seat))
+	var action: EngineAction = bot.choose(_engine.view_for(seat), _engine)
 	var result: ApplyResult = _engine.apply(action)
 	_take(result)
 	return result

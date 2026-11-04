@@ -1,8 +1,11 @@
 class_name MatchEvent
 extends RefCounted
 ## One thing that happened during start() or apply() (R4). Payload keys per kind are in
-## the plan's event table. Private events (deal, draw, burn, commit) carry the owning
-## seat; public events carry PUBLIC. redacted_for() gives each seat its copy (R29).
+## the plan's event table. Private events (deal, draw, burn, commit, and the destroy of a
+## face-down card, DC-05 T04; the discard, a face-down card's move and a choice of a hand or
+## face-down card, DC-05 T05) carry the owning seat; public events carry PUBLIC.
+## redacted_for() gives each seat its copy (R29). A private CHOICE_MADE hides only its
+## `target` (R34); every other private event hides its `card` and `cards`.
 
 enum Kind {
 	ROUND_STARTED,
@@ -16,6 +19,21 @@ enum Kind {
 	ROUND_ENDED,
 	CONCEDED,
 	MATCH_ENDED,
+	# DC-05 (cycle-4-card-effects plan, event table). Appended so earlier ordinals hold.
+	WALK_STARTED,
+	CARD_SCORED,
+	EFFECT_FIRED,
+	EFFECT_FIZZLED,
+	CHOICE_REQUESTED,
+	CHOICE_MADE,
+	STATS_CHANGED,
+	CARD_DESTROYED,
+	CARD_MOVED,
+	CARD_RETURNED,
+	CARD_DISCARDED,
+	BONUS_ZERO_SET,
+	ENERGY_CARRIED,
+	FREE_FIRST_SET,
 }
 
 ## owner_seat of an event every seat may see in full.
@@ -24,6 +42,7 @@ const PUBLIC: int = -1
 const HIDDEN_CARD: int = -1
 const KEY_CARD: String = "card"
 const KEY_CARDS: String = "cards"
+const KEY_TARGET: String = "target"
 
 var kind: int = Kind.ROUND_STARTED
 var payload: Dictionary = {}
@@ -50,11 +69,15 @@ func to_dict() -> Dictionary:
 ## The copy of this event that `seat` may see (R29). Public events and the owner's own
 ## private events come back unchanged; for anyone else a private event keeps its kind,
 ## owner and `seat`, and every card id under `card` or `cards` becomes HIDDEN_CARD (the
-## COMMITTED `count` stays). Always a new object with a deep-copied payload: this event is
-## never mutated, and mutating the copy cannot reach it.
+## COMMITTED `count` stays); a private CHOICE_MADE keeps `card` and hides `target`. Always
+## a new object with a deep-copied payload: this event is never mutated, and mutating the
+## copy cannot reach it.
 func redacted_for(seat: int) -> MatchEvent:
 	var copied: Dictionary = payload.duplicate(true)
-	if is_private() and seat != owner_seat:
+	if is_private() and seat != owner_seat and kind == Kind.CHOICE_MADE:
+		# The chosen card is the secret; the source card is revealed on its row (R34).
+		copied[KEY_TARGET] = HIDDEN_CARD
+	elif is_private() and seat != owner_seat:
 		if copied.has(KEY_CARD):
 			copied[KEY_CARD] = HIDDEN_CARD
 		if copied.has(KEY_CARDS):

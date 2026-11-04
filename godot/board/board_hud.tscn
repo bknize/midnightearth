@@ -162,6 +162,19 @@ layout_mode = 2
 horizontal_alignment = 1
 text = "Energy 0 / 0"
 
+[node name="PromptBanner" type="PanelContainer" parent="Root/TopInfo/Box"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+mouse_filter = 2
+
+[node name="PromptText" type="Label" parent="Root/TopInfo/Box/PromptBanner"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 0)
+layout_mode = 2
+horizontal_alignment = 1
+autowrap_mode = 3
+
 [node name="CommitButton" type="Button" parent="Root"]
 unique_name_in_owner = true
 layout_mode = 1

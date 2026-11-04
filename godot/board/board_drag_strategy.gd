@@ -7,6 +7,7 @@ extends DragStrategy
 ##   is_locked()      -> bool   a step is queued or running
 ##   can_afford(card) -> bool   the card fits in the energy left (R14)
 ##   is_staged(card)  -> bool   the card is staged, not yet committed
+##   is_played(card)  -> bool   the card is played (revealed or committed); never draggable
 ## An unset callable answers false (is_locked answers true).
 
 enum Role { PLAYER_HAND, PLAYER_ROW, OPPONENT }
@@ -16,9 +17,14 @@ var can_act: Callable = Callable()
 var is_locked: Callable = Callable()
 var can_afford: Callable = Callable()
 var is_staged: Callable = Callable()
+var is_played: Callable = Callable()
 
 
-func can_select_card(card: Variant, _to_collection: CardCollection3D) -> bool:
+## R44: whether a drag of this card may start. A played card never drags; a hand card drags
+## while the player may act; a row card drags only while staged.
+func can_drag(card: Variant) -> bool:
+	if _played(card):
+		return false
 	match role:
 		Role.PLAYER_HAND:
 			return _act()
@@ -27,12 +33,16 @@ func can_select_card(card: Variant, _to_collection: CardCollection3D) -> bool:
 	return false
 
 
+func can_select_card(card: Variant, _to_collection: CardCollection3D) -> bool:
+	return can_drag(card)
+
+
 ## The target of a drag is not passed here, so "row back to hand only" is enforced by the
 ## hand's can_insert_card.
-func can_remove_card(_card: Variant, _to_collection: CardCollection3D) -> bool:
+func can_remove_card(card: Variant, _to_collection: CardCollection3D) -> bool:
 	match role:
 		Role.PLAYER_HAND, Role.PLAYER_ROW:
-			return _act()
+			return _act() and not _played(card)
 	return false
 
 
@@ -42,7 +52,7 @@ func can_reorder_card(card: Variant, _to_collection: CardCollection3D) -> bool:
 			return not _locked()
 		Role.PLAYER_ROW:
 			# A hand card that cannot be afforded gets no gap on the row (R14).
-			return _act() and (_staged(card) or _affordable(card))
+			return _act() and not _played(card) and (_staged(card) or _affordable(card))
 	return false
 
 
@@ -85,6 +95,13 @@ func _affordable(card: Variant) -> bool:
 	if can_afford.is_null():
 		return false
 	var ok: bool = can_afford.call(card)
+	return ok
+
+
+func _played(card: Variant) -> bool:
+	if is_played.is_null():
+		return false
+	var ok: bool = is_played.call(card)
 	return ok
 
 

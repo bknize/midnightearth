@@ -1,0 +1,45 @@
+class_name ScoreTracker
+extends RefCounted
+## The scores and multipliers the HUD shows (R50-R52). Steps in, numbers out: a walk start
+## zeroes the scores and sets the multipliers to 1, each pulse sets its seat's score and
+## multiplier to the engine's values, and the turn end sets the exact totals and ends the
+## walk. Pure: no nodes.
+
+var scores: Array[int] = [0, 0]
+var mults: Array[int] = [1, 1]
+## True from the walk start to the turn end: the HUD then shows "score x mult".
+var walking: bool = false
+
+
+func reset() -> void:
+	scores.assign([0, 0])
+	mults.assign([1, 1])
+	walking = false
+
+
+## Folds one step in; steps that carry no score are ignored.
+func apply(step: BoardStep) -> void:
+	match step.kind:
+		BoardStep.Kind.WALK_START:
+			scores.assign([0, 0])
+			mults.assign([1, 1])
+			walking = true
+		BoardStep.Kind.PULSE:
+			_apply_pulse(step)
+		BoardStep.Kind.TURN_END:
+			scores.assign(step.scores)
+			mults.assign([1, 1])
+			walking = false
+		BoardStep.Kind.CLEAR_TABLE:
+			reset()
+
+
+func _apply_pulse(step: BoardStep) -> void:
+	if step.seat < 0 or step.seat >= scores.size():
+		return
+	if step.score >= 0:
+		scores[step.seat] = step.score
+		mults[step.seat] = step.mult
+	else:
+		# The engine sent no CARD_SCORED for this card: only its flat is known.
+		scores[step.seat] += step.flat

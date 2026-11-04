@@ -6,10 +6,13 @@ extends GdUnitTestSuite
 ## R33 (replay reaches an equal full state, mid-match and for a completed match, without
 ## the bot) and R34 (a rejected action fails replay at its index with its code; a format
 ## or rules mismatch fails replay). Malformed JSON and malformed entries give null.
+## DC-05 R39, R40: format 2 (commits carry their slots as "p"; a choice entry), round trip
+## and replay with slots, and a format-1 or rules-1 log fails replay on its version.
 ##
 ## Matches are driven by scripted actions on known seeds: the "player" seat commits the
-## legal set with the highest bitmask in LegalPlays order (often several cards), the
-## other seat passes. Completed matches use real won rounds (as in test_round_match_end).
+## legal set with the highest bitmask in LegalPlays order (often several cards) that holds
+## no prompt-verb card (DC-05 T05), the other seat passes. Completed matches use real won
+## rounds (as in test_round_match_end).
 
 const SEED: int = 1
 ## 2^53 + 1: the smallest positive int a JSON number (a double) cannot hold.
@@ -57,14 +60,46 @@ func _cost_of(cards: Array[int]) -> int:
 	return LegalPlays.total_cost(cards, _db())
 
 
-## The scripted action for whoever is awaited (see the suite comment).
+func _row_size(engine: MatchEngine, seat: int) -> int:
+	var state: Dictionary = engine.full_state()
+	var per_seat: Array = state["board"]
+	var raw: Array = per_seat[seat]
+	return raw.size()
+
+
+## The scripted action for whoever is awaited (see the suite comment), with explicit
+## slots at the row's right end, so it equals the logged form.
 func _script_action(engine: MatchEngine, player: int) -> EngineAction:
 	var seat: int = engine.awaited_seat()
 	var cards: Array[int] = []
 	if seat == player:
 		var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _db())
-		cards = _typed(sets[sets.size() - 1])
-	return EngineAction.commit(seat, cards)
+		for at: int in range(sets.size() - 1, -1, -1):
+			var candidate: Array[int] = _typed(sets[at])
+			if not _has_prompt_card(candidate):
+				cards = candidate
+				break
+	var slots: Array[int] = LegalPlays.append_slots(_row_size(engine, seat), cards.size())
+	return EngineAction.commit(seat, cards, slots)
+
+
+## Whether any of `cards` carries an effect that may open a prompt (DC-05 T05). The scripts
+## skip them so every scripted step is a commit; choices in the log are in test_choices.gd.
+func _has_prompt_card(cards: Array[int]) -> bool:
+	for card: int in cards:
+		var effect: CardEffect = _db().card_at(card % MatchRules.DECK_SIZE).effect
+		if effect != null and Choice.needs_choice(effect.verb):
+			return true
+	return false
+
+
+## The first hand card of `seat` with no prompt-verb effect.
+func _first_promptless(engine: MatchEngine, seat: int) -> int:
+	var hand: Array[int] = _hand(engine, seat)
+	for card: int in hand:
+		if not _has_prompt_card(_typed([card])):
+			return card
+	return hand[0]
 
 
 ## A started match plus `count` scripted actions, every one accepted.
@@ -79,13 +114,13 @@ func _scripted(match_seed: int, player: int, count: int) -> MatchEngine:
 
 
 ## One round with real actions: both seats pass turns 1-6; on turn 7 `winner` commits
-## one card (always affordable, power >= 1) and the other passes. TIE passes throughout.
+## one card (always affordable, flat >= 1) and the other passes. TIE passes throughout.
 func _play_round(engine: MatchEngine, winner: int) -> void:
 	for _step: int in range(2 * MatchRules.TURNS):
 		var seat: int = engine.awaited_seat()
 		var cards: Array[int] = []
 		if seat == winner and engine.energy() == MatchRules.TURNS:
-			cards.append(_hand(engine, seat)[0])
+			cards.append(_first_promptless(engine, seat))
 		var result: ApplyResult = engine.apply(EngineAction.commit(seat, cards))
 		if not result.ok:
 			fail("round action rejected with code %d" % result.error)
@@ -152,9 +187,10 @@ func _log_of(match_seed: int, actions: Array[EngineAction]) -> ActionLog:
 func _sample_actions() -> Array[EngineAction]:
 	var none: Array[int] = []
 	var actions: Array[EngineAction] = [
-		EngineAction.commit(0, _typed([3, 7])),
+		EngineAction.commit(0, _typed([3, 7]), _typed([0, 2])),
 		EngineAction.commit(1, none),
-		EngineAction.commit(1, _typed([39, 20, 21])),
+		EngineAction.commit(1, _typed([39, 20, 21]), _typed([1, 2, 5])),
+		EngineAction.choose(0, 1, 2),
 		EngineAction.concede(1),
 		EngineAction.concede(0),
 	]
@@ -246,7 +282,10 @@ func test_log_holds_versions_seed_and_accepted_actions_only() -> void:
 	assert_int(entries.size()).is_equal(ROUND_PLUS_TWO)
 	for entry: Variant in entries:
 		var d: Dictionary = entry
-		assert_array(_sorted_keys(d)).is_equal(["c", "k", "s"])
+		assert_array(_sorted_keys(d)).is_equal(["c", "k", "p", "s"])
+		var cards: Array = d["c"]
+		var slots: Array = d["p"]
+		assert_int(slots.size()).is_equal(cards.size())
 
 
 func test_log_records_a_concede_entry() -> void:
@@ -324,27 +363,30 @@ func test_negative_seed_survives_exactly() -> void:
 
 
 func test_numbers_come_back_as_ints() -> void:
+	# Format and rules 2 (DC-05); a whole float header still comes back as an int.
 	var text: String = (
-		'{"format": 1.0, "rules": 1, "seed": "5",'
-		+ ' "actions": [{"k": "commit", "s": 1.0, "c": [3.0, 21]}, {"k": "concede", "s": 0}]}'
+		'{"format": 2.0, "rules": 2, "seed": "5",'
+		+ ' "actions": [{"k": "commit", "s": 1.0, "c": [3.0, 21], "p": [0.0, 2]},'
+		+ ' {"k": "concede", "s": 0}]}'
 	)
 	var parsed: ActionLog = ActionLog.from_json(text)
 	assert_object(parsed).is_not_null()
-	assert_int(parsed.format_version).is_equal(1)
-	assert_int(parsed.rules_version).is_equal(1)
+	assert_int(parsed.format_version).is_equal(2)
+	assert_int(parsed.rules_version).is_equal(2)
 	assert_int(parsed.match_seed).is_equal(5)
 	assert_int(parsed.actions.size()).is_equal(2)
 	var first: EngineAction = parsed.actions[0]
 	assert_int(first.kind).is_equal(EngineAction.Kind.COMMIT)
 	assert_int(first.seat).is_equal(1)
 	assert_array(first.cards).is_equal(_typed([3, 21]))
+	assert_array(first.slots).is_equal(_typed([0, 2]))
 	var second: EngineAction = parsed.actions[1]
 	assert_int(second.kind).is_equal(EngineAction.Kind.CONCEDE)
 	assert_int(second.seat).is_equal(0)
 	# Every value is a real int again, so the output carries no "3.0".
 	var out: String = parsed.to_json()
-	assert_bool(out.contains('{"k":"commit","s":1,"c":[3,21]}')).is_true()
-	assert_bool(out.contains('"format":1,')).is_true()
+	assert_bool(out.contains('{"k":"commit","s":1,"c":[3,21],"p":[0,2]}')).is_true()
+	assert_bool(out.contains('"format":2,')).is_true()
 	assert_bool(out.contains(".0")).is_false()
 
 
@@ -451,11 +493,18 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 	)
 	# The whole hand, at the last index where it costs more than the energy. The passing
 	# seat holds 3 + turn cards of cost >= 1 against `turn` energy, so one always exists.
+	# Against the seat's budget with no free first card: since DC-05 T04 the player's carry
+	# and free-card effects can lift it above the turn.
 	var over: int = -1
 	for index: int in range(actions.size()):
 		var before: MatchEngine = _prefix_engine(SEED, actions, index)
-		var awaited_hand: Array[int] = _hand(before, before.awaited_seat())
-		if _cost_of(awaited_hand) > before.energy():
+		var awaited: int = before.awaited_seat()
+		var awaited_hand: Array[int] = _hand(before, awaited)
+		var state: Dictionary = before.full_state()
+		var energy: Dictionary = state["energy"]
+		var frees: Array = energy["free_first"]
+		var free: bool = frees[awaited]
+		if _cost_of(awaited_hand) > before.budget_for(awaited) and not free:
 			over = index
 	assert_int(over).is_greater(0)
 	if over < 0:
@@ -518,8 +567,18 @@ func test_malformed_action_object_fails_replay_with_malformed() -> void:
 	bad_concede.cards.append(1)
 	var bad_kind: EngineAction = EngineAction.commit(0, none)
 	bad_kind.kind = 7
+	var slotted_concede: EngineAction = EngineAction.concede(1)
+	slotted_concede.slots.append(0)
+	var carded_choice: EngineAction = EngineAction.choose(0, 0, 0)
+	carded_choice.cards.append(1)
 	var candidates: Array[EngineAction] = [
-		null, EngineAction.commit(2, none), EngineAction.concede(-1), bad_concede, bad_kind
+		null,
+		EngineAction.commit(2, none),
+		EngineAction.concede(-1),
+		bad_concede,
+		bad_kind,
+		slotted_concede,
+		carded_choice,
 	]
 	for bad: EngineAction in candidates:
 		_assert_rejected_at(SEED, actions, 3, bad, EngineError.Code.MALFORMED, false)
@@ -551,6 +610,75 @@ func test_rules_mismatch_fails_replay() -> void:
 		assert_int(replayed.failed_index).is_equal(-1)
 		assert_int(replayed.error).is_equal(EngineError.Code.MALFORMED)
 		assert_object(replayed.engine).is_null()
+
+
+func test_bad_slots_fail_replay_at_their_index() -> void:
+	var engine: MatchEngine = _scripted(SEED, 0, ROUND_PLUS_TWO)
+	var actions: Array[EngineAction] = engine.accepted_actions()
+	var at: MatchEngine = _prefix_engine(SEED, actions, BAD_INDEX)
+	var seat: int = at.awaited_seat()
+	var card: Array[int] = [_hand(at, seat)[0]]
+	var beyond: int = _row_size(at, seat) + 1
+	for slots: Array in [[beyond], [-1], [0, 1]]:
+		var bad: EngineAction = EngineAction.commit(seat, card, _typed(slots))
+		_assert_rejected_at(SEED, actions, BAD_INDEX, bad, EngineError.Code.BAD_SLOTS, true)
+
+
+# --- DC-05 R39, R40: format 2 ----------------------------------------------------------
+
+
+func test_format_2_round_trips_with_slots_and_choices() -> void:
+	var the_log: ActionLog = _log_of(SEED, _sample_actions())
+	var text: String = the_log.to_json()
+	assert_bool(text.begins_with('{"format":2,"rules":2,"seed":"1"')).is_true()
+	assert_bool(text.contains('{"k":"commit","s":0,"c":[3,7],"p":[0,2]}')).is_true()
+	assert_bool(text.contains('{"k":"commit","s":1,"c":[],"p":[]}')).is_true()
+	assert_bool(text.contains('{"k":"choose","s":0,"z":1,"i":2}')).is_true()
+	var parsed: ActionLog = _through_json(the_log)
+	assert_int(parsed.format_version).is_equal(2)
+	assert_int(parsed.rules_version).is_equal(2)
+	assert_array(_dicts(parsed.actions)).is_equal(_dicts(the_log.actions))
+	assert_str(parsed.to_json()).is_equal(text)
+	var chosen: EngineAction = parsed.actions[3]
+	assert_int(chosen.kind).is_equal(EngineAction.Kind.CHOOSE)
+	assert_int(chosen.zone).is_equal(1)
+	assert_int(chosen.index).is_equal(2)
+
+
+func test_slotless_commits_are_logged_with_resolved_slots_and_replay_equal() -> void:
+	# Every commit here omits its slots (the compatibility default); the log must still
+	# carry explicit ones, and replaying it must reach the same state.
+	var engine: MatchEngine = _started(SEED)
+	_play_round(engine, 0)
+	_play_round(engine, 1)
+	for action: EngineAction in engine.action_log().actions:
+		assert_int(action.slots.size()).is_equal(action.cards.size())
+	_assert_replay_equals(engine)
+
+
+func test_format_1_log_fails_replay_with_format_mismatch() -> void:
+	# A cycle-1 log: format 1, rules 1, commits without "p". It parses, and replay
+	# refuses it on the format before running anything (R40).
+	var text: String = (
+		'{"format": 1, "rules": 1, "seed": "1",'
+		+ ' "actions": [{"k": "commit", "s": 0, "c": []}, {"k": "concede", "s": 1}]}'
+	)
+	var parsed: ActionLog = ActionLog.from_json(text)
+	assert_object(parsed).is_not_null()
+	if parsed == null:
+		return
+	assert_int(parsed.format_version).is_equal(1)
+	var replayed: ReplayResult = parsed.replay(_db())
+	assert_bool(replayed.ok).is_false()
+	assert_int(replayed.reason).is_equal(ReplayResult.Reason.FORMAT_MISMATCH)
+	assert_int(replayed.failed_index).is_equal(-1)
+	assert_int(replayed.error).is_equal(EngineError.Code.MALFORMED)
+	assert_object(replayed.engine).is_null()
+	# Format 1 with rules 2 still fails on the format; format 2 with rules 1 on the rules.
+	var mixed: ActionLog = ActionLog.from_json(text.replace('"rules": 1', '"rules": 2'))
+	assert_int(mixed.replay(_db()).reason).is_equal(ReplayResult.Reason.FORMAT_MISMATCH)
+	var old_rules: ActionLog = ActionLog.from_json(text.replace('"format": 1', '"format": 2'))
+	assert_int(old_rules.replay(_db()).reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
 
 
 func test_version_mismatch_is_reported_before_any_action() -> void:
@@ -588,12 +716,12 @@ func test_malformed_json_gives_null() -> void:
 		'"text"',
 		"null",
 		"{}",
-		'{"format": 1, "rules": 1, "seed": "1"}',
-		'{"format": 1, "rules": 1, "actions": []}',
-		'{"format": 1, "seed": "1", "actions": []}',
-		'{"rules": 1, "seed": "1", "actions": []}',
-		'{"format": 1, "rules": 1, "seed": "1", "actions": {}}',
-		'{"format": 1, "rules": 1, "seed": "1", "actions": "none"}',
+		'{"format": 2, "rules": 2, "seed": "1"}',
+		'{"format": 2, "rules": 2, "actions": []}',
+		'{"format": 2, "seed": "1", "actions": []}',
+		'{"rules": 2, "seed": "1", "actions": []}',
+		'{"format": 2, "rules": 2, "seed": "1", "actions": {}}',
+		'{"format": 2, "rules": 2, "seed": "1", "actions": "none"}',
 		_log_text("1", 1, "1"),
 		_log_text(1.5, 1, "1"),
 		_log_text(1, null, "1"),
@@ -672,10 +800,18 @@ func test_malformed_action_entries_give_null() -> void:
 		'{"k": "commit", "s": 0, "c": [null]}',
 		'{"k": "concede", "s": 0, "c": []}',
 		'{"k": "concede"}',
+		'{"k": "commit", "s": 0, "c": [3], "p": 0}',
+		'{"k": "commit", "s": 0, "c": [3], "p": ["0"]}',
+		'{"k": "commit", "s": 0, "c": [3], "p": [0.5]}',
+		'{"k": "concede", "s": 0, "p": []}',
+		'{"k": "choose", "s": 0, "z": 1}',
+		'{"k": "choose", "s": 0, "i": 1}',
+		'{"k": "choose", "s": 0, "z": null, "i": 1}',
+		'{"k": "choose", "s": 0, "z": 1, "i": 1, "c": []}',
 	]
 	for entry: String in entries:
 		var text: String = (
-			'{"format": 1, "rules": 1, "seed": "1", "actions": [{"k": "concede", "s": 0}, '
+			'{"format": 2, "rules": 2, "seed": "1", "actions": [{"k": "concede", "s": 0}, '
 			+ entry
 			+ "]}"
 		)
@@ -710,7 +846,7 @@ func test_in_range_card_numbers_in_entries_parse() -> void:
 
 
 func _one_entry_log(entry: String) -> String:
-	return '{"format": 1, "rules": 1, "seed": "1", "actions": [' + entry + "]}"
+	return '{"format": 2, "rules": 2, "seed": "1", "actions": [' + entry + "]}"
 
 
 func test_valid_hand_written_log_parses_and_replays() -> void:
@@ -722,7 +858,7 @@ func test_valid_hand_written_log_parses_and_replays() -> void:
 	for entry: Variant in entries:
 		parts.append(JSON.stringify(entry, "  "))
 	var text: String = (
-		'{\n  "seed": "-42",\n  "rules": 1,\n  "format": 1,\n  "actions": [\n'
+		'{\n  "seed": "-42",\n  "rules": 2,\n  "format": 2,\n  "actions": [\n'
 		+ ",\n".join(parts)
 		+ "\n  ]\n}"
 	)

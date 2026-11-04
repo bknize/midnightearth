@@ -29,6 +29,8 @@ var _pip_rows: Array[HBoxContainer] = []
 @onready var _turn_label: Label = %TurnLabel
 @onready var _energy_label: Label = %EnergyLabel
 @onready var _commit_button: Button = %CommitButton
+@onready var _prompt_banner: PanelContainer = %PromptBanner
+@onready var _prompt_text: Label = %PromptText
 @onready var _pause_menu: Control = %PauseMenu
 @onready var _result_panel: Control = %ResultPanel
 @onready var _result_title: Label = %ResultTitle
@@ -43,9 +45,19 @@ func _ready() -> void:
 	_pip_rows.append(_pips_1)
 
 
-func set_scores(scores: Array[int]) -> void:
+## The scores. While `walking`, each reads "score ×mult" (R50-R52); otherwise it is the plain
+## score (after the turn end, and in a fresh table).
+func set_scores(scores: Array[int], mults: Array[int] = [], walking: bool = false) -> void:
 	for seat: int in range(mini(scores.size(), _score_labels.size())):
-		_score_labels[seat].text = str(scores[seat])
+		var mult: int = mults[seat] if seat < mults.size() else 1
+		_score_labels[seat].text = score_text(scores[seat], mult, walking)
+
+
+## The text of one score label.
+static func score_text(score: int, mult: int, walking: bool) -> String:
+	if walking:
+		return "%d \u00d7%d" % [score, mult]
+	return str(score)
 
 
 func set_wins(wins: Array[int]) -> void:
@@ -64,8 +76,11 @@ func set_round_turn(round_number: int, turn: int, sudden_death: bool) -> void:
 		_turn_label.text = "Turn %d" % turn
 
 
-func set_energy(left: int, total: int) -> void:
+## The budget left of the turn's total (R49); `free_first` marks that the first card is free.
+func set_energy(left: int, total: int, free_first: bool = false) -> void:
 	_energy_label.text = "Energy %d / %d" % [left, total]
+	if free_first:
+		_energy_label.text += " - first card free"
 
 
 func flash_energy() -> void:
@@ -85,6 +100,17 @@ func set_commit_label(has_staged: bool) -> void:
 
 func set_commit_enabled(enabled: bool) -> void:
 	_commit_button.disabled = not enabled
+
+
+## The prompt banner (R55): the open prompt's rules text, until hide_prompt().
+func show_prompt(text: String) -> void:
+	_prompt_text.text = text
+	_prompt_banner.visible = true
+
+
+func hide_prompt() -> void:
+	_prompt_banner.visible = false
+	_prompt_text.text = ""
 
 
 func show_pause(shown: bool) -> void:

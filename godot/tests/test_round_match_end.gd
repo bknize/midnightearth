@@ -9,8 +9,9 @@ extends GdUnitTestSuite
 ## stays in view_for() after MATCH_ENDED on every end path).
 ##
 ## Round outcomes come from real actions: both seats pass turns 1-6, and on turn 7 the
-## chosen winner commits one card (any card is affordable at 7 energy and has power >= 1)
-## while the other passes. A round where everyone passes is a 0-0 tie.
+## chosen winner commits one card (any card is affordable at 7 energy and has flat >= 1,
+## so its walk scores at least 1; scores are the DC-05 walk totals, derived here by
+## _walk_score) while the other passes. A round where everyone passes is a 0-0 tie.
 
 const SEED: int = 1
 const SEARCH_SEEDS: int = 100
@@ -136,7 +137,7 @@ func _play_round(engine: MatchEngine, winner: int) -> Array[MatchEvent]:
 		var seat: int = engine.awaited_seat()
 		var cards: Array[int] = []
 		if seat == winner and engine.energy() == MatchRules.TURNS:
-			cards.append(_hand(engine, seat)[0])
+			cards.append(_first_promptless(_hand(engine, seat)))
 		var result: ApplyResult = engine.apply(EngineAction.commit(seat, cards))
 		if not result.ok:
 			fail("round action rejected with code %d" % result.error)
@@ -146,6 +147,15 @@ func _play_round(engine: MatchEngine, winner: int) -> Array[MatchEvent]:
 	var ended: MatchEvent = _last(seen, MatchEvent.Kind.ROUND_ENDED)
 	assert_int(_payload_int(ended, "winner")).is_equal(winner)
 	return seen
+
+
+## The first card of `hand` whose effect cannot open a prompt (DC-05 T05: a prompt would
+## pause the walk, and these rounds are all commits), else the first card.
+func _first_promptless(hand: Array[int]) -> int:
+	for card: int in hand:
+		if not _is_prompt_card(card):
+			return card
+	return hand[0]
 
 
 ## Plays one round per outcome, in order; returns every event on the way.
@@ -222,12 +232,13 @@ func test_won_round_payload_and_flow_into_the_next_round() -> void:
 	var events: Array[MatchEvent] = _play_round(engine, 1)
 	var reveals: Array[MatchEvent] = _of_kind(events, MatchEvent.Kind.CARD_REVEALED)
 	assert_int(reveals.size()).is_equal(1)
-	var power: int = _payload_int(reveals[0], "power")
-	assert_int(power).is_greater(0)
+	var played: Array[int] = [_payload_int(reveals[0], "card")]
+	var flat: int = _walk_score(played)
+	assert_int(flat).is_greater(0)
 	var ended: MatchEvent = _last(events, MatchEvent.Kind.ROUND_ENDED)
 	assert_int(ended.owner_seat).is_equal(MatchEvent.PUBLIC)
 	assert_int(_payload_int(ended, "round")).is_equal(1)
-	assert_array(_payload_ints(ended, "scores")).is_equal(_typed([0, power]))
+	assert_array(_payload_ints(ended, "scores")).is_equal(_typed([0, flat]))
 	assert_int(_payload_int(ended, "winner")).is_equal(1)
 	assert_array(_payload_ints(ended, "wins")).is_equal(_typed([0, 1]))
 	assert_array(_state_ints(engine, "wins")).is_equal(_typed([0, 1]))
@@ -238,7 +249,7 @@ func test_won_round_payload_and_flow_into_the_next_round() -> void:
 	assert_int(kinds[at - 1]).is_equal(MatchEvent.Kind.TURN_ENDED)
 	var turn_ended: MatchEvent = events[at - 1]
 	assert_int(_payload_int(turn_ended, "turn")).is_equal(MatchRules.TURNS)
-	assert_array(_payload_ints(turn_ended, "scores")).is_equal(_typed([0, power]))
+	assert_array(_payload_ints(turn_ended, "scores")).is_equal(_typed([0, flat]))
 	var expected_tail: Array[int] = [MatchEvent.Kind.ROUND_STARTED]
 	for _i: int in range(2 * MatchRules.OPENING_HAND):
 		expected_tail.append(MatchEvent.Kind.CARD_DEALT)
@@ -280,16 +291,18 @@ func test_higher_board_wins_when_both_seats_play() -> void:
 		var second: int = 1 - first
 		var strong: int = _strongest(_hand(engine, first))
 		var weak: int = _weakest(_hand(engine, second))
-		if _power(strong) == _power(weak):
+		if strong < 0 or weak < 0:
 			continue
 		var a: Array[int] = [strong]
 		var b: Array[int] = [weak]
+		if _walk_score(a) == _walk_score(b):
+			continue
 		engine.apply(EngineAction.commit(first, a))
 		var result: ApplyResult = engine.apply(EngineAction.commit(second, b))
 		assert_bool(result.ok).is_true()
 		var expected_scores: Array[int] = [0, 0]
-		expected_scores[first] = _power(strong)
-		expected_scores[second] = _power(weak)
+		expected_scores[first] = _walk_score(a)
+		expected_scores[second] = _walk_score(b)
 		var expected_winner: int = 0 if expected_scores[0] > expected_scores[1] else 1
 		var ended: MatchEvent = _last(result.events, MatchEvent.Kind.ROUND_ENDED)
 		assert_array(_payload_ints(ended, "scores")).is_equal(expected_scores)
@@ -303,22 +316,49 @@ func test_higher_board_wins_when_both_seats_play() -> void:
 	assert_int(checked).is_greater(0)
 
 
-func _power(card: int) -> int:
-	return _db().card_at(card % MatchRules.DECK_SIZE).power
+## What `card` scores alone on a row: its walk total (P4).
+func _solo(card: int) -> int:
+	var row: Array[int] = [card]
+	return _walk_score(row)
 
 
-func _strongest(hand: Array[int]) -> int:
-	var best: int = hand[0]
+## The P4 walk total of one row, from the definitions: the multiplier starts at 1 and
+## gains each card's bonus before that card's flat is multiplied in.
+func _walk_score(row: Array[int]) -> int:
+	var mult: int = 1
+	var total: int = 0
+	for card: int in row:
+		var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
+		mult += def.bonus
+		total += def.flat * mult
+	return total
+
+
+## The effect-free hand cards, in hand order. Contested rounds play only these (DC-05 T04):
+## a destroy or a bonus-0 mark on the other board would break the scores _walk_score
+## predicts from the definitions.
+func _vanilla(hand: Array[int]) -> Array[int]:
+	var out: Array[int] = []
 	for card: int in hand:
-		if _power(card) > _power(best):
+		if _db().card_at(card % MatchRules.DECK_SIZE).effect == null:
+			out.append(card)
+	return out
+
+
+## The effect-free hand card that scores most alone; -1 when the hand holds none.
+func _strongest(hand: Array[int]) -> int:
+	var best: int = -1
+	for card: int in _vanilla(hand):
+		if best < 0 or _solo(card) > _solo(best):
 			best = card
 	return best
 
 
+## The effect-free hand card that scores least alone; -1 when the hand holds none.
 func _weakest(hand: Array[int]) -> int:
-	var worst: int = hand[0]
-	for card: int in hand:
-		if _power(card) < _power(worst):
+	var worst: int = -1
+	for card: int in _vanilla(hand):
+		if worst < 0 or _solo(card) < _solo(worst):
 			worst = card
 	return worst
 
@@ -327,19 +367,19 @@ func _cost(card: int) -> int:
 	return _db().card_at(card % MatchRules.DECK_SIZE).cost
 
 
+## The cheapest hand card, the first on a tie; cards that may open a prompt (DC-05 T05) are
+## passed over while the hand holds any other.
 func _cheapest(hand: Array[int]) -> int:
-	var best: int = hand[0]
+	var best: int = _first_promptless(hand)
 	for card: int in hand:
-		if _cost(card) < _cost(best):
+		if _cost(card) < _cost(best) and not _is_prompt_card(card):
 			best = card
 	return best
 
 
-func _board_power(board: Array[int]) -> int:
-	var total: int = 0
-	for card: int in board:
-		total += _power(card)
-	return total
+func _is_prompt_card(card: int) -> bool:
+	var effect: CardEffect = _db().card_at(card % MatchRules.DECK_SIZE).effect
+	return effect != null and Choice.needs_choice(effect.verb)
 
 
 ## The events from the last ROUND_STARTED on: the round in progress or the final round.
@@ -397,7 +437,7 @@ func _assert_final_table(engine: MatchEngine, events: Array[MatchEvent]) -> void
 		assert_array(view.scores).is_equal(scores)
 		assert_array(view.own_board).is_equal(_board_from(round_events, seat))
 		assert_array(view.opponent_board).is_equal(_board_from(round_events, opp))
-		assert_int(_board_power(view.own_board)).is_equal(scores[seat])
+		assert_int(_walk_score(view.own_board)).is_equal(scores[seat])
 		var hand: Array[int] = _hand_from(round_events, seat)
 		assert_array(hand).is_not_empty()
 		assert_array(view.own_hand).is_equal(hand)
@@ -409,9 +449,10 @@ func _assert_final_table(engine: MatchEngine, events: Array[MatchEvent]) -> void
 	assert_array(_state_ints(engine, "pending")).is_empty()
 
 
-## Both seats pass turns 1-6; on turn 7 the first committer plays its strongest card and
-## the second its weakest. When those powers are equal it stops before turn 7's commits
-## (the round would tie) and the caller tries another seed.
+## Both seats pass turns 1-6; on turn 7 the first committer plays its strongest
+## effect-free card and the second its weakest. When those cards score the same alone, or a
+## hand holds no effect-free card, it stops before turn 7's commits and the caller tries
+## another seed.
 func _play_contested_round(engine: MatchEngine) -> Array[MatchEvent]:
 	var seen: Array[MatchEvent] = []
 	while engine.energy() < MatchRules.TURNS:
@@ -424,7 +465,7 @@ func _play_contested_round(engine: MatchEngine) -> Array[MatchEvent]:
 	var second: int = 1 - first
 	var strong: int = _strongest(_hand(engine, first))
 	var weak: int = _weakest(_hand(engine, second))
-	if _power(strong) == _power(weak):
+	if strong < 0 or weak < 0 or _solo(strong) == _solo(weak):
 		return seen
 	var a: Array[int] = [strong]
 	var b: Array[int] = [weak]
@@ -807,7 +848,7 @@ func test_concede_mid_round_counts_completed_rounds_and_keeps_the_table() -> voi
 	assert_dict(engine.full_state()).is_equal(expected)
 	assert_array(_state_ints(engine, "pending")).is_equal(held)
 	# Each view shows the table as left: hands, the revealed card and its score.
-	var power: int = _power(card)
+	var flat: int = _walk_score(play)
 	for seat: int in range(2):
 		var view: SeatView = engine.view_for(seat)
 		assert_int(view.round_number).is_equal(round_number)
@@ -816,7 +857,7 @@ func test_concede_mid_round_counts_completed_rounds_and_keeps_the_table() -> voi
 		assert_array(view.own_hand).is_not_empty()
 		assert_array(view.board_of(player)).is_equal(play)
 		assert_array(view.board_of(1 - player)).is_empty()
-		assert_int(view.scores[player]).is_equal(power)
+		assert_int(view.scores[player]).is_equal(flat)
 		assert_int(view.scores[1 - player]).is_equal(0)
 
 
