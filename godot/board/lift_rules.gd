@@ -25,7 +25,9 @@ static func step_touches(
 		BoardStep.Kind.TURN_START:
 			return held_staged
 		BoardStep.Kind.PLAYER_COMMIT:
-			if step.seat != 0 or held_place != Place.HAND or step.source == null:
+			# The commit moves a held hand card and flips a held staged card on the row.
+			var on_table: bool = held_place == Place.HAND or held_place == Place.ROW
+			if step.seat != 0 or not on_table or step.source == null:
 				return false
 			var raw: Array = step.source.payload["cards"]
 			var ids: Array[int] = []

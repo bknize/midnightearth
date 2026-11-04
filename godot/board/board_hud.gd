@@ -43,9 +43,13 @@ func _ready() -> void:
 	_pip_rows.append(_pips_1)
 
 
-func set_scores(scores: Array[int]) -> void:
+## The scores; with `mults` (one per seat) each reads "score xmult" (R50).
+func set_scores(scores: Array[int], mults: Array[int] = []) -> void:
 	for seat: int in range(mini(scores.size(), _score_labels.size())):
-		_score_labels[seat].text = str(scores[seat])
+		if seat < mults.size():
+			_score_labels[seat].text = "%d x%d" % [scores[seat], mults[seat]]
+		else:
+			_score_labels[seat].text = str(scores[seat])
 
 
 func set_wins(wins: Array[int]) -> void:
@@ -64,8 +68,11 @@ func set_round_turn(round_number: int, turn: int, sudden_death: bool) -> void:
 		_turn_label.text = "Turn %d" % turn
 
 
-func set_energy(left: int, total: int) -> void:
+## The budget left of the turn's total (R49); `free_first` marks that the first card is free.
+func set_energy(left: int, total: int, free_first: bool = false) -> void:
 	_energy_label.text = "Energy %d / %d" % [left, total]
+	if free_first:
+		_energy_label.text += " - first card free"
 
 
 func flash_energy() -> void:

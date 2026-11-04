@@ -3,14 +3,16 @@ extends RefCounted
 ## The player's staged cards for the turn (R12-R16, R43, R45, C9, C10, P15). Pure
 ## bookkeeping: card ids in row order, each with the cost it was staged at, against the
 ## seat's budget (turn plus carry). A card's slot is its index in the player's row: the
-## `played` cards already on the row come first, then the staged cards in order (T10 will let
-## staged cards sit between played ones). When the first card is free, the leftmost staged
-## card (the lowest slot) costs 0. An empty staging is a pass.
+## board tells Staging the row with `set_row()`, so a staged card's slot is its index there,
+## between played cards or not. When the first card is free, the leftmost staged card (the
+## lowest slot) costs 0. An empty staging is a pass.
 
 var _energy: int = 0
 var _played: int = 0
 var _free_first: bool = false
 var _row: Array[int] = []
+## The player's whole row by instance id, as last reported by the board.
+var _row_ids: Array[int] = []
 var _costs: Dictionary = {}
 
 
@@ -21,6 +23,7 @@ func reset(energy: int, played: int = 0, free_first: bool = false) -> void:
 	_played = maxi(played, 0)
 	_free_first = free_first
 	_row.clear()
+	_row_ids.clear()
 	_costs.clear()
 
 
@@ -118,12 +121,20 @@ func has(card: int) -> bool:
 	return _costs.has(card)
 
 
-## The row slot of every staged card, in the order of `cards()` (R45): the played cards come
-## first, so the slots follow the row indices.
+## Records the player's whole row (played and staged cards by instance id, in row order), so
+## `slots()` can name each staged card's index on it (R43, R45).
+func set_row(ids: Array[int]) -> void:
+	_row_ids.assign(ids)
+
+
+## The row slot of every staged card, in the order of `cards()` (R45): its index in the row
+## last given to `set_row()`. A card not on that row falls back to the played count plus its
+## place among the staged cards.
 func slots() -> Array[int]:
 	var out: Array[int] = []
 	for i: int in range(_row.size()):
-		out.append(_played + i)
+		var at: int = _row_ids.find(_row[i])
+		out.append(at if at >= 0 else _played + i)
 	return out
 
 
