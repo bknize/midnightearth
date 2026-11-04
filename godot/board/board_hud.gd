@@ -9,6 +9,8 @@ signal pause_pressed
 signal concede_pressed
 signal resume_pressed
 signal rematch_pressed
+## The prompt reader's action button was pressed (R42).
+signal action_pressed
 
 const PIPS_PER_SEAT: int = 4
 const PIP_ON: Color = Color(0.95, 0.78, 0.25, 1.0)
@@ -17,6 +19,8 @@ const FLASH_COLOR: Color = Color(1.0, 0.25, 0.25, 1.0)
 const FLASH_SECONDS: float = 0.45
 
 var _energy_tween: Tween
+## The prompt reader's button; built in code, present only while a prompt has a card lifted.
+var _action_button: Button = null
 
 var _score_labels: Array[Label] = []
 var _pip_rows: Array[HBoxContainer] = []
@@ -158,6 +162,40 @@ func show_prompt(text: String) -> void:
 func hide_prompt() -> void:
 	_prompt_banner.visible = false
 	_prompt_text.text = ""
+
+
+## Shows the reader's action button under the lifted card (R40, R41), a plain Theme Button.
+func show_action(text: String) -> void:
+	if _action_button == null:
+		_action_button = Button.new()
+		_action_button.name = "ActionButton"
+		_action_button.custom_minimum_size = Vector2(200.0, 64.0)
+		_action_button.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+		_action_button.offset_left = -100.0
+		_action_button.offset_right = 100.0
+		_action_button.offset_top = -110.0
+		_action_button.offset_bottom = -46.0
+		var err: int = _action_button.pressed.connect(_on_action_button_pressed)
+		if err != OK:
+			push_warning("BoardHud: could not connect the action button")
+		$Root.add_child(_action_button)
+	_action_button.text = text
+	_action_button.visible = true
+
+
+## Removes the action button from view (R47).
+func hide_action() -> void:
+	if _action_button != null:
+		_action_button.visible = false
+
+
+## Whether the action button is on show.
+func action_visible() -> bool:
+	return _action_button != null and _action_button.visible
+
+
+func _on_action_button_pressed() -> void:
+	action_pressed.emit()
 
 
 func show_pause(shown: bool) -> void:

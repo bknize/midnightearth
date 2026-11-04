@@ -74,21 +74,38 @@ func test_no_prompt_glows_nothing() -> void:
 	assert_int(PromptRules.glow_set(empty, _view(OWN_SIZE)).size()).is_equal(0)
 
 
-func test_tap_on_an_eligible_card_chooses_its_position() -> void:
+func test_tap_on_an_eligible_card_lifts_it_with_the_button() -> void:
 	var prompt: Dictionary = _prompt(Choice.Zone.BOTH_BOARDS, [0, 4])
 	var own: PromptTap = PromptRules.on_tap(CardSpot.new(0, false, 0), true, prompt, OWN_SIZE)
-	assert_int(own.kind).is_equal(PromptRules.Tap.CHOOSE)
+	assert_int(own.kind).is_equal(PromptRules.Tap.LIFT_ELIGIBLE)
 	assert_int(own.index).is_equal(0)
 	var other: PromptTap = PromptRules.on_tap(CardSpot.new(1, false, 1), true, prompt, OWN_SIZE)
-	assert_int(other.kind).is_equal(PromptRules.Tap.CHOOSE)
+	assert_int(other.kind).is_equal(PromptRules.Tap.LIFT_ELIGIBLE)
 	assert_int(other.index).is_equal(4)
 
 
-func test_tap_on_a_face_down_eligible_card_chooses_by_position() -> void:
+func test_tap_on_a_face_down_eligible_card_lifts_by_position() -> void:
 	var prompt: Dictionary = _prompt(Choice.Zone.OPPONENT_HAND, [2])
 	var tap: PromptTap = PromptRules.on_tap(CardSpot.new(1, true, 2), false, prompt, OWN_SIZE)
-	assert_int(tap.kind).is_equal(PromptRules.Tap.CHOOSE)
+	assert_int(tap.kind).is_equal(PromptRules.Tap.LIFT_ELIGIBLE)
 	assert_int(tap.index).is_equal(2)
+
+
+func test_tap_on_another_eligible_card_while_lifted_swaps_the_lift() -> void:
+	var prompt: Dictionary = _prompt(Choice.Zone.BOTH_BOARDS, [0, 4])
+	var tap: PromptTap = PromptRules.on_tap(CardSpot.new(1, false, 1), true, prompt, OWN_SIZE, 0)
+	assert_int(tap.kind).is_equal(PromptRules.Tap.SWAP_LIFT)
+	assert_int(tap.index).is_equal(4)
+
+
+func test_tap_on_the_lifted_card_or_the_table_puts_it_down() -> void:
+	var prompt: Dictionary = _prompt(Choice.Zone.BOTH_BOARDS, [0, 4])
+	var same: PromptTap = PromptRules.on_tap(CardSpot.new(0, false, 0), true, prompt, OWN_SIZE, 0)
+	assert_int(same.kind).is_equal(PromptRules.Tap.PUT_DOWN)
+	var table: PromptTap = PromptRules.on_tap(CardSpot.new(), false, prompt, OWN_SIZE, 0)
+	assert_int(table.kind).is_equal(PromptRules.Tap.PUT_DOWN)
+	var none: PromptTap = PromptRules.on_tap(null, false, prompt, OWN_SIZE, 4)
+	assert_int(none.kind).is_equal(PromptRules.Tap.PUT_DOWN)
 
 
 func test_tap_on_a_non_eligible_face_up_card_lifts() -> void:
@@ -99,7 +116,7 @@ func test_tap_on_a_non_eligible_face_up_card_lifts() -> void:
 	assert_int(hand.kind).is_equal(PromptRules.Tap.LIFT)
 
 
-func test_other_taps_do_nothing() -> void:
+func test_other_taps_do_nothing_when_nothing_is_lifted() -> void:
 	var prompt: Dictionary = _prompt(Choice.Zone.OWN_BOARD, [1])
 	var down: PromptTap = PromptRules.on_tap(CardSpot.new(1, true, 0), false, prompt, OWN_SIZE)
 	assert_int(down.kind).is_equal(PromptRules.Tap.NOTHING)
@@ -107,6 +124,14 @@ func test_other_taps_do_nothing() -> void:
 	assert_int(miss.kind).is_equal(PromptRules.Tap.NOTHING)
 	var none: PromptTap = PromptRules.on_tap(null, true, prompt, OWN_SIZE)
 	assert_int(none.kind).is_equal(PromptRules.Tap.NOTHING)
+
+
+func test_action_label_names_the_move() -> void:
+	assert_str(PromptRules.action_label("swap_places")).is_equal("Swap")
+	assert_str(PromptRules.action_label("draw_then_discard")).is_equal("Discard")
+	assert_str(PromptRules.action_label("switch_stats")).is_equal("Switch")
+	assert_str(PromptRules.action_label("return_at_turn_end")).is_equal("Return")
+	assert_str(PromptRules.action_label("nope")).is_equal("")
 
 
 func test_the_runner_waits_on_a_prompt_unless_autoplay() -> void:

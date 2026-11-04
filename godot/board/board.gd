@@ -120,8 +120,9 @@ func _ready() -> void:
 	card_lift.setup($Camera3D as Camera3D, _loose, _dimmer, _spawn_card)
 	var lifted_err: int = card_lift.lifted.connect(_on_card_lifted)
 	var down_err: int = card_lift.put_down_finished.connect(_on_card_put_down)
-	if lifted_err != OK or down_err != OK:
-		push_warning("Board: could not connect the card lift signals")
+	var action_err: int = hud.action_pressed.connect(_on_action_pressed)
+	if lifted_err != OK or down_err != OK or action_err != OK:
+		push_warning("Board: could not connect the card lift or action signals")
 	_cards = CardDb.load_default()
 	if not _cards.is_valid():
 		push_error("Card data failed to load: %s" % _cards.load_error())
@@ -151,7 +152,8 @@ func _exit_tree() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		if _prompt.is_open():
-			# R56: Escape does nothing while a prompt is open.
+			# R43: Escape puts a lifted card down; the prompt keeps waiting.
+			_prompt.put_down()
 			get_viewport().set_input_as_handled()
 			return
 		if card_lift.is_holding():
@@ -595,14 +597,19 @@ func _choose(index: int) -> void:
 	_close_prompt()
 
 
-## One tap while the prompt is open: a glowing card decides, another face-up card lifts to be
-## read (C16), anything else does nothing.
+## One tap while the prompt is open (R40-R44): lift, swap the lift, or put it down.
 func _tap_prompt(card: BoardCard) -> void:
 	var tap: PromptTap = _prompt.tap(card, driver.view().own_board.size())
-	if tap.kind == PromptRules.Tap.CHOOSE:
-		_choose(tap.index)
-	elif tap.kind == PromptRules.Tap.LIFT:
-		card_lift.lift(card)
+	await _prompt.apply_tap(tap, card)
+
+
+## The reader's button (R42): submits the lifted option, then sets the card down (R57).
+func _on_action_pressed() -> void:
+	var option: int = _prompt.lifted_option
+	if option < 0 or not _prompt.is_open():
+		return
+	_choose(option)
+	_prompt.put_down()
 
 
 # --- Card helpers ------------------------------------------------------------------------
@@ -899,6 +906,9 @@ func _place_of(card: Card3D) -> int:
 ## A tap puts a held card down and does nothing else (R5); otherwise it lifts the card under
 ## it if the rules allow (R1, R2), never during a drag or a pause (R7).
 func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
+	if _prompt.is_open() and not _paused:
+		_tap_prompt(_card_from_hit(hit))
+		return
 	if card_lift.is_holding():
 		card_lift.put_down()
 		return
@@ -906,9 +916,6 @@ func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
 		return
 	var card: BoardCard = _card_from_hit(hit)
 	if card == null:
-		return
-	if _prompt.is_open():
-		_tap_prompt(card)
 		return
 	var place: int = _place_of(card)
 	if place < 0:
@@ -928,13 +935,15 @@ func _card_from_hit(hit: Object) -> BoardCard:
 
 
 func _on_card_lifted(_card: BoardCard) -> void:
-	hud.visible = false
+	# The prompt's banner and the action button live in the HUD, so it stays up (R40).
+	hud.visible = _prompt.is_open()
 	player_hand.hover_disabled = true
 	player_row.hover_disabled = true
 	_refresh_commit_enabled()
 
 
 func _on_card_put_down(_card: BoardCard) -> void:
+	_prompt.lift_ended()
 	hud.visible = true
 	player_hand.hover_disabled = false
 	player_row.hover_disabled = false
