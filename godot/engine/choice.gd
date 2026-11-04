@@ -16,9 +16,10 @@ extends RefCounted
 ##
 ## Eligibility per verb (R20):
 ## - DRAW_THEN_DISCARD: OWN_HAND, every position (after the draws).
-## - SWAP_PLACES: OWN_BOARD, every card but the source, revealed or not.
-## - SWITCH_STATS: BOTH_BOARDS, every revealed card, the source included.
-## - RETURN_AT_TURN_END: BOTH_BOARDS, every revealed card but the source.
+## - SWAP_PLACES: OWN_BOARD, every card but the source, revealed or not, destroyed or not
+##   (DC-06 R16).
+## - SWITCH_STATS: BOTH_BOARDS, every revealed card not destroyed, the source included.
+## - RETURN_AT_TURN_END: BOTH_BOARDS, every revealed card not destroyed but the source.
 ## Any other verb needs no choice: eligible() gives zone -1 and no options.
 ##
 ## Events name zones by ZONE_NAMES (as they name verbs and triggers by their JSON names);
@@ -158,10 +159,18 @@ static func _is_eligible(
 		CardEffect.Verb.SWAP_PLACES:
 			return card != source
 		CardEffect.Verb.SWITCH_STATS:
-			return _is_revealed_at(state, seat, zone, index, card)
+			return _is_live_and_revealed(state, seat, zone, index, card)
 		CardEffect.Verb.RETURN_AT_TURN_END:
-			return card != source and _is_revealed_at(state, seat, zone, index, card)
+			return card != source and _is_live_and_revealed(state, seat, zone, index, card)
 	return false
+
+
+## Whether `card` is revealed and not destroyed (DC-06 R16): the switch and the return skip
+## destroyed cards; the swap does not ask.
+static func _is_live_and_revealed(
+	state: MatchState, seat: int, zone: int, index: int, card: int
+) -> bool:
+	return not state.is_destroyed(card) and _is_revealed_at(state, seat, zone, index, card)
 
 
 static func _is_revealed_at(state: MatchState, seat: int, zone: int, index: int, card: int) -> bool:

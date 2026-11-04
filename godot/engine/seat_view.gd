@@ -25,9 +25,11 @@ var own_pending: Array[int] = []
 var own_board: Array[int] = []
 var opponent_board: Array[int] = []
 ## The same rows with what each card shows (plan, SeatView additions): one entry per card
-## in slot order, {card, flat, bonus, revealed}, the stats from ScoreWalk.effective(). An
-## opponent card not yet revealed (only possible mid-walk, while a prompt pauses it) shows
-## flat and bonus 0 and card MatchEvent.HIDDEN_CARD, as it does in `opponent_board`.
+## in slot order, {card, flat, bonus, revealed, destroyed}, the stats from
+## ScoreWalk.effective(). An opponent card not yet revealed (only possible mid-walk, while a
+## prompt pauses it) shows flat and bonus 0 and card MatchEvent.HIDDEN_CARD, as it does in
+## `opponent_board`. `destroyed` is public for every card (DC-06 R20): a destroyed
+## face-down card shows its slot as destroyed and still hides its id.
 var own_row: Array[Dictionary] = []
 var opponent_row: Array[Dictionary] = []
 var opponent_hand_count: int = 0
@@ -157,7 +159,14 @@ static func _row(state: MatchState, row_seat: int, cards: CardDb, own: bool) -> 
 		if own or revealed:
 			stats = ScoreWalk.effective(card, state, cards)
 			shown = card
-		out.append({"card": shown, "flat": stats.x, "bonus": stats.y, "revealed": revealed})
+		var entry: Dictionary = {
+			"card": shown,
+			"flat": stats.x,
+			"bonus": stats.y,
+			"revealed": revealed,
+			"destroyed": state.is_destroyed(card),
+		}
+		out.append(entry)
 	return out
 
 

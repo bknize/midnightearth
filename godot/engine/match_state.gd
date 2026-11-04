@@ -156,21 +156,25 @@ func clear_card_state(card: int) -> bool:
 	return card_states.erase(card)
 
 
-## Takes `card` off `seat`'s row (a destroy, R23; a return, R24): it leaves the row and
-## the revealed set, and its modifiers go (R21). Returns whether the card had been
-## revealed; false, changing nothing, when it was not on that row. Read the card's slot
-## before calling. Where the card goes next is the caller's call.
-##
-## During a walk, a card taken from a slot the cursor has passed moves that row's cursor
-## back by one, so the slots after it keep their pulse. DC-06 T02 removes this: a destroy
-## becomes a card state and no card leaves a row during a walk.
+## Whether `card` is destroyed (DC-06 R12, P4): still on its row, scoring and firing
+## nothing, until turn end clears it (EffectResolver.clear_destroyed).
+func is_destroyed(card: int) -> bool:
+	var held: CardState = card_state(card)
+	return held != null and held.destroyed
+
+
+## Takes `card` off `seat`'s row (a return at turn end, R24; the turn-end clear of a
+## destroyed card, DC-06 R18): it leaves the row and the revealed set, and its modifiers go
+## (R21), the destroyed mark with them (R22). Returns whether the card had been revealed;
+## false, changing nothing, when it was not on that row. Read the card's slot before
+## calling. Where the card goes next is the caller's call. The live engine calls it only
+## once a walk is over, so the walk's slot cursor never follows a row that shrinks (DC-06
+## P1); the preview's MatchEngine._hide_opponent still drops cards mid-walk on its clone.
 func take_from_row(seat: int, card: int) -> bool:
 	var piles: SeatPiles = seats[seat]
 	var slot: int = piles.board.find(card)
 	if slot < 0:
 		return false
-	if walk.active and slot < walk.cursor[seat]:
-		walk.cursor[seat] -= 1
 	piles.board.remove_at(slot)
 	if clear_card_state(card):
 		pass  # Its modifiers leave the board with it; nothing else to do.
