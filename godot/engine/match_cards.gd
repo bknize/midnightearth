@@ -11,6 +11,11 @@ extends RefCounted
 var _defs: Array[CardDef] = []
 var _deck_ids: Array[String] = []
 var _error: String = ""
+## The CardEffect.Verb and CardEffect.Trigger values some definition of the match carries,
+## as sets, filled once by build() so the hot paths can skip work no card can need
+## (has_verb, has_trigger; NSC-97). Empty after a failed build.
+var _verbs: Dictionary[int, bool] = {}
+var _triggers: Dictionary[int, bool] = {}
 
 
 ## Resolves the definitions of a match where seat s plays the deck `deck_ids[s]` of
@@ -38,6 +43,10 @@ static func build(cards: CardDb, decks: DeckList, deck_ids: Array[String]) -> Ma
 			defs.append(cards.card_by_id(card_id))
 	out._defs = defs
 	out._deck_ids.assign(deck_ids)
+	for def: CardDef in defs:
+		if def != null and def.effect != null:
+			out._verbs[def.effect.verb] = true
+			out._triggers[def.effect.trigger] = true
 	return out
 
 
@@ -67,6 +76,19 @@ func origin_of(instance: int) -> int:
 	if instance < 0 or instance >= _defs.size():
 		return -1
 	return instance / MatchRules.DECK_SIZE
+
+
+## Whether any definition of the match carries an effect with `verb` (a CardEffect.Verb),
+## on either seat's deck. False after a failed build. Fixed at build(): the definitions of
+## a match never change.
+func has_verb(verb: int) -> bool:
+	return _verbs.has(verb)
+
+
+## Whether any definition of the match carries an effect with `trigger` (a
+## CardEffect.Trigger), on either seat's deck. False after a failed build.
+func has_trigger(trigger: int) -> bool:
+	return _triggers.has(trigger)
 
 
 ## The deck ids per seat, as built.

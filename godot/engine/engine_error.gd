@@ -3,6 +3,7 @@ extends RefCounted
 ## The fixed list of failure codes an action can return (R26, C2).
 ##
 ## Values are stable: they appear in results and tests, so append new codes at the end.
+## A choice of the wrong shape for its prompt is NOT_ELIGIBLE, never BAD_SET (DC-07 P7).
 
 enum Code {
 	NONE,
@@ -18,11 +19,14 @@ enum Code {
 	BAD_SLOTS,
 	## A choice arrived while no prompt is open (R31).
 	NO_PROMPT,
-	## A choice names a zone or position that is not eligible (R31).
+	## A choice names a zone or position that is not eligible (R31), or has the wrong shape
+	## for the open prompt: a set (CHOOSE_SET) sent to a single-target prompt, or a single
+	## choice (CHOOSE) sent to a multi-select one (DC-07 P7).
 	NOT_ELIGIBLE,
-	## A set choice repeats an index or names one (or a zone) the multi-select prompt does
-	## not offer (DC-07 R23, P7). A set answering a single-target prompt, like a single
-	## choice answering a multi-select one, is NOT_ELIGIBLE (P7).
+	## A set choice to an open multi-select prompt repeats an index, or names an index (or a
+	## zone) that prompt does not offer (DC-07 R23, P7). Only for a repeated or non-offered
+	## index: a set sent to a single-target prompt, like a CHOOSE on a multi-select one, is
+	## NOT_ELIGIBLE (P7).
 	BAD_SET,
 	## create() named a deck id absent from the deck list, or not one id per seat; start()
 	## fails with it (DC-07 P2).

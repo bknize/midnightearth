@@ -5,9 +5,10 @@ extends RefCounted
 ## leaves the board. A card with no entry has every field at its default.
 ##
 ## ScoreWalk.effective() reads them as: the base (the definition's flat and bonus, or the
-## stored `base_flat`, `base_kind` and `base_bonus` once `has_base` is set by a copy, which
-## lands in DC-07 T07), then `flat_delta` adds to the flat and `temp_plus` to the +-part,
-## then `no_bonus` makes the ×-part ×1.00 and the +-part 0 (R13, R14).
+## stored `base_flat`, `base_times` and `base_plus` once `has_base` is set by a copy, DC-07
+## T07, R34, C22), then the positional ×-parts, then `flat_delta` adds to the flat and
+## `temp_plus` to the +-part, then `no_bonus` makes the ×-part ×1.00 and the +-part 0 (R13,
+## R14).
 ## `temp_plus` lasts until the walk ends (ScoreWalk clears it for every card then);
 ## `no_bonus` and `flat_delta` live until the card leaves the board.
 ## `return_marked` does not change stats: the card goes back at the end of the turn (R24).
@@ -19,10 +20,13 @@ extends RefCounted
 var has_base: bool = false
 ## The base flat once `has_base` is set.
 var base_flat: int = 0
-## The base bonus kind (a CardDef.BonusKind) once `has_base` is set.
-var base_kind: int = CardDef.BonusKind.NONE
-## The base bonus once `has_base` is set: hundredths for TIMES, whole units for PLUS.
-var base_bonus: int = 0
+## The base ×-part once `has_base` is set, in hundredths (MatchRules.MULT_ONE for none). A
+## copy stores the target's whole shown bonus, so the base may hold a ×-part and a +-part
+## at once (R34, C22).
+var base_times: int = MatchRules.MULT_ONE
+## The base +-part once `has_base` is set, in whole units (0 for none). Both base parts go
+## with the entry when the card leaves the board or is un-revealed.
+var base_plus: int = 0
 ## Added to the base flat (the on-score flat-up effect).
 var flat_delta: int = 0
 ## The card has no bonus (R14): ×1.00 and +0, whatever its base and `temp_plus` say.
@@ -52,8 +56,8 @@ func copy() -> CardState:
 	var out: CardState = CardState.new()
 	out.has_base = has_base
 	out.base_flat = base_flat
-	out.base_kind = base_kind
-	out.base_bonus = base_bonus
+	out.base_times = base_times
+	out.base_plus = base_plus
 	out.flat_delta = flat_delta
 	out.no_bonus = no_bonus
 	out.temp_plus = temp_plus
@@ -67,8 +71,8 @@ func to_dict() -> Dictionary:
 	return {
 		"has_base": has_base,
 		"base_flat": base_flat,
-		"base_kind": base_kind,
-		"base_bonus": base_bonus,
+		"base_times": base_times,
+		"base_plus": base_plus,
 		"flat_delta": flat_delta,
 		"no_bonus": no_bonus,
 		"temp_plus": temp_plus,

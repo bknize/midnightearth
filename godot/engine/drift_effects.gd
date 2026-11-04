@@ -32,11 +32,11 @@ extends RefCounted
 ## - COPY_STATS (prompt; OPPONENT_BOARD, revealed live cards): the source takes the target's
 ##   effective flat and bonus at this moment as its new base (CardState `base_*`, P5, R34),
 ##   STATS_CHANGED (cause copy), then RuinEffects.check_burst() on the source (P10). Later
-##   changes to the target do not follow. The source's own modifiers (`flat_delta`,
-##   `no_bonus`, `temp_plus`) still apply on top of the new base. The base keeps one bonus
-##   kind: the target's +-part when its own bonus is a +-part or it shows no ×-part, else its
-##   ×-part (a target showing both, through a neighbour's ×1.25 or a move's +2, gives the
-##   part its own bonus kind names, the ×-part for a card with no printed bonus).
+##   changes to the target do not follow. The base is the target's whole shown bonus: its
+##   ×-part and its +-part both (`base_times`, `base_plus`; C22), so a target showing a
+##   neighbour's ×1.25 on top of a printed +1, or a move's +2 next to a Lodestone, gives
+##   both. The source's own positional ×-parts and modifiers (`flat_delta`, `no_bonus`,
+##   `temp_plus`) still apply on top of the new base (P5).
 ## - PLUS_ON_MOVED (on moved, amount): `temp_plus += amount`, STATS_CHANGED (cause
 ##   temp_plus); ScoreWalk clears it when the walk ends (P5, R33).
 ## - NEIGHBOUR_TIMES, EDGE_LEFT_TIMES (ongoing): never fire; ScoreWalk.effective() reads them.
@@ -301,8 +301,8 @@ static func _plus(
 		)
 
 
-## COPY_STATS: `source`, of `seat`, takes `target`'s effective flat and bonus as its base
-## (see the class comment), then its burst check runs.
+## COPY_STATS: `source`, of `seat`, takes `target`'s effective flat, ×-part and +-part as
+## its base (see the class comment), then its burst check runs.
 static func _copy(
 	state: MatchState,
 	cards: MatchCards,
@@ -314,41 +314,12 @@ static func _copy(
 	outcome: EffectResolver.Outcome
 ) -> void:
 	var stats: ScoreWalk.Effective = ScoreWalk.effective(target, state, cards)
-	var kind: int = _copied_kind(stats, _own_kind(target, state, cards))
 	var held: CardState = state.card_state_for(source)
 	held.has_base = true
 	held.base_flat = stats.flat
-	held.base_kind = kind
-	held.base_bonus = 0
-	if kind == CardDef.BonusKind.TIMES:
-		held.base_bonus = stats.times
-	elif kind == CardDef.BonusKind.PLUS:
-		held.base_bonus = stats.plus
+	held.base_times = stats.times
+	held.base_plus = stats.plus
 	if not outcome.quiet:
 		outcome.events.append(EffectResolver.stats_changed(state, cards, seat, source, CAUSE_COPY))
 	if RuinEffects.check_burst(state, cards, rng, policy, source, outcome):
 		pass  # A copy to BURST_FLAT or more burst the source; its destroys are on `outcome`.
-
-
-## The bonus kind a copy of `stats` stores (see the class comment), `own_kind` being the
-## target's own bonus kind.
-static func _copied_kind(stats: ScoreWalk.Effective, own_kind: int) -> int:
-	var has_times: bool = stats.times != MatchRules.MULT_ONE
-	if stats.plus != 0 and (own_kind == CardDef.BonusKind.PLUS or not has_times):
-		return CardDef.BonusKind.PLUS
-	if has_times:
-		return CardDef.BonusKind.TIMES
-	return CardDef.BonusKind.NONE
-
-
-## `card`'s own bonus kind: a copied base's, else its definition's (NONE when unknown).
-static func _own_kind(card: int, state: MatchState, cards: MatchCards) -> int:
-	var held: CardState = state.card_state(card)
-	if held != null and held.has_base:
-		return held.base_kind
-	if cards == null:
-		return CardDef.BonusKind.NONE
-	var def: CardDef = cards.def_of(card)
-	if def == null:
-		return CardDef.BonusKind.NONE
-	return def.bonus_kind

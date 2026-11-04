@@ -687,8 +687,9 @@ func test_an_on_score_card_scored_twice_gains_twice() -> void:
 # --- P4: effective stats from CardState -----------------------------------------------
 
 
-## DC-07 P5: the base (printed, or `base_*` once a copy stored one), then `flat_delta` and
-## `temp_plus`, then `no_bonus` clearing both bonus parts. The switch retired (C20).
+## DC-07 P5: the base (printed, or `base_*` once a copy stored one, both bonus parts at once
+## since C22), then `flat_delta` and `temp_plus`, then `no_bonus` clearing both bonus parts.
+## The switch retired (C20).
 func test_effective_reads_the_base_then_flat_delta_temp_plus_and_no_bonus() -> void:
 	var card: int = _card_with(0, 3, 125)
 	var none: Array[int] = []
@@ -697,12 +698,15 @@ func test_effective_reads_the_base_then_flat_delta_temp_plus_and_no_bonus() -> v
 	assert_dict(_eff(card, state)).is_equal(_stats(3, 125, 0))
 	var held: CardState = state.card_state_for(card)
 	assert_bool(held.is_default()).is_true()
-	# A stored base (a copy, DC-07 T07) replaces the printed stats, kind included.
+	# A stored base (a copy, DC-07 T07) replaces the printed stats, both bonus parts
+	# included (R34, C22): ×1.50 and +2 at once, then a +-part only.
 	held.has_base = true
 	held.base_flat = 1
-	held.base_kind = CardDef.BonusKind.PLUS
-	held.base_bonus = 2
+	held.base_times = 150
+	held.base_plus = 2
 	assert_bool(held.is_default()).is_false()
+	assert_dict(_eff(card, state)).is_equal(_stats(1, 150, 2))
+	held.base_times = MatchRules.MULT_ONE
 	assert_dict(_eff(card, state)).is_equal(_stats(1, 100, 2))
 	held.flat_delta = 2
 	assert_dict(_eff(card, state)).is_equal(_stats(3, 100, 2))
@@ -738,8 +742,8 @@ func test_the_walk_scores_effective_stats() -> void:
 	var held: CardState = state.card_state_for(bonus_card)
 	held.has_base = true
 	held.base_flat = 1
-	held.base_kind = CardDef.BonusKind.PLUS
-	held.base_bonus = 2
+	held.base_times = MatchRules.MULT_ONE
+	held.base_plus = 2
 	state.card_state_for(flat_card).flat_delta = 1
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
@@ -769,8 +773,8 @@ func test_card_states_are_in_the_full_state_and_cleared_at_round_start() -> void
 	var expected: Dictionary = {
 		"has_base": false,
 		"base_flat": 0,
-		"base_kind": CardDef.BonusKind.NONE,
-		"base_bonus": 0,
+		"base_times": MatchRules.MULT_ONE,
+		"base_plus": 0,
 		"flat_delta": 2,
 		"no_bonus": false,
 		"temp_plus": 0,

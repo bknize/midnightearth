@@ -352,7 +352,9 @@ func test_mirror_copies_effective_stats_and_does_not_follow_later_changes() -> v
 	_assert_event(events[1], STATS, _stats(0, mirror, [5, 156, 0], "copy"), PUBLIC)
 	var held: CardState = state.card_state(mirror)
 	assert_bool(held.has_base).is_true()
-	assert_int(held.base_kind).is_equal(CardDef.BonusKind.TIMES)
+	assert_int(held.base_flat).is_equal(5)
+	assert_int(held.base_times).is_equal(156)
+	assert_int(held.base_plus).is_equal(0)
 	assert_dict(_eff(mirror, state)).is_equal(_flat_times_plus(5, 156, 0))
 	# Tide changes; Mirror keeps what it copied.
 	state.card_state_for(tide).flat_delta = 10
@@ -361,9 +363,11 @@ func test_mirror_copies_effective_stats_and_does_not_follow_later_changes() -> v
 	assert_dict(_eff(mirror, state)).is_equal(_flat_times_plus(5, 156, 0))
 
 
-## A +-card keeps its kind in the copy: Vane (+1) beside a revealed Lodestone shows ×1.25 and
-## +1; its own bonus is a +-part, so Mirror stores +1.
-func test_mirror_copying_a_plus_card_keeps_the_plus() -> void:
+## The copy takes the whole current bonus (R34, C22): Vane (+1) beside a revealed Lodestone
+## shows ×1.25 and +1, and Mirror stores both. Later changes do not follow: with the
+## Lodestone destroyed, Vane is back to ×1.00 and Mirror keeps ×1.25 and +1. Mirror's own
+## modifiers still apply on top of the copied base (P5).
+func test_mirror_copying_a_plus_card_beside_lodestone_copies_both_parts() -> void:
 	var mirror: int = _id(0, D07_MIRROR)
 	var lodestone: int = _id(1, D10_LODESTONE)
 	var vane: int = _id(1, D18_VANE)
@@ -374,7 +378,77 @@ func test_mirror_copying_a_plus_card_keeps_the_plus() -> void:
 	var prompt: Dictionary = _prompt(mirror, CardEffect.Verb.COPY_STATS, _typed([0, 1]))
 	var events: Array[MatchEvent] = EffectResolver.apply_choice(state, _drift(), prompt, 1, false)
 	assert_array(_kinds(events)).is_equal(_typed([MADE, STATS]))
-	assert_dict(_eff(mirror, state)).is_equal(_flat_times_plus(3, 100, 1))
+	_assert_event(events[1], STATS, _stats(0, mirror, [3, 125, 1], "copy"), PUBLIC)
+	var held: CardState = state.card_state(mirror)
+	assert_int(held.base_times).is_equal(125)
+	assert_int(held.base_plus).is_equal(1)
+	assert_dict(_eff(mirror, state)).is_equal(_flat_times_plus(3, 125, 1))
+	# The full state carries both parts.
+	var all_states: Dictionary = state.to_dict()["card_states"]
+	var plain: Dictionary = all_states[mirror]
+	var plain_times: int = plain["base_times"]
+	var plain_plus: int = plain["base_plus"]
+	assert_int(plain_times).is_equal(125)
+	assert_int(plain_plus).is_equal(1)
+	# The Lodestone goes: Vane loses its ×-part, Mirror does not.
+	state.card_state_for(lodestone).destroyed = true
+	assert_dict(_eff(vane, state)).is_equal(_flat_times_plus(3, 100, 1))
+	assert_dict(_eff(mirror, state)).is_equal(_flat_times_plus(3, 125, 1))
+	# Mirror's own modifiers on top: +1 flat, +2 until the walk ends, then no bonus.
+	held.flat_delta = 1
+	held.temp_plus = 2
+	assert_dict(_eff(mirror, state)).is_equal(_flat_times_plus(4, 125, 3))
+	held.no_bonus = true
+	assert_dict(_eff(mirror, state)).is_equal(_flat_times_plus(4, 100, 0))
+
+
+## An Eddy that has moved (+2 until the walk ends) beside a revealed Lodestone (×1.25) shows
+## both parts, and Mirror copies both as its base (R34, C22). The walk's end clears Eddy's
+## +2 and a destroy takes the Lodestone's ×1.25 from Eddy; Mirror keeps what it copied.
+func test_mirror_copying_a_moved_eddy_beside_lodestone_copies_both_parts() -> void:
+	var mirror: int = _id(0, D07_MIRROR)
+	var lodestone: int = _id(1, D10_LODESTONE)
+	var eddy: int = _id(1, D05_EDDY)
+	var state: MatchState = _rows(_typed([mirror]), _typed([lodestone, eddy]), 0)
+	_reveal(state, 0, _typed([mirror]))
+	_reveal(state, 1, _typed([lodestone, eddy]))
+	state.card_state_for(eddy).temp_plus = 2
+	assert_dict(_eff(eddy, state)).is_equal(_flat_times_plus(1, 125, 2))
+	var prompt: Dictionary = _prompt(mirror, CardEffect.Verb.COPY_STATS, _typed([0, 1]))
+	var events: Array[MatchEvent] = EffectResolver.apply_choice(state, _drift(), prompt, 1, false)
+	assert_array(_kinds(events)).is_equal(_typed([MADE, STATS]))
+	_assert_event(events[1], STATS, _stats(0, mirror, [1, 125, 2], "copy"), PUBLIC)
+	assert_dict(_eff(mirror, state)).is_equal(_flat_times_plus(1, 125, 2))
+	state.card_state_for(eddy).temp_plus = 0
+	state.card_state_for(lodestone).destroyed = true
+	assert_dict(_eff(eddy, state)).is_equal(_flat_times_plus(1, 100, 0))
+	assert_dict(_eff(mirror, state)).is_equal(_flat_times_plus(1, 125, 2))
+
+
+## A preview of Mirror's copy scores as the live engine then does (R34 with DC-05 R35): seat
+## 0's [Gust, Pebble, Mirror] against seat 1's [Lodestone, Vane], all face down, both pass.
+## Whichever seat commits first, Lodestone and Vane are revealed before Mirror, so its
+## prompt offers both; copying Vane (×1.25 and +1) previews to the scores the live answer
+## ends the walk on, and the copy stays on Mirror after the turn.
+func test_mirror_copy_preview_equals_live() -> void:
+	var mirror: int = _id(0, D07_MIRROR)
+	var own: Array[int] = [_id(0, D01_GUST), _id(0, D04_PEBBLE), mirror]
+	var theirs: Array[int] = [_id(1, D10_LODESTONE), _id(1, D18_VANE)]
+	var engine: MatchEngine = FixtureDecks.drift_engine(SEED)
+	assert_bool(engine.start().ok).is_true()
+	assert_bool(FixtureDecks.play_table(engine, own, theirs)).is_true()
+	assert_int(engine.awaited_seat()).is_equal(0)
+	var prompt: Dictionary = engine.open_prompt()
+	assert_array(Choice.options_of(prompt)).is_equal(_typed([0, 1]))
+	var previewed: Array[int] = engine.preview_choice(0, 1)
+	assert_int(previewed.size()).is_equal(2)
+	assert_bool(engine.apply(EngineAction.choose(0, OPPONENT_BOARD, 1)).ok).is_true()
+	var raw: Array = engine.full_state()["scores"]
+	assert_array(_typed(raw)).is_equal(previewed)
+	var stats: ScoreWalk.Effective = ScoreWalk.effective(
+		mirror, engine._state, engine.match_cards()
+	)
+	assert_dict(stats.to_dict()).is_equal(_flat_times_plus(3, 125, 1))
 
 
 # --- Lodestone and Herald (P5, R28) -------------------------------------------------------
