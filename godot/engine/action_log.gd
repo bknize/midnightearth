@@ -4,7 +4,7 @@ extends RefCounted
 ## version and the match seed, then every accepted action in order. Nothing derived.
 ##
 ## JSON form (plan, data model):
-## {"format": 1, "rules": 1, "seed": "9007199254740993",
+## {"format": 2, "rules": 2, "seed": "9007199254740993",
 ##  "actions": [{"k": "commit", "s": 0, "c": [3, 7]}, {"k": "concede", "s": 1}]}
 ##
 ## The seed is a decimal string because JSON numbers lose precision above 2^53. Parsing

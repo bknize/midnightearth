@@ -7,9 +7,9 @@ extends GdUnitTestSuite
 
 const SEED: int = 1
 const MAX_ACTIONS: int = 2000
-const EXPECTED_LINE: String = (
-	"Board: match ended seed=1 winner=0 wins=4-0 rounds=4 end=wins actions=56"
-)
+## Seed 1's pinned board result line. Empty while unpinned (re-pinned at DC-05 T14, card
+## data format 2): the test then compares against a direct bot-vs-bot engine run instead.
+const EXPECTED_LINE: String = ""
 ## Event kinds whose card ids are private to their owner.
 const PRIVATE_KINDS: Array[int] = [
 	MatchEvent.Kind.CARD_DEALT,
@@ -58,6 +58,41 @@ func _opponent_leaks(events: Array[MatchEvent]) -> Array[String]:
 	return found
 
 
+## Seed 1 played bot-vs-bot straight through MatchEngine, as main.gd's smoke run plays it,
+## written as the board's result line; a message naming the problem when it fails.
+func _smoke_line() -> String:
+	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	if not engine.start().ok:
+		return "smoke match did not start"
+	var bots: Array[GreedyBot] = [
+		GreedyBot.new(GreedyBot.seed_for(SEED, 0), _db()),
+		GreedyBot.new(GreedyBot.seed_for(SEED, 1), _db()),
+	]
+	var ended: Dictionary = {}
+	var actions: int = 0
+	while not engine.is_over() and actions < MAX_ACTIONS:
+		var seat: int = engine.awaited_seat()
+		var result: ApplyResult = engine.apply(bots[seat].choose(engine.view_for(seat)))
+		if not result.ok:
+			return "smoke action %d rejected" % actions
+		actions += 1
+		for event: MatchEvent in result.events:
+			if event.kind == MatchEvent.Kind.MATCH_ENDED:
+				ended = event.payload
+	if ended.is_empty():
+		return "smoke match did not end"
+	var winner: int = ended["winner"]
+	var reason: String = ended["reason"]
+	var rounds: int = ended["rounds_played"]
+	var raw_wins: Array = ended["wins"]
+	var wins: Array[int] = []
+	wins.assign(raw_wins)
+	return (
+		"Board: match ended seed=%d winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
+		% [SEED, winner, wins[0], wins[1], rounds, reason, actions]
+	)
+
+
 # --- Tests ----------------------------------------------------------------------------
 
 
@@ -77,7 +112,10 @@ func test_seed_1_autoplay_equals_the_smoke_match() -> void:
 		steps += 1
 	assert_bool(driver.is_over()).override_failure_message("not over after %d" % steps).is_true()
 	assert_bool(driver.bot_turn_due()).is_false()
-	assert_str(driver.result_line()).is_equal(EXPECTED_LINE)
+	var expected: String = EXPECTED_LINE
+	if expected == "":
+		expected = _smoke_line()
+	assert_str(driver.result_line()).is_equal(expected)
 	assert_int(driver.action_count()).is_equal(steps)
 	# R6: across the whole match, no seat-1 card id reached seat 0.
 	assert_array(leaks).override_failure_message("leaks: %s" % [leaks]).is_empty()

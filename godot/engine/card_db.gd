@@ -1,19 +1,19 @@
 class_name CardDb
 extends RefCounted
-## Loads and validates the 20-card list (R7, R8, R10, C6, C7).
+## Loads and validates the 20-card list, format 2 (R1, R2, R3, C14).
 ##
 ## Loading never prints, asserts or pushes an error: every failure is reported through
 ## load_error(), and a failed database holds no cards, so the engine refuses to start.
 
 const DEFAULT_PATH: String = "res://engine/data/cards.json"
-const FORMAT_VERSION: int = 1
+const FORMAT_VERSION: int = 2
 const CARD_COUNT: int = 20
 const MIN_COST: int = 1
 const MAX_COST: int = 7
 ## Cards required per cost, indexed by cost (index 0 unused): 4x1, 4x2, 3x3, 3x4, 2x5, 2x6, 2x7.
 const COST_MIX: Array[int] = [0, 4, 4, 3, 3, 2, 2, 2]
-## Power must lie within cost..cost + MAX_POWER_BONUS.
-const MAX_POWER_BONUS: int = 2
+## Flat must lie within 0..cost + MAX_FLAT_OVER_COST.
+const MAX_FLAT_OVER_COST: int = 2
 
 # Error prefixes, stable so tests and callers can match on them.
 const ERR_FILE: String = "card data file"
@@ -22,8 +22,11 @@ const ERR_SHAPE: String = "bad shape"
 const ERR_VERSION: String = "unsupported version"
 const ERR_COUNT: String = "wrong count"
 const ERR_DUPLICATE: String = "duplicate id"
-const ERR_POWER: String = "power out of range"
+const ERR_FLAT: String = "flat out of range"
+const ERR_BONUS: String = "bonus out of range"
 const ERR_COST_MIX: String = "wrong cost mix"
+const ERR_TRIGGER: String = "unknown trigger"
+const ERR_VERB: String = "unknown verb"
 
 var _cards: Array[CardDef] = []
 var _index_by_id: Dictionary[String, int] = {}
@@ -72,15 +75,10 @@ static func from_json(text: String) -> CardDb:
 
 	var defs: Array[CardDef] = []
 	for i: int in range(entries.size()):
-		var parsed: CardDef = _parse_entry(entries[i])
-		if parsed == null:
-			return _failed(
-				(
-					"%s: card %d needs a non-empty string id and name and integer cost and power"
-					% [ERR_SHAPE, i]
-				)
-			)
-		defs.append(parsed)
+		var entry_problem: String = _entry_problem(entries[i], i)
+		if entry_problem != "":
+			return _failed(entry_problem)
+		defs.append(_build_entry(entries[i]))
 
 	var problem: String = _validate(defs)
 	if problem != "":
@@ -142,21 +140,67 @@ static func _failed(message: String) -> CardDb:
 	return db
 
 
-static func _parse_entry(entry: Variant) -> CardDef:
+## An error message for one card entry, or "" when its shape, effect names included,
+## is right. Ranges are checked later by _validate().
+static func _entry_problem(entry: Variant, i: int) -> String:
+	var shape_error: String = (
+		"%s: card %d needs a non-empty string id and name, integer cost, flat and bonus, %s"
+		% [ERR_SHAPE, i, "and an effect object or null"]
+	)
 	if not entry is Dictionary:
-		return null
+		return shape_error
 	var d: Dictionary = entry
-	if not (d.has("id") and d.has("name") and d.has("cost") and d.has("power")):
-		return null
+	for key: String in ["id", "name", "cost", "flat", "bonus", "effect"]:
+		if not d.has(key):
+			return shape_error
 	if not (d["id"] is String and d["name"] is String):
-		return null
-	if not (_is_whole_number(d["cost"]) and _is_whole_number(d["power"])):
-		return null
+		return shape_error
 	var card_id: String = d["id"]
 	var card_name: String = d["name"]
 	if card_id == "" or card_name == "":
-		return null
-	return CardDef.new(card_id, card_name, _as_int(d["cost"]), _as_int(d["power"]))
+		return shape_error
+	for key: String in ["cost", "flat", "bonus"]:
+		if not _is_whole_number(d[key]):
+			return shape_error
+	return _effect_problem(d["effect"], i)
+
+
+## An error message for one entry's effect, or "" when it is null or well formed with a
+## known trigger and verb.
+static func _effect_problem(value: Variant, i: int) -> String:
+	if value == null:
+		return ""
+	var shape_error: String = (
+		"%s: card %d effect needs string trigger, verb and text and a whole amount >= 0"
+		% [ERR_SHAPE, i]
+	)
+	if not value is Dictionary:
+		return shape_error
+	var d: Dictionary = value
+	if not CardEffect.has_valid_shape(d):
+		return shape_error
+	var trigger_text: String = d[CardEffect.KEY_TRIGGER]
+	if CardEffect.trigger_from_name(trigger_text) < 0:
+		return '%s: card %d has trigger "%s"' % [ERR_TRIGGER, i, trigger_text]
+	var verb_text: String = d[CardEffect.KEY_VERB]
+	if CardEffect.verb_from_name(verb_text) < 0:
+		return '%s: card %d has verb "%s"' % [ERR_VERB, i, verb_text]
+	return ""
+
+
+## Builds a CardDef from an entry already accepted by _entry_problem().
+static func _build_entry(entry: Variant) -> CardDef:
+	var d: Dictionary = entry
+	var card_id: String = d["id"]
+	var card_name: String = d["name"]
+	var effect: CardEffect = null
+	var raw_effect: Variant = d["effect"]
+	if raw_effect is Dictionary:
+		var effect_dict: Dictionary = raw_effect
+		effect = CardEffect.from_dict(effect_dict)
+	return CardDef.new(
+		card_id, card_name, _as_int(d["cost"]), _as_int(d["flat"]), _as_int(d["bonus"]), effect
+	)
 
 
 ## Converts a value already checked by _is_whole_number to int without an unsafe call.
@@ -178,7 +222,7 @@ static func _is_whole_number(value: Variant) -> bool:
 	return false
 
 
-## Returns an error message, or "" when the list satisfies R8.
+## Returns an error message, or "" when the list satisfies R2.
 static func _validate(defs: Array[CardDef]) -> String:
 	if defs.size() != CARD_COUNT:
 		return "%s: %d cards (expected %d)" % [ERR_COUNT, defs.size(), CARD_COUNT]
@@ -189,12 +233,9 @@ static func _validate(defs: Array[CardDef]) -> String:
 			return "%s: %s" % [ERR_DUPLICATE, def.id]
 		seen[def.id] = true
 
-	for def: CardDef in defs:
-		if def.power < def.cost or def.power > def.cost + MAX_POWER_BONUS:
-			return (
-				"%s: %s has cost %d and power %d (allowed %d..%d)"
-				% [ERR_POWER, def.id, def.cost, def.power, def.cost, def.cost + MAX_POWER_BONUS]
-			)
+	var range_problem: String = _range_problem(defs)
+	if range_problem != "":
+		return range_problem
 
 	var counts: Array[int] = []
 	for _slot: int in range(MAX_COST + 1):
@@ -211,5 +252,22 @@ static func _validate(defs: Array[CardDef]) -> String:
 			return (
 				"%s: %d cards at cost %d (expected %d)"
 				% [ERR_COST_MIX, counts[cost], cost, COST_MIX[cost]]
+			)
+	return ""
+
+
+## The first card whose flat or bonus is out of range, as an error message, or "".
+static func _range_problem(defs: Array[CardDef]) -> String:
+	for def: CardDef in defs:
+		var max_flat: int = def.cost + MAX_FLAT_OVER_COST
+		if def.flat < 0 or def.flat > max_flat:
+			return (
+				"%s: %s has cost %d and flat %d (allowed 0..%d)"
+				% [ERR_FLAT, def.id, def.cost, def.flat, max_flat]
+			)
+		if def.bonus < 0 or def.bonus > MatchRules.MAX_BONUS:
+			return (
+				"%s: %s has bonus %d (allowed 0..%d)"
+				% [ERR_BONUS, def.id, def.bonus, MatchRules.MAX_BONUS]
 			)
 	return ""

@@ -305,10 +305,11 @@ func _reveal(first_cards: Array[int], second_cards: Array[int]) -> void:
 			order += 1
 
 
-## Scoring (R16): each board score is the power on that side; the higher one wins the turn.
+## Scoring (R16): each board score is the summed flat on that side; the higher one wins the
+## turn. Bonus and effects are loaded but not yet scored (DC-05 T03 adds the walk).
 func _end_turn() -> void:
 	for seat: int in range(SEATS):
-		_state.scores[seat] = _board_power(seat)
+		_state.scores[seat] = _board_flat(seat)
 	var winner: int = _leader()
 	_state.last_turn_winner = winner
 	_emit(
@@ -392,23 +393,23 @@ func _reveal_card(seat: int, card: int, order: int) -> void:
 	piles.board.append(card)
 	var def: CardDef = _cards.card_at(card % MatchRules.DECK_SIZE)
 	var def_id: String = ""
-	var power: int = 0
+	var flat: int = 0
 	if def != null:
 		def_id = def.id
-		power = def.power
+		flat = def.flat
 	_emit(
 		MatchEvent.Kind.CARD_REVEALED,
-		{"seat": seat, "card": card, "def_id": def_id, "power": power, "order": order}
+		{"seat": seat, "card": card, "def_id": def_id, "flat": flat, "order": order}
 	)
 
 
-func _board_power(seat: int) -> int:
+func _board_flat(seat: int) -> int:
 	var piles: MatchState.SeatPiles = _state.seats[seat]
 	var total: int = 0
 	for card: int in piles.board:
 		var def: CardDef = _cards.card_at(card % MatchRules.DECK_SIZE)
 		if def != null:
-			total += def.power
+			total += def.flat
 	return total
 
 

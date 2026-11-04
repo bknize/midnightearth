@@ -15,7 +15,7 @@ var instance_id: int = -1
 func show_def(def: CardDef) -> void:
 	_name_label.text = def.name
 	_cost_label.text = str(def.cost)
-	_power_label.text = str(def.power)
+	_power_label.text = str(def.flat)
 
 
 func clear_def() -> void:

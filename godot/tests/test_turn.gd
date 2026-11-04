@@ -143,8 +143,8 @@ func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
 	return none
 
 
-func _power(card: int) -> int:
-	return _db().card_at(card % MatchRules.DECK_SIZE).power
+func _flat(card: int) -> int:
+	return _db().card_at(card % MatchRules.DECK_SIZE).flat
 
 
 func _ids(seat: int) -> Array[int]:
@@ -534,13 +534,13 @@ func test_reveal_three_against_one() -> void:
 		assert_int(_payload_int(reveals[i], "card")).is_equal(expected_cards[i])
 		assert_int(_payload_int(reveals[i], "seat")).is_equal(expected_seats[i])
 		assert_int(_payload_int(reveals[i], "order")).is_equal(i)
-		assert_int(_payload_int(reveals[i], "power")).is_equal(_power(expected_cards[i]))
+		assert_int(_payload_int(reveals[i], "flat")).is_equal(_flat(expected_cards[i]))
 		assert_int(reveals[i].owner_seat).is_equal(MatchEvent.PUBLIC)
-	# Scoring: each side's board power; the higher board wins the turn.
+	# Scoring: each side sums its board's flat; the higher board wins the turn.
 	var expected_scores: Array[int] = [0, 0]
 	for card: int in a:
-		expected_scores[first] += _power(card)
-	expected_scores[second] += _power(b[0])
+		expected_scores[first] += _flat(card)
+	expected_scores[second] += _flat(b[0])
 	var ended: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.TURN_ENDED)
 	assert_int(ended.size()).is_equal(1)
 	assert_array(_payload_ints(ended[0], "scores")).is_equal(expected_scores)
@@ -587,8 +587,8 @@ func test_reveal_puts_cards_on_boards_and_scores_in_state() -> void:
 	assert_array(_board(engine, second)).is_equal(b)
 	assert_array(_pending(engine)).is_empty()
 	var scores: Array[int] = _scores(engine)
-	assert_int(scores[first]).is_equal(_power(a[0]))
-	assert_int(scores[second]).is_equal(_power(b[0]))
+	assert_int(scores[first]).is_equal(_flat(a[0]))
+	assert_int(scores[second]).is_equal(_flat(b[0]))
 
 
 func test_tied_turn_has_no_winner() -> void:

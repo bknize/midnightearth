@@ -77,9 +77,9 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			_append_commit(out, event, viewer)
 		MatchEvent.Kind.CARD_REVEALED:
 			var reveal: BoardStep = _card_step(BoardStep.Kind.REVEAL, event)
-			var reveal_power: int = payload["power"]
+			var reveal_flat: int = payload["flat"]
 			var reveal_order: int = payload["order"]
-			reveal.power = reveal_power
+			reveal.flat = reveal_flat
 			reveal.order = reveal_order
 			reveal.duration = REVEAL_TIME
 			reveal.delay = REVEAL_GAP

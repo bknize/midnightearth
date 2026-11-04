@@ -4,10 +4,10 @@ extends RefCounted
 ## redacted SeatView plus its own seed.
 ##
 ## choose() lists the legal sets for the view's hand and energy (LegalPlays.enumerate,
-## ascending bitmask order), keeps those with the highest total power (the empty set when
+## ascending bitmask order), keeps those with the highest total flat (the empty set when
 ## nothing fits), picks one uniformly with a fresh generator seeded
 ## MatchRng.derive_seed(bot_seed, [round, turn]), and commits its cards in descending
-## power, then ascending instance id. The opponent's face-down count is ignored.
+## flat, then ascending instance id. The opponent's face-down count is ignored.
 ##
 ## The bot holds no generator between calls, so the same seed and view always give the
 ## same action (R37). It never sees the match's own random stream or hidden state; the
@@ -21,11 +21,11 @@ var _bot_seed: int = 0
 var _cards: CardDb = null
 
 
-## `cards` supplies card powers and costs; null loads CardDb.load_default(). The plan's
+## `cards` supplies card flats and costs; null loads CardDb.load_default(). The plan's
 ## signature is `_init(bot_seed)`, so the card database is an optional extra.
 ##
 ## A card database that failed to load (CardDb.is_valid() false) is kept, not reported:
-## every card then has cost -1 and power 0, the only legal set is the empty one, and
+## every card then has cost -1 and flat 0, the only legal set is the empty one, and
 ## choose() always commits nothing, so a bot built on it passes every turn. The bot
 ## does not signal this itself, since engine code never reports errors out of band
 ## (R27). It cannot happen through the engine: the engine never builds a bot, and a
@@ -46,7 +46,7 @@ static func seed_for(match_seed: int, seat: int) -> int:
 	return MatchRng.derive_seed(match_seed, parts)
 
 
-## A commit for `view.seat`: a highest-power legal set, tie broken by the seeded pick.
+## A commit for `view.seat`: a highest-flat legal set, tie broken by the seeded pick.
 func choose(view: SeatView) -> EngineAction:
 	var best: Array[Array] = best_sets(view)
 	var picked: Array[int] = []
@@ -59,46 +59,47 @@ func choose(view: SeatView) -> EngineAction:
 	return EngineAction.commit(view.seat, picked)
 
 
-## Every legal set for the view with the highest total power, in LegalPlays.enumerate
+## Every legal set for the view with the highest total flat, in LegalPlays.enumerate
 ## order. Each set keeps the hand's order. Holds just the empty set when nothing fits.
 func best_sets(view: SeatView) -> Array[Array]:
 	var best: Array[Array] = []
-	var best_power: int = -1
+	var best_flat: int = -1
 	for candidate: Array in LegalPlays.enumerate(view.own_hand, view.energy, _cards):
 		var cards: Array[int] = []
 		cards.assign(candidate)
-		var power: int = total_power(cards)
-		if power > best_power:
-			best_power = power
+		var flat: int = total_flat(cards)
+		if flat > best_flat:
+			best_flat = flat
 			best.clear()
 			best.append(cards)
-		elif power == best_power:
+		elif flat == best_flat:
 			best.append(cards)
 	return best
 
 
-## The summed power of a card list; a card with no definition counts 0.
-func total_power(card_ids: Array[int]) -> int:
+## The summed flat of a card list; a card with no definition counts 0. Bonus and effects
+## are ignored until the preview-driven bot (DC-05 T06).
+func total_flat(card_ids: Array[int]) -> int:
 	var total: int = 0
 	for instance_id: int in card_ids:
-		total += power_of(instance_id)
+		total += flat_of(instance_id)
 	return total
 
 
-## The power of one card instance (instance id % DECK_SIZE is its definition), or 0.
-func power_of(instance_id: int) -> int:
+## The flat of one card instance (instance id % DECK_SIZE is its definition), or 0.
+func flat_of(instance_id: int) -> int:
 	if instance_id < 0:
 		return 0
 	var def: CardDef = _cards.card_at(instance_id % MatchRules.DECK_SIZE)
 	if def == null:
 		return 0
-	return def.power
+	return def.flat
 
 
-## Commit order: higher power first, then lower instance id.
+## Commit order: higher flat first, then lower instance id.
 func _plays_before(a: int, b: int) -> bool:
-	var power_a: int = power_of(a)
-	var power_b: int = power_of(b)
-	if power_a != power_b:
-		return power_a > power_b
+	var flat_a: int = flat_of(a)
+	var flat_b: int = flat_of(b)
+	if flat_a != flat_b:
+		return flat_a > flat_b
 	return a < b

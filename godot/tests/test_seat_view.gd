@@ -258,7 +258,7 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.COMMITTED:
 			keys = ["seat", "count", "cards"]
 		MatchEvent.Kind.CARD_REVEALED:
-			keys = ["seat", "card", "def_id", "power", "order"]
+			keys = ["seat", "card", "def_id", "flat", "order"]  # "flat" was "power" before DC-05
 		MatchEvent.Kind.TURN_ENDED:
 			keys = ["round", "turn", "scores", "winner"]
 		MatchEvent.Kind.ROUND_ENDED:
