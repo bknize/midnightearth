@@ -24,7 +24,7 @@ extends RefCounted
 ##   (P11, R27; DC-06 R16) and marks it destroyed in place (DC-06 R12, P4): it keeps its
 ##   slot, CARD_DESTROYED {seat, card, slot}. A row with no live card fizzles (R26, DC-06
 ##   R17) and draws nothing from the stream. clear_destroyed() takes it to its owner's burn
-##   pile at turn end.
+##   destroyed pile at turn end (DC-07 R16).
 ## - FLAT_UP_ON_SCORE (amount): `flat_delta += amount`, STATS_CHANGED (cause flat_up).
 ## - CARRY_ENERGY (ongoing): `carry[owner] = budget - spent[owner]`, ENERGY_CARRIED
 ##   {seat, amount}. Only settle_energy() fires it, at turn end.
@@ -49,9 +49,21 @@ extends RefCounted
 ##     takes it back to its owner's hand at turn end, or burns it at the cap (R24, R25);
 ##     a marked card destroyed by then is discarded by clear_destroyed() instead (DC-06
 ##     R19).
+##   - RECOVER_DESTROYED (DC-07 R19-R21, P12): the zone is BOTH_DESTROYED, every position.
+##     The chosen card leaves its pile (and its public identity with it) for the chooser's
+##     hand, with printed stats and no marks (its CardState went when it left the row):
+##     CARD_RECOVERED {seat: the chooser, its new controller, card, from_seat, position},
+##     `position` its index in `from_seat`'s pile. Public when the card's identity was
+##     (`destroyed_known`), else private to the chooser, so the other seat sees the seat,
+##     the pile and the position but not the card. At the hand cap the card is burned as a
+##     draw at the cap is (R12, R25): CARD_RECOVERED (the card still leaves the pile) and
+##     then CARD_BURNED {seat, card} with the same owner, the card in the chooser's burn
+##     pile. A recovered opponent card plays and scores for the chooser (its controller,
+##     MatchState.controller_of) and goes back to its origin's deck at round start.
 ##   CHOICE_MADE {seat, card, zone, index, target, auto} is private to the seat holding the
 ##   target when the zone is a hand or the target is face down (R30, R34); MatchEvent
-##   redaction then hides `target` (only) from the other seat.
+##   redaction then hides `target` (only) from the other seat. In a destroyed-pile zone it
+##   is private to the chooser unless the target's identity is public (as CARD_RECOVERED).
 ##
 ## Hidden information on destroy (orchestrator, DC-05 T04; DC-06 R20, R21): instance ids
 ## map to card definitions, so naming a face-down card would leak it. When the destroyed
@@ -128,6 +140,9 @@ static func apply(
 			_ask(state, cards, policy, seat, card, effect, outcome)
 		CardEffect.Verb.SWAP_PLACES, CardEffect.Verb.RETURN_AT_TURN_END:
 			# A target, then the verb.
+			_ask(state, cards, policy, seat, card, effect, outcome)
+		CardEffect.Verb.RECOVER_DESTROYED:
+			# A card from either destroyed pile (DC-07 P12), then the recovery.
 			_ask(state, cards, policy, seat, card, effect, outcome)
 		_:
 			# The DC-07 Ruin and Drift verbs are known names only until T05-T07 give them
@@ -213,7 +228,7 @@ static func apply_choice(
 	var holder: int = Choice.seat_at(state, seat, zone, index)
 	if target < 0 or holder < 0:
 		return out
-	var hidden: bool = Choice.is_hand(zone) or not state.seats[holder].is_revealed(target)
+	var owner: int = _choice_owner(state, seat, zone, holder, target)
 	var made: Dictionary = {
 		"seat": seat,
 		"card": source,
@@ -222,7 +237,7 @@ static func apply_choice(
 		"target": target,
 		"auto": auto,
 	}
-	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_MADE, made, holder if hidden else PUBLIC))
+	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_MADE, made, owner))
 	match verb:
 		CardEffect.Verb.DRAW_THEN_DISCARD:
 			out.append(_discard(state, holder, target))
@@ -230,7 +245,22 @@ static func apply_choice(
 			out.append_array(_swap(state, holder, source, target))
 		CardEffect.Verb.RETURN_AT_TURN_END:
 			state.card_state_for(target).return_marked = true
+		CardEffect.Verb.RECOVER_DESTROYED:
+			var position: int = Choice.local_index(state, seat, zone, index)
+			out.append_array(_recover(state, seat, holder, target, position))
 	return out
+
+
+## CHOICE_MADE's owner (see the class comment): PUBLIC for a face-up row card or a pile card
+## whose identity is public; else the holder of a hand or face-down row card, or the
+## chooser of a pile card.
+static func _choice_owner(state: MatchState, seat: int, zone: int, holder: int, target: int) -> int:
+	var piles: MatchState.SeatPiles = state.seats[holder]
+	if Choice.is_pile(zone):
+		return PUBLIC if piles.is_destroyed_known(target) else seat
+	if Choice.is_hand(zone) or not piles.is_revealed(target):
+		return holder
+	return PUBLIC
 
 
 ## Turn end's return marks (R24, R25, plan P14), before the destroyed cards clear and
@@ -266,10 +296,13 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 
 ## Turn end's clear of destroyed cards (DC-06 R18, R19, R21, P6), after the return marks
 ## resolve and before energy settles: for each seat in turn, each destroyed card on its row
-## in slot order leaves the row (its modifiers and the mark go) for its owner's burn pile,
-## DESTROYED_CLEARED {seat, card, slot}, `slot` the card's slot as it leaves. The event is
-## public when the card was revealed and private to its seat when it never was, so the
-## other seat sees the slot and not the card.
+## in slot order leaves the row (its modifiers and the mark go) for the end of that seat's
+## destroyed pile (DC-07 R16, P6; the row's seat is the card's controller), DESTROYED_CLEARED
+## {seat, card, slot, pile: true}, `slot` the card's slot as it leaves. The event is public
+## when the card was revealed, and its identity in the pile is public too
+## (`destroyed_known`, R18); it is private to its seat when the card never was, so the
+## other seat sees the slot and not the card. Round end burns the piles
+## (MatchState.burn_destroyed_piles).
 static func clear_destroyed(state: MatchState) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	for seat: int in range(state.seats.size()):
@@ -281,8 +314,10 @@ static func clear_destroyed(state: MatchState) -> Array[MatchEvent]:
 				continue
 			var slot: int = piles.board.find(card)
 			var was_revealed: bool = state.take_from_row(seat, card)
-			piles.burned.append(card)
-			var cleared: Dictionary = {"seat": seat, "card": card, "slot": slot}
+			piles.destroyed.append(card)
+			if was_revealed:
+				piles.destroyed_known[card] = true
+			var cleared: Dictionary = {"seat": seat, "card": card, "slot": slot, "pile": true}
 			var owner: int = PUBLIC if was_revealed else seat
 			out.append(MatchEvent.new(MatchEvent.Kind.DESTROYED_CLEARED, cleared, owner))
 	return out
@@ -412,6 +447,38 @@ static func _discard(state: MatchState, seat: int, card: int) -> MatchEvent:
 	piles.hand.erase(card)
 	piles.burned.append(card)
 	return MatchEvent.new(MatchEvent.Kind.CARD_DISCARDED, {"seat": seat, "card": card}, seat)
+
+
+## Takes `card` from position `position` of `from_seat`'s destroyed pile for `seat`'s hand,
+## or its burn pile at the hand cap (see the class comment): CARD_RECOVERED, then
+## CARD_BURNED at the cap, both public when the card's identity was, else private to `seat`.
+static func _recover(
+	state: MatchState, seat: int, from_seat: int, card: int, position: int
+) -> Array[MatchEvent]:
+	var out: Array[MatchEvent] = []
+	var pile: MatchState.SeatPiles = state.seats[from_seat]
+	if position < 0 or position >= pile.destroyed.size() or pile.destroyed[position] != card:
+		return out
+	var known: bool = pile.is_destroyed_known(card)
+	pile.destroyed.remove_at(position)
+	if pile.destroyed_known.erase(card):
+		pass  # Its identity was public in the pile; the events say where it goes now.
+	# Printed stats, no marks (R19): its modifiers went when it left the row.
+	if state.clear_card_state(card):
+		pass  # A pile card holds none; cleared in case.
+	var owner: int = PUBLIC if known else seat
+	var recovered: Dictionary = {
+		"seat": seat, "card": card, "from_seat": from_seat, "position": position
+	}
+	out.append(MatchEvent.new(MatchEvent.Kind.CARD_RECOVERED, recovered, owner))
+	var dest: MatchState.SeatPiles = state.seats[seat]
+	if dest.hand.size() >= MatchRules.HAND_CAP:
+		dest.burned.append(card)
+		var burned: Dictionary = {"seat": seat, "card": card}
+		out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, burned, owner))
+		return out
+	dest.hand.append(card)
+	return out
 
 
 ## Exchanges the slots of `source` and `target` on `seat`'s row: two CARD_MOVED, the

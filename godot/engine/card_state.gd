@@ -12,7 +12,7 @@ extends RefCounted
 ## `no_bonus` and `flat_delta` live until the card leaves the board.
 ## `return_marked` does not change stats: the card goes back at the end of the turn (R24).
 ## `destroyed` (DC-06 R12-R22, P4) does not change stats either: the card keeps its slot,
-## scores nothing and fires nothing, and leaves for the burn pile at turn end
+## scores nothing and fires nothing, and leaves for its seat's destroyed pile at turn end
 ## (EffectResolver.clear_destroyed), which ends the mark with the rest of the entry.
 
 ## The base below is in use instead of the definition's stats (set by a copy, DC-07 T07).

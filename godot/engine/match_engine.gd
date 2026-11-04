@@ -351,7 +351,9 @@ func _is_well_formed(action: EngineAction) -> bool:
 
 
 ## Round start (R11): refill and shuffle both decks (seat 0 first), pick turn 1's first
-## committer, clear both boards, deal the opening hands.
+## committer, clear both boards, deal the opening hands. Each deck is rebuilt from its
+## origin's 20 instance ids, so a card another seat recovered last round is back in its
+## origin's deck (DC-07 P3, R9, C12).
 func _begin_round() -> void:
 	_state.round_number += 1
 	_state.sudden_death = _state.round_number > MatchRules.ROUNDS
@@ -378,6 +380,8 @@ func _begin_round() -> void:
 		piles.board.clear()
 		piles.revealed.clear()
 		piles.burned.clear()
+		piles.destroyed.clear()
+		piles.destroyed_known.clear()
 		_rng.shuffle_in_place(piles.deck)
 	var by_coin: bool = _state.last_round_winner < 0
 	_state.first_seat = _round_first_seat()
@@ -405,11 +409,15 @@ func _round_first_seat() -> int:
 	return _rng.coin_flip()
 
 
-## Round end (R19, R24): the higher board wins the round; equal boards award no win. The
+## Round end (R19, R24): each destroyed pile empties into its burn pile first (DC-07 R17),
+## then the higher board wins the round; equal boards award no win. The
 ## event carries the turn-7 scores. The table is not cleared here (C15): when the match
 ## goes on, the next _begin_round() resets scores, pending, hands, boards, burns and decks;
 ## when this round ends the match, its boards, hands and scores stay as the final table.
 func _end_round() -> void:
+	# Each destroyed pile empties into its burn pile (DC-07 R17, P6), after the last turn's
+	# clear has filled it.
+	_state.burn_destroyed_piles()
 	var winner: int = _leader()
 	if winner >= 0:
 		_state.wins[winner] += 1
@@ -599,7 +607,8 @@ func _prompt_seat() -> int:
 ## Turn end (R17, R24, plan P14), only once the walk is complete: the return marks resolve
 ## first (EffectResolver.resolve_returns: each marked card goes back to its owner's hand,
 ## or burns at the cap; a destroyed card is skipped), then the destroyed cards leave their
-## rows for the burn pile (EffectResolver.clear_destroyed, DC-06 R18, P6), then per-seat
+## rows for their seat's destroyed pile (EffectResolver.clear_destroyed, DC-06 R18, P6;
+## DC-07 R16), then per-seat
 ## energy is settled (EffectResolver.settle_energy: a revealed carry card on the row
 ## carries `budget - spent`, else the carry is 0, so a returned or destroyed carry card
 ## carries nothing); then the scores are the walk totals and the higher one wins the turn,

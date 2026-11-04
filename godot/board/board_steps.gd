@@ -74,7 +74,7 @@ static func from_events(
 			made.append(_move_run(events, at, folded))
 		elif event.kind == kind_of("CARD_UNREVEALED"):
 			made.append(_unreveal(event))
-		elif event.kind == kind_of("CARD_RECOVERED"):
+		elif event.kind == MatchEvent.Kind.CARD_RECOVERED:
 			made.append(_recover(event))
 		else:
 			made = _steps_for(event, viewer, after_deal)
@@ -116,8 +116,8 @@ static func _move_run(events: Array[MatchEvent], at: int, folded: Dictionary) ->
 
 
 ## The ordinal of a MatchEvent kind by name, or -1 while the engine has no such kind. The new
-## DC-07 kinds (CARD_UNREVEALED, CARD_RECOVERED) are read this way so the board parses before
-## and after the engine adds them; swap for the constants once they exist.
+## DC-07 kind CARD_UNREVEALED (T06) is read this way so the board parses before and after the
+## engine adds it; swap for the constant once it exists (CARD_RECOVERED already did, T04).
 static func kind_of(kind_name: String) -> int:
 	var found: Variant = MatchEvent.Kind.get(kind_name, -1)
 	var ordinal: int = found

@@ -100,9 +100,9 @@ func _state_ints(state: Dictionary, key: String) -> Array[int]:
 	return _typed(raw)
 
 
-## The seat a card instance belongs to (instance id = seat * DECK_SIZE + index).
-func _owner(card: int) -> int:
-	return 1 if card >= MatchRules.DECK_SIZE else 0
+func _state_int(state: Dictionary, key: String) -> int:
+	var value: int = state[key]
+	return value
 
 
 ## The cost of one card, from CardDb; an unknown id costs more than any energy.
@@ -137,14 +137,20 @@ func _free_first(state: Dictionary, seat: int) -> bool:
 ## Every id of `seat`'s cards its opponent may not know in `state`, as a set: its hand,
 ## deck and burn pile, its share of the face-down commit, and the cards on its row not yet
 ## revealed (while a prompt pauses a walk, DC-05 T05, or left face down behind the cursor by
-## a swap, DC-06 R8), destroyed or not (DC-06 R20).
+## a swap, DC-06 R8), destroyed or not (DC-06 R20), and the entries of its destroyed pile
+## whose identity is not public (DC-07 R18). The face-down commit is the first committer's,
+## whatever the cards' origin (a recovered card, DC-07 C12).
 func _hidden_set(state: Dictionary, seat: int) -> Dictionary:
 	var out: Dictionary = {}
 	for key: String in ["hand", "deck", "burned"]:
 		for card: int in _state_list(state, key, seat):
 			out[card] = true
-	for card: int in _state_ints(state, "pending"):
-		if _owner(card) == seat:
+	if _state_int(state, "first_seat") == seat:
+		for card: int in _state_ints(state, "pending"):
+			out[card] = true
+	var known: Array[int] = _state_list(state, "destroyed_known", seat)
+	for card: int in _state_list(state, "destroyed", seat):
+		if not known.has(card):
 			out[card] = true
 	var revealed: Array[int] = _state_list(state, "revealed", seat)
 	for card: int in _state_list(state, "board", seat):
@@ -161,6 +167,8 @@ func _view_card_ids(view: SeatView) -> Array[int]:
 	out.append_array(view.own_pending)
 	out.append_array(view.own_board)
 	out.append_array(view.opponent_board)
+	out.append_array(view.own_destroyed)
+	out.append_array(view.opponent_destroyed)
 	var entries: Array[Dictionary] = []
 	entries.append_array(view.own_row)
 	entries.append_array(view.opponent_row)
@@ -338,6 +346,13 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 		# the on-row kinds may name them (_may_name_public_card); a card still face down
 		# there (a walk paused on a prompt) stays hidden for every kind.
 		var public_before: Array[int] = _state_list(before, "revealed", opp)
+		# DC-07 R18, R19: a destroyed-pile entry whose identity was public may be named by
+		# its recovery, and a card recovered into this seat's hand or burn pile is its own to
+		# know, whatever pile it came from.
+		for pile_seat: int in range(MatchEngine.SEATS):
+			public_before.append_array(_state_list(before, "destroyed_known", pile_seat))
+		var own_after: Array[int] = _state_list(after, "hand", seat)
+		own_after.append_array(_state_list(after, "burned", seat))
 		for event: MatchEvent in result.events_for(seat):
 			if event.is_private() and event.owner_seat == opp:
 				run.redacted_seen += 1
@@ -348,6 +363,8 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 				if not hidden_during.has(card):
 					continue
 				if exempt and public_before.has(card):
+					continue
+				if _is_recovery_kind(event.kind) and own_after.has(card):
 					continue
 				run.leaks.append(where + ": event %d names hidden card %d" % [event.kind, card])
 
@@ -398,10 +415,21 @@ func _may_name_public_card(event: MatchEvent) -> bool:
 			return true
 		MatchEvent.Kind.CARD_BURNED, MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.CARD_MOVED:
 			return not event.is_private()
-		MatchEvent.Kind.DESTROYED_CLEARED:
-			# DC-06: the turn-end clear of a destroyed card is public once it was revealed.
+		MatchEvent.Kind.DESTROYED_CLEARED, MatchEvent.Kind.CARD_RECOVERED:
+			# DC-06: the turn-end clear of a destroyed card is public once it was revealed;
+			# DC-07: so is the recovery of a pile card whose identity was public.
 			return not event.is_private()
 	return false
+
+
+## The kinds a recovery emits for the recovering seat (DC-07 R19): the choice, the recovery
+## and, at the hand cap, the burn. They may name the card to the seat that now holds it.
+func _is_recovery_kind(kind: int) -> bool:
+	return (
+		kind == MatchEvent.Kind.CHOICE_MADE
+		or kind == MatchEvent.Kind.CARD_RECOVERED
+		or kind == MatchEvent.Kind.CARD_BURNED
+	)
 
 
 func _record_end(run: MatchRun, result: ApplyResult) -> void:
