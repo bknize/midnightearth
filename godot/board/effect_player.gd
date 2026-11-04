@@ -36,6 +36,13 @@ var _last_move: Vector3i = NO_MOVE
 # --- The walk ---------------------------------------------------------------------------
 
 
+## The card a pulse step is about, once pulse() has run (the chips go above it), or null.
+func card_for(step: BoardStep) -> BoardCard:
+	if step.seat == 0:
+		return _player_card(step.card)
+	return _find_in_row(step.seat, step.card, step.slot)
+
+
 ## A pulse (R51): the card lifts and settles; a first reveal also flips it face up. A
 ## destroyed reveal only flips (no lift, R28); an `again` pulse is the short revealed pulse.
 func pulse(step: BoardStep) -> void:

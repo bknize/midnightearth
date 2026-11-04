@@ -76,7 +76,7 @@ func test_a_second_score_for_a_card_yields_a_short_pulse_with_again() -> void:
 	assert_int(steps[1].kind).is_equal(BoardStep.Kind.PULSE)
 	assert_bool(steps[1].again).is_true()
 	assert_bool(steps[1].revealed).is_true()
-	assert_float(steps[1].duration).is_equal_approx(0.12, EPSILON)
+	assert_float(steps[1].duration).is_equal_approx(0.5, EPSILON)
 
 
 func test_destroyed_cleared_yields_clear_destroyed_and_destroy_does_not_remove() -> void:

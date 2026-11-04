@@ -128,6 +128,7 @@ static func _pulse(reveal: MatchEvent, scored: MatchEvent) -> BoardStep:
 		step.added = values.get("added", 0)
 		step.score = values.get("score", -1)
 		step.again = values.get("again", false)
+		step.duration = maxf(step.duration, ScoreChips.chips_time(step))
 	return step
 
 
