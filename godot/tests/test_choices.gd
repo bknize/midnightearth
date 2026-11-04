@@ -392,6 +392,7 @@ func test_two_or_more_targets_pause_the_walk_on_a_prompt() -> void:
 	assert_array(state.walk.cursor).is_equal(_typed([2, 0]))
 	assert_bool(state.walk.scored.has(card)).is_false()
 	assert_int(state.walk.paused_card).is_equal(card)
+	assert_int(state.walk.paused_slot).is_equal(1)
 	assert_array(state.scores).is_equal(_typed([3, 0]))
 	assert_bool(state.walk.active).is_true()
 	var still: Dictionary = state.to_dict()
@@ -400,18 +401,21 @@ func test_two_or_more_targets_pause_the_walk_on_a_prompt() -> void:
 	assert_int(recorder.events.size()).is_equal(4)
 
 
-## R32, DC-06 R5-R11: whichever card c12 swaps with, the walk resumes in c12's pulse (its
-## score follows the choice, at the slot it landed on). Swapped behind (with a, index 0),
-## c12 scores once and a, on the passed slot 1, is not scored again; b scores at slot 2.
-## Swapped ahead (with b, index 2), c12 scores again at slot 2 and b, face down on the
-## passed slot 1, is neither revealed nor scored this walk.
+## R32, DC-06 R5, R11, C23-C25: whichever card c12 swaps with, the walk resumes in the same
+## pulse and scores the card now on c12's slot 1. Swapped behind (with a, index 0), a
+## scores again there and c12, on the passed slot 0, does not score; b scores at slot 2.
+## Swapped ahead (with b, index 2), b reveals on slot 1 and scores there, and c12 scores
+## once at slot 2.
 func test_after_a_swap_the_walk_resumes_in_the_same_pulse() -> void:
 	var card: int = _id(0, C12_SWAP)
 	var a: int = _id(0, C04)
 	var b: int = _id(0, C08)
 	var rows: Dictionary = {0: [card, a, b], 2: [a, b, card]}
-	var scored_cards: Dictionary = {0: [a, card, b], 2: [a, card, card]}
-	var revealed_cards: Dictionary = {0: [card, b], 2: [card]}
+	var scored_cards: Dictionary = {0: [a, a, b], 2: [a, b, card]}
+	var after_moves: Dictionary = {0: [SCORED], 2: [REVEALED, SCORED]}
+	var occupants: Dictionary = {0: a, 2: b}
+	# c04 3 twice + c08 4, or c04 3 + c08 4 + c12 4.
+	var totals: Dictionary = {0: 10, 2: 11}
 	for index: int in rows:
 		var state: MatchState = _swap_state()
 		var recorder: Recorder = Recorder.new()
@@ -419,20 +423,23 @@ func test_after_a_swap_the_walk_resumes_in_the_same_pulse() -> void:
 		assert_bool(_run(state, recorder)).is_true()
 		assert_bool(_answer(state, index, recorder)).is_false()
 		var events: Array[MatchEvent] = recorder.events
-		var after_prompt: Array[int] = _kinds(events).slice(4)
-		var expected: Array[int] = [MADE, MOVED, MOVED, SCORED]
-		assert_array(after_prompt.slice(0, 4)).is_equal(expected)
-		assert_int(_payload_int(events[7], "card")).is_equal(card)
-		assert_int(_payload_int(events[7], "slot")).is_equal(index)
+		var expected: Array[int] = [MADE, MOVED, MOVED]
+		var tail: Array = after_moves[index]
+		expected.append_array(_typed(tail))
+		var after_prompt: Array[int] = _kinds(events).slice(4, 4 + expected.size())
+		assert_array(after_prompt).is_equal(expected)
+		var occupant: int = occupants[index]
+		var first_score: MatchEvent = events[3 + expected.size()]
+		assert_int(_payload_int(first_score, "card")).is_equal(occupant)
+		assert_int(_payload_int(first_score, "slot")).is_equal(1)
 		var row: Array = rows[index]
 		assert_array(state.seats[0].board).is_equal(_typed(row))
 		var want_scored: Array = scored_cards[index]
 		assert_array(_cards_of(events, SCORED)).is_equal(_typed(want_scored))
-		var want_revealed: Array = revealed_cards[index]
-		assert_array(_cards_of(events, REVEALED)).is_equal(_typed(want_revealed))
-		assert_bool(state.seats[0].is_revealed(b)).is_equal(index == 0)
-		# c04 3 + c12 4 + c08 4, or c04 3 + c12 4 twice.
-		assert_array(state.scores).is_equal(_typed([11, 0]))
+		assert_array(_cards_of(events, REVEALED)).is_equal(_typed([card, b]))
+		assert_bool(state.seats[0].is_revealed(b)).is_true()
+		var total: int = totals[index]
+		assert_array(state.scores).is_equal(_typed([total, 0]))
 		assert_array(state.walk.cursor).is_equal(_typed([3, 0]))
 		assert_bool(state.walk.active).is_false()
 		assert_int(state.walk.paused_card).is_equal(-1)
@@ -471,7 +478,8 @@ func test_a_preview_takes_the_first_option_without_pausing() -> void:
 	var a: int = _id(0, C04)
 	var b: int = _id(0, C08)
 	assert_array(state.seats[0].board).is_equal(_typed([_id(0, C12_SWAP), a, b]))
-	assert_array(state.scores).is_equal(_typed([11, 0]))
+	# The first option swaps c12 behind: a scores again on slot 1, c12 not at all (C23).
+	assert_array(state.scores).is_equal(_typed([10, 0]))
 
 
 # --- DRAW_THEN_DISCARD (R20, R25) -----------------------------------------------------

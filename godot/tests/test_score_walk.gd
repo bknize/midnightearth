@@ -5,8 +5,10 @@ extends GdUnitTestSuite
 ## recomputation every turn (C3), the per-walk multiplier, effective stats from CardState,
 ## and a walk on a MatchState.duplicate() giving the live engine's scores (the preview's
 ## basis, P12). DC-06 T01 (R1-R11): the slot cursor, one pulse per slot (n + m pulses),
-## the pulse owning its card through c12's swap, a card swapped behind the cursor skipped
-## (and left face down), a card swapped ahead of it scored again with `again`.
+## the score stage belonging to the slot through c12's swap (C23-C25: the card landing on
+## the pulsed slot scores now, the moved card later or not this walk), a card swapped
+## behind the cursor skipped (and left face down), a card swapped ahead of it scored again
+## with `again`. More slot-occupant cases live in test_slot_occupant.gd.
 ##
 ## Most states are built directly: rows of vanilla cards from the default card list, so no
 ## effect fires once T04 and T05 add them. Card instance ids are seat * DECK_SIZE + index.
@@ -488,7 +490,8 @@ func _scores_of(events: Array[MatchEvent], card: int) -> Array[MatchEvent]:
 
 
 ## R4: whatever c12 swaps with, a walk over rows of n and m slots pulses n + m times, and
-## both cursors end at their row's size.
+## both cursors end at their row's size. Each answer scores five times: a twice and b, or
+## b and c12 once each (C23).
 func test_a_walk_pulses_each_slot_once() -> void:
 	for answer: int in [0, 2]:
 		var state: MatchState = _swap_state()
@@ -506,76 +509,107 @@ func test_a_walk_pulses_each_slot_once() -> void:
 	assert_int(_walk_answering(plain, 0, Recorder.new())).is_equal(4)
 
 
-## C2, C7 (R5, R7, R11): c12 swaps behind the cursor with a, already scored at slot 0. c12
-## scores once, in its own pulse, at slot 0 where it landed; a, now on c12's passed slot 1,
-## is not scored there; the cursor goes on to b at slot 2.
-func test_a_swap_behind_the_cursor_scores_the_pulsing_card_once() -> void:
+## C23, C25 (R5, R7, R9, R11; spec scenario 1): c12 at slot 1 swaps with a, already scored
+## at slot 0. a, now on the pulsed slot 1, scores again in this pulse (`again`); c12, on the
+## passed slot 0, does not score this walk; the cursor pulses b at slot 2 next.
+func test_a_swap_behind_scores_the_card_now_on_the_slot_again() -> void:
 	var theirs: Array[int] = _vanilla_cards(1, 2)
 	var state: MatchState = _swap_state()
 	var recorder: Recorder = Recorder.new()
 	_walk_answering(state, 0, recorder)
 	assert_array(state.seats[0].board).is_equal(_typed([C12_SWAP, C04, C08]))
-	var expected: Array[int] = [C04, theirs[0], C12_SWAP, theirs[1], C08]
+	var expected: Array[int] = [C04, theirs[0], C04, theirs[1], C08]
 	assert_array(_cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)).is_equal(expected)
-	var c12_scores: Array[MatchEvent] = _scores_of(recorder.events, C12_SWAP)
-	assert_int(c12_scores.size()).is_equal(1)
-	assert_int(_payload_int(c12_scores[0], "slot")).is_equal(0)
-	var again: bool = c12_scores[0].payload["again"]
-	assert_bool(again).is_false()
-	# a scored once, at slot 0 before the swap; nothing of seat 0 scores on slot 1.
-	assert_int(_scores_of(recorder.events, C04).size()).is_equal(1)
-	for event: MatchEvent in _of_kind(recorder.events, MatchEvent.Kind.CARD_SCORED):
-		if _payload_int(event, "seat") == 0:
-			assert_int(_payload_int(event, "slot")).is_not_equal(1)
-	# c04 3 + c12 4 + c08 4.
-	assert_int(state.scores[0]).is_equal(11)
+	var want_again: Array[bool] = [false, false, true, false, false]
+	assert_array(_again_flags(recorder.events)).is_equal(want_again)
+	var a_scores: Array[MatchEvent] = _scores_of(recorder.events, C04)
+	assert_int(_payload_int(a_scores[0], "slot")).is_equal(0)
+	assert_int(_payload_int(a_scores[1], "slot")).is_equal(1)
+	assert_int(_payload_int(a_scores[1], "added")).is_equal(3)
+	# c12 revealed and swapped, and never scored this walk.
+	assert_array(_scores_of(recorder.events, C12_SWAP)).is_empty()
+	assert_bool(state.walk.scored.has(C12_SWAP)).is_false()
+	var revealed: Array[int] = _cards_of(recorder.events, MatchEvent.Kind.CARD_REVEALED)
+	assert_array(revealed).is_equal(_typed([theirs[0], C12_SWAP, theirs[1], C08]))
+	# c04 3 twice + c08 4.
+	assert_int(state.scores[0]).is_equal(10)
 
 
-## C3, R6, R9, R11: c12 swaps forward with b at slot 2. c12 scores in its own pulse at slot
-## 2, then the cursor reaches slot 2 and scores it again with `again` and no second reveal;
-## b, on c12's passed slot 1, never scores this walk.
-func test_a_swap_ahead_of_the_cursor_scores_the_card_twice() -> void:
+## C23, C24 (R5, R6, R11; spec scenario 2): c12 at slot 1 swaps with b, face down at slot 2.
+## b, now on the pulsed slot 1, reveals in full after the move and scores in this pulse; c12
+## scores once, when the cursor reaches slot 2 (`again` false).
+func test_a_swap_ahead_reveals_the_card_now_on_the_slot_and_scores_the_mover_later() -> void:
 	var theirs: Array[int] = _vanilla_cards(1, 2)
 	var state: MatchState = _swap_state()
 	var recorder: Recorder = Recorder.new()
 	_walk_answering(state, 2, recorder)
 	assert_array(state.seats[0].board).is_equal(_typed([C04, C08, C12_SWAP]))
-	var expected: Array[int] = [C04, theirs[0], C12_SWAP, theirs[1], C12_SWAP]
+	var expected: Array[int] = [C04, theirs[0], C08, theirs[1], C12_SWAP]
 	assert_array(_cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)).is_equal(expected)
-	var want_again: Array[bool] = [false, false, false, false, true]
+	var want_again: Array[bool] = [false, false, false, false, false]
 	assert_array(_again_flags(recorder.events)).is_equal(want_again)
-	for event: MatchEvent in _scores_of(recorder.events, C12_SWAP):
-		assert_int(_payload_int(event, "slot")).is_equal(2)
-		assert_int(_payload_int(event, "added")).is_equal(4)
+	var b_scores: Array[MatchEvent] = _scores_of(recorder.events, C08)
+	assert_int(_payload_int(b_scores[0], "slot")).is_equal(1)
+	var c12_scores: Array[MatchEvent] = _scores_of(recorder.events, C12_SWAP)
+	assert_int(c12_scores.size()).is_equal(1)
+	assert_int(_payload_int(c12_scores[0], "slot")).is_equal(2)
+	assert_int(_payload_int(c12_scores[0], "added")).is_equal(4)
+	# b's reveal follows the move, at slot 1, and precedes its score; c12 reveals once.
 	var revealed: Array[int] = _cards_of(recorder.events, MatchEvent.Kind.CARD_REVEALED)
-	assert_int(revealed.count(C12_SWAP)).is_equal(1)
-	assert_array(_scores_of(recorder.events, C08)).is_empty()
-	# c04 3 + c12 4 twice.
+	assert_array(revealed).is_equal(_typed([theirs[0], C12_SWAP, C08, theirs[1]]))
+	var moved_at: int = -1
+	var b_revealed_at: int = -1
+	var b_scored_at: int = -1
+	for i: int in range(recorder.events.size()):
+		var event: MatchEvent = recorder.events[i]
+		if event.kind == MatchEvent.Kind.CARD_MOVED:
+			moved_at = i
+		elif event.kind == MatchEvent.Kind.CARD_REVEALED:
+			if _payload_int(event, "card") == C08:
+				b_revealed_at = i
+				assert_int(_payload_int(event, "slot")).is_equal(1)
+		elif event.kind == MatchEvent.Kind.CARD_SCORED:
+			if _payload_int(event, "card") == C08:
+				b_scored_at = i
+	assert_int(b_revealed_at).is_greater(moved_at)
+	assert_int(b_scored_at).is_greater(b_revealed_at)
+	# c04 3 + c08 4 + c12 4.
 	assert_int(state.scores[0]).is_equal(11)
 	assert_bool(state.walk.scored.has(C12_SWAP)).is_true()
-	assert_bool(state.walk.scored.has(C08)).is_false()
+	assert_bool(state.walk.scored.has(C08)).is_true()
 
 
-## C5, R8: b, face down, lands behind the cursor (c12 swaps forward with it). It is not
-## revealed this walk (no reveal event, no reveal), and the next walk reveals it in slot
-## order and scores it.
+## C5, R8: a face-down card moved behind the cursor (here by a row edit between steps:
+## c12's swap now reveals the card it puts on the pulsed slot, C24) stays face down for the
+## rest of the walk with no reveal event, and the next walk reveals it in slot order and
+## scores it.
 func test_a_face_down_card_swapped_behind_reveals_in_the_next_walk() -> void:
-	var theirs: Array[int] = _vanilla_cards(1, 2)
-	var state: MatchState = _swap_state()
+	var row: Array[int] = _vanilla_cards(0, 3)
+	var none: Array[int] = []
+	var state: MatchState = _state(row, none, 0)
 	var first: Recorder = Recorder.new()
-	_walk_answering(state, 2, first)
-	assert_bool(_cards_of(first.events, MatchEvent.Kind.CARD_REVEALED).has(C08)).is_false()
-	assert_bool(state.seats[0].is_revealed(C08)).is_false()
+	ScoreWalk.begin(state)
+	ScoreWalk.step(state, _db(), null, first.record, null)
+	# row[0] scored at slot 0; it swaps with row[2], face down at slot 2.
+	state.seats[0].board.assign([row[2], row[1], row[0]])
+	var guard: int = 0
+	while state.walk.active and guard < 10:
+		ScoreWalk.step(state, _db(), null, first.record, null)
+		guard += 1
+	assert_bool(_cards_of(first.events, MatchEvent.Kind.CARD_REVEALED).has(row[2])).is_false()
+	assert_bool(state.seats[0].is_revealed(row[2])).is_false()
+	var first_scored: Array[int] = _cards_of(first.events, MatchEvent.Kind.CARD_SCORED)
+	assert_array(first_scored).is_equal(_typed([row[0], row[1], row[0]]))
 	var second: Recorder = Recorder.new()
-	_walk_answering(state, 0, second)
-	# c12 is face up now: no reveal, no prompt; b reveals once, at slot 1, and scores.
+	_walk(state, second)
+	# The others are face up now: row[2] reveals once, at slot 0, and scores.
 	var revealed: Array[MatchEvent] = _of_kind(second.events, MatchEvent.Kind.CARD_REVEALED)
 	assert_int(revealed.size()).is_equal(1)
-	assert_int(_payload_int(revealed[0], "card")).is_equal(C08)
-	assert_int(_payload_int(revealed[0], "slot")).is_equal(1)
-	var expected: Array[int] = [C04, theirs[0], C08, theirs[1], C12_SWAP]
-	assert_array(_cards_of(second.events, MatchEvent.Kind.CARD_SCORED)).is_equal(expected)
-	assert_bool(state.seats[0].is_revealed(C08)).is_true()
+	assert_int(_payload_int(revealed[0], "card")).is_equal(row[2])
+	assert_int(_payload_int(revealed[0], "slot")).is_equal(0)
+	var second_scored: Array[int] = _cards_of(second.events, MatchEvent.Kind.CARD_SCORED)
+	assert_array(second_scored).is_equal(_typed([row[2], row[1], row[0]]))
+	assert_bool(state.seats[0].is_revealed(row[2])).is_true()
 
 
 ## C4, R9: c06 (on-score flat-up, printed flat 1) scored at slot 0, then moved ahead of the
@@ -1057,8 +1091,9 @@ func _this_walk(events: Array[MatchEvent]) -> Array[MatchEvent]:
 
 
 ## DC-06 P3 on the live walk, prompts included: a card scores twice in one walk only when
-## a swap moved it ahead of the cursor, and every CARD_SCORED's `again` says whether the
-## card had already scored in this walk. A card no CARD_MOVED names scores at most once.
+## a swap moved it ahead of the cursor or onto the slot being pulsed (C25), and every
+## CARD_SCORED's `again` says whether the card had already scored in this walk. A card no
+## CARD_MOVED names scores at most once.
 ## Returns the scored cards as a set.
 func _assert_again_flags(walk_events: Array[MatchEvent]) -> Dictionary:
 	var moved: Array[int] = _cards_of(walk_events, MatchEvent.Kind.CARD_MOVED)
