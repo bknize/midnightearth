@@ -6,7 +6,7 @@ related: ["[[specs/cycle-6-constructed-decks/spec]]", "[[specs/cycle-6-construct
 created: 2026-11-04
 updated: 2026-11-04
 uid: b8da4ab5-4538-4f5a-b66a-ebc1a2b5e526
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-6-constructed-decks-3965e3da3936
 supersedes:
 ---
 
@@ -87,13 +87,30 @@ worktree (`scripts/godot-editor.sh switch cycle-6-constructed-decks`). Three scr
 - [ ] No GDScript warning in the editor run; `obsidian-cli vault=docs orphans` reports
       nothing new (`unresolved` if the CLI build has it).
 
-## Linear
+## Linear (exercised 2026-11-04)
 
-Filled by `/exercise cycle-6-constructed-decks`. Empty until then.
+- Project: [Cycle 6 — constructed decks](https://linear.app/night-science-llc/project/cycle-6-constructed-decks-3965e3da3936)
+  (P-NSC-7, `planned`)
+- Milestone: `DC-07 constructed-decks` (created at `/cycle plan`)
+- Label: `spec/cycle-6-constructed-decks`
 
-- Project: (URL)
-- Milestone: `DC-07 constructed-decks`
-- Issue mapping: task n is issue NSC-m (T01 = … T13 = …)
+| Task | Issue | Blocked by |
+|---|---|---|
+| T01 Card pool format 3 and the deck list | NSC-86 | – |
+| T02 Decks in the match, MatchCards replaces CardDb, log format 3 | NSC-87 | NSC-86 |
+| T03 The hundredths mult | NSC-88 | NSC-87 |
+| T04 Destroyed piles and recovery | NSC-89 | NSC-88 |
+| T05 The set choice and sacrifice_destroy | NSC-90 | NSC-89 |
+| T06 The destroy pipeline and the Ruin verbs | NSC-91 | NSC-90 |
+| T07 The Drift verbs and ON_MOVED | NSC-92 | NSC-91 |
+| T08 The Ruin and Drift tables, the bot, golden and sweep | NSC-93 | NSC-92 |
+| T09 Board faces, chips, tally, pile counts and steps | NSC-94 | NSC-88 |
+| T10 The multi-select prompt and the recover strip | NSC-95 | NSC-90, NSC-94 |
+| T11 The deck picker and the launch path | NSC-96 | NSC-87 |
+| T12 Review of T01–T11 | NSC-97 | NSC-86 to NSC-96 |
+| T13 Verification | NSC-98 | NSC-86 to NSC-97 |
+
+Follow-ups touched: NSC-74 stays in Backlog with the T13 per-pairing numbers as a comment.
 
 ## Commit plan
 

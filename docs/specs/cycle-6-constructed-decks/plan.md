@@ -6,7 +6,7 @@ related: ["[[specs/cycle-6-constructed-decks/spec]]", "[[specs/cycle-6-construct
 created: 2026-11-04
 updated: 2026-11-04
 uid: fed830cd-fc7e-4843-be80-a86d6fefb0d0
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-6-constructed-decks-3965e3da3936
 supersedes:
 ---
 
