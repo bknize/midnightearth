@@ -74,6 +74,9 @@ var score: int = -1
 var destroyed: bool = false
 ## PULSE: the card already scored this walk, so this is a short re-score pulse.
 var again: bool = false
+## PULSE: seconds after the step starts before its chips show: the flip time on a first
+## reveal, so "×M" and "+N" rise once the card is face up; 0 for a revealed card (R31).
+var chip_delay: float = 0.0
 ## Cards committed (opponent and player commits).
 var count: int = 0
 ## Row slots of the committed cards (commits).

@@ -44,7 +44,8 @@ func spawn(card: Node3D, step: BoardStep, speed: float) -> void:
 	for i: int in range(texts.size()):
 		var is_mult: bool = step.bonus != 0 and i == 0
 		var color: Color = MULT_COLOR if is_mult else seat_color(step.seat)
-		_chip(texts[i], color, card.global_position, float(i) * CHIP_TIME / divisor, divisor)
+		var delay: float = step.chip_delay + float(i) * CHIP_TIME / divisor
+		_chip(texts[i], color, card.global_position, delay, divisor)
 
 
 ## Frees every chip now.

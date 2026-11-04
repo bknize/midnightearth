@@ -52,6 +52,9 @@ func pulse(step: BoardStep) -> void:
 			_lift_and_settle(seen, step.duration)
 		return
 	var lift: bool = not step.destroyed
+	# The flip keeps the reveal's own time; a scoring reveal's step is longer only so its
+	# chips can follow the flip (chip_delay, R31).
+	var flip_time: float = step.chip_delay if step.chip_delay > 0.0 else step.duration
 	if step.seat == 0:
 		var own: BoardCard = _player_card(step.card)
 		if own == null:
@@ -59,7 +62,7 @@ func pulse(step: BoardStep) -> void:
 		if lift:
 			_lift_and_settle(own, step.duration)
 		if face_down_ids.erase(step.card):
-			_flip_up(own, step.duration)
+			_flip_up(own, flip_time)
 		return
 	var card: BoardCard = _opponent_card_at(step.slot)
 	if card == null:
@@ -69,7 +72,7 @@ func pulse(step: BoardStep) -> void:
 	show(card, step)
 	if lift:
 		_lift_and_settle(card, step.duration)
-	_flip_up(card, step.duration)
+	_flip_up(card, flip_time)
 
 
 # --- Effect steps (P18, R53) ---------------------------------------------------------------

@@ -102,13 +102,13 @@ func tap(card: BoardCard, own_size: int) -> PromptTap:
 
 ## Acts on a routed tap (R40-R44): lifts the card with the button, lifts it to read, or puts
 ## the lift down. Awaitable; a put-down finishes first when one card replaces another.
-func apply_tap(tap: PromptTap, card: BoardCard) -> void:
-	match tap.kind:
+func apply_tap(routed: PromptTap, card: BoardCard) -> void:
+	match routed.kind:
 		PromptRules.Tap.PUT_DOWN:
 			await put_down()
 		PromptRules.Tap.LIFT_ELIGIBLE, PromptRules.Tap.SWAP_LIFT:
 			await put_down()
-			_lift(card, tap.index)
+			_lift(card, routed.index)
 		PromptRules.Tap.LIFT:
 			await put_down()
 			_lift(card, -1)

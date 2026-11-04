@@ -14,11 +14,13 @@ const PROMPT_SEEDS: int = 10
 const NOT_AN_OPTION: int = 99
 ## Sentinel line meaning "not pinned yet".
 const LINE_UNPINNED: String = ""
-## Seed 1's pinned board result line. Unpinned at DC-06 T01 (rules version 3 changes the
-## walk; the DC-05 line was "Board: match ended seed=1 winner=0 wins=4-2 rounds=6 end=wins
-## actions=114"). While it is LINE_UNPINNED the pinned-line test is skipped with
-## LINE_SKIP_NOTE; the autoplay test still compares against a direct bot-vs-bot engine run.
-const EXPECTED_LINE: String = LINE_UNPINNED
+## Seed 1's pinned board result line, re-pinned at DC-06 T09 for rules version 3 (the DC-05
+## line was "Board: match ended seed=1 winner=0 wins=4-2 rounds=6 end=wins actions=114").
+## While it is LINE_UNPINNED the pinned-line test is skipped with LINE_SKIP_NOTE; the
+## autoplay test still compares against a direct bot-vs-bot engine run.
+const EXPECTED_LINE: String = (
+	"Board: match ended seed=1 winner=0 wins=4-3" + " rounds=7 end=wins actions=120"
+)
 const LINE_SKIP_NOTE: String = (
 	"re-pinned at DC-06 T09 (rules version 3): pin EXPECTED_LINE from seed 1's"
 	+ " 'Board: match ended' line"

@@ -69,6 +69,7 @@ static func from_events(
 		for step: BoardStep in made:
 			step.duration = step.duration / divisor
 			step.delay = step.delay / divisor
+			step.chip_delay = step.chip_delay / divisor
 			steps.append(step)
 		if not made.is_empty():
 			previous_kind = made[made.size() - 1].kind
@@ -132,7 +133,9 @@ static func _pulse(reveal: MatchEvent, scored: MatchEvent) -> BoardStep:
 		step.added = values.get("added", 0)
 		step.score = values.get("score", -1)
 		step.again = values.get("again", false)
-		step.duration = maxf(step.duration, ScoreChips.chips_time(step))
+		# On a first reveal the chips wait for the flip to finish (R31).
+		step.chip_delay = REVEAL_TIME if reveal != null else 0.0
+		step.duration = maxf(step.duration, step.chip_delay + ScoreChips.chips_time(step))
 	return step
 
 

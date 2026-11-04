@@ -362,7 +362,9 @@ func test_reveal_then_score_is_one_flip_pulse() -> void:
 	var pulse: BoardStep = steps[0]
 	assert_int(pulse.kind).is_equal(BoardStep.Kind.PULSE)
 	assert_bool(pulse.revealed).is_false()
-	assert_float(pulse.duration).is_equal_approx(0.5 / 2.0, EPSILON)
+	# The flip (0.35) then the two chips (0.5): the chips wait for the card to face up.
+	assert_float(pulse.duration).is_equal_approx(0.85 / 2.0, EPSILON)
+	assert_float(pulse.chip_delay).is_equal_approx(0.35 / 2.0, EPSILON)
 	assert_float(pulse.delay).is_equal_approx(0.15 / 2.0, EPSILON)
 	assert_int(pulse.seat).is_equal(0)
 	assert_int(pulse.card).is_equal(4)
@@ -391,6 +393,7 @@ func test_a_score_with_no_reveal_is_a_revealed_pulse() -> void:
 	assert_int(step.kind).is_equal(BoardStep.Kind.PULSE)
 	assert_bool(step.revealed).is_true()
 	assert_float(step.duration).is_equal_approx(0.5 / 4.0, EPSILON)
+	assert_float(step.chip_delay).is_equal_approx(0.0, EPSILON)
 	assert_float(step.delay).is_equal_approx(0.0, EPSILON)
 	assert_int(step.added).is_equal(9)
 	assert_int(step.mult).is_equal(3)

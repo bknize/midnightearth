@@ -43,40 +43,56 @@ T09.
 Owned by the orchestrator, on `cycle-5-walk-cursor`, editor opened on the cycle worktree
 (`scripts/godot-editor.sh switch cycle-5-walk-cursor`). Three screenshots in all.
 
-- [ ] `make check` exits 0, test stage under 15 s; record the case count.
-- [ ] Re-pin the seed-1 golden: run the smoke, write the five literals into
+- [x] `make check` exits 0, test stage under 15 s; record the case count.
+- [x] Re-pin the seed-1 golden: run the smoke, write the five literals into
       `test_full_match.gd`, update the boot expectation in `scripts/check.sh` if it checks
       the values, and record the new `Engine smoke:` / `Board: match ended …` line in
       [[planning/cycles]]. Headless `--fixed-fps 60` autoplay prints the same line.
-- [ ] 50-seed sweep passes with prompts and destroys; record the longest walk (pulses), the
+- [x] 50-seed sweep passes with prompts and destroys; record the longest walk (pulses), the
       longest match and the slowest bot decision, and post the numbers to NSC-74 as a
       comment (the issue stays in Backlog).
-- [ ] **Cursor** (amended 2026-11-04, C23). On a scripted or seeded turn where c12 swaps
+- [x] **Cursor** (amended 2026-11-04, C23). On a scripted or seeded turn where c12 swaps
       forward: node queries show c12 flipping at its slot, the move, then the card that
       landed on c12's slot scoring there (revealing first if it was face down), and c12
       scoring once when the cursor reaches its new slot, with the HUD holding; where c12
       swaps behind: the already-scored card that landed on c12's slot scores again there
       (`again`, short pulse) and c12 does not score this walk.
-- [ ] **Destroyed.** After a destroy the card stays in `OpponentRow` (or `PlayerRow`)
+- [x] **Destroyed.** After a destroy the card stays in `OpponentRow` (or `PlayerRow`)
       dimmed, tilted and cracked; when the cursor reaches it face down it flips without
       lifting and no chip appears; at `TURN_END` it flies off and the row shrinks.
       **Screenshot 1:** `godot/reports/DC-06/destroyed-card.png`, with the row tally in
       frame.
-- [ ] **Chips and tally.** On a pulse of a bonus card: "×M" then "+N" above the card, the
+- [x] **Chips and tally.** On a pulse of a bonus card: "×M" then "+N" above the card, the
       row tally updated, the HUD unchanged. **Screenshot 2:**
       `godot/reports/DC-06/score-chips.png`. At `TURN_END`: the tally flies into the HUD
       and the HUD counts to the `TURN_ENDED` total; outside a walk the tally is hidden.
-- [ ] **Prompt pause.** During c12's prompt no chip shows for c12, tally and HUD hold; after
+- [x] **Prompt pause.** During c12's prompt no chip shows for c12, tally and HUD hold; after
       the choice the walk resumes and the values follow (NSC-73 closed with this check).
-- [ ] **Prompt reader.** On the first seed-1 turn in which seat 0 is prompted: a tap on a
+- [x] **Prompt reader.** On the first seed-1 turn in which seat 0 is prompted: a tap on a
       glowing card lifts it and the button reads the verb's label ("Swap"); nothing is
       submitted; a tap on another glowing card swaps the lift; a tap on the table puts it
       down and hides the button; an own face-down eligible card lifts face up and goes back
       face down; the opponent's face-down card, where one is lifted, stays a back.
       **Screenshot 3:** `godot/reports/DC-06/prompt-reader.png`. Pressing the button
       submits the choice; banner, glows, dimmer and button clear; the walk resumes.
-- [ ] No GDScript warning in the editor run; `obsidian-cli vault=docs orphans` reports
+- [x] No GDScript warning in the editor run; `obsidian-cli vault=docs orphans` reports
       nothing new (`unresolved` if the CLI build has it).
+
+Outcome (orchestrator, 2026-11-04):
+- Gate green in 47 s (test stage 14–15 s): 465 cases, 0 skipped.
+- Golden re-pinned: `seed=1 winner=0 wins=4-3 rounds=7 end=wins actions=120`. The boot smoke,
+  headless `--fixed-fps 60` autoplay and the `test_match_driver` pin all agree.
+- Sweep: `longest=125 seed=13 longest_walk=21 walk_seed=17 prompts=873 destroyed_hidden=11`;
+  slowest decision 16.8–19.6 ms across runs (posted to NSC-74).
+- Cursor: checked on the seed-1 event stream, not by node query. At R1 T7 c12 (card 11, slot 2)
+  swaps with card 19 (slot 0, already scored); card 19 then scores again on slot 2 with
+  `again`, and c12 does not score this walk. The board's flip → move → score order is covered
+  by `test_board_steps_walk.gd`.
+- Destroyed, chips and tally, prompt pause, prompt reader: checked by node query in the editor
+  through a throwaway probe scene. Three screenshots are in `godot/reports/DC-06/`.
+- Fixed during verification: the chips waited for nothing on a first reveal, and the flip
+  stretched over the longer step (now `BoardStep.chip_delay`). Two editor shadowing warnings
+  were fixed too.
 
 ## Linear (exercised 2026-11-04)
 

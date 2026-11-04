@@ -456,9 +456,9 @@ func _refresh_scores() -> void:
 	hud.set_scores(_tracker.held)
 
 
-## The row tallies follow the tracker's walk numbers (R32); `show` also reveals them.
-func _refresh_tally(show: bool) -> void:
-	if show or _tally.is_shown(0) or _tally.is_shown(1):
+## The row tallies follow the tracker's walk numbers (R32); `reveal` also shows them.
+func _refresh_tally(reveal: bool) -> void:
+	if reveal or _tally.is_shown(0) or _tally.is_shown(1):
 		_tally.show_values(_tracker.tally, _tracker.tally_mults)
 
 
