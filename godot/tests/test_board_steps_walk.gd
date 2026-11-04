@@ -110,3 +110,50 @@ func test_an_opponent_re_pulse_touches_the_card_being_read() -> void:
 	var place: LiftRules.Place = LiftRules.Place.OPPONENT_ROW
 	assert_bool(LiftRules.step_touches(step, 23, place, false)).is_true()
 	assert_bool(LiftRules.step_touches(step, 24, place, false)).is_false()
+
+
+func test_a_swap_mid_pulse_plays_the_move_before_the_score() -> void:
+	# c12 (card 40) flips at slot 0, swaps itself to slot 2, then scores there: the score
+	# is not folded into the flip, so its chips show after the move, at the new slot.
+	var reveal: MatchEvent = _reveal_event(40)
+	var fired: MatchEvent = _event(
+		MatchEvent.Kind.EFFECT_FIRED, {"seat": 0, "card": 40, "verb": "swap_places"}
+	)
+	var moved: MatchEvent = _event(
+		MatchEvent.Kind.CARD_MOVED, {"seat": 0, "card": 40, "from_slot": 0, "to_slot": 2}
+	)
+	var other: MatchEvent = _event(
+		MatchEvent.Kind.CARD_MOVED, {"seat": 0, "card": 41, "from_slot": 2, "to_slot": 0}
+	)
+	var events: Array[MatchEvent] = [reveal, fired, moved, other, _scored_event(40)]
+	var steps: Array[BoardStep] = BoardSteps.from_events(events, 1.0)
+	var kinds: Array[int] = []
+	for step: BoardStep in steps:
+		kinds.append(step.kind)
+	assert_array(kinds).is_equal(
+		[
+			BoardStep.Kind.PULSE,
+			BoardStep.Kind.EFFECT,
+			BoardStep.Kind.MOVE,
+			BoardStep.Kind.MOVE,
+			BoardStep.Kind.PULSE,
+		]
+	)
+	assert_int(steps[0].score).is_equal(-1)
+	assert_bool(ScoreChips.chip_texts(steps[0]).is_empty()).is_true()
+	assert_int(steps[4].card).is_equal(40)
+	assert_int(steps[4].score).is_equal(12)
+	assert_bool(ScoreChips.chip_texts(steps[4]).is_empty()).is_false()
+
+
+func test_a_move_of_another_card_still_folds_the_score() -> void:
+	var reveal: MatchEvent = _reveal_event(40)
+	var other: MatchEvent = _event(
+		MatchEvent.Kind.CARD_MOVED, {"seat": 0, "card": 41, "from_slot": 2, "to_slot": 0}
+	)
+	var events: Array[MatchEvent] = [reveal, other, _scored_event(40)]
+	var steps: Array[BoardStep] = BoardSteps.from_events(events, 1.0)
+	assert_int(steps.size()).is_equal(2)
+	assert_int(steps[0].kind).is_equal(BoardStep.Kind.PULSE)
+	assert_int(steps[0].score).is_equal(12)
+

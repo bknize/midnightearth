@@ -76,17 +76,21 @@ static func from_events(
 
 
 ## Index of the CARD_SCORED that answers the CARD_REVEALED at `at` (same card, before the
-## next reveal, walk or turn end), or -1.
+## next reveal, walk or turn end), or -1. A move of the card in between (c12's swap) also
+## stops the fold: the card flips where it was, the move plays, and its score then pulses
+## at the slot it landed on, so the chips never show before the move (DC-06 T08 item 4).
 static func _scored_after(events: Array[MatchEvent], at: int) -> int:
 	var card: int = events[at].payload["card"]
 	var found: int = -1
 	for i: int in range(at + 1, events.size()):
 		var next: MatchEvent = events[i]
+		var named: int = next.payload.get("card", -1)
 		if next.kind == MatchEvent.Kind.CARD_SCORED:
-			var scored_card: int = next.payload["card"]
-			if scored_card == card:
+			if named == card:
 				found = i
 				break
+		elif next.kind == MatchEvent.Kind.CARD_MOVED and named == card:
+			break
 		elif (
 			next.kind == MatchEvent.Kind.CARD_REVEALED
 			or next.kind == MatchEvent.Kind.WALK_STARTED
