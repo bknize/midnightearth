@@ -212,6 +212,15 @@ func _own_set(state: Dictionary, seat: int) -> Dictionary:
 	return out
 
 
+## Both seats' hidden sets (_hidden_set) and own sets (_own_set) of `state`, indexed by seat.
+func _sets_of(state: Dictionary) -> StateSets:
+	var out: StateSets = StateSets.new()
+	for seat: int in range(MatchEngine.SEATS):
+		out.hidden.append(_hidden_set(state, seat))
+		out.own.append(_own_set(state, seat))
+	return out
+
+
 ## Every card id a view names: its card-id fields, each row entry's `card` and the open
 ## prompt's source `card` (its options are positions, not ids).
 func _view_card_ids(view: SeatView) -> Array[int]:
@@ -304,7 +313,11 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 		var prompt: Dictionary = engine.open_prompt()
 		var budget: int = engine.budget_for(seat)
 		_check_commit(run, action, seat, budget, _free_first(after, seat), prompt)
+		# This step's "before" is the last step's "after": its full state and, when the last
+		# step was scanned, its hidden and own sets (NSC-97), so each state is read once.
 		before = after
+		run.sets_before = run.sets_after
+		run.sets_after = null
 		result = engine.apply(action)
 		if not result.ok:
 			run.rejections.append("action %d rejected, code %d" % [run.actions, result.error])
@@ -391,8 +404,15 @@ func _check_step(
 ## For both seats: the view names no id hidden from it now, and its redacted events name
 ## no id that was hidden from it before or after the step, less the cards this step
 ## revealed in public (the approach of test_seat_view.gd).
+## The hidden and own sets of `before` and `after` are built once per state and kept on the
+## run (MatchRun.sets_before, sets_after), so a step reuses the last step's `after` sets as
+## its `before` sets; each is copied before it is merged into.
 func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: ApplyResult) -> void:
 	run.steps_scanned += 1
+	if run.sets_before == null:
+		run.sets_before = _sets_of(before)
+	if run.sets_after == null:
+		run.sets_after = _sets_of(after)
 	var revealed: Dictionary = {}
 	for event: MatchEvent in result.events:
 		if event.kind == MatchEvent.Kind.CARD_REVEALED:
@@ -403,7 +423,7 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 	for seat: int in range(MatchEngine.SEATS):
 		var opp: int = 1 - seat
 		var where: String = "after action %d, seat %d" % [run.actions, seat]
-		var hidden_now: Dictionary = _hidden_set(after, opp)
+		var hidden_now: Dictionary = run.sets_after.hidden[opp]
 		var view: SeatView = run.engine.view_for(seat)
 		for card: int in _view_card_ids(view):
 			if hidden_now.has(card):
@@ -412,7 +432,7 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 			run.face_down_seen += 1
 		_scan_destroyed_rows(run, view, where)
 		_scan_destroyed_pile(run, view, after, where)
-		var hidden_during: Dictionary = _hidden_set(before, opp)
+		var hidden_during: Dictionary = run.sets_before.hidden[opp].duplicate()
 		hidden_during.merge(hidden_now)
 		for card: Variant in revealed.keys():
 			hidden_during.erase(card)
@@ -432,8 +452,8 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 		# so it can sit in this seat's own zones while its origin is the opponent's. A card
 		# this seat holds, has on its row or in its destroyed pile, before or after the
 		# step, is its own to know, whatever deck it came from.
-		var own_known: Dictionary = _own_set(before, seat)
-		own_known.merge(_own_set(after, seat))
+		var own_known: Dictionary = run.sets_before.own[seat].duplicate()
+		own_known.merge(run.sets_after.own[seat])
 		for event: MatchEvent in result.events_for(seat):
 			if event.is_private() and event.owner_seat == opp:
 				run.redacted_seen += 1
@@ -876,3 +896,16 @@ class MatchRun:
 	var hand_violations: Array[String] = []
 	var energy_violations: Array[String] = []
 	var leaks: Array[String] = []
+	## The leak scan's sets of this step's `before` and `after` states (NSC-97): null until
+	## the scan builds them; `after`'s become the next step's `before` (TestFullMatch._play).
+	var sets_before: StateSets = null
+	var sets_after: StateSets = null
+
+
+## One full state's leak-scan sets, each indexed by seat: the ids hidden from the other
+## seat (TestFullMatch._hidden_set) and the ids the seat holds itself (_own_set).
+class StateSets:
+	extends RefCounted
+
+	var hidden: Array[Dictionary] = []
+	var own: Array[Dictionary] = []

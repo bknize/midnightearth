@@ -36,6 +36,14 @@ extends RefCounted
 ## MatchEngine.preview_set() and the best wins, ties by the same prompt seed. No other set
 ## is previewed, so a sacrifice prompt costs at most n + 1 previews.
 ##
+## Hand and pile prompts (NSC-97): a single-target prompt whose verb is RECOVER_DESTROYED or
+## DISCARD_OWN is answered by rule, with no preview (ranked_option). Either verb only moves
+## a card between a hand, a burn pile and a destroyed pile, and a card there never scores,
+## so every option would preview to the same scores. A recovery takes the option with the
+## highest definition flat, a discard the one with the lowest, ties by the lower position.
+## The flat is what the view shows: a destroyed-pile entry whose identity is hidden
+## (MatchEvent.HIDDEN_CARD) counts as flat 0, so the rule reads nothing the view hides.
+##
 ## Orders (DC-07 P13, R36): "bonus first" is +-part desc, then ×-part desc, then flat desc;
 ## "flat first" is flat desc, then the bonus (+-part desc, then ×-part desc); both end on
 ## ascending instance id. The bot ranks a card by what its definition carries (stats_of).
@@ -125,7 +133,8 @@ func best_commit(view: SeatView, engine: MatchEngine) -> EngineAction:
 
 
 ## The answer to the prompt open for `view.seat`: the option with the best previewed score,
-## ties by the seeded pick (R37). Null when no prompt is open for that seat.
+## ties by the seeded pick (R37); a recovery or a discard by rule instead (ranked_option).
+## Null when no prompt is open for that seat.
 func answer_prompt(view: SeatView, engine: MatchEngine) -> EngineAction:
 	var open: bool = view.prompt.get("open", false)
 	var asked: int = view.prompt.get("seat", -1)
@@ -137,6 +146,9 @@ func answer_prompt(view: SeatView, engine: MatchEngine) -> EngineAction:
 		return answer_set(view, engine)
 	if options.is_empty():
 		return EngineAction.choose(view.seat, zone, -1)
+	var ranked: int = ranked_option(view)
+	if ranked >= 0:
+		return EngineAction.choose(view.seat, zone, ranked)
 	var best: Array[int] = []
 	var best_value: int = 0
 	for option: int in options:
@@ -217,9 +229,36 @@ func set_candidates(view: SeatView) -> Array[Array]:
 	return out
 
 
+## The option the rule picks for the single-target prompt open for `view.seat` when its
+## verb is RECOVER_DESTROYED (the highest definition flat) or DISCARD_OWN (the lowest), ties by
+## the lower position (see the class comment), with no preview; -1 for any other prompt, a
+## multi-select one, or one with no option.
+func ranked_option(view: SeatView) -> int:
+	var asked: int = view.prompt.get("seat", -1)
+	if asked != view.seat or Choice.is_multi_prompt(view.prompt):
+		return -1
+	var verb: int = view.prompt.get("verb", -1)
+	var highest: bool = verb == CardEffect.Verb.RECOVER_DESTROYED
+	if not highest and verb != CardEffect.Verb.DISCARD_OWN:
+		return -1
+	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	var picked: int = -1
+	var picked_flat: int = 0
+	for option: int in Choice.options_of(view.prompt):
+		var flat: int = _option_flat(view, zone, option)
+		var better: bool = flat > picked_flat if highest else flat < picked_flat
+		var tied: bool = flat == picked_flat and option < picked
+		if picked < 0 or better or tied:
+			picked = option
+			picked_flat = flat
+	return picked
+
+
 ## The effective flat the view shows for position `index` of `zone`: a row card's shown
-## flat (SeatView.own_row, opponent_row), a hand card's definition flat; 0 for any other
-## zone or a position out of range.
+## flat (SeatView.own_row, opponent_row), a hand card's definition flat, a destroyed-pile
+## card's definition flat (own pile first, then the opponent's, as Choice orders
+## BOTH_DESTROYED; a hidden entry is flat 0); 0 for any other zone or a position out of
+## range.
 func _option_flat(view: SeatView, zone: int, index: int) -> int:
 	var row: Array[Dictionary] = []
 	if zone == Choice.Zone.OWN_BOARD:
@@ -228,11 +267,25 @@ func _option_flat(view: SeatView, zone: int, index: int) -> int:
 		row = view.opponent_row
 	elif zone == Choice.Zone.OWN_HAND and index >= 0 and index < view.own_hand.size():
 		return stats_of(view.own_hand[index]).x
+	elif zone == Choice.Zone.BOTH_DESTROYED:
+		return stats_of(_pile_card(view, index)).x
 	if index < 0 or index >= row.size():
 		return 0
 	var entry: Dictionary = row[index]
 	var flat: int = entry.get("flat", 0)
 	return flat
+
+
+## The card at position `index` of BOTH_DESTROYED as the view shows it (its own pile, then
+## the opponent's), MatchEvent.HIDDEN_CARD for a hidden entry, -1 out of range.
+func _pile_card(view: SeatView, index: int) -> int:
+	var own_size: int = view.own_destroyed.size()
+	if index >= 0 and index < own_size:
+		return view.own_destroyed[index]
+	var other: int = index - own_size
+	if other >= 0 and other < view.opponent_destroyed.size():
+		return view.opponent_destroyed[other]
+	return -1
 
 
 ## The generator that breaks a tie between prompt answers: seeded from [round, turn,

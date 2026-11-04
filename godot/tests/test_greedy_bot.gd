@@ -888,3 +888,75 @@ func test_a_ruin_bot_and_a_drift_bot_play_seed_1_out() -> void:
 		actions += 1
 	assert_bool(engine.is_over()).override_failure_message("not over").is_true()
 	assert_array(engine.deck_ids()).is_equal(pair)
+
+
+# --- NSC-97: recovery and discard prompts by rule ---------------------------------------
+
+
+## The prompt `verb` of a seat-0 source would open over `zone` with `options`, as the view
+## shows it to seat 0 (single target).
+func _rule_prompt(verb: int, zone: int, options: Array[int]) -> Dictionary:
+	return {
+		"open": true,
+		"seat": 0,
+		"card": _id(0, C20),
+		"verb": verb,
+		"zone": zone,
+		"options": MatchState.plain(options),
+		"multi": false,
+	}
+
+
+## The bot's answer to the open prompt of `view` with no engine (no preview possible), for
+## seeds 1..8; each must be a CHOOSE in `zone` at `index`.
+func _assert_rule_answer(view: SeatView, zone: int, index: int) -> void:
+	for bot_seed: int in range(1, 9):
+		var bot: GreedyBot = _bot(bot_seed)
+		assert_int(bot.ranked_option(view)).is_equal(index)
+		var action: EngineAction = bot.choose(view, null)
+		assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
+		assert_int(action.zone).is_equal(zone)
+		assert_int(action.index).is_equal(index)
+
+
+## DISCARD_OWN is answered by rule, no preview (a hand card never scores, so every option
+## previews alike): the lowest printed flat among the offered hand positions, ties by the
+## lower position. Hand [c04 3, c02 2, c07 2, c08 4]: positions 1 and 2 tie on 2, so 1;
+## with position 1 not offered, 2.
+func test_a_discard_prompt_takes_the_lowest_flat_by_rule() -> void:
+	var hand: Array[int] = [_id(0, C04), _id(0, C02), _id(0, C07), _id(0, C08)]
+	var flats: Array[int] = []
+	for card: int in hand:
+		flats.append(_bot(1).stats_of(card).x)
+	assert_array(flats).is_equal(_typed([3, 2, 2, 4]))
+	var view: SeatView = SeatView.new()
+	view.own_hand.assign(hand)
+	var hand_zone: int = Choice.Zone.OWN_HAND
+	view.prompt = _rule_prompt(CardEffect.Verb.DISCARD_OWN, hand_zone, _typed([0, 1, 2, 3]))
+	_assert_rule_answer(view, hand_zone, 1)
+	view.prompt = _rule_prompt(CardEffect.Verb.DISCARD_OWN, hand_zone, _typed([0, 2, 3]))
+	_assert_rule_answer(view, hand_zone, 2)
+	# Any other single-target verb is still previewed (R37): no rule answer.
+	view.prompt = _rule_prompt(CardEffect.Verb.DRAW_THEN_DISCARD, hand_zone, _typed([0, 1]))
+	assert_int(_bot(1).ranked_option(view)).is_equal(-1)
+
+
+## RECOVER_DESTROYED is answered by rule, no preview (the card goes to a hand): the highest
+## printed flat over BOTH_DESTROYED (own pile, then the opponent's), ties by the lower
+## position. Own pile [c02 2, c08 4], the opponent's [hidden, c08 4, c03 1]: positions 1
+## and 3 tie on 4, so 1; without 1, 3. A hidden entry counts as flat 0, so the rule reads
+## nothing the view hides: it loses to own c02 (2) and to the opponent's c03 (1).
+func test_a_recovery_prompt_takes_the_highest_flat_by_rule() -> void:
+	var view: SeatView = SeatView.new()
+	view.own_destroyed.assign([_id(0, C02), _id(0, C08)])
+	view.opponent_destroyed.assign([MatchEvent.HIDDEN_CARD, _id(1, C08), _id(1, C03)])
+	var piles: int = Choice.Zone.BOTH_DESTROYED
+	var verb: int = CardEffect.Verb.RECOVER_DESTROYED
+	view.prompt = _rule_prompt(verb, piles, _typed([0, 1, 2, 3, 4]))
+	_assert_rule_answer(view, piles, 1)
+	view.prompt = _rule_prompt(verb, piles, _typed([0, 2, 3, 4]))
+	_assert_rule_answer(view, piles, 3)
+	view.prompt = _rule_prompt(verb, piles, _typed([0, 2]))
+	_assert_rule_answer(view, piles, 0)
+	view.prompt = _rule_prompt(verb, piles, _typed([2, 4]))
+	_assert_rule_answer(view, piles, 4)

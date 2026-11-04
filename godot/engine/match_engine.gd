@@ -341,8 +341,8 @@ func _check_kind(action: EngineAction) -> int:
 
 
 ## A well-formed choice (R31): a prompt is open (NO_PROMPT), the action is the prompted
-## seat's (WRONG_SEAT), the prompt takes one position, not a set, and the action's zone and
-## index are one of its options (NOT_ELIGIBLE; DC-07 P7).
+## seat's (WRONG_SEAT), and its zone and index are one of the options of a single-target
+## prompt (NOT_ELIGIBLE, which a CHOOSE on a multi-select prompt also returns; DC-07 P7).
 func _check_choice(action: EngineAction) -> int:
 	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _state.prompt.is_empty():
 		return EngineError.Code.NO_PROMPT

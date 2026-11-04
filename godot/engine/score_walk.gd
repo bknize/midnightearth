@@ -125,26 +125,30 @@ static func next_card(state: MatchState) -> int:
 ## `temp_plus` to the +-part, then `no_bonus` makes the ×-part 100 and the +-part 0. Flat 0,
 ## ×1.00 and +0 for a card with no definition. Every reader (the walk, previews, SeatView,
 ## STATS_CHANGED, the destroy's preview rule) goes through this one function, so it stays
-## cheap: the positional parts look at the card's two neighbours and its own slot only.
+## cheap: the positional parts look at the card's two neighbours and its own slot only, and
+## are skipped outright in a match where no definition carries either positional verb
+## (MatchCards.has_verb), since every lookup would then leave the ×-part as it is.
+## A copied base (R34, C22) holds the target's whole shown bonus, a ×-part and a +-part at
+## once when it showed both; the copier's own positional parts, `flat_delta`, `temp_plus`
+## and `no_bonus` apply on top of it as on a printed base (P5).
 static func effective(card: int, state: MatchState, cards: MatchCards) -> Effective:
 	var out: Effective = Effective.new()
 	var def: CardDef = _definition(card, cards)
 	if def == null:
 		return out
-	var flat: int = def.flat
-	var kind: int = def.bonus_kind
-	var bonus: int = def.bonus
 	var held: CardState = state.card_state(card)
 	if held != null and held.has_base:
-		flat = held.base_flat
-		kind = held.base_kind
-		bonus = held.base_bonus
-	out.flat = flat
-	if kind == CardDef.BonusKind.TIMES:
-		out.times = bonus
-	elif kind == CardDef.BonusKind.PLUS:
-		out.plus = bonus
-	out.times = _positional_times(card, state, cards, def, out.times)
+		out.flat = held.base_flat
+		out.times = held.base_times
+		out.plus = held.base_plus
+	else:
+		out.flat = def.flat
+		if def.bonus_kind == CardDef.BonusKind.TIMES:
+			out.times = def.bonus
+		elif def.bonus_kind == CardDef.BonusKind.PLUS:
+			out.plus = def.bonus
+	if _has_positional(cards):
+		out.times = _positional_times(card, state, cards, def, out.times)
 	if held != null:
 		out.flat += held.flat_delta
 		out.plus += held.temp_plus
@@ -154,26 +158,37 @@ static func effective(card: int, state: MatchState, cards: MatchCards) -> Effect
 	return out
 
 
+## Whether some definition of the match carries a positional ×-part (the ongoing
+## NEIGHBOUR_TIMES or EDGE_LEFT_TIMES), so effective() has positions to look at.
+static func _has_positional(cards: MatchCards) -> bool:
+	return (
+		cards.has_verb(CardEffect.Verb.NEIGHBOUR_TIMES)
+		or cards.has_verb(CardEffect.Verb.EDGE_LEFT_TIMES)
+	)
+
+
 ## `times` with `card`'s positional ×-parts (see effective()), `def` being its definition.
-## Unchanged for a card on neither row.
+## Unchanged for a card on neither row. The left neighbour's part applies before the right
+## one's, then the edge part.
 static func _positional_times(
 	card: int, state: MatchState, cards: MatchCards, def: CardDef, times: int
 ) -> int:
-	var seat: int = 0
-	var slot: int = state.seats[0].board.find(card)
+	var piles: MatchState.SeatPiles = state.seats[0]
+	var slot: int = piles.board.find(card)
 	if slot < 0:
-		seat = 1
-		slot = state.seats[1].board.find(card)
+		piles = state.seats[1]
+		slot = piles.board.find(card)
 	if slot < 0:
 		return times
-	var piles: MatchState.SeatPiles = state.seats[seat]
 	var out: int = times
-	for at: int in [slot - 1, slot + 1]:
-		if at < 0 or at >= piles.board.size():
-			continue
-		var lent: int = _neighbour_times(piles.board[at], piles, state, cards)
-		if lent != MatchRules.MULT_ONE:
-			out = times_hundredths(out, lent)
+	if slot > 0:
+		var left: int = _neighbour_times(piles.board[slot - 1], piles, state, cards)
+		if left != MatchRules.MULT_ONE:
+			out = times_hundredths(out, left)
+	if slot + 1 < piles.board.size():
+		var right: int = _neighbour_times(piles.board[slot + 1], piles, state, cards)
+		if right != MatchRules.MULT_ONE:
+			out = times_hundredths(out, right)
 	if slot == 0:
 		var edge: int = _ongoing_amount(def.effect, CardEffect.Verb.EDGE_LEFT_TIMES)
 		if edge > 0:
@@ -332,11 +347,19 @@ static func _score(
 
 
 ## The walk's end (DC-07 P5): every card's `temp_plus` goes back to 0. On a live walk a
-## revealed card still on a row gets STATS_CHANGED (cause temp_plus) for it, public.
+## revealed card still on a row gets STATS_CHANGED (cause temp_plus) for it, public, in
+## ascending card id. A preview (or a walk with no sink) emits nothing, and zeroing one
+## entry reads no other, so the order cannot matter: it clears the entries in place,
+## unsorted.
 static func _clear_temp_plus(
 	state: MatchState, cards: MatchCards, sink: Callable, policy: PreviewPolicy
 ) -> void:
 	var live: bool = policy == null and sink.is_valid()
+	if not live:
+		for card: int in state.card_states:
+			var quiet: CardState = state.card_states[card]
+			quiet.temp_plus = 0
+		return
 	var ids: Array[int] = []
 	ids.assign(state.card_states.keys())
 	ids.sort()
@@ -346,7 +369,7 @@ static func _clear_temp_plus(
 			continue
 		held.temp_plus = 0
 		var seat: int = _row_seat(state, card)
-		if not live or seat < 0:
+		if seat < 0:
 			continue
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		if piles.is_revealed(card):
@@ -531,7 +554,11 @@ class Pulse:
 	## card of `seat` scored (DC-07 P10, R26), in row order as snapshotted now; an entry no
 	## longer on that row, face up and live by its turn is skipped (_fire skips a destroyed
 	## one). True when one opened a prompt (none does: see the class comment).
+	## The snapshot is skipped outright in a match where no definition has that trigger
+	## (MatchCards.has_trigger): it could hold no card, so nothing would fire.
 	func _opponent_score(seat: int) -> bool:
+		if cards == null or not cards.has_trigger(CardEffect.Trigger.ON_OPPONENT_SCORE):
+			return false
 		var other: int = 1 - seat
 		var piles: MatchState.SeatPiles = state.seats[other]
 		for watcher: int in _watcher_snapshot(other, CardEffect.Trigger.ON_OPPONENT_SCORE):

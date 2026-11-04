@@ -424,24 +424,23 @@ func _payload_keys(kind: int) -> Array:
 
 
 ## `card`'s shown stats from the full state (DC-07 P5) as [flat, times, plus]: its
-## definition's flat and bonus (or the base a copy stored), then its entry in
+## definition's flat and bonus (or the base a copy stored, both parts), then its entry in
 ## `card_states` (flat delta, temp plus, no bonus), which effects write since DC-05 T04.
 func _shown_stats(state: Dictionary, card: int) -> Array[int]:
 	var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
 	var flat: int = def.flat
-	var kind: int = def.bonus_kind
-	var bonus: int = def.bonus
+	var times: int = def.bonus if def.bonus_kind == CardDef.BonusKind.TIMES else MatchRules.MULT_ONE
+	var plus: int = def.bonus if def.bonus_kind == CardDef.BonusKind.PLUS else 0
 	var held_all: Dictionary = state["card_states"]
 	var held: Dictionary = {}
 	if held_all.has(card):
 		held = held_all[card]
 		var has_base: bool = held["has_base"]
 		if has_base:
+			# A copy stores both bonus parts (DC-07 R34, C22).
 			flat = held["base_flat"]
-			kind = held["base_kind"]
-			bonus = held["base_bonus"]
-	var times: int = bonus if kind == CardDef.BonusKind.TIMES else MatchRules.MULT_ONE
-	var plus: int = bonus if kind == CardDef.BonusKind.PLUS else 0
+			times = held["base_times"]
+			plus = held["base_plus"]
 	if not held.is_empty():
 		var delta: int = held["flat_delta"]
 		var temp: int = held["temp_plus"]
@@ -1033,8 +1032,8 @@ func test_row_entries_carry_times_and_plus() -> void:
 	var held: CardState = state.card_state_for(7)
 	held.has_base = true
 	held.base_flat = 2
-	held.base_kind = CardDef.BonusKind.PLUS
-	held.base_bonus = 1
+	held.base_times = MatchRules.MULT_ONE
+	held.base_plus = 1
 	var budgets: Array[int] = [1, 1]
 	var view: SeatView = SeatView.build(state, 0, 0, budgets, _defs())
 	assert_array(view.mults).is_equal([100, 100])
