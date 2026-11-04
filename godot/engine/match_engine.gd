@@ -13,7 +13,14 @@ extends RefCounted
 ##
 ## Randomness: one MatchRng seeded from the match seed. Each round start draws seat 0's
 ## shuffle, seat 1's shuffle, then a coin flip only while no round has been won (plan,
-## replay contract). Nothing else touches the stream.
+## replay contract). The only other draw is the random destroy (plan P11, R27): one
+## pick_index at the moment the effect fires in the walk. Walk order is deterministic given
+## the log, so ActionLog replay reproduces every destroy.
+##
+## Round boundaries (orchestrator, DC-05 T04): round start clears `energy.carry`,
+## `energy.free_first` and `bonus_zero_pending` along with the rows, so an effect that
+## fires in a round's last turn (a carry, a free first card, a bonus-0 mark) does nothing
+## for the next round.
 ##
 ## An illegal action returns a failure code and changes nothing: no state, no events, no
 ## accepted action (R26). Nothing here prints, asserts or pushes an error (R27).
@@ -220,6 +227,10 @@ func _begin_round() -> void:
 	# The boards clear, so every card leaves them: their modifiers go too (plan, card_states).
 	_state.card_states.clear()
 	_state.walk = MatchState.WalkState.new()
+	# Effects do not reach across rounds (see the class comment).
+	_state.energy = MatchState.EnergyState.new()
+	_state.bonus_zero_pending[0] = false
+	_state.bonus_zero_pending[1] = false
 	for seat: int in range(SEATS):
 		var piles: MatchState.SeatPiles = _state.seats[seat]
 		piles.deck.clear()
@@ -414,8 +425,10 @@ func _merge_into_row(seat: int, cards: Array[int], slots: Array[int]) -> void:
 
 ## The walk (R11-R17, plan P3): pulses until the walk ends, then ends the turn. Every walk
 ## recomputes every card on both rows, so cards played in earlier turns score again (they
-## are already revealed: no second CARD_REVEALED). A pulse that opens a prompt pauses the
-## walk here, and answering it calls this again (DC-05 T05); none does yet.
+## are already revealed: no second CARD_REVEALED). Effects fire inside the pulses
+## (ScoreWalk, EffectResolver) with the engine stream and no preview policy, and their
+## events reach `_events` through `_emit` with their owners. A pulse that opens a prompt
+## pauses the walk here, and answering it calls this again (DC-05 T05); none does yet.
 func _run_walk() -> void:
 	var sink: Callable = _emit
 	while _state.walk.active:
@@ -424,9 +437,12 @@ func _run_walk() -> void:
 	_end_turn()
 
 
-## Turn end (R17): the scores are the walk totals; the higher one wins the turn, as cycle 1
-## R16 did from power.
+## Turn end (R17, plan P14): per-seat energy is settled first (EffectResolver.settle_energy:
+## a revealed carry card on the row carries `budget - spent`, else the carry is 0; DC-05 T05
+## resolves the return marks before it); then the scores are the walk totals and the higher
+## one wins the turn, as cycle 1 R16 did from power.
 func _end_turn() -> void:
+	_events.append_array(EffectResolver.settle_energy(_state, _cards))
 	var winner: int = _leader()
 	_state.last_turn_winner = winner
 	_emit(
@@ -491,18 +507,11 @@ func _deal_card(seat: int) -> void:
 
 
 ## Draw (R12): the top card goes to the hand, or is burned when the hand is at the cap.
+## The same draw as the DRAW effect's (EffectResolver.draw_card, R25).
 func _draw_card(seat: int) -> void:
-	var piles: MatchState.SeatPiles = _state.seats[seat]
-	if piles.deck.is_empty():
-		return
-	var card: int = piles.deck[0]
-	piles.deck.remove_at(0)
-	if piles.hand.size() >= MatchRules.HAND_CAP:
-		piles.burned.append(card)
-		_emit(MatchEvent.Kind.CARD_BURNED, {"seat": seat, "card": card}, seat)
-		return
-	piles.hand.append(card)
-	_emit(MatchEvent.Kind.CARD_DRAWN, {"seat": seat, "card": card}, seat)
+	var drawn: MatchEvent = EffectResolver.draw_card(_state, seat)
+	if drawn != null:
+		_events.append(drawn)
 
 
 ## The seat with the higher board score, or -1 when they are equal.

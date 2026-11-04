@@ -167,7 +167,8 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 			run.rejections.append("action %d: no seat awaited mid-match" % run.actions)
 			return run
 		var action: EngineAction = bots[seat].choose(engine.view_for(seat))
-		_check_commit(run, action, seat, engine.energy())
+		# The seat's budget, not the turn: a carry card raises it (DC-05 T04, R9).
+		_check_commit(run, action, seat, engine.budget_for(seat))
 		before = after
 		result = engine.apply(action)
 		if not result.ok:
@@ -186,7 +187,7 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 	return run
 
 
-## The bot's action is a commit for the awaited seat costing no more than the energy.
+## The bot's action is a commit for the awaited seat costing no more than its budget.
 func _check_commit(run: MatchRun, action: EngineAction, seat: int, energy: int) -> void:
 	var where: String = "action %d" % run.actions
 	if action == null:

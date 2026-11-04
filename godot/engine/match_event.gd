@@ -1,8 +1,9 @@
 class_name MatchEvent
 extends RefCounted
 ## One thing that happened during start() or apply() (R4). Payload keys per kind are in
-## the plan's event table. Private events (deal, draw, burn, commit) carry the owning
-## seat; public events carry PUBLIC. redacted_for() gives each seat its copy (R29).
+## the plan's event table. Private events (deal, draw, burn, commit, and the destroy of a
+## face-down card, DC-05 T04) carry the owning seat; public events carry PUBLIC.
+## redacted_for() gives each seat its copy (R29).
 
 enum Kind {
 	ROUND_STARTED,

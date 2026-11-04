@@ -15,8 +15,22 @@ extends RefCounted
 ## `mult[seat] += bonus`, `added = flat * mult[seat]`, `scores[seat] += added`
 ## (CARD_SCORED), with flat and bonus from effective().
 ##
-## Events go to `sink` as sink.call(kind, payload), every one public. A null `policy` is a
-## live walk; a preview passes a PreviewPolicy and gets no events.
+## Effect hooks (P6, R13, R15, R18, R19; DC-05 T04), fired through EffectResolver:
+## - at a reveal, right after CARD_REVEALED: the revealing seat's bonus-0 mark is spent on
+##   the card (R22, STATS_CHANGED), then the card's ON_REVEAL effect fires, then every
+##   already-revealed card of the other seat with an ON_OPPONENT_REVEAL effect fires, in
+##   row order; all of it before the card scores (R13);
+## - after CARD_SCORED, the card's ON_SCORE effect fires (R15), on every pulse (C3);
+## - ONGOING effects never fire in a pulse: effective() reads them (no deck card changes
+##   stats that way, the hook is kept) and turn end settles the energy carry
+##   (EffectResolver.settle_energy, called by MatchEngine).
+## A card an effect takes off the row before its score (a destroy on the opponent's reveal)
+## is not scored (R23).
+##
+## Events go to `sink` as sink.call(kind, payload) for the walk's own public events and
+## sink.call(kind, payload, owner) for an effect's events, which may be private (draws,
+## burns, the destroy of a face-down card). A null `policy` is a live walk; a preview
+## passes a PreviewPolicy and gets no events (the effects still change its state).
 
 
 ## Starts a walk on `state` (R11): both scores 0, both multipliers 1, nothing pulsed, the
@@ -71,9 +85,14 @@ static func effective(card: int, state: MatchState, cards: CardDb) -> Vector2i:
 
 ## One pulse (P3). Returns true when the walk paused on a prompt (never before DC-05 T05).
 ## When no card is left the walk ends (`walk.active` becomes false) and nothing else
-## changes. `_rng` is the engine stream, for effects that draw from it (T05).
+## changes. `rng` is the engine stream, for the random destroy (P11); `rng` and `policy`
+## go to EffectResolver (see its preview seam).
+##
+## Prompt seam (T05): an effect that needs a choice returns its prompt from
+## EffectResolver.apply(); step() then returns true, with the card already in
+## `walk.pulsed` and, for an on-reveal prompt, not yet scored. T05 adds the resume point.
 static func step(
-	state: MatchState, cards: CardDb, _rng: MatchRng, sink: Callable, policy: PreviewPolicy
+	state: MatchState, cards: CardDb, rng: MatchRng, sink: Callable, policy: PreviewPolicy
 ) -> bool:
 	var card: int = next_card(state)
 	if card < 0:
@@ -90,7 +109,91 @@ static func step(
 		if live:
 			_emit_reveal(state, cards, sink, seat, card)
 		walk.reveals += 1
-		# On-reveal effects fire here, before scoring (R13; DC-05 T04, T05).
+		if _on_reveal(state, cards, rng, sink, policy, seat, card):
+			return true
+	if not piles.board.has(card):
+		return false
+	_score(state, cards, sink, live, seat, card)
+	return _fire(state, cards, rng, sink, policy, seat, card, CardEffect.Trigger.ON_SCORE)
+
+
+## Runs the walk from its current point to its end or to a prompt; true on a prompt. The
+## preview's loop (plan P12); the live engine loops step() itself so it can stop between
+## pulses.
+static func run(
+	state: MatchState, cards: CardDb, rng: MatchRng, sink: Callable, policy: PreviewPolicy
+) -> bool:
+	while state.walk.active:
+		if step(state, cards, rng, sink, policy):
+			return true
+	return false
+
+
+## The reveal hooks for `card`, just revealed on `seat`'s row (P6, R13, R22): the bonus-0
+## mark, its ON_REVEAL effect, then the other seat's ON_OPPONENT_REVEAL effects. True when
+## an effect opened a prompt (T05).
+static func _on_reveal(
+	state: MatchState,
+	cards: CardDb,
+	rng: MatchRng,
+	sink: Callable,
+	policy: PreviewPolicy,
+	seat: int,
+	card: int
+) -> bool:
+	_forward(EffectResolver.spend_bonus_zero(state, cards, seat, card), sink, policy)
+	if _fire(state, cards, rng, sink, policy, seat, card, CardEffect.Trigger.ON_REVEAL):
+		return true
+	var other: int = 1 - seat
+	var watchers: Array[int] = []
+	watchers.assign(state.seats[other].board)
+	for watcher: int in watchers:
+		# An earlier firing may have taken it off the row; a face-down card does not watch.
+		var piles: MatchState.SeatPiles = state.seats[other]
+		if not piles.board.has(watcher) or not piles.is_revealed(watcher):
+			continue
+		var trigger: int = CardEffect.Trigger.ON_OPPONENT_REVEAL
+		if _fire(state, cards, rng, sink, policy, other, watcher, trigger):
+			return true
+	return false
+
+
+## Fires `card`'s effect for `seat` when its trigger is `trigger`; true on a prompt (T05).
+static func _fire(
+	state: MatchState,
+	cards: CardDb,
+	rng: MatchRng,
+	sink: Callable,
+	policy: PreviewPolicy,
+	seat: int,
+	card: int,
+	trigger: int
+) -> bool:
+	var effect: CardEffect = EffectResolver.effect_of(card, cards)
+	if effect == null or effect.trigger != trigger:
+		return false
+	var outcome: EffectResolver.Outcome = EffectResolver.apply(
+		state, cards, rng, policy, seat, card
+	)
+	_forward(outcome.events, sink, policy)
+	return outcome.needs_prompt()
+
+
+## Sends an effect's events to `sink` with their owners, on a live walk only.
+static func _forward(events: Array[MatchEvent], sink: Callable, policy: PreviewPolicy) -> void:
+	if policy != null or not sink.is_valid():
+		return
+	for event: MatchEvent in events:
+		sink.call(event.kind, event.payload, event.owner_seat)
+
+
+## The score of `card` on `seat`'s row (P4, R14): the multiplier gains its bonus, then the
+## seat's score gains its flat times the multiplier; CARD_SCORED on a live walk.
+static func _score(
+	state: MatchState, cards: CardDb, sink: Callable, live: bool, seat: int, card: int
+) -> void:
+	var walk: MatchState.WalkState = state.walk
+	var piles: MatchState.SeatPiles = state.seats[seat]
 	var stats: Vector2i = effective(card, state, cards)
 	walk.mult[seat] += stats.y
 	var mult: int = walk.mult[seat]
@@ -108,20 +211,6 @@ static func step(
 			"score": state.scores[seat],
 		}
 		sink.call(MatchEvent.Kind.CARD_SCORED, scored)
-	# On-score effects fire here, after CARD_SCORED (R15; DC-05 T04).
-	return false
-
-
-## Runs the walk from its current point to its end or to a prompt; true on a prompt. The
-## preview's loop (plan P12); the live engine loops step() itself so it can stop between
-## pulses.
-static func run(
-	state: MatchState, cards: CardDb, rng: MatchRng, sink: Callable, policy: PreviewPolicy
-) -> bool:
-	while state.walk.active:
-		if step(state, cards, rng, sink, policy):
-			return true
-	return false
 
 
 ## CARD_REVEALED for `card`, which has just been revealed on `seat`'s row. `order` counts

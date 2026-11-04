@@ -280,13 +280,48 @@ func _payload_keys(kind: int) -> Array:
 			keys = ["seat"]
 		MatchEvent.Kind.MATCH_ENDED:
 			keys = ["winner", "reason", "wins", "rounds_played"]
+		MatchEvent.Kind.EFFECT_FIRED:
+			keys = ["seat", "card", "verb", "trigger"]
+		MatchEvent.Kind.EFFECT_FIZZLED:
+			keys = ["seat", "card", "verb"]
+		MatchEvent.Kind.STATS_CHANGED:
+			keys = ["seat", "card", "flat", "bonus", "cause"]
+		MatchEvent.Kind.CARD_DESTROYED:
+			keys = ["seat", "card", "slot"]
+		MatchEvent.Kind.BONUS_ZERO_SET, MatchEvent.Kind.FREE_FIRST_SET:
+			keys = ["seat"]
+		MatchEvent.Kind.ENERGY_CARRIED:
+			keys = ["seat", "amount"]
 	return keys
 
 
+## `card`'s shown stats from the full state (plan P4): its definition's flat and bonus, then
+## its entry in `card_states` (switch, flat delta, bonus 0), which effects write since
+## DC-05 T04.
+func _shown_stats(state: Dictionary, card: int) -> Vector2i:
+	var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
+	var flat: int = def.flat
+	var bonus: int = def.bonus
+	var held_all: Dictionary = state["card_states"]
+	if held_all.has(card):
+		var held: Dictionary = held_all[card]
+		var switched: bool = held["switched"]
+		if switched:
+			var swapped: int = flat
+			flat = bonus
+			bonus = swapped
+		var delta: int = held["flat_delta"]
+		flat += delta
+		var zeroed: bool = held["bonus_zero"]
+		if zeroed:
+			bonus = 0
+	return Vector2i(flat, bonus)
+
+
 ## A view row (own_row or opponent_row) against `row_seat`'s board in `state`: one entry
-## per card in slot order with its revealed flag and its shown stats. No effect sets a
-## CardState before DC-05 T04, so a shown card shows its definition's flat and bonus; an
-## opponent card not yet revealed shows 0 and 0.
+## per card in slot order with its revealed flag and its shown stats. A shown card shows
+## its effective flat and bonus (_shown_stats); an opponent card not yet revealed shows 0
+## and 0.
 func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: bool) -> void:
 	var board: Array[int] = _state_list(state, "board", row_seat)
 	var revealed: Array[int] = _state_list(state, "revealed", row_seat)
@@ -300,10 +335,10 @@ func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: 
 		var shown: bool = entry["revealed"]
 		assert_int(card).is_equal(board[slot])
 		assert_bool(shown).is_equal(revealed.has(card))
-		var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
 		if own or shown:
-			assert_int(flat).is_equal(def.flat)
-			assert_int(bonus).is_equal(def.bonus)
+			var stats: Vector2i = _shown_stats(state, card)
+			assert_int(flat).is_equal(stats.x)
+			assert_int(bonus).is_equal(stats.y)
 		else:
 			assert_int(flat).is_equal(0)
 			assert_int(bonus).is_equal(0)
@@ -350,10 +385,12 @@ func _assert_view_matches_state(view: SeatView, step: Step, seat: int) -> void:
 	assert_array(view.wins).is_equal(_state_ints(state, "wins"))
 	assert_int(view.round_number).is_equal(_state_int(state, "round"))
 	assert_int(view.turn).is_equal(_state_int(state, "turn"))
-	assert_int(view.energy).is_equal(step.energy)
-	assert_int(view.energy).is_equal(view.turn)
-	# No effect carries energy before DC-05 T04: both budgets are the turn.
-	assert_array(view.budgets).is_equal([view.turn, view.turn])
+	# Each budget is the turn plus that seat's carry (R9; the carry card can be played in the
+	# scripted run since DC-05 T04), and `energy` is this seat's budget.
+	assert_int(step.energy).is_equal(view.turn)
+	var energy: Dictionary = state["energy"]
+	var carry: Array[int] = _state_ints(energy, "carry")
+	assert_array(view.budgets).is_equal([view.turn + carry[0], view.turn + carry[1]])
 	assert_int(view.budgets[seat]).is_equal(view.energy)
 	assert_int(view.phase).is_equal(phase)
 	assert_int(view.awaited_seat).is_equal(step.awaited)
