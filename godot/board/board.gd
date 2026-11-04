@@ -77,6 +77,10 @@ var _turn_energy: int = 0
 var _free_first: bool = false
 ## Seat 0's instance ids already committed this round; they stay on the row, unmovable.
 var _committed_ids: Dictionary[int, bool] = {}
+## Seat 0's instance ids lying face down on the row; the walk's flip pulse turns them up.
+var _face_down_ids: Dictionary[int, bool] = {}
+## Displayed multipliers, set to 1 at walk start and kept by pulses (R50).
+var _mults: Array[int] = [1, 1]
 ## The drag in progress: the card, where it started, and whether the pointer was over the
 ## row's drop zone (R14).
 var _drag_card: BoardCard = null
@@ -353,8 +357,10 @@ func _apply(step: BoardStep) -> void:
 			_burn(step)
 		BoardStep.Kind.TURN_START:
 			hud.set_round_turn(step.round_number, step.turn, step.round_number > MatchRules.ROUNDS)
-			hud.set_energy(step.budget, step.budget)
+			hud.set_energy(step.budget, step.budget, step.free_first)
 			_on_turn_started(step)
+		BoardStep.Kind.WALK_START:
+			_walk_start()
 		BoardStep.Kind.BOT_WAIT:
 			pass
 		BoardStep.Kind.OPPONENT_COMMIT:
@@ -370,7 +376,7 @@ func _apply(step: BoardStep) -> void:
 			hud.set_wins(step.wins)
 		BoardStep.Kind.MATCH_END:
 			_match_end(step)
-		BoardStep.Kind.WALK_START, BoardStep.Kind.EFFECT, BoardStep.Kind.FIZZLE, \
+		BoardStep.Kind.EFFECT, BoardStep.Kind.FIZZLE, \
 		BoardStep.Kind.CHOICE_SHOW, BoardStep.Kind.STATS, BoardStep.Kind.DESTROY, \
 		BoardStep.Kind.MOVE, BoardStep.Kind.RETURN, BoardStep.Kind.DISCARD:
 			# T11 animates these; until then the runner only waits out their duration.
@@ -407,26 +413,41 @@ func _burn(step: BoardStep) -> void:
 
 func _opponent_commit(step: BoardStep) -> void:
 	var each: float = step.duration / float(maxi(step.count, 1))
-	for i: int in range(step.count):
+	# Slot order, so each card lands at its final row index (R47).
+	for k: int in RowSlots.order_by_slot(step.slots, step.count):
 		if opponent_hand.cards.is_empty():
 			push_warning("Board: the opponent committed more cards than its fan holds")
 			return
 		var card: Card3D = opponent_hand.cards[opponent_hand.cards.size() - 1]
-		_move_card(card, opponent_hand, opponent_row, each)
+		var at: int = step.slots[k] if k < step.slots.size() else -1
+		_move_card(card, opponent_hand, opponent_row, each, at)
 
 
-## Autoplay: the committed cards are still in the hand. Player mode: they were staged on the
-## row already, so each is only marked committed.
+## Autoplay: the committed cards are still in the hand and slide to their slots. Player mode:
+## they were staged on the row already. Either way every one flips face down in place (R46)
+## and is remembered, so the walk's flip pulse turns it up again.
 func _player_commit(step: BoardStep) -> void:
 	var raw: Array = step.source.payload["cards"]
 	var ids: Array[int] = []
 	ids.assign(raw)
-	for id: int in ids:
+	for k: int in RowSlots.order_by_slot(step.slots, ids.size()):
+		var id: int = ids[k]
 		_committed_ids[id] = true
 		var card: BoardCard = _player_card(id)
-		if card == null or player_row.cards.has(card):
+		if card == null:
 			continue
-		_move_card(card, player_hand, player_row, PLAYER_COMMIT_TIME / speed)
+		if not player_row.cards.has(card):
+			var at: int = step.slots[k] if k < step.slots.size() else -1
+			_move_card(card, player_hand, player_row, PLAYER_COMMIT_TIME / speed, at)
+		_face_down_ids[id] = true
+		_flip_down(card, step.duration)
+
+
+## R50: both displayed scores go to 0 and both multipliers to 1.
+func _walk_start() -> void:
+	_scores.assign([0, 0])
+	_mults.assign([1, 1])
+	hud.set_scores(_scores, _mults)
 
 
 ## A pulse plays the way a reveal did: a first reveal flips the card face up; an already
@@ -439,8 +460,10 @@ func _pulse(step: BoardStep) -> void:
 			var own: BoardCard = _player_card(step.card)
 			if own != null:
 				_lift_and_settle(own, step.duration)
+				if _face_down_ids.erase(step.card):
+					_flip_up(own, step.duration)
 		else:
-			var card: BoardCard = _next_unrevealed()
+			var card: BoardCard = _opponent_card_at(step.slot)
 			if card == null:
 				push_warning("Board: a reveal found no face-down card on the opponent's row")
 			else:
@@ -449,7 +472,8 @@ func _pulse(step: BoardStep) -> void:
 				_flip_up(card, step.duration)
 	if step.seat >= 0 and step.seat < _scores.size():
 		_scores[step.seat] += step.added if step.score >= 0 else step.flat
-	hud.set_scores(_scores)
+		_mults[step.seat] = step.mult
+	hud.set_scores(_scores, _mults)
 
 
 func _clear_table(step: BoardStep) -> void:
@@ -464,6 +488,7 @@ func _clear_table(step: BoardStep) -> void:
 			_fly_out(removed[i], step.duration)
 	_player_cards.clear()
 	_committed_ids.clear()
+	_face_down_ids.clear()
 	_scores.assign([0, 0])
 	hud.set_scores(_scores)
 
@@ -511,6 +536,16 @@ func _show(card: BoardCard, step: BoardStep) -> void:
 	card.show_def(def)
 
 
+## The face-down opponent card to reveal at a row slot; the first one without an id when the
+## slot does not name one.
+func _opponent_card_at(slot: int) -> BoardCard:
+	if slot >= 0 and slot < opponent_row.cards.size():
+		var named: BoardCard = opponent_row.cards[slot] as BoardCard
+		if named != null and named.instance_id == -1:
+			return named
+	return _next_unrevealed()
+
+
 ## The first opponent card on the row that still has no id, in row order.
 func _next_unrevealed() -> BoardCard:
 	for card: Card3D in opponent_row.cards:
@@ -521,9 +556,13 @@ func _next_unrevealed() -> BoardCard:
 
 
 ## Moves a card between collections, keeping its place on screen so the new layout tweens
-## it over from there.
+## it over from there. `at` is the target index (a slot); negative appends.
 func _move_card(
-	card: Card3D, source: CardCollection3D, target: CardCollection3D, duration: float
+	card: Card3D,
+	source: CardCollection3D,
+	target: CardCollection3D,
+	duration: float,
+	at: int = -1
 ) -> void:
 	var index: int = source.cards.find(card)
 	if index < 0:
@@ -531,8 +570,26 @@ func _move_card(
 	var placed: Transform3D = card.global_transform
 	var moved: Card3D = source.remove_card(index)
 	target.card_move_tween_duration = maxf(duration, MIN_TWEEN_TIME)
-	target.append_card(moved)
+	if at < 0:
+		target.append_card(moved)
+	else:
+		target.insert_card(moved, RowSlots.insert_index(at, target.cards.size()))
 	moved.global_transform = placed
+
+
+## R46: turns a card face down in place; the flag is set when the turn ends.
+func _flip_down(card: BoardCard, duration: float) -> void:
+	var mesh: Node3D = card.get_node("CardMesh") as Node3D
+	var tween: Tween = create_tween()
+	_add_tween(tween, mesh, ^"rotation:y", PI, maxf(duration, MIN_TWEEN_TIME))
+	var err: int = tween.finished.connect(_flag_face_down.bind(card))
+	if err != OK:
+		card.face_down = true
+
+
+func _flag_face_down(card: BoardCard) -> void:
+	if is_instance_valid(card):
+		card.face_down = true
 
 
 func _flip_up(card: BoardCard, duration: float) -> void:
@@ -594,6 +651,7 @@ func _clear_table_now() -> void:
 		child.queue_free()
 	_player_cards.clear()
 	_committed_ids.clear()
+	_face_down_ids.clear()
 	_turn_energy = 0
 	staging.reset(0)
 	_hide_glows()
@@ -617,6 +675,7 @@ func _make_strategy(role: BoardDragStrategy.Role) -> BoardDragStrategy:
 	strategy.is_locked = _is_locked
 	strategy.can_afford = _card_affordable
 	strategy.is_staged = _card_staged
+	strategy.is_played = _card_played
 	return strategy
 
 
@@ -640,6 +699,14 @@ func _card_staged(card: Object) -> bool:
 	return staging.has(board_card.instance_id)
 
 
+## True for a seat-0 card already played this round (committed): it never drags (R44).
+func _card_played(card: Object) -> bool:
+	var board_card: BoardCard = card as BoardCard
+	if board_card == null:
+		return false
+	return _committed_ids.has(board_card.instance_id)
+
+
 ## The cost of a card instance: its definition is `id % DECK_SIZE` of the card data.
 func _cost_of(id: int) -> int:
 	var def: CardDef = _cards.card_at(id % MatchRules.DECK_SIZE)
@@ -654,7 +721,7 @@ func _refresh_commit_enabled() -> void:
 
 
 func _refresh_staging_ui() -> void:
-	hud.set_energy(staging.energy_left(), _turn_energy)
+	hud.set_energy(staging.energy_left(), _turn_energy, _free_first)
 	hud.set_commit_label(not staging.cards().is_empty())
 	_refresh_commit_enabled()
 
@@ -669,18 +736,13 @@ func _staged_cards() -> Array[BoardCard]:
 	return out
 
 
-## Committed cards keep the left of the row; staged cards sit to their right (C10).
-func _normalize_row() -> void:
-	var wanted: Array[Card3D] = []
+## The instance ids of the player's row, in row order.
+func _row_ids() -> Array[int]:
+	var out: Array[int] = []
 	for card: Card3D in player_row.cards:
 		var board_card: BoardCard = card as BoardCard
-		if board_card == null or _committed_ids.has(board_card.instance_id):
-			wanted.append(card)
-	for staged: BoardCard in _staged_cards():
-		wanted.append(staged)
-	for i: int in range(wanted.size()):
-		if player_row.cards[i] != wanted[i]:
-			player_row.move_card(wanted[i], i)
+		out.append(board_card.instance_id if board_card != null else -1)
+	return out
 
 
 ## How many played (committed) cards sit on the player's row: the first staged slot.
@@ -688,9 +750,10 @@ func _played_count() -> int:
 	return player_row.cards.size() - _staged_cards().size()
 
 
-## Row index of a staged card among the staged cards only.
-func _staged_index(card: Card3D) -> int:
-	return maxi(player_row.cards.find(card) - _played_count(), 0)
+## Index of a staged card among the staged cards only: the staged cards before it on the row,
+## wherever the played cards sit (R43).
+func _staged_index(card: BoardCard) -> int:
+	return RowSlots.staged_before(_row_ids(), _committed_ids, card.instance_id)
 
 
 ## Rebuilds staging from the row if it ever differs from it; any staged card that no longer
@@ -708,6 +771,7 @@ func _resync_staging() -> void:
 				rejected.append(card)
 		for card: BoardCard in rejected:
 			_move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
+	staging.set_row(_row_ids())
 	_refresh_staging_ui()
 
 
@@ -732,15 +796,13 @@ func _on_drag_card_moved(
 		return
 	var id: int = board_card.instance_id
 	if from_collection == player_hand and to_collection == player_row:
-		_normalize_row()
-		var inserted: bool = staging.insert(id, _cost_of(id), _staged_index(card))
+		var inserted: bool = staging.insert(id, _cost_of(id), _staged_index(board_card))
 		if not inserted:
 			push_warning("Board: staging refused card %d dropped on the row" % id)
 	elif from_collection == player_row and to_collection == player_hand:
 		staging.remove(id)
 	elif from_collection == player_row and to_collection == player_row:
-		_normalize_row()
-		staging.move(id, _staged_index(card))
+		staging.move(id, _staged_index(board_card))
 	_resync_staging()
 
 
@@ -895,6 +957,7 @@ func _on_card_put_down(_card: BoardCard) -> void:
 func _on_commit_pressed() -> void:
 	if not may_act():
 		return
+	staging.set_row(_row_ids())
 	if submit_player(staging.to_action(MatchDriver.PLAYER_SEAT)):
 		return
 	push_error("Board: the engine rejected the commit (error %d)" % _last_error)

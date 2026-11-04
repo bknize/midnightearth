@@ -114,12 +114,14 @@ func test_player_commit_ignores_a_card_not_in_the_list() -> void:
 	assert_bool(LiftRules.step_touches(step, ABSENT_ID, LiftRules.Place.HAND, false)).is_false()
 
 
-func test_player_commit_ignores_a_held_card_already_on_the_row() -> void:
+func test_player_commit_touches_a_held_staged_card_on_the_row() -> void:
+	# The commit now flips the staged cards face down in place (R46).
 	var step: BoardStep = _first(BoardStep.Kind.PLAYER_COMMIT, 0)
 	assert_object(step).is_not_null()
 	var ids: Array[int] = _commit_ids(step)
 	assert_array(ids).is_not_empty()
-	assert_bool(LiftRules.step_touches(step, ids[0], LiftRules.Place.ROW, false)).is_false()
+	assert_bool(LiftRules.step_touches(step, ids[0], LiftRules.Place.ROW, true)).is_true()
+	assert_bool(LiftRules.step_touches(step, ABSENT_ID, LiftRules.Place.ROW, false)).is_false()
 
 
 func test_match_end_never_touches() -> void:
