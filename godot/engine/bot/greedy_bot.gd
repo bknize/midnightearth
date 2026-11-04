@@ -10,7 +10,19 @@ extends RefCounted
 ## candidates are listed once (both orders equal; the two ends of an empty row), so a
 ## decision costs at most 128 * 4 = 512 previews and at most 128 * 2 = 256 on an empty row;
 ## in practice far fewer, since the budget caps the legal sets and most cards have bonus 0,
-## which makes both orders equal. Each candidate is
+## which makes both orders equal.
+##
+## The free first card (R10, DC-05 T07): while the view's `free_first` is true, the
+## leftmost card of the commit (the lowest slot, which is cards[0]) costs 0, the rule of
+## LegalPlays.validate. Sets are then enumerated up to the budget plus the hand's highest
+## cost, a third order is listed (the costliest card first, ties by the bonus-first order,
+## then the rest in bonus-first order) when it differs from the other two, and an order is
+## kept only if LegalPlays.commit_cost() of it fits the budget. So every set the discount
+## makes affordable has a candidate, and none costs more than the engine accepts. With the
+## grant a decision costs at most 128 * 6 = 768 previews; it holds for one commit, after a
+## c10 reveal. Without the grant the search is exactly the one above.
+##
+## Each candidate is
 ## scored by MatchEngine.preview() as own score minus the opponent's; the best wins, and a
 ## tie is broken by one pick_index from a fresh generator seeded
 ## MatchRng.derive_seed(bot_seed, [round, turn]).
@@ -139,12 +151,17 @@ func answer_prompt(view: SeatView, engine: MatchEngine) -> EngineAction:
 
 ## Every candidate commit for the view (see the class comment), in search order: legal sets
 ## by ascending bitmask; per set the bonus-first order, then the flat-first order when it
-## differs; per order the left end, then the right end when the row is not empty. Each
-## commit carries explicit slots; the empty set is one candidate with none.
+## differs, then (with the free first card) the costliest-first order when it differs; per
+## order the left end, then the right end when the row is not empty. An order whose
+## commit_cost() exceeds the budget is skipped. Each commit carries explicit slots; the
+## empty set is one candidate with none.
 func candidates(view: SeatView) -> Array[EngineAction]:
 	var out: Array[EngineAction] = []
 	var row_size: int = view.own_board.size()
-	for mask: int in LegalPlays.enumerate_masks(view.own_hand, view.energy, _cards):
+	var cap: int = view.energy
+	if view.free_first:
+		cap += _highest_cost(view.own_hand)
+	for mask: int in LegalPlays.enumerate_masks(view.own_hand, cap, _cards):
 		var picked: Array[int] = LegalPlays.subset(view.own_hand, mask)
 		if picked.is_empty():
 			var none: Array[int] = []
@@ -153,12 +170,46 @@ func candidates(view: SeatView) -> Array[EngineAction]:
 		var bonus_first: Array[int] = []
 		bonus_first.assign(picked)
 		bonus_first.sort_custom(_bonus_before)
+		var orders: Array[Array] = [bonus_first]
 		var flat_first: Array[int] = []
 		flat_first.assign(picked)
 		flat_first.sort_custom(_flat_before)
-		_add_ends(out, view.seat, bonus_first, row_size)
 		if search_flat_first and flat_first != bonus_first:
-			_add_ends(out, view.seat, flat_first, row_size)
+			orders.append(flat_first)
+		if view.free_first:
+			var costly_first: Array[int] = _costliest_first(bonus_first)
+			if not orders.has(costly_first):
+				orders.append(costly_first)
+		for order: Array in orders:
+			var cards: Array[int] = []
+			cards.assign(order)
+			if LegalPlays.commit_cost(cards, view.free_first, _cards) <= view.energy:
+				_add_ends(out, view.seat, cards, row_size)
+	return out
+
+
+## The highest cost of any card in `hand` (0 for an empty hand or unpriced cards).
+func _highest_cost(hand: Array[int]) -> int:
+	var highest: int = 0
+	for card: int in hand:
+		highest = maxi(highest, LegalPlays.cost_of(card, _cards))
+	return highest
+
+
+## `ordered` with its costliest card moved to the front (the first of equals keeps its
+## place), the rest in their order: the order the free first card discounts most.
+func _costliest_first(ordered: Array[int]) -> Array[int]:
+	var best: int = 0
+	for index: int in range(ordered.size()):
+		if LegalPlays.cost_of(ordered[index], _cards) > LegalPlays.cost_of(ordered[best], _cards):
+			best = index
+	var out: Array[int] = []
+	if ordered.is_empty():
+		return out
+	out.append(ordered[best])
+	for index: int in range(ordered.size()):
+		if index != best:
+			out.append(ordered[index])
 	return out
 
 
