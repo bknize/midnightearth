@@ -24,20 +24,20 @@ extends GdUnitTestSuite
 ## that was hidden reaches only its new controller), and the sweep records the longest
 ## match and the slowest bot decision per pairing.
 
-# GOLDEN (unpinned at DC-07 T01; DC-07 T08 moved the match to the shipped Ruin and Drift
-# decks under seed 1's seeded pairing, so every literal below is a placeholder to re-pin
-# at DC-07 T13 from the boot log's "Engine smoke: seed=1 decks=<a>/<b> winner=.. wins=..
-# rounds=.. end=.. actions=.." line)
+# GOLDEN (re-pinned at DC-07 T13, 2026-11-04: the shipped Ruin and Drift decks under seed
+# 1's seeded pairing, from the boot log's "Engine smoke: seed=1 decks=ruin/ruin winner=1
+# wins=1-4 rounds=5 end=wins actions=88"; the DC-06 line was winner=0 wins=4-3 rounds=7
+# actions=120)
 # Seed 1's bot-vs-bot result, in the smoke line's terms: decks as "a/b", winner, round
 # wins as "a-b", rounds played, end reason, accepted actions. While GOLDEN_WINNER is
 # GOLDEN_UNPINNED the golden test is skipped with GOLDEN_SKIP_NOTE. Pin by replacing these
 # six literals.
-const GOLDEN_DECKS: String = "?/?"
-const GOLDEN_WINNER: int = -2  # GOLDEN_UNPINNED
-const GOLDEN_WINS: String = "4-3"
-const GOLDEN_ROUNDS: int = 7
+const GOLDEN_DECKS: String = "ruin/ruin"
+const GOLDEN_WINNER: int = 1
+const GOLDEN_WINS: String = "1-4"
+const GOLDEN_ROUNDS: int = 5
 const GOLDEN_REASON: String = "wins"
-const GOLDEN_ACTIONS: int = 120
+const GOLDEN_ACTIONS: int = 88
 # END GOLDEN
 
 ## Sentinel winner meaning "not pinned yet".
