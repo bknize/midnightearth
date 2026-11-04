@@ -9,11 +9,8 @@
       "url": "https://mcp.linear.app/mcp"
     },
     "replicate": {
-      "command": "npx",
-      "args": ["-y", "replicate-mcp"],
-      "env": {
-        "REPLICATE_API_TOKEN": "${REPLICATE_API_TOKEN}"
-      }
+      "command": "scripts/replicate-mcp.sh",
+      "args": []
     }
   }
 }

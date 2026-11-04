@@ -19,3 +19,4 @@ ADR that names the old one in `supersedes`.
 |---|---|---|
 | [[decisions/0001-planning-decisions]] | The 21 planning decisions of 2026-11-02 | accepted |
 | [[decisions/0002-one-branch-per-cycle]] | One branch per dev cycle, from spec to test | accepted |
+| [[decisions/0003-art-agent]] | The art agent: Fable artist, /art skill, Git LFS for approved art | accepted |
