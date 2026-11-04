@@ -1,3 +1,4 @@
+# gdlint: disable=max-file-lines
 class_name TestSeatView
 extends GdUnitTestSuite
 ## Hidden information (C4): R28 (a redacted view per seat holding the listed fields), R29
@@ -28,6 +29,7 @@ const CARD_KEYS: Array[String] = [
 const VIEW_KEYS: Array[String] = [
 	"seat",
 	"opponent",
+	"deck_ids",
 	"own_hand",
 	"own_pending",
 	"own_board",
@@ -80,14 +82,22 @@ const PROMPT_KINDS: Array[int] = [
 const C09_DRAW_DISCARD: int = 8
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for LegalPlays.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
 
 
 func _typed(values: Array) -> Array[int]:
@@ -97,7 +107,7 @@ func _typed(values: Array) -> Array[int]:
 
 
 func _started(match_seed: int) -> MatchEngine:
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
 	return engine
 
@@ -150,7 +160,7 @@ func _pass_until_turn(engine: MatchEngine, turn: int) -> void:
 
 ## The first legal set of exactly `size` cards, or an empty list when none exists.
 func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
-	for s: Array in LegalPlays.enumerate(hand, energy, _db()):
+	for s: Array in LegalPlays.enumerate(hand, energy, _defs()):
 		if s.size() == size:
 			return _typed(s)
 	var none: Array[int] = []
@@ -212,7 +222,7 @@ func _capture(engine: MatchEngine, before: Dictionary, result: ApplyResult, labe
 ## start() and SCRIPT_COMMITS scripted commits from `match_seed`, every step captured.
 func _scripted_steps(match_seed: int, player: int) -> Array[Step]:
 	var steps: Array[Step] = []
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	var before: Dictionary = engine.full_state()
 	var label: String = "seed %d player %d" % [match_seed, player]
 	steps.append(_capture(engine, before, engine.start(), label + " start"))
@@ -369,6 +379,9 @@ func _payload_keys(kind: int) -> Array:
 			keys = ["seat", "card", "slot"]
 		MatchEvent.Kind.CARD_DISCARDED:
 			keys = ["seat", "card"]
+		MatchEvent.Kind.MATCH_STARTED:
+			# DC-07: the deck ids only; the seed would predict every shuffle.
+			keys = ["decks"]
 	return keys
 
 
@@ -760,7 +773,7 @@ func _assert_redacted(copy: MatchEvent, original: MatchEvent) -> void:
 
 
 func test_a_seat_outside_the_match_sees_no_private_card() -> void:
-	var result: ApplyResult = MatchEngine.create(SEED, _db()).start()
+	var result: ApplyResult = FixtureDecks.engine(SEED, _db()).start()
 	for event: MatchEvent in result.events:
 		var copy: MatchEvent = event.redacted_for(MatchEvent.PUBLIC)
 		if event.is_private():
@@ -927,6 +940,26 @@ func test_choice_requested_names_positions_not_hand_ids() -> void:
 		assert_int(requested).is_equal(1)
 		return
 	fail("no seed gives c09 by turn 3")
+
+
+# --- DC-07 T02: deck ids ----------------------------------------------------------------
+
+
+## Both seats see both deck ids (public, DC-07 R5), as the engine resolved them, from
+## before start() to the end; the full state holds the same pair.
+func test_views_carry_both_deck_ids() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	for seat: int in range(2):
+		assert_array(engine.view_for(seat).deck_ids).is_equal(FixtureDecks.ids())
+	engine.start()
+	for seat: int in range(2):
+		var view: SeatView = engine.view_for(seat)
+		assert_array(view.deck_ids).is_equal(engine.deck_ids())
+		var shown: Array = view.to_dict()["deck_ids"]
+		assert_array(shown).is_equal(["fixture", "fixture"])
+	var state: Dictionary = engine.full_state()
+	var held: Array = state["deck_ids"]
+	assert_array(held).is_equal(["fixture", "fixture"])
 
 
 # --- R30: the full-state read ---------------------------------------------------------

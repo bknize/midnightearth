@@ -20,4 +20,10 @@ enum Code {
 	NO_PROMPT,
 	## A choice names a zone or position that is not eligible (R31).
 	NOT_ELIGIBLE,
+	## A set choice repeats an index, names one not offered, or answers a single-target
+	## prompt (DC-07 R23, P7).
+	BAD_SET,
+	## create() named a deck id absent from the deck list, or not one id per seat; start()
+	## fails with it (DC-07 P2).
+	DECK_UNKNOWN,
 }

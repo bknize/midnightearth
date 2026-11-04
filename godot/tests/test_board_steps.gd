@@ -2,7 +2,8 @@ class_name TestBoardSteps
 extends GdUnitTestSuite
 ## BoardSteps (R31-R38): seat-0 events become animation steps. The events come from a real
 ## seed-1 bot-vs-bot match, played as main.gd plays its smoke run, collecting
-## result.events_for(0) after start() and after every accepted action.
+## result.events_for(0) after start() and after every accepted action, with the fixture
+## deck on both seats (DC-07 T02).
 
 const SEED: int = 1
 const MAX_ACTIONS: int = 2000
@@ -17,15 +18,15 @@ var _cached_events: Array[MatchEvent] = []
 func _match_events() -> Array[MatchEvent]:
 	if not _cached_events.is_empty():
 		return _cached_events
-	var cards: CardDb = CardDb.load_default()
-	var engine: MatchEngine = MatchEngine.create(SEED, cards)
+	var cards: CardDb = FixtureDecks.cards()
+	var engine: MatchEngine = FixtureDecks.engine(SEED, cards)
 	var collected: Array[MatchEvent] = []
 	var started: ApplyResult = engine.start()
 	assert_bool(started.ok).is_true()
 	collected.append_array(started.events_for(0))
 	var bots: Array[GreedyBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), cards))
+		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), engine.match_cards()))
 	var actions: int = 0
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var awaited: int = engine.awaited_seat()
@@ -125,7 +126,7 @@ func test_the_opponent_hand_is_hidden_in_deal_steps() -> void:
 
 
 func test_reveal_steps_carry_engine_order_and_flat() -> void:
-	var cards: CardDb = CardDb.load_default()
+	var cards: CardDb = FixtureDecks.cards()
 	var reveals: int = 0
 	var next_order: int = 0
 	for step: BoardStep in _steps(1.0):

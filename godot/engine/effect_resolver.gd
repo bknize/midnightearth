@@ -77,11 +77,12 @@ const KEY_VERB: String = "verb"
 const PUBLIC: int = MatchEvent.PUBLIC
 
 
-## The effect of `card` (an instance id), or null for a vanilla card or unknown id.
-static func effect_of(card: int, cards: CardDb) -> CardEffect:
+## The effect of `card` (an instance id, MatchCards.def_of), or null for a vanilla card or
+## unknown id.
+static func effect_of(card: int, cards: MatchCards) -> CardEffect:
 	if cards == null or card < 0:
 		return null
-	var def: CardDef = cards.card_at(card % MatchRules.DECK_SIZE)
+	var def: CardDef = cards.def_of(card)
 	if def == null:
 		return null
 	return def.effect
@@ -91,7 +92,7 @@ static func effect_of(card: int, cards: CardDb) -> CardEffect:
 ## empty Outcome when the card has no effect. `rng` is the engine stream (a live walk) and
 ## `policy` is null on a live walk (see the class comment).
 static func apply(
-	state: MatchState, cards: CardDb, rng: MatchRng, policy: PreviewPolicy, seat: int, card: int
+	state: MatchState, cards: MatchCards, rng: MatchRng, policy: PreviewPolicy, seat: int, card: int
 ) -> Outcome:
 	var outcome: Outcome = Outcome.new()
 	# A preview drops every event, so it builds none it can avoid (DC-05 T06).
@@ -154,7 +155,7 @@ static func draw_card(state: MatchState, seat: int) -> MatchEvent:
 ## spent and STATS_CHANGED (cause bonus_zero) is returned. Empty when no mark is set.
 ## ScoreWalk calls it right after CARD_REVEALED, before the card's effects and its score.
 static func spend_bonus_zero(
-	state: MatchState, cards: CardDb, seat: int, card: int
+	state: MatchState, cards: MatchCards, seat: int, card: int
 ) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	if not state.bonus_zero_pending[seat]:
@@ -170,7 +171,7 @@ static func spend_bonus_zero(
 ## ENERGY_CARRIED) and `carry[seat] = budget - spent[seat]`; otherwise `carry[seat] = 0`.
 ## One firing per seat however many such cards it holds (the leftmost fires). A destroyed
 ## or returned carry card is gone from the row by now, so it carries nothing (DC-06 R15).
-static func settle_energy(state: MatchState, cards: CardDb) -> Array[MatchEvent]:
+static func settle_energy(state: MatchState, cards: MatchCards) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	for seat: int in range(state.seats.size()):
 		var carrier: int = _carrier(state, cards, seat)
@@ -185,7 +186,7 @@ static func settle_energy(state: MatchState, cards: CardDb) -> Array[MatchEvent]
 ## clears the prompt, then applies the choice (apply_choice, `auto` false). The caller has
 ## checked the index is one of the options (Choice.is_offered). Empty when no prompt is
 ## open. The walk resumes with the next ScoreWalk.step().
-static func answer(state: MatchState, cards: CardDb, index: int) -> Array[MatchEvent]:
+static func answer(state: MatchState, cards: MatchCards, index: int) -> Array[MatchEvent]:
 	var prompt: Dictionary = state.prompt
 	state.prompt = {}
 	if prompt.is_empty():
@@ -198,7 +199,7 @@ static func answer(state: MatchState, cards: CardDb, index: int) -> Array[MatchE
 ## own events (see the class comment). Empty when the position names no card. `_cards` is
 ## unused since the switch retired (DC-07 T01); the verbs of T05-T07 read it again.
 static func apply_choice(
-	state: MatchState, _cards: CardDb, prompt: Dictionary, index: int, auto: bool
+	state: MatchState, _cards: MatchCards, prompt: Dictionary, index: int, auto: bool
 ) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	var seat: int = prompt.get(KEY_SEAT, -1)
@@ -308,7 +309,7 @@ static func _mark_bonus_zero(state: MatchState, seat: int, outcome: Outcome) -> 
 
 static func _destroy_random(
 	state: MatchState,
-	cards: CardDb,
+	cards: MatchCards,
 	rng: MatchRng,
 	policy: PreviewPolicy,
 	seat: int,
@@ -342,7 +343,7 @@ static func _destroy_random(
 
 
 static func _flat_up(
-	state: MatchState, cards: CardDb, seat: int, card: int, amount: int, outcome: Outcome
+	state: MatchState, cards: MatchCards, seat: int, card: int, amount: int, outcome: Outcome
 ) -> void:
 	state.card_state_for(card).flat_delta += amount
 	if not outcome.quiet:
@@ -360,7 +361,7 @@ static func _carry(state: MatchState, seat: int, outcome: Outcome) -> void:
 ## prompt.
 static func _ask(
 	state: MatchState,
-	cards: CardDb,
+	cards: MatchCards,
 	policy: PreviewPolicy,
 	seat: int,
 	card: int,
@@ -448,7 +449,7 @@ static func _fizzle(seat: int, card: int, verb: int, outcome: Outcome) -> void:
 
 ## STATS_CHANGED for `card` with its effective stats after the change (R21).
 static func _stats_changed(
-	state: MatchState, cards: CardDb, seat: int, card: int, cause: String
+	state: MatchState, cards: MatchCards, seat: int, card: int, cause: String
 ) -> MatchEvent:
 	var stats: Vector2i = ScoreWalk.effective(card, state, cards)
 	return MatchEvent.new(
@@ -459,7 +460,7 @@ static func _stats_changed(
 
 ## The leftmost revealed, live (not destroyed, DC-06 R15) card on `seat`'s row with the
 ## ongoing CARRY_ENERGY effect, or -1.
-static func _carrier(state: MatchState, cards: CardDb, seat: int) -> int:
+static func _carrier(state: MatchState, cards: MatchCards, seat: int) -> int:
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	for card: int in piles.board:
 		if not piles.is_revealed(card) or state.is_destroyed(card):

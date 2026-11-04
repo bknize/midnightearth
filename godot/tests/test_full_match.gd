@@ -14,7 +14,10 @@ extends GdUnitTestSuite
 ##
 ## Matches are played exactly as main.gd plays its smoke run: one GreedyBot per seat,
 ## seeded GreedyBot.seed_for(match_seed, seat), asked only for the awaited seat. A harness
-## cap of MAX_ACTIONS fails a runaway match instead of hanging the test stage.
+## cap of MAX_ACTIONS fails a runaway match instead of hanging the test stage. Since DC-07
+## T02 every match here plays the fixture pool and deck on both seats (FixtureDecks), and
+## its log names both decks; the sweep moves to seeded pairings of the shipped decks once
+## they exist, and the golden is pinned at DC-07 T13 under seed 1's own pairing.
 
 # GOLDEN (unpinned at DC-07 T01: c13 became vanilla flat 5, so seed 1 plays differently;
 # the DC-06 T09 values, rules version 3, were winner 0, wins 4-3, 7 rounds, wins, 120
@@ -62,14 +65,22 @@ static var longest_walk: int = 0
 static var longest_walk_seed: int = 0
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for the MatchCards APIs.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
 
 
 func _typed(values: Array) -> Array[int]:
@@ -193,7 +204,7 @@ func _has_kind(result: ApplyResult, kind: int) -> bool:
 func _new_bots(match_seed: int) -> Array[GreedyBot]:
 	var bots: Array[GreedyBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(match_seed, seat), _db()))
+		bots.append(GreedyBot.new(GreedyBot.seed_for(match_seed, seat), _defs()))
 	return bots
 
 
@@ -202,7 +213,7 @@ func _new_bots(match_seed: int) -> Array[GreedyBot]:
 func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 	var run: MatchRun = MatchRun.new()
 	run.match_seed = match_seed
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	run.engine = engine
 	var before: Dictionary = engine.full_state()
 	var result: ApplyResult = engine.start()
@@ -434,7 +445,7 @@ func _replay_problem(engine: MatchEngine) -> String:
 		return "the log's JSON did not parse back"
 	if parsed.actions.size() != engine.accepted_action_count():
 		return "parsed %d actions of %d" % [parsed.actions.size(), engine.accepted_action_count()]
-	var replayed: ReplayResult = parsed.replay(_db())
+	var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks())
 	if not replayed.ok:
 		return (
 			"replay failed: reason %d at index %d, code %d"

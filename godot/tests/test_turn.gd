@@ -9,7 +9,9 @@ extends GdUnitTestSuite
 ## cycle 1's reveal interleave and summed flat) are in test_score_walk.gd. DC-05: R5-R8
 ## (positional commits, the second committer sees
 ## the first's slots, both commits merge into their rows at resolution), R9-R10 (per-seat
-## budget, free first card), a choice with no prompt, the empty-slots default.
+## budget, free first card), a choice with no prompt, the empty-slots default. DC-07 T02:
+## a deck per seat (an unknown id fails start() with DECK_UNKNOWN, an empty id takes the
+## seed's pick) and MATCH_STARTED; every match here plays the fixture deck on both seats.
 ##
 ## Mid-match states come from scripted actions on known seeds, never from private fields,
 ## except the energy cases: nothing sets carry or free_first before DC-05 T04, so those
@@ -34,14 +36,22 @@ const FORBIDDEN_CALLS: Array[String] = [
 ]
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for the MatchCards APIs.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
 
 
 func _typed(values: Array) -> Array[int]:
@@ -51,7 +61,7 @@ func _typed(values: Array) -> Array[int]:
 
 
 func _started(match_seed: int) -> MatchEngine:
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
 	return engine
 
@@ -159,7 +169,7 @@ func _event_dicts(events: Array[MatchEvent]) -> Array[Dictionary]:
 ## flow tests expect to finish; when every set holds one, the first such set is used.
 func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
 	var fallback: Array[int] = []
-	for s: Array in LegalPlays.enumerate(hand, energy, _db()):
+	for s: Array in LegalPlays.enumerate(hand, energy, _defs()):
 		if s.size() != size:
 			continue
 		var cards: Array[int] = _typed(s)
@@ -204,7 +214,7 @@ func _assert_rejected(engine: MatchEngine, action: EngineAction, code: int) -> v
 
 
 func test_start_and_apply_return_apply_results() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var started: ApplyResult = engine.start()
 	assert_bool(started.ok).is_true()
 	assert_int(started.error).is_equal(EngineError.Code.NONE)
@@ -220,9 +230,9 @@ func test_start_and_apply_return_apply_results() -> void:
 
 
 func test_round_one_start_deals_three_draws_one() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var result: ApplyResult = engine.start()
-	var expected: Array[int] = [MatchEvent.Kind.ROUND_STARTED]
+	var expected: Array[int] = [MatchEvent.Kind.MATCH_STARTED, MatchEvent.Kind.ROUND_STARTED]
 	for _i: int in range(2 * MatchRules.OPENING_HAND):
 		expected.append(MatchEvent.Kind.CARD_DEALT)
 	expected.append(MatchEvent.Kind.TURN_STARTED)
@@ -239,7 +249,7 @@ func test_round_one_start_deals_three_draws_one() -> void:
 	assert_int(_state_int(engine, "round")).is_equal(1)
 	assert_int(_state_int(engine, "turn")).is_equal(1)
 	assert_int(engine.energy()).is_equal(1)
-	var round_started: MatchEvent = result.events[0]
+	var round_started: MatchEvent = result.events[1]
 	assert_int(_payload_int(round_started, "round")).is_equal(1)
 	var by_coin: bool = round_started.payload["first_by_coin"]
 	var sudden: bool = round_started.payload["sudden_death"]
@@ -249,7 +259,7 @@ func test_round_one_start_deals_three_draws_one() -> void:
 
 
 func test_deal_events_are_private_to_their_seat() -> void:
-	var result: ApplyResult = MatchEngine.create(SEED, _db()).start()
+	var result: ApplyResult = FixtureDecks.engine(SEED, _db()).start()
 	var dealt: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.CARD_DEALT)
 	for i: int in range(dealt.size()):
 		var seat: int = 0 if i < MatchRules.OPENING_HAND else 1
@@ -495,7 +505,7 @@ func test_turn_winner_commits_first_next_turn() -> void:
 
 
 func test_not_started() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	assert_int(engine.awaited_seat()).is_equal(-1)
 	var none: Array[int] = []
 	_assert_rejected(engine, EngineAction.commit(0, none), EngineError.Code.NOT_STARTED)
@@ -503,7 +513,7 @@ func test_not_started() -> void:
 
 
 func test_card_data_invalid_refuses_to_start() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, CardDb.from_json("{}"))
+	var engine: MatchEngine = FixtureDecks.engine(SEED, CardDb.from_json("{}"))
 	var before: Dictionary = engine.full_state()
 	var result: ApplyResult = engine.start()
 	assert_bool(result.ok).is_false()
@@ -512,8 +522,60 @@ func test_card_data_invalid_refuses_to_start() -> void:
 	assert_dict(engine.full_state()).is_equal(before)
 	assert_int(engine.awaited_seat()).is_equal(-1)
 	_assert_rejected(engine, EngineAction.concede(0), EngineError.Code.NOT_STARTED)
-	var null_db: MatchEngine = MatchEngine.create(SEED, null)
+	var null_db: MatchEngine = FixtureDecks.engine(SEED, null)
 	assert_int(null_db.start().error).is_equal(EngineError.Code.CARD_DATA_INVALID)
+	var no_list: MatchEngine = MatchEngine.create(SEED, _db(), null, FixtureDecks.ids())
+	assert_int(no_list.start().error).is_equal(EngineError.Code.CARD_DATA_INVALID)
+
+
+# --- DC-07 R5, R6, P2, P14: decks per seat ----------------------------------------------
+
+
+## An id the deck list does not hold, on either seat, makes start() fail with DECK_UNKNOWN
+## and change nothing; so does a `deck_ids` that does not name one deck per seat.
+func test_unknown_deck_id_fails_start_with_deck_unknown() -> void:
+	var cases: Array[Array] = [["nope", "fixture"], ["fixture", "nope"], ["fixture"], []]
+	for raw: Array in cases:
+		var ids: Array[String] = []
+		ids.assign(raw)
+		var engine: MatchEngine = MatchEngine.create(SEED, _db(), FixtureDecks.decks(), ids)
+		var before: Dictionary = engine.full_state()
+		var result: ApplyResult = engine.start()
+		var label: String = "ids %s" % [raw]
+		assert_bool(result.ok).override_failure_message(label).is_false()
+		assert_int(result.error).override_failure_message(label).is_equal(
+			EngineError.Code.DECK_UNKNOWN
+		)
+		assert_array(result.events).is_empty()
+		assert_dict(engine.full_state()).is_equal(before)
+		assert_int(engine.awaited_seat()).is_equal(-1)
+		_assert_rejected(engine, EngineAction.concede(0), EngineError.Code.NOT_STARTED)
+
+
+## A named deck is kept; an empty id resolves to the seed's own pick (P14), and the
+## resolved ids are what deck_ids(), the full state and MATCH_STARTED hold.
+func test_deck_ids_resolve_and_open_the_match() -> void:
+	var decks: DeckList = FixtureDecks.decks()
+	var seeded: Array[String] = ["", ""]
+	for match_seed: int in [1, 2, 77]:
+		var engine: MatchEngine = MatchEngine.create(match_seed, _db(), decks, seeded)
+		var expected: Array[String] = [
+			decks.seeded_pick(match_seed, 0), decks.seeded_pick(match_seed, 1)
+		]
+		assert_array(engine.deck_ids()).is_equal(expected)
+		var result: ApplyResult = engine.start()
+		assert_bool(result.ok).is_true()
+		var opened: MatchEvent = result.events[0]
+		assert_int(opened.kind).is_equal(MatchEvent.Kind.MATCH_STARTED)
+		assert_int(opened.owner_seat).is_equal(MatchEvent.PUBLIC)
+		var shown: Array = opened.payload["decks"]
+		assert_array(shown).is_equal(["fixture", "fixture"])
+		var state: Dictionary = engine.full_state()
+		var held: Array = state["deck_ids"]
+		assert_array(held).is_equal(["fixture", "fixture"])
+	var named: MatchEngine = FixtureDecks.engine(SEED, _db())
+	assert_array(named.deck_ids()).is_equal(FixtureDecks.ids())
+	assert_int(_of_kind(named.start().events, MatchEvent.Kind.MATCH_STARTED).size()).is_equal(1)
 
 
 func test_second_start_is_rejected() -> void:
@@ -835,7 +897,7 @@ func test_budget_is_the_turn_plus_carry() -> void:
 	_pass_until_turn(engine, MatchRules.TURNS)
 	var seat_first: int = engine.awaited_seat()
 	var hand: Array[int] = _hand(engine, seat_first)
-	var cost: int = LegalPlays.total_cost(hand, _db())
+	var cost: int = LegalPlays.total_cost(hand, _defs())
 	assert_int(cost).is_greater(MatchRules.TURNS)
 	_assert_rejected(engine, EngineAction.commit(seat_first, hand), EngineError.Code.OVER_BUDGET)
 	engine._state.energy.carry[seat_first] = cost - MatchRules.TURNS
@@ -859,7 +921,7 @@ func test_spent_is_recorded_and_the_free_first_card_is_consumed() -> void:
 		var candidate: MatchEngine = _started(match_seed)
 		var awaited: int = candidate.awaited_seat()
 		for card: int in _hand(candidate, awaited):
-			if LegalPlays.cost_of(card, _db()) >= 2:
+			if LegalPlays.cost_of(card, _defs()) >= 2:
 				engine = candidate
 				seat = awaited
 				dear = card
@@ -888,7 +950,7 @@ func test_spent_is_recorded_and_the_free_first_card_is_consumed() -> void:
 ## The awaited seat plays the highest-mask legal set: deterministic and card-heavy.
 func _scripted_action(engine: MatchEngine) -> EngineAction:
 	var seat: int = engine.awaited_seat()
-	var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _db())
+	var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _defs())
 	# The highest-mask set with no prompt-verb card (DC-05 T05), so every step is a commit
 	# and 20 of them still reach round 2; the empty set always qualifies.
 	for at: int in range(sets.size() - 1, -1, -1):
@@ -904,8 +966,8 @@ func _none_cards() -> Array[int]:
 
 
 func test_same_seed_and_actions_give_equal_states_and_events() -> void:
-	var a: MatchEngine = MatchEngine.create(SEED, _db())
-	var b: MatchEngine = MatchEngine.create(SEED, _db())
+	var a: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var b: MatchEngine = FixtureDecks.engine(SEED, _db())
 	assert_array(_event_dicts(a.start().events)).is_equal(_event_dicts(b.start().events))
 	assert_dict(a.full_state()).is_equal(b.full_state())
 	# 20 actions span round 1 and the start of round 2.

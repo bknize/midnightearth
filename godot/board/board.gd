@@ -31,6 +31,7 @@ const GLOW_HOVER_ALPHA: float = 0.35
 ## Seconds at 1x for a player commit to slide onto the row when it is not already there.
 const PLAYER_COMMIT_TIME: float = 0.25
 const SEED_MASK: int = 0x7FFFFFFF
+const SEEDED_PAIRING: Array[String] = ["", ""]  # Each seat's deck from the seed (P14).
 ## Where a row's tally rests: past the right end of the row, and toward the camera.
 const TALLY_OFFSET: Vector3 = Vector3(14.5, 0.0, 1.0)
 ## Seconds at 1x for an unstaged card to slide back to the hand.
@@ -55,6 +56,7 @@ var speed: float = NORMAL_SPEED
 var staging: Staging = Staging.new()
 
 var _cards: CardDb = null
+var _decks: DeckList = DeckList.load_default()
 var _autoplay: bool = false
 var _input_locked: bool = true
 ## Whether seat 0 is awaited; refreshed once per step in _advance(), false while steps run.
@@ -198,7 +200,7 @@ func start_match(new_seed: int) -> void:
 	_paused = false
 	_queue.clear()
 	_close_prompt()
-	driver = MatchDriver.create(new_seed, _cards, _autoplay)
+	driver = MatchDriver.create(new_seed, _cards, _decks, SEEDED_PAIRING, _autoplay)
 	_clear_table_now()
 	hud.show_pause(false)
 	_refresh_staging_ui()

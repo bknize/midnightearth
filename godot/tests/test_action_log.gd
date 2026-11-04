@@ -1,13 +1,16 @@
 # gdlint: disable=max-public-methods
 class_name TestActionLog
 extends GdUnitTestSuite
-## ActionLog and EngineAction serialization: R31 (format, rules, seed and the accepted
+## ActionLog and EngineAction serialization: R31 (format, rules, seed, decks and the accepted
 ## actions only), R32 (lossless JSON round trip, seeds above 2^53 and negative seeds),
 ## R33 (replay reaches an equal full state, mid-match and for a completed match, without
 ## the bot) and R34 (a rejected action fails replay at its index with its code; a format
 ## or rules mismatch fails replay). Malformed JSON and malformed entries give null.
 ## DC-05 R39, R40: format 2 (commits carry their slots as "p"; a choice entry), round trip
 ## and replay with slots, and a format-1 or rules-1 log fails replay on its version.
+## DC-07 R7, P2 (T02): format 3 and rules 4, the header's `decks` (the resolved deck ids,
+## rebuilt by replay), and a format-2, rules-3 or deck-less log fails replay on its version.
+## Every match here plays the fixture deck on both seats.
 ##
 ## Matches are driven by scripted actions on known seeds: the "player" seat commits the
 ## legal set with the highest bitmask in LegalPlays order (often several cards) that holds
@@ -27,14 +30,22 @@ const BAD_INDEX: int = 5
 const TIE: int = -1
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for the MatchCards APIs.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
 
 
 func _typed(values: Array) -> Array[int]:
@@ -44,7 +55,7 @@ func _typed(values: Array) -> Array[int]:
 
 
 func _started(match_seed: int) -> MatchEngine:
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
 	return engine
 
@@ -57,7 +68,7 @@ func _hand(engine: MatchEngine, seat: int) -> Array[int]:
 
 
 func _cost_of(cards: Array[int]) -> int:
-	return LegalPlays.total_cost(cards, _db())
+	return LegalPlays.total_cost(cards, _defs())
 
 
 func _row_size(engine: MatchEngine, seat: int) -> int:
@@ -73,7 +84,7 @@ func _script_action(engine: MatchEngine, player: int) -> EngineAction:
 	var seat: int = engine.awaited_seat()
 	var cards: Array[int] = []
 	if seat == player:
-		var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _db())
+		var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _defs())
 		for at: int in range(sets.size() - 1, -1, -1):
 			var candidate: Array[int] = _typed(sets[at])
 			if not _has_prompt_card(candidate):
@@ -162,7 +173,9 @@ func _through_json(log_in: ActionLog) -> ActionLog:
 
 ## The log's JSON round trip, replayed; asserts the replay succeeds and equals `engine`.
 func _assert_replay_equals(engine: MatchEngine) -> MatchEngine:
-	var replayed: ReplayResult = _through_json(engine.action_log()).replay(_db())
+	var replayed: ReplayResult = _through_json(engine.action_log()).replay(
+		_db(), FixtureDecks.decks()
+	)
 	assert_bool(replayed.ok).is_true()
 	assert_int(replayed.error).is_equal(EngineError.Code.NONE)
 	assert_int(replayed.failed_index).is_equal(-1)
@@ -180,7 +193,7 @@ func _assert_replay_equals(engine: MatchEngine) -> MatchEngine:
 
 ## A log holding the given actions at the current versions.
 func _log_of(match_seed: int, actions: Array[EngineAction]) -> ActionLog:
-	return ActionLog.create(match_seed, actions)
+	return ActionLog.create(match_seed, FixtureDecks.ids(), actions)
 
 
 ## A few hand-written actions covering every entry shape.
@@ -222,7 +235,7 @@ func _assert_rejected_at(
 	var the_log: ActionLog = _log_of(match_seed, tampered)
 	if through_json:
 		the_log = _through_json(the_log)
-	var replayed: ReplayResult = the_log.replay(_db())
+	var replayed: ReplayResult = the_log.replay(_db(), FixtureDecks.decks())
 	assert_bool(replayed.ok).is_false()
 	assert_int(replayed.reason).is_equal(ReplayResult.Reason.ACTION_REJECTED)
 	assert_int(replayed.failed_index).is_equal(index)
@@ -272,9 +285,12 @@ func test_log_holds_versions_seed_and_accepted_actions_only() -> void:
 	assert_int(the_log.match_seed).is_equal(SEED)
 	assert_int(the_log.actions.size()).is_equal(ROUND_PLUS_TWO)
 	assert_array(_dicts(the_log.actions)).is_equal(_dicts(applied))
-	# The JSON holds the four header keys and bare action entries, nothing derived.
+	assert_array(the_log.deck_ids).is_equal(FixtureDecks.ids())
+	# The JSON holds the five header keys and bare action entries, nothing derived.
 	var root: Dictionary = _parse(the_log.to_json())
-	assert_array(_sorted_keys(root)).is_equal(["actions", "format", "rules", "seed"])
+	assert_array(_sorted_keys(root)).is_equal(["actions", "decks", "format", "rules", "seed"])
+	var decks: Array = root["decks"]
+	assert_array(decks).is_equal(["fixture", "fixture"])
 	var seed_value: Variant = root["seed"]
 	assert_bool(seed_value is String).is_true()
 	assert_str(str(seed_value)).is_equal("1")
@@ -306,7 +322,7 @@ func test_log_records_a_concede_entry() -> void:
 
 
 func test_log_before_and_right_after_start_is_empty() -> void:
-	var engine: MatchEngine = MatchEngine.create(BIG_SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(BIG_SEED, _db())
 	assert_int(engine.action_log().actions.size()).is_equal(0)
 	assert_int(engine.action_log().match_seed).is_equal(BIG_SEED)
 	engine.start()
@@ -437,8 +453,8 @@ func test_replay_equals_a_conceded_match() -> void:
 func test_replay_is_repeatable_and_leaves_the_log_unchanged() -> void:
 	var the_log: ActionLog = _scripted(SEED, 0, LONG_SCRIPT).action_log()
 	var text: String = the_log.to_json()
-	var first: ReplayResult = the_log.replay(_db())
-	var second: ReplayResult = the_log.replay(_db())
+	var first: ReplayResult = the_log.replay(_db(), FixtureDecks.decks())
+	var second: ReplayResult = the_log.replay(_db(), FixtureDecks.decks())
 	assert_bool(first.ok and second.ok).is_true()
 	assert_dict(second.engine.full_state()).is_equal(first.engine.full_state())
 	assert_str(the_log.to_json()).is_equal(text)
@@ -551,7 +567,9 @@ func test_action_after_the_end_fails_replay_with_match_over() -> void:
 	assert_bool(engine.apply(EngineAction.concede(0)).ok).is_true()
 	var actions: Array[EngineAction] = engine.accepted_actions()
 	actions.append(EngineAction.concede(1))
-	var replayed: ReplayResult = _through_json(_log_of(SEED, actions)).replay(_db())
+	var replayed: ReplayResult = _through_json(_log_of(SEED, actions)).replay(
+		_db(), FixtureDecks.decks()
+	)
 	assert_bool(replayed.ok).is_false()
 	assert_int(replayed.reason).is_equal(ReplayResult.Reason.ACTION_REJECTED)
 	assert_int(replayed.failed_index).is_equal(5)
@@ -590,7 +608,7 @@ func test_format_mismatch_fails_replay() -> void:
 		the_log.format_version = version
 		var parsed: ActionLog = _through_json(the_log)
 		assert_int(parsed.format_version).is_equal(version)
-		var replayed: ReplayResult = parsed.replay(_db())
+		var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks())
 		assert_bool(replayed.ok).is_false()
 		assert_int(replayed.reason).is_equal(ReplayResult.Reason.FORMAT_MISMATCH)
 		assert_int(replayed.failed_index).is_equal(-1)
@@ -604,7 +622,7 @@ func test_rules_mismatch_fails_replay() -> void:
 		the_log.rules_version = version
 		var parsed: ActionLog = _through_json(the_log)
 		assert_int(parsed.rules_version).is_equal(version)
-		var replayed: ReplayResult = parsed.replay(_db())
+		var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks())
 		assert_bool(replayed.ok).is_false()
 		assert_int(replayed.reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
 		assert_int(replayed.failed_index).is_equal(-1)
@@ -612,32 +630,91 @@ func test_rules_mismatch_fails_replay() -> void:
 		assert_object(replayed.engine).is_null()
 
 
-## DC-06 R24: a DC-05 log (format 2, rules 2) still parses, and replay refuses it on the
-## rules version before running anything. The rules version is 3; the format stays 2.
-func test_a_rules_2_log_fails_replay_with_rules_mismatch() -> void:
-	assert_int(MatchRules.RULES_VERSION).is_equal(3)
-	assert_int(MatchRules.LOG_FORMAT).is_equal(2)
-	var text: String = (
-		'{"format": 2, "rules": 2, "seed": "1",'
-		+ ' "actions": [{"k": "commit", "s": 0, "c": [], "p": []}, {"k": "concede", "s": 1}]}'
-	)
+## DC-07 R7 (T02): the format is 3 and the rules version 4. A DC-06 log (format 2, rules
+## 3, no `decks`) still parses, and replay refuses it on the format before running
+## anything; a format-3 log under rules 3 fails on the rules version; a format-3 header
+## without `decks` is a format mismatch.
+func test_a_format_2_or_rules_3_or_deckless_log_fails_replay() -> void:
+	assert_int(MatchRules.RULES_VERSION).is_equal(4)
+	assert_int(MatchRules.LOG_FORMAT).is_equal(3)
+	var commit: String = '{"k": "commit", "s": 0, "c": [], "p": []}'
+	var actions: String = ' "actions": [' + commit + ', {"k": "concede", "s": 1}]}'
+	var decks: String = ' "decks": ["fixture", "fixture"],'
+	var texts: Array[String] = [
+		'{"format": 2, "rules": 3, "seed": "1",' + actions,
+		'{"format": 2, "rules": 3, "seed": "1",' + decks + actions,
+		'{"format": 3, "rules": 3, "seed": "1",' + decks + actions,
+		'{"format": 3, "rules": 4, "seed": "1",' + actions,
+	]
+	var reasons: Array[int] = [
+		ReplayResult.Reason.FORMAT_MISMATCH,
+		ReplayResult.Reason.FORMAT_MISMATCH,
+		ReplayResult.Reason.RULES_MISMATCH,
+		ReplayResult.Reason.FORMAT_MISMATCH,
+	]
+	for i: int in range(texts.size()):
+		var text: String = texts[i]
+		var parsed: ActionLog = ActionLog.from_json(text)
+		assert_object(parsed).override_failure_message(text).is_not_null()
+		if parsed == null:
+			continue
+		var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks())
+		assert_bool(replayed.ok).override_failure_message(text).is_false()
+		assert_int(replayed.reason).override_failure_message(text).is_equal(reasons[i])
+		assert_int(replayed.failed_index).is_equal(-1)
+		assert_int(replayed.error).is_equal(EngineError.Code.MALFORMED)
+		assert_object(replayed.engine).is_null()
+	# The log of a real match: under rules 3 it fails on the rules; without its decks
+	# (written back without the key) on the format.
+	var the_log: ActionLog = _scripted(SEED, 0, 6).action_log()
+	the_log.rules_version = 3
+	var old: ReplayResult = _through_json(the_log).replay(_db(), FixtureDecks.decks())
+	assert_int(old.reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
+	var deckless: ActionLog = _scripted(SEED, 0, 6).action_log()
+	deckless.deck_ids.clear()
+	assert_bool(deckless.to_json().contains('"decks"')).is_false()
+	var parsed_deckless: ActionLog = _through_json(deckless)
+	assert_array(parsed_deckless.deck_ids).is_empty()
+	var no_decks: ReplayResult = parsed_deckless.replay(_db(), FixtureDecks.decks())
+	assert_int(no_decks.reason).is_equal(ReplayResult.Reason.FORMAT_MISMATCH)
+
+
+## DC-07 R7: the header names the resolved decks, and replay rebuilds them. A
+## fixture-vs-fixture match replays to an equal state, mid-match and complete, with the
+## decks left to the seeded pick or named.
+func test_header_decks_are_rebuilt_by_replay() -> void:
+	var seeded: Array[String] = ["", ""]
+	var picked: MatchEngine = MatchEngine.create(SEED, _db(), FixtureDecks.decks(), seeded)
+	picked.start()
+	for player: int in range(2):
+		_play_round(picked, player)
+	var root: Dictionary = _parse(picked.action_log().to_json())
+	var decks: Array = root["decks"]
+	assert_array(decks).is_equal(["fixture", "fixture"])
+	var replayed: MatchEngine = _assert_replay_equals(picked)
+	if replayed != null:
+		assert_array(replayed.deck_ids()).is_equal(picked.deck_ids())
+	var named: MatchEngine = _started(BIG_SEED)
+	var outcomes: Array[int] = [0, TIE, 1, 0, 0, 0]
+	for winner: int in outcomes:
+		_play_round(named, winner)
+	assert_bool(named.is_over()).is_true()
+	_assert_replay_equals(named)
+
+
+## A header naming a deck the list does not hold parses, and replay fails at start with
+## DECK_UNKNOWN.
+func test_a_header_with_an_unknown_deck_fails_replay_at_start() -> void:
+	var the_log: ActionLog = _scripted(SEED, 0, 2).action_log()
+	var text: String = the_log.to_json().replace('"decks":["fixture"', '"decks":["gone"')
 	var parsed: ActionLog = ActionLog.from_json(text)
 	assert_object(parsed).is_not_null()
 	if parsed == null:
 		return
-	assert_int(parsed.format_version).is_equal(2)
-	assert_int(parsed.rules_version).is_equal(2)
-	var replayed: ReplayResult = parsed.replay(_db())
+	var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks())
 	assert_bool(replayed.ok).is_false()
-	assert_int(replayed.reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
-	assert_int(replayed.failed_index).is_equal(-1)
-	assert_int(replayed.error).is_equal(EngineError.Code.MALFORMED)
-	assert_object(replayed.engine).is_null()
-	# The same log of a real match, written under rules 2, fails the same way.
-	var the_log: ActionLog = _scripted(SEED, 0, 6).action_log()
-	the_log.rules_version = 2
-	var old: ReplayResult = _through_json(the_log).replay(_db())
-	assert_int(old.reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
+	assert_int(replayed.reason).is_equal(ReplayResult.Reason.START_FAILED)
+	assert_int(replayed.error).is_equal(EngineError.Code.DECK_UNKNOWN)
 
 
 func test_bad_slots_fail_replay_at_their_index() -> void:
@@ -652,20 +729,22 @@ func test_bad_slots_fail_replay_at_their_index() -> void:
 		_assert_rejected_at(SEED, actions, BAD_INDEX, bad, EngineError.Code.BAD_SLOTS, true)
 
 
-# --- DC-05 R39, R40: format 2 ----------------------------------------------------------
+# --- DC-05 R39, R40: slots and choices; DC-07: format 3 -------------------------------
 
 
-func test_format_2_round_trips_with_slots_and_choices() -> void:
+func test_format_3_round_trips_with_decks_slots_and_choices() -> void:
 	var the_log: ActionLog = _log_of(SEED, _sample_actions())
 	var text: String = the_log.to_json()
-	# Rules 3 since DC-06 T01 (the slot cursor); the format stays 2.
-	assert_bool(text.begins_with('{"format":2,"rules":3,"seed":"1"')).is_true()
+	# Format 3 and rules 4 since DC-07 T02: the header names both decks.
+	var header: String = '{"format":3,"rules":4,"seed":"1","decks":["fixture","fixture"]'
+	assert_bool(text.begins_with(header)).override_failure_message(text).is_true()
 	assert_bool(text.contains('{"k":"commit","s":0,"c":[3,7],"p":[0,2]}')).is_true()
 	assert_bool(text.contains('{"k":"commit","s":1,"c":[],"p":[]}')).is_true()
 	assert_bool(text.contains('{"k":"choose","s":0,"z":1,"i":2}')).is_true()
 	var parsed: ActionLog = _through_json(the_log)
-	assert_int(parsed.format_version).is_equal(2)
-	assert_int(parsed.rules_version).is_equal(3)
+	assert_int(parsed.format_version).is_equal(3)
+	assert_int(parsed.rules_version).is_equal(4)
+	assert_array(parsed.deck_ids).is_equal(FixtureDecks.ids())
 	assert_array(_dicts(parsed.actions)).is_equal(_dicts(the_log.actions))
 	assert_str(parsed.to_json()).is_equal(text)
 	var chosen: EngineAction = parsed.actions[3]
@@ -697,17 +776,22 @@ func test_format_1_log_fails_replay_with_format_mismatch() -> void:
 	if parsed == null:
 		return
 	assert_int(parsed.format_version).is_equal(1)
-	var replayed: ReplayResult = parsed.replay(_db())
+	var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks())
 	assert_bool(replayed.ok).is_false()
 	assert_int(replayed.reason).is_equal(ReplayResult.Reason.FORMAT_MISMATCH)
 	assert_int(replayed.failed_index).is_equal(-1)
 	assert_int(replayed.error).is_equal(EngineError.Code.MALFORMED)
 	assert_object(replayed.engine).is_null()
-	# Format 1 with rules 2 still fails on the format; format 2 with rules 1 on the rules.
+	# Format 1 with rules 2 still fails on the format; so does format 2 with rules 1,
+	# since DC-07 made format 2 itself a mismatch (it has no decks).
 	var mixed: ActionLog = ActionLog.from_json(text.replace('"rules": 1', '"rules": 2'))
-	assert_int(mixed.replay(_db()).reason).is_equal(ReplayResult.Reason.FORMAT_MISMATCH)
+	assert_int(mixed.replay(_db(), FixtureDecks.decks()).reason).is_equal(
+		ReplayResult.Reason.FORMAT_MISMATCH
+	)
 	var old_rules: ActionLog = ActionLog.from_json(text.replace('"format": 1', '"format": 2'))
-	assert_int(old_rules.replay(_db()).reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
+	assert_int(old_rules.replay(_db(), FixtureDecks.decks()).reason).is_equal(
+		ReplayResult.Reason.FORMAT_MISMATCH
+	)
 
 
 func test_version_mismatch_is_reported_before_any_action() -> void:
@@ -715,21 +799,26 @@ func test_version_mismatch_is_reported_before_any_action() -> void:
 	var actions: Array[EngineAction] = [EngineAction.commit(5, none)]
 	var the_log: ActionLog = _log_of(SEED, actions)
 	the_log.format_version = 99
-	var replayed: ReplayResult = the_log.replay(_db())
+	var replayed: ReplayResult = the_log.replay(_db(), FixtureDecks.decks())
 	assert_int(replayed.reason).is_equal(ReplayResult.Reason.FORMAT_MISMATCH)
 	assert_int(replayed.failed_index).is_equal(-1)
 
 
 func test_replay_without_card_data_fails_at_start() -> void:
 	var the_log: ActionLog = _scripted(SEED, 0, 2).action_log()
-	var replayed: ReplayResult = the_log.replay(null)
+	var replayed: ReplayResult = the_log.replay(null, FixtureDecks.decks())
 	assert_bool(replayed.ok).is_false()
 	assert_int(replayed.reason).is_equal(ReplayResult.Reason.START_FAILED)
 	assert_int(replayed.failed_index).is_equal(-1)
 	assert_int(replayed.error).is_equal(EngineError.Code.CARD_DATA_INVALID)
-	var broken: ReplayResult = the_log.replay(CardDb.from_json("{}"))
+	var broken: ReplayResult = the_log.replay(CardDb.from_json("{}"), FixtureDecks.decks())
 	assert_int(broken.reason).is_equal(ReplayResult.Reason.START_FAILED)
 	assert_int(broken.error).is_equal(EngineError.Code.CARD_DATA_INVALID)
+	# No deck list, or one that failed to load, fails the same way.
+	var no_list: ReplayResult = the_log.replay(_db(), null)
+	assert_int(no_list.error).is_equal(EngineError.Code.CARD_DATA_INVALID)
+	var bad_list: ReplayResult = the_log.replay(_db(), DeckList.from_json("{}"))
+	assert_int(bad_list.error).is_equal(EngineError.Code.CARD_DATA_INVALID)
 
 
 # --- Malformed input --------------------------------------------------------------------
@@ -756,6 +845,13 @@ func test_malformed_json_gives_null() -> void:
 		_log_text(1, null, "1"),
 		_log_text(1, true, "1"),
 		_log_text(1e300, 1, "1"),
+		# DC-07: `decks`, when present, is exactly two strings.
+		'{"format": 3, "rules": 4, "seed": "1", "decks": "fixture", "actions": []}',
+		'{"format": 3, "rules": 4, "seed": "1", "decks": ["fixture"], "actions": []}',
+		'{"format": 3, "rules": 4, "seed": "1", "decks": ["a", "b", "c"], "actions": []}',
+		'{"format": 3, "rules": 4, "seed": "1", "decks": ["fixture", 1], "actions": []}',
+		'{"format": 3, "rules": 4, "seed": "1", "decks": [], "actions": []}',
+		'{"format": 3, "rules": 4, "seed": "1", "decks": null, "actions": []}',
 	]
 	for text: String in texts:
 		assert_object(ActionLog.from_json(text)).override_failure_message(text).is_null()
@@ -887,12 +983,13 @@ func test_valid_hand_written_log_parses_and_replays() -> void:
 	for entry: Variant in entries:
 		parts.append(JSON.stringify(entry, "  "))
 	var text: String = (
-		'{\n  "seed": "-42",\n  "rules": 3,\n  "format": 2,\n  "actions": [\n'
+		'{\n  "seed": "-42",\n  "decks": ["fixture", "fixture"],\n  "rules": 4,\n'
+		+ '  "format": 3,\n  "actions": [\n'
 		+ ",\n".join(parts)
 		+ "\n  ]\n}"
 	)
 	var parsed: ActionLog = ActionLog.from_json(text)
 	assert_object(parsed).is_not_null()
-	var replayed: ReplayResult = parsed.replay(_db())
+	var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks())
 	assert_bool(replayed.ok).is_true()
 	assert_dict(replayed.engine.full_state()).is_equal(engine.full_state())

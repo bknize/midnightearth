@@ -2,8 +2,9 @@ class_name SeatView
 extends RefCounted
 ## One seat's redacted view of a match (R28, R29, C4), built by MatchEngine.view_for().
 ##
-## Holds the seat's own hand and own face-down commit, both ordered rows, the opponent's
-## hand and face-down commit counts and that commit's slots (R7), both deck counts, both
+## Holds both seats' deck ids (public, DC-07 R5), the seat's own hand and own face-down
+## commit, both ordered rows, the opponent's hand and face-down commit counts and that
+## commit's slots (R7), both deck counts, both
 ## board scores and walk multipliers, both round-win counts, both budgets, the round, the
 ## turn, the energy, the phase and the awaited seat. Each row also comes with every card's
 ## shown flat and bonus and its revealed flag (own_row, opponent_row).
@@ -17,6 +18,8 @@ extends RefCounted
 
 var seat: int = 0
 var opponent: int = 1
+## The deck id each seat plays, indexed by seat (DC-07 R5, P2); public, like the picker.
+var deck_ids: Array[String] = ["", ""]
 ## This seat's hand, in hand order.
 var own_hand: Array[int] = []
 ## This seat's face-down commit while the opponent is awaited; empty otherwise.
@@ -73,11 +76,12 @@ var prompt: Dictionary = {}
 ## engine, which owns those derivations; `cards` gives the rows' shown stats (with none,
 ## every card shows 0 and 0).
 static func build(
-	state: MatchState, p_seat: int, p_awaited: int, p_budgets: Array[int], cards: CardDb = null
+	state: MatchState, p_seat: int, p_awaited: int, p_budgets: Array[int], cards: MatchCards = null
 ) -> SeatView:
 	var view: SeatView = SeatView.new()
 	view.seat = p_seat
 	view.opponent = 1 - p_seat
+	view.deck_ids.assign(state.deck_ids)
 	var own: MatchState.SeatPiles = state.seats[view.seat]
 	var other: MatchState.SeatPiles = state.seats[view.opponent]
 	view.own_hand.assign(own.hand)
@@ -114,7 +118,7 @@ static func build(
 
 ## The view's prompt (see `prompt`): the full prompt for the prompted seat, only that it is
 ## open for the other.
-static func _prompt(state: MatchState, p_seat: int, cards: CardDb) -> Dictionary:
+static func _prompt(state: MatchState, p_seat: int, cards: MatchCards) -> Dictionary:
 	if state.prompt.is_empty():
 		return {}
 	var asked: int = state.prompt.get(EffectResolver.KEY_SEAT, -1)
@@ -149,7 +153,9 @@ static func _shown_ids(piles: MatchState.SeatPiles) -> Array[int]:
 
 
 ## `row_seat`'s row entries in slot order. `own` shows the stats of unrevealed cards too.
-static func _row(state: MatchState, row_seat: int, cards: CardDb, own: bool) -> Array[Dictionary]:
+static func _row(
+	state: MatchState, row_seat: int, cards: MatchCards, own: bool
+) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	var piles: MatchState.SeatPiles = state.seats[row_seat]
 	for card: int in piles.board:
@@ -167,6 +173,13 @@ static func _row(state: MatchState, row_seat: int, cards: CardDb, own: bool) -> 
 			"destroyed": state.is_destroyed(card),
 		}
 		out.append(entry)
+	return out
+
+
+## An untyped copy of a String array, for to_dict().
+static func _plain_strings(values: Array[String]) -> Array:
+	var out: Array = []
+	out.assign(values)
 	return out
 
 
@@ -197,6 +210,7 @@ func to_dict() -> Dictionary:
 	return {
 		"seat": seat,
 		"opponent": opponent,
+		"deck_ids": _plain_strings(deck_ids),
 		"own_hand": MatchState.plain(own_hand),
 		"own_pending": MatchState.plain(own_pending),
 		"own_board": MatchState.plain(own_board),

@@ -55,25 +55,22 @@ const PROMPT_TAG: int = 0x61736B
 var search_flat_first: bool = true
 
 var _bot_seed: int = 0
-var _cards: CardDb = null
+var _cards: MatchCards = null
 
 
-## `cards` supplies card stats and costs; null loads CardDb.load_default(). The plan's
-## signature is `_init(bot_seed)`, so the card database is an optional extra.
+## `cards` supplies card stats and costs: the MatchCards of the match the bot plays in
+## (MatchEngine.match_cards(), DC-07 P3), so a card is read through its origin's deck.
 ##
-## A card database that failed to load (CardDb.is_valid() false) is kept, not reported:
+## Null, or a MatchCards whose build failed (is_valid() false), is kept, not reported:
 ## every card then has cost -1, the only legal set is the empty one, and choose() always
 ## commits nothing, so a bot built on it passes every turn. The bot does not signal this
 ## itself, since engine code never reports errors out of band (R27). It cannot happen
-## through the engine: the engine never builds a bot, and a match cannot start without a
-## valid card database (CARD_DATA_INVALID), so callers that pass the database they started
-## the match with always give the bot valid data.
-func _init(bot_seed: int, cards: CardDb = null) -> void:
+## through the engine: the engine never builds a bot, and a match cannot start without
+## valid cards and decks (CARD_DATA_INVALID, DECK_UNKNOWN), so callers that pass the
+## match's own MatchCards always give the bot valid data.
+func _init(bot_seed: int, cards: MatchCards) -> void:
 	_bot_seed = bot_seed
-	if cards == null:
-		_cards = CardDb.load_default()
-	else:
-		_cards = cards
+	_cards = cards if cards != null else MatchCards.new()
 
 
 ## The seed a caller should give the bot playing `seat` in a match seeded `match_seed`.
@@ -238,12 +235,13 @@ func _preview_option(engine: MatchEngine, seat: int, option: int) -> Array[int]:
 	return engine.preview_choice(seat, option)
 
 
-## The definition's (flat, bonus) of a card instance (instance id % DECK_SIZE is its definition);
-## (0, 0) when it has none. A hand card carries no modifiers (they leave the board with it).
+## The definition's (flat, bonus) of a card instance (MatchCards.def_of, through its
+## origin's deck); (0, 0) when it has none. A hand card carries no modifiers (they leave
+## the board with it).
 func stats_of(instance_id: int) -> Vector2i:
 	if instance_id < 0:
 		return Vector2i.ZERO
-	var def: CardDef = _cards.card_at(instance_id % MatchRules.DECK_SIZE)
+	var def: CardDef = _cards.def_of(instance_id)
 	if def == null:
 		return Vector2i.ZERO
 	return Vector2i(def.flat, def.legacy_bonus())
