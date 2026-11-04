@@ -14,7 +14,7 @@ R1–R9). This file is the short version every agent must obey.
 | `godot/engine/` | Pure match engine (from cycle 1) | Typed GDScript, deterministic, seeded RNG, serializable action log (D4) |
 | `godot/addons/` | Vendored third-party code | Never edit except through a patch recorded in `addons/THIRD_PARTY_LICENSES.md` |
 | `godot/tests/` | gdUnit4 suites | One suite per engine module |
-| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts) | Bash, `set -uo pipefail` |
+| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees) | Bash, `set -uo pipefail` |
 | `.claude/` | Agents, skills, hook settings | The orchestrator pattern lives here |
 
 ## The build gate: `make check`
@@ -89,7 +89,9 @@ with the Co-Authored-By line the session provides. Never push unless Ben asks.
 
 The main checkout sits on the cycle branch during `/spec` and `/exercise`, so the vault
 shows the new notes; from `/cycle plan` on, the branch lives in its own `git worktree`
-and the main checkout is back on `master`. Leave the main checkout on `master` between
+and the main checkout is back on `master`. `/cycle run` sweeps each wave's agent
+worktrees once merged and `/cycle test` sweeps the cycle worktree after the `master`
+merge (`scripts/worktree-sweep.sh`). Leave the main checkout on `master` between
 changesets; when another session may share it, create the branch with `git branch` and
 work in a worktree.
 
