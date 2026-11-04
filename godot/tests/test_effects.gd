@@ -610,7 +610,7 @@ func test_destroy_with_one_seed_repeats() -> void:
 
 
 ## A revealed card's destroy is public; the card keeps its modifiers and its slot until the
-## turn-end clear (DC-06 R12, R18, R22), which burns it with a public DESTROYED_CLEARED.
+## turn-end clear (DC-06 R12, R18, R22), which piles it with a public DESTROYED_CLEARED.
 func test_destroying_a_revealed_card_is_public_and_it_clears_at_turn_end() -> void:
 	var source: int = _id(0, C19_DESTROY)
 	var target: int = _id(1, C04)
@@ -628,16 +628,19 @@ func test_destroying_a_revealed_card_is_public_and_it_clears_at_turn_end() -> vo
 	assert_bool(state.is_destroyed(target)).is_true()
 	assert_array(state.seats[1].board).is_equal(_typed([target]))
 	assert_int(state.scores[1]).is_equal(0)
-	# Turn end: it leaves for the burn pile, the mark and the modifiers with it.
+	# Turn end: it leaves for its seat's destroyed pile (DC-07 R16), the mark and the
+	# modifiers with it.
 	var cleared: Array[MatchEvent] = EffectResolver.clear_destroyed(state)
 	assert_int(cleared.size()).is_equal(1)
-	var payload: Dictionary = {"seat": 1, "card": target, "slot": 0}
+	var payload: Dictionary = {"seat": 1, "card": target, "slot": 0, "pile": true}
 	_assert_event(cleared[0], MatchEvent.Kind.DESTROYED_CLEARED, payload, PUBLIC)
 	assert_object(state.card_state(target)).is_null()
 	assert_bool(state.is_destroyed(target)).is_false()
 	assert_array(state.seats[1].board).is_empty()
 	assert_array(state.seats[1].revealed_ids()).is_empty()
-	assert_array(state.seats[1].burned).is_equal(_typed([target]))
+	assert_array(state.seats[1].destroyed).is_equal(_typed([target]))
+	assert_bool(state.seats[1].is_destroyed_known(target)).is_true()
+	assert_array(state.seats[1].burned).is_empty()
 	assert_array(EffectResolver.clear_destroyed(state)).is_empty()
 
 

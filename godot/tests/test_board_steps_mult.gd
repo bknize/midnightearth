@@ -71,22 +71,28 @@ func test_moves_of_two_seats_are_two_steps() -> void:
 	assert_int(BoardSteps.from_events(events, 1.0).size()).is_equal(2)
 
 
-func test_unreveal_and_recover_steps() -> void:
+func test_unreveal_step() -> void:
 	var unrevealed: int = BoardSteps.kind_of("CARD_UNREVEALED")
-	var recovered: int = BoardSteps.kind_of("CARD_RECOVERED")
-	if unrevealed < 0 or recovered < 0:
-		# The engine kinds arrive with T04 and T06; this runs from then on.
+	if unrevealed < 0:
+		# The engine kind arrives with T06; this runs from then on.
 		return
 	var flip: BoardStep = _one(_event(unrevealed, {"seat": 1, "card": 25, "slot": 2}), 2.0)
 	assert_int(flip.kind).is_equal(BoardStep.Kind.UNREVEAL)
 	assert_int(flip.slot).is_equal(2)
 	assert_float(flip.duration).is_equal_approx(0.35 / 2.0, EPSILON)
+
+
+func test_recover_step() -> void:
+	var recovered: int = MatchEvent.Kind.CARD_RECOVERED
 	var back: BoardStep = _one(
-		_event(recovered, {"seat": 0, "card": 25, "from_seat": 1, "position": 0})
+		_event(recovered, {"seat": 0, "card": 25, "from_seat": 1, "position": 2}), 2.0
 	)
 	assert_int(back.kind).is_equal(BoardStep.Kind.RECOVER)
+	assert_int(back.seat).is_equal(0)
+	assert_int(back.card).is_equal(25)
 	assert_int(back.from_seat).is_equal(1)
-	assert_float(back.duration).is_equal_approx(0.3, EPSILON)
+	assert_int(back.slot).is_equal(2)
+	assert_float(back.duration).is_equal_approx(0.3 / 2.0, EPSILON)
 
 
 func test_a_pile_clear_is_flagged() -> void:

@@ -24,7 +24,15 @@ const LEAK_SEEDS: Array[int] = [9_000_000_001, 123_456_789_012, 4_611_686_018_42
 const SCRIPT_COMMITS: int = 2 * 7 + 2
 ## Keys whose int values are card instance ids, in views and event payloads.
 const CARD_KEYS: Array[String] = [
-	"card", "cards", "target", "own_hand", "own_pending", "own_board", "opponent_board"
+	"card",
+	"cards",
+	"target",
+	"own_hand",
+	"own_pending",
+	"own_board",
+	"opponent_board",
+	"own_destroyed",
+	"opponent_destroyed",
 ]
 const VIEW_KEYS: Array[String] = [
 	"seat",
@@ -36,6 +44,8 @@ const VIEW_KEYS: Array[String] = [
 	"opponent_board",
 	"own_row",
 	"opponent_row",
+	"own_destroyed",
+	"opponent_destroyed",
 	"opponent_hand_count",
 	"opponent_pending_count",
 	"opponent_pending_slots",
@@ -71,6 +81,7 @@ const SPLIT_KINDS: Array[int] = [
 	MatchEvent.Kind.CARD_MOVED,
 	MatchEvent.Kind.CHOICE_MADE,
 	MatchEvent.Kind.CARD_BURNED,
+	MatchEvent.Kind.CARD_RECOVERED,
 ]
 ## Kinds that may name a card in a hand, so the R34 case checks them.
 const PROMPT_KINDS: Array[int] = [
@@ -144,11 +155,6 @@ func _payload_ints(event: MatchEvent, key: String) -> Array[int]:
 
 func _cost(card: int) -> int:
 	return _db().card_at(card % MatchRules.DECK_SIZE).cost
-
-
-## The seat a card instance belongs to (instance id = seat * DECK_SIZE + index).
-func _owner(card: int) -> int:
-	return 1 if card >= MatchRules.DECK_SIZE else 0
 
 
 func _pass_until_turn(engine: MatchEngine, turn: int) -> void:
@@ -234,19 +240,34 @@ func _scripted_steps(match_seed: int, player: int) -> Array[Step]:
 
 
 ## Every id of `seat`'s cards that its opponent may not know in `state`: its hand, deck
-## and burn pile, its share of the face-down commit, and its row's cards not yet revealed
-## (only while a prompt pauses a walk, DC-05 T05).
+## and burn pile, its share of the face-down commit, its row's cards not yet revealed
+## (only while a prompt pauses a walk, DC-05 T05) and its destroyed pile's entries whose
+## identity is not public (DC-07 R18). The face-down commit is the first committer's,
+## whatever the cards' origin (a recovered card, DC-07 C12).
 func _hidden_ids(state: Dictionary, seat: int) -> Array[int]:
 	var out: Array[int] = []
 	for key: String in ["hand", "deck", "burned"]:
 		out.append_array(_state_list(state, key, seat))
-	for card: int in _state_ints(state, "pending"):
-		if _owner(card) == seat:
+	if _state_int(state, "first_seat") == seat:
+		out.append_array(_state_ints(state, "pending"))
+	var known: Array[int] = _state_list(state, "destroyed_known", seat)
+	for card: int in _state_list(state, "destroyed", seat):
+		if not known.has(card):
 			out.append(card)
 	var revealed: Array[int] = _state_list(state, "revealed", seat)
 	for card: int in _state_list(state, "board", seat):
 		if not revealed.has(card):
 			out.append(card)
+	return out
+
+
+## `pile_seat`'s destroyed pile as the other seat sees it (DC-07 R18): an entry whose
+## identity is not public is HIDDEN_CARD.
+func _shown_pile(state: Dictionary, pile_seat: int) -> Array[int]:
+	var known: Array[int] = _state_list(state, "destroyed_known", pile_seat)
+	var out: Array[int] = []
+	for card: int in _state_list(state, "destroyed", pile_seat):
+		out.append(card if known.has(card) else MatchEvent.HIDDEN_CARD)
 	return out
 
 
@@ -374,8 +395,13 @@ func _payload_keys(kind: int) -> Array:
 			keys = ["seat", "card", "verb"]
 		MatchEvent.Kind.STATS_CHANGED:
 			keys = ["seat", "card", "flat", "times", "plus", "cause"]
-		MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.DESTROYED_CLEARED:
+		MatchEvent.Kind.CARD_DESTROYED:
 			keys = ["seat", "card", "slot"]
+		MatchEvent.Kind.DESTROYED_CLEARED:
+			# DC-07 P6: the card went to its seat's destroyed pile.
+			keys = ["seat", "card", "slot", "pile"]
+		MatchEvent.Kind.CARD_RECOVERED:
+			keys = ["seat", "card", "from_seat", "position"]
 		MatchEvent.Kind.BONUS_ZERO_SET, MatchEvent.Kind.FREE_FIRST_SET:
 			keys = ["seat"]
 		MatchEvent.Kind.ENERGY_CARRIED:
@@ -486,6 +512,8 @@ func _assert_view_matches_state(view: SeatView, step: Step, seat: int) -> void:
 	assert_array(view.opponent_board).is_equal(_shown_board(state, opp, seat))
 	assert_array(view.board_of(seat)).is_equal(view.own_board)
 	assert_array(view.board_of(opp)).is_equal(view.opponent_board)
+	assert_array(view.own_destroyed).is_equal(_state_list(state, "destroyed", seat))
+	assert_array(view.opponent_destroyed).is_equal(_shown_pile(state, opp))
 	assert_int(view.opponent_hand_count).is_equal(_state_list(state, "hand", opp).size())
 	var pending: Array[int] = _state_ints(state, "pending")
 	var pending_slots: Array[int] = _state_ints(state, "pending_slots")
@@ -1044,7 +1072,7 @@ func test_full_state_includes_everything_the_views_omit() -> void:
 			seed_checked = true
 			var all_ids: Array[int] = []
 			for seat: int in range(2):
-				for key: String in ["deck", "hand", "board", "burned"]:
+				for key: String in ["deck", "hand", "board", "burned", "destroyed"]:
 					all_ids.append_array(_state_list(state, key, seat))
 			all_ids.append_array(_state_ints(state, "pending"))
 			all_ids.sort()

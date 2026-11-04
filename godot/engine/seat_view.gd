@@ -7,10 +7,13 @@ extends RefCounted
 ## commit's slots (R7), both deck counts, both
 ## board scores and walk multipliers, both round-win counts, both budgets, the round, the
 ## turn, the energy, the phase and the awaited seat. Each row also comes with every card's
-## shown flat, ×-part and +-part and its revealed flag (own_row, opponent_row).
+## shown flat, ×-part and +-part and its revealed flag (own_row, opponent_row). Both
+## destroyed piles in pile order (DC-07 P6): its own by id, the opponent's by id only where
+## the identity is public (own_destroyed, opponent_destroyed).
 ##
 ## Never holds the match seed, the stream state, any deck order, or the id of any card in
-## the opponent's hand, deck, face-down commit or burn pile. `free_first` is this seat's
+## the opponent's hand, deck, face-down commit or burn pile, or of an opponent pile card that
+## left its row face down. `free_first` is this seat's
 ## own free-first grant only. Seat-indexed pairs
 ## (deck_counts, scores, wins, budgets) are indexed by seat number, like MatchState.
 ##
@@ -36,6 +39,12 @@ var opponent_board: Array[int] = []
 ## face-down card shows its slot as destroyed and still hides its id.
 var own_row: Array[Dictionary] = []
 var opponent_row: Array[Dictionary] = []
+## This seat's destroyed pile (DC-07 R16, R18, P6), in pile order.
+var own_destroyed: Array[int] = []
+## The opponent's destroyed pile in pile order: an entry's id where its identity is public
+## (`destroyed_known`: it was revealed when it left the row), else MatchEvent.HIDDEN_CARD.
+## Its size is public either way.
+var opponent_destroyed: Array[int] = []
 var opponent_hand_count: int = 0
 ## Size of the opponent's face-down commit while this seat is awaited second; else 0.
 var opponent_pending_count: int = 0
@@ -90,6 +99,8 @@ static func build(
 	view.opponent_board.assign(_shown_ids(other))
 	view.own_row = _row(state, view.seat, cards, true)
 	view.opponent_row = _row(state, view.opponent, cards, false)
+	view.own_destroyed.assign(own.destroyed)
+	view.opponent_destroyed.assign(_shown_destroyed(other))
 	view.opponent_hand_count = other.hand.size()
 	# `pending` belongs to the first committer while the second is awaited.
 	if state.phase == MatchState.Phase.AWAIT_SECOND:
@@ -150,6 +161,15 @@ static func _shown_ids(piles: MatchState.SeatPiles) -> Array[int]:
 	var out: Array[int] = []
 	for card: int in piles.board:
 		out.append(card if piles.is_revealed(card) else MatchEvent.HIDDEN_CARD)
+	return out
+
+
+## A destroyed pile as the other seat may see it (R18): a public identity by id, any other
+## entry as MatchEvent.HIDDEN_CARD, in pile order.
+static func _shown_destroyed(piles: MatchState.SeatPiles) -> Array[int]:
+	var out: Array[int] = []
+	for card: int in piles.destroyed:
+		out.append(card if piles.is_destroyed_known(card) else MatchEvent.HIDDEN_CARD)
 	return out
 
 
@@ -219,6 +239,8 @@ func to_dict() -> Dictionary:
 		"opponent_board": MatchState.plain(opponent_board),
 		"own_row": _plain_row(own_row),
 		"opponent_row": _plain_row(opponent_row),
+		"own_destroyed": MatchState.plain(own_destroyed),
+		"opponent_destroyed": MatchState.plain(opponent_destroyed),
 		"opponent_hand_count": opponent_hand_count,
 		"opponent_pending_count": opponent_pending_count,
 		"opponent_pending_slots": MatchState.plain(opponent_pending_slots),
