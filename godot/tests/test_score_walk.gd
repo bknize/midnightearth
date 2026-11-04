@@ -695,7 +695,11 @@ func test_reveal_puts_cards_on_boards_and_scores_in_state() -> void:
 ## on a MatchState.duplicate() of the engine's state (with a PreviewPolicy, no sink and no
 ## stream) gives the live TURN_ENDED scores, emits nothing and leaves the engine alone.
 ## Turns whose walk changed a scored card after it scored (a flat-up, a destroy) are
-## skipped (DC-05 T04): re-walking the turn's end state is then a different walk.
+## skipped (DC-05 T04): re-walking the turn's end state is then a different walk. So are
+## turns with a choice (DC-05 T05): a swap reorders the row, a switch changes cards already
+## scored, a return takes a scored card off the row at turn end. A turn's events are
+## gathered across every action of its walk, since a prompt splits the walk over two or
+## more applies; every such live walk is also checked to pulse each card once (R16).
 func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 	var engine: MatchEngine = MatchEngine.create(SEED, _db())
 	assert_bool(engine.start().ok).is_true()
@@ -704,19 +708,25 @@ func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), _db()))
 	var compared: int = 0
 	var actions: int = 0
+	var turn_events: Array[MatchEvent] = []
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var awaited: int = engine.awaited_seat()
 		var result: ApplyResult = engine.apply(bots[awaited].choose(engine.view_for(awaited)))
 		assert_bool(result.ok).is_true()
 		actions += 1
+		turn_events.append_array(result.events)
 		var ended: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.TURN_ENDED)
 		if ended.is_empty():
 			continue
+		var walk_events: Array[MatchEvent] = _this_walk(turn_events)
+		turn_events.clear()
+		var scored: Dictionary = _assert_each_card_scored_once(walk_events)
 		if not _of_kind(result.events, MatchEvent.Kind.ROUND_STARTED).is_empty():
 			continue
 		if engine.is_over():
 			continue
-		if _changed_the_walk(result.events):
+		_assert_no_card_skipped(engine, walk_events, scored)
+		if _changed_the_walk(walk_events):
 			continue
 		var live: Dictionary = engine.full_state()
 		var copy: MatchState = engine._state.duplicate()
@@ -734,10 +744,52 @@ func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 	assert_int(compared).is_greater(0)
 
 
-## Whether a turn's events hold a flat-up or a destroy, after which the turn's end state
-## no longer walks to the turn's scores.
+## The events from the last WALK_STARTED up to and including the first TURN_ENDED after
+## it: one turn's walk and turn end, however many applies it took.
+func _this_walk(events: Array[MatchEvent]) -> Array[MatchEvent]:
+	var out: Array[MatchEvent] = []
+	for event: MatchEvent in events:
+		if event.kind == MatchEvent.Kind.WALK_STARTED:
+			out.clear()
+		out.append(event)
+		if event.kind == MatchEvent.Kind.TURN_ENDED:
+			break
+	return out
+
+
+## R16 on the live walk, prompts included: no card scores twice in one walk. Returns the
+## scored cards as a set.
+func _assert_each_card_scored_once(walk_events: Array[MatchEvent]) -> Dictionary:
+	var seen: Dictionary = {}
+	for event: MatchEvent in _of_kind(walk_events, MatchEvent.Kind.CARD_SCORED):
+		var card: int = _payload_int(event, "card")
+		assert_bool(seen.has(card)).override_failure_message("card %d twice" % card).is_false()
+		seen[card] = true
+	return seen
+
+
+## No pulse lost (R16): every card still on a row after the turn, and every card a return
+## took off at turn end, was scored in the walk.
+func _assert_no_card_skipped(
+	engine: MatchEngine, walk_events: Array[MatchEvent], seen: Dictionary
+) -> void:
+	var expected: Array[int] = []
+	for seat: int in range(MatchEngine.SEATS):
+		expected.append_array(_board(engine, seat))
+	expected.append_array(_cards_of(walk_events, MatchEvent.Kind.CARD_RETURNED))
+	for event: MatchEvent in _of_kind(walk_events, MatchEvent.Kind.CARD_BURNED):
+		if not event.is_private():
+			expected.append(_payload_int(event, "card"))
+	for card: int in expected:
+		assert_bool(seen.has(card)).override_failure_message("card %d not scored" % card).is_true()
+
+
+## Whether a turn's events hold a flat-up, a destroy or a choice (DC-05 T05), after which
+## the turn's end state no longer walks to the turn's scores.
 func _changed_the_walk(events: Array[MatchEvent]) -> bool:
 	if not _of_kind(events, MatchEvent.Kind.CARD_DESTROYED).is_empty():
+		return true
+	if not _of_kind(events, MatchEvent.Kind.CHOICE_MADE).is_empty():
 		return true
 	for event: MatchEvent in _of_kind(events, MatchEvent.Kind.STATS_CHANGED):
 		var cause: String = event.payload["cause"]

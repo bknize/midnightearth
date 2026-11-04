@@ -854,6 +854,14 @@ func test_choice_requested_names_positions_not_hand_ids() -> void:
 		var hidden: Array[int] = (
 			_hidden_ids(before, first) + _hidden_ids(engine.full_state(), first)
 		)
+		# The source, c09, was face down (pending) before this step and is revealed by it in
+		# public (CARD_REVEALED), so naming it in CHOICE_REQUESTED's `card` leaks nothing.
+		for event: MatchEvent in result.events:
+			if event.kind == MatchEvent.Kind.CARD_REVEALED:
+				var shown: int = _payload_int(event, "card")
+				while hidden.has(shown):
+					hidden.erase(shown)
+		assert_bool(hidden.has(c09)).is_false()
 		var theirs: Array[MatchEvent] = result.events_for(1 - first)
 		assert_array(_prompt_event_leaks(theirs, hidden)).is_empty()
 		var requested: int = 0

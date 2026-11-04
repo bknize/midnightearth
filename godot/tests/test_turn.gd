@@ -889,7 +889,18 @@ func test_spent_is_recorded_and_the_free_first_card_is_consumed() -> void:
 func _scripted_action(engine: MatchEngine) -> EngineAction:
 	var seat: int = engine.awaited_seat()
 	var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _db())
-	return EngineAction.commit(seat, _typed(sets[sets.size() - 1]))
+	# The highest-mask set with no prompt-verb card (DC-05 T05), so every step is a commit
+	# and 20 of them still reach round 2; the empty set always qualifies.
+	for at: int in range(sets.size() - 1, -1, -1):
+		var cards: Array[int] = _typed(sets[at])
+		if not _has_prompt_card(cards):
+			return EngineAction.commit(seat, cards)
+	return EngineAction.commit(seat, _none_cards())
+
+
+func _none_cards() -> Array[int]:
+	var none: Array[int] = []
+	return none
 
 
 func test_same_seed_and_actions_give_equal_states_and_events() -> void:
