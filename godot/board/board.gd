@@ -26,11 +26,8 @@ const GLOW_GOLD: Color = Color(1.0, 0.85, 0.45)
 const GLOW_RED: Color = Color(0.95, 0.25, 0.2)
 const GLOW_IDLE_ALPHA: float = 0.18
 const GLOW_HOVER_ALPHA: float = 0.35
-## Shortest tween the collections are given, so a zero-length step never divides or stalls.
-const MIN_TWEEN_TIME: float = 0.01
 ## Seconds at 1x for a player commit to slide onto the row when it is not already there.
 const PLAYER_COMMIT_TIME: float = 0.25
-const REVEAL_LIFT: float = 0.8
 const SEED_MASK: int = 0x7FFFFFFF
 ## Seconds at 1x for an unstaged card to slide back to the hand.
 const UNSTAGE_TIME: float = 0.2
@@ -68,8 +65,10 @@ var _waiting: bool = false
 var _queue: Array[BoardStep] = []
 ## Seat 0's cards by engine instance id.
 var _player_cards: Dictionary[int, BoardCard] = {}
-## Displayed scores; they follow reveals and turn ends, not the engine.
-var _scores: Array[int] = [0, 0]
+## Displayed scores and multipliers; they follow pulses and turn ends, not the engine.
+var _tracker: ScoreTracker = ScoreTracker.new()
+## Plays the pulse, the effect steps and the shared card motions.
+var _fx: EffectPlayer = EffectPlayer.new()
 ## True when the first seed was fixed (`fixed_seed` or --seed=), so a rematch uses seed + 1.
 var _seed_fixed: bool = false
 var _paused: bool = false
@@ -79,8 +78,6 @@ var _free_first: bool = false
 var _committed_ids: Dictionary[int, bool] = {}
 ## Seat 0's instance ids lying face down on the row; the walk's flip pulse turns them up.
 var _face_down_ids: Dictionary[int, bool] = {}
-## Displayed multipliers, set to 1 at walk start and kept by pulses (R50).
-var _mults: Array[int] = [1, 1]
 ## The drag in progress: the card, where it started, and whether the pointer was over the
 ## row's drop zone (R14).
 var _drag_card: BoardCard = null
@@ -119,6 +116,7 @@ func _ready() -> void:
 	if not _cards.is_valid():
 		push_error("Card data failed to load: %s" % _cards.load_error())
 		return
+	_setup_effects()
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	_autoplay = autoplay or args.has(AUTOPLAY_ARG)
 	speed = AUTOPLAY_SPEED if _autoplay else NORMAL_SPEED
@@ -146,6 +144,21 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		_open_pause()
 		get_viewport().set_input_as_handled()
+
+
+## Hands the effect player the table it plays on. The id books are shared, never reassigned.
+func _setup_effects() -> void:
+	_fx.player_hand = player_hand
+	_fx.player_row = player_row
+	_fx.opponent_row = opponent_row
+	_fx.opponent_hand = opponent_hand
+	_fx.loose = _loose
+	_fx.exit_marker = _exit
+	_fx.cards = _cards
+	_fx.glow_material = _row_glow.material_override
+	_fx.player_cards = _player_cards
+	_fx.committed_ids = _committed_ids
+	_fx.face_down_ids = _face_down_ids
 
 
 ## Starts a fresh match: new driver, empty table, the opening events as steps.
@@ -348,6 +361,7 @@ func _end_wait() -> void:
 
 
 func _apply(step: BoardStep) -> void:
+	_tracker.apply(step)
 	match step.kind:
 		BoardStep.Kind.CLEAR_TABLE:
 			_clear_table(step)
@@ -359,56 +373,74 @@ func _apply(step: BoardStep) -> void:
 			hud.set_round_turn(step.round_number, step.turn, step.round_number > MatchRules.ROUNDS)
 			hud.set_energy(step.budget, step.budget, step.free_first)
 			_on_turn_started(step)
-		BoardStep.Kind.WALK_START:
-			_walk_start()
-		BoardStep.Kind.BOT_WAIT:
-			pass
+		BoardStep.Kind.WALK_START, BoardStep.Kind.TURN_END:
+			_refresh_scores()
 		BoardStep.Kind.OPPONENT_COMMIT:
 			_opponent_commit(step)
 		BoardStep.Kind.PLAYER_COMMIT:
 			_player_commit(step)
 		BoardStep.Kind.PULSE:
-			_pulse(step)
-		BoardStep.Kind.TURN_END:
-			_scores.assign(step.scores)
-			hud.set_scores(_scores)
+			_fx.pulse(step)
+			_refresh_scores()
 		BoardStep.Kind.ROUND_END:
 			hud.set_wins(step.wins)
 		BoardStep.Kind.MATCH_END:
 			_match_end(step)
-		BoardStep.Kind.EFFECT, BoardStep.Kind.FIZZLE, \
-		BoardStep.Kind.CHOICE_SHOW, BoardStep.Kind.STATS, BoardStep.Kind.DESTROY, \
-		BoardStep.Kind.MOVE, BoardStep.Kind.RETURN, BoardStep.Kind.DISCARD:
-			# T11 animates these; until then the runner only waits out their duration.
-			pass
-		BoardStep.Kind.PROMPT:
-			# Untimed and a no-op until T12 opens the prompt: nothing here may block the
-			# runner, or the walk would deadlock.
-			pass
+		_:
+			_apply_effect(step)
+
+
+## The effect steps (P18, R53). BOT_WAIT is only its duration, and PROMPT stays an untimed
+## no-op until T12 opens the prompt: nothing here may block the runner.
+func _apply_effect(step: BoardStep) -> void:
+	match step.kind:
+		BoardStep.Kind.EFFECT:
+			_fx.effect(step)
+		BoardStep.Kind.FIZZLE:
+			_fx.fizzle(step)
+		BoardStep.Kind.CHOICE_SHOW:
+			_fx.choice_show(step)
+		BoardStep.Kind.STATS:
+			_fx.stats(step)
+		BoardStep.Kind.DESTROY:
+			_fx.destroy(step)
+		BoardStep.Kind.MOVE:
+			_fx.move(step)
+		BoardStep.Kind.RETURN:
+			_fx.return_card(step)
+		BoardStep.Kind.DISCARD:
+			_fx.discard(step)
+
+
+## The HUD shows the tracker: "score ×mult" during the walk, the plain score after (R50-R52).
+func _refresh_scores() -> void:
+	hud.set_scores(_tracker.scores, _tracker.mults, _tracker.walking)
 
 
 func _deal(step: BoardStep) -> void:
 	var hand: CardCollection3D = player_hand if step.seat == 0 else opponent_hand
 	var card: BoardCard = _spawn_card()
-	hand.card_move_tween_duration = maxf(step.duration, MIN_TWEEN_TIME)
+	hand.card_move_tween_duration = maxf(step.duration, EffectPlayer.MIN_TWEEN_TIME)
 	hand.append_card(card)
 	card.global_position = _entry.global_position
 	if step.seat == 0:
-		_show(card, step)
+		_fx.show(card, step)
 		_player_cards[step.card] = card
 	else:
 		card.face_down = true
 
 
 func _burn(step: BoardStep) -> void:
+	if _fx.burn_from_row(step):
+		return
 	var card: BoardCard = _spawn_card()
 	_loose.add_child(card)
 	card.global_position = _entry.global_position
 	if step.seat == 0:
-		_show(card, step)
+		_fx.show(card, step)
 	else:
 		card.face_down = true
-	_fly_out(card, step.duration)
+	_fx.fly_out(card, step.duration)
 
 
 func _opponent_commit(step: BoardStep) -> void:
@@ -420,7 +452,7 @@ func _opponent_commit(step: BoardStep) -> void:
 			return
 		var card: Card3D = opponent_hand.cards[opponent_hand.cards.size() - 1]
 		var at: int = step.slots[k] if k < step.slots.size() else -1
-		_move_card(card, opponent_hand, opponent_row, each, at)
+		_fx.move_card(card, opponent_hand, opponent_row, each, at)
 
 
 ## Autoplay: the committed cards are still in the hand and slide to their slots. Player mode:
@@ -438,42 +470,9 @@ func _player_commit(step: BoardStep) -> void:
 			continue
 		if not player_row.cards.has(card):
 			var at: int = step.slots[k] if k < step.slots.size() else -1
-			_move_card(card, player_hand, player_row, PLAYER_COMMIT_TIME / speed, at)
+			_fx.move_card(card, player_hand, player_row, PLAYER_COMMIT_TIME / speed, at)
 		_face_down_ids[id] = true
-		_flip_down(card, step.duration)
-
-
-## R50: both displayed scores go to 0 and both multipliers to 1.
-func _walk_start() -> void:
-	_scores.assign([0, 0])
-	_mults.assign([1, 1])
-	hud.set_scores(_scores, _mults)
-
-
-## A pulse plays the way a reveal did: a first reveal flips the card face up; an already
-## revealed card has no motion until T11's lift-and-settle. The seat's displayed score gains
-## what the pulse added (the flat alone when the engine sent no score for it); TURN_END then
-## sets the exact totals.
-func _pulse(step: BoardStep) -> void:
-	if not step.revealed:
-		if step.seat == 0:
-			var own: BoardCard = _player_card(step.card)
-			if own != null:
-				_lift_and_settle(own, step.duration)
-				if _face_down_ids.erase(step.card):
-					_flip_up(own, step.duration)
-		else:
-			var card: BoardCard = _opponent_card_at(step.slot)
-			if card == null:
-				push_warning("Board: a reveal found no face-down card on the opponent's row")
-			else:
-				card.instance_id = step.card
-				_show(card, step)
-				_flip_up(card, step.duration)
-	if step.seat >= 0 and step.seat < _scores.size():
-		_scores[step.seat] += step.added if step.score >= 0 else step.flat
-		_mults[step.seat] = step.mult
-	hud.set_scores(_scores, _mults)
+		_fx.flip_down(card, step.duration)
 
 
 func _clear_table(step: BoardStep) -> void:
@@ -485,12 +484,12 @@ func _clear_table(step: BoardStep) -> void:
 		for i: int in range(removed.size()):
 			_loose.add_child(removed[i])
 			removed[i].global_transform = transforms[i]
-			_fly_out(removed[i], step.duration)
+			_fx.fly_out(removed[i], step.duration)
 	_player_cards.clear()
 	_committed_ids.clear()
 	_face_down_ids.clear()
-	_scores.assign([0, 0])
-	hud.set_scores(_scores)
+	_fx.reset()
+	_refresh_scores()
 
 
 ## The final table stays (R42); Commit and drags are off from here, since may_act() is false
@@ -526,120 +525,6 @@ func _spawn_card() -> BoardCard:
 	return card
 
 
-## Face text for a card the viewer may see. The card must be in the tree.
-func _show(card: BoardCard, step: BoardStep) -> void:
-	card.instance_id = step.card
-	var def: CardDef = _cards.card_at(step.def_index)
-	if def == null:
-		push_warning("Board: no card definition for index %d" % step.def_index)
-		return
-	card.show_def(def)
-
-
-## The face-down opponent card to reveal at a row slot; the first one without an id when the
-## slot does not name one.
-func _opponent_card_at(slot: int) -> BoardCard:
-	if slot >= 0 and slot < opponent_row.cards.size():
-		var named: BoardCard = opponent_row.cards[slot] as BoardCard
-		if named != null and named.instance_id == -1:
-			return named
-	return _next_unrevealed()
-
-
-## The first opponent card on the row that still has no id, in row order.
-func _next_unrevealed() -> BoardCard:
-	for card: Card3D in opponent_row.cards:
-		var candidate: BoardCard = card as BoardCard
-		if candidate != null and candidate.instance_id == -1:
-			return candidate
-	return null
-
-
-## Moves a card between collections, keeping its place on screen so the new layout tweens
-## it over from there. `at` is the target index (a slot); negative appends.
-func _move_card(
-	card: Card3D,
-	source: CardCollection3D,
-	target: CardCollection3D,
-	duration: float,
-	at: int = -1
-) -> void:
-	var index: int = source.cards.find(card)
-	if index < 0:
-		return
-	var placed: Transform3D = card.global_transform
-	var moved: Card3D = source.remove_card(index)
-	target.card_move_tween_duration = maxf(duration, MIN_TWEEN_TIME)
-	if at < 0:
-		target.append_card(moved)
-	else:
-		target.insert_card(moved, RowSlots.insert_index(at, target.cards.size()))
-	moved.global_transform = placed
-
-
-## R46: turns a card face down in place; the flag is set when the turn ends.
-func _flip_down(card: BoardCard, duration: float) -> void:
-	var mesh: Node3D = card.get_node("CardMesh") as Node3D
-	var tween: Tween = create_tween()
-	_add_tween(tween, mesh, ^"rotation:y", PI, maxf(duration, MIN_TWEEN_TIME))
-	var err: int = tween.finished.connect(_flag_face_down.bind(card))
-	if err != OK:
-		card.face_down = true
-
-
-func _flag_face_down(card: BoardCard) -> void:
-	if is_instance_valid(card):
-		card.face_down = true
-
-
-func _flip_up(card: BoardCard, duration: float) -> void:
-	var mesh: Node3D = card.get_node("CardMesh") as Node3D
-	var tween: Tween = create_tween()
-	_add_tween(tween, mesh, ^"rotation:y", 0.0, maxf(duration, MIN_TWEEN_TIME))
-	var err: int = tween.finished.connect(_unflag_face_down.bind(card))
-	if err != OK:
-		card.face_down = false
-
-
-func _unflag_face_down(card: BoardCard) -> void:
-	if is_instance_valid(card):
-		card.face_down = false
-
-
-func _lift_and_settle(card: BoardCard, duration: float) -> void:
-	var mesh: Node3D = card.get_node("CardMesh") as Node3D
-	var half: float = maxf(duration, MIN_TWEEN_TIME) / 2.0
-	var tween: Tween = create_tween()
-	_add_tween(tween, mesh, ^"position:z", REVEAL_LIFT, half)
-	_add_tween(tween, mesh, ^"position:z", 0.0, half)
-
-
-## Sweeps a card from where it is to the exit marker and frees it.
-func _fly_out(card: Card3D, duration: float) -> void:
-	_stop_card_tweens(card)
-	var tween: Tween = create_tween()
-	_add_tween(
-		tween, card, ^"global_position", _exit.global_position, maxf(duration, MIN_TWEEN_TIME)
-	)
-	var err: int = tween.finished.connect(card.queue_free)
-	if err != OK:
-		card.queue_free()
-
-
-func _stop_card_tweens(card: Card3D) -> void:
-	for running: Tween in [card.position_tween, card.rotate_tween, card.hover_tween]:
-		if running != null and running.is_valid():
-			running.kill()
-
-
-func _add_tween(
-	tween: Tween, target: Object, property: NodePath, value: Variant, duration: float
-) -> void:
-	var tweener: PropertyTweener = tween.tween_property(target, property, value, duration)
-	tweener = tweener.set_trans(Tween.TRANS_SINE)
-	tweener = tweener.set_ease(Tween.EASE_IN_OUT)
-
-
 ## Frees every card now and clears the HUD, for a new match.
 func _clear_table_now() -> void:
 	_pointer.cancel()
@@ -658,9 +543,10 @@ func _clear_table_now() -> void:
 	_drag_card = null
 	_drag_from_hand = false
 	_over_row = false
-	_scores.assign([0, 0])
+	_tracker.reset()
+	_fx.reset()
+	_refresh_scores()
 	var zeros: Array[int] = [0, 0]
-	hud.set_scores(zeros)
 	hud.set_wins(zeros)
 	hud.hide_result()
 
@@ -770,7 +656,7 @@ func _resync_staging() -> void:
 			if not staging.insert(card.instance_id, _cost_of(card.instance_id), at_end):
 				rejected.append(card)
 		for card: BoardCard in rejected:
-			_move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
+			_fx.move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
 	staging.set_row(_row_ids())
 	_refresh_staging_ui()
 
@@ -778,7 +664,7 @@ func _resync_staging() -> void:
 ## Sends every staged card back to the hand and empties staging for this turn's energy.
 func _unstage_all() -> void:
 	for card: BoardCard in _staged_cards():
-		_move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
+		_fx.move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
 	staging.reset(_turn_energy, _played_count(), _free_first)
 	_refresh_staging_ui()
 
