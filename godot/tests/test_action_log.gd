@@ -79,7 +79,7 @@ func _scripted(match_seed: int, player: int, count: int) -> MatchEngine:
 
 
 ## One round with real actions: both seats pass turns 1-6; on turn 7 `winner` commits
-## one card (always affordable, power >= 1) and the other passes. TIE passes throughout.
+## one card (always affordable, flat >= 1) and the other passes. TIE passes throughout.
 func _play_round(engine: MatchEngine, winner: int) -> void:
 	for _step: int in range(2 * MatchRules.TURNS):
 		var seat: int = engine.awaited_seat()
@@ -324,14 +324,15 @@ func test_negative_seed_survives_exactly() -> void:
 
 
 func test_numbers_come_back_as_ints() -> void:
+	# Format and rules 2 (DC-05); a whole float header still comes back as an int.
 	var text: String = (
-		'{"format": 1.0, "rules": 1, "seed": "5",'
+		'{"format": 2.0, "rules": 2, "seed": "5",'
 		+ ' "actions": [{"k": "commit", "s": 1.0, "c": [3.0, 21]}, {"k": "concede", "s": 0}]}'
 	)
 	var parsed: ActionLog = ActionLog.from_json(text)
 	assert_object(parsed).is_not_null()
-	assert_int(parsed.format_version).is_equal(1)
-	assert_int(parsed.rules_version).is_equal(1)
+	assert_int(parsed.format_version).is_equal(2)
+	assert_int(parsed.rules_version).is_equal(2)
 	assert_int(parsed.match_seed).is_equal(5)
 	assert_int(parsed.actions.size()).is_equal(2)
 	var first: EngineAction = parsed.actions[0]
@@ -344,7 +345,7 @@ func test_numbers_come_back_as_ints() -> void:
 	# Every value is a real int again, so the output carries no "3.0".
 	var out: String = parsed.to_json()
 	assert_bool(out.contains('{"k":"commit","s":1,"c":[3,21]}')).is_true()
-	assert_bool(out.contains('"format":1,')).is_true()
+	assert_bool(out.contains('"format":2,')).is_true()
 	assert_bool(out.contains(".0")).is_false()
 
 
@@ -588,12 +589,12 @@ func test_malformed_json_gives_null() -> void:
 		'"text"',
 		"null",
 		"{}",
-		'{"format": 1, "rules": 1, "seed": "1"}',
-		'{"format": 1, "rules": 1, "actions": []}',
-		'{"format": 1, "seed": "1", "actions": []}',
-		'{"rules": 1, "seed": "1", "actions": []}',
-		'{"format": 1, "rules": 1, "seed": "1", "actions": {}}',
-		'{"format": 1, "rules": 1, "seed": "1", "actions": "none"}',
+		'{"format": 2, "rules": 2, "seed": "1"}',
+		'{"format": 2, "rules": 2, "actions": []}',
+		'{"format": 2, "seed": "1", "actions": []}',
+		'{"rules": 2, "seed": "1", "actions": []}',
+		'{"format": 2, "rules": 2, "seed": "1", "actions": {}}',
+		'{"format": 2, "rules": 2, "seed": "1", "actions": "none"}',
 		_log_text("1", 1, "1"),
 		_log_text(1.5, 1, "1"),
 		_log_text(1, null, "1"),
@@ -675,7 +676,7 @@ func test_malformed_action_entries_give_null() -> void:
 	]
 	for entry: String in entries:
 		var text: String = (
-			'{"format": 1, "rules": 1, "seed": "1", "actions": [{"k": "concede", "s": 0}, '
+			'{"format": 2, "rules": 2, "seed": "1", "actions": [{"k": "concede", "s": 0}, '
 			+ entry
 			+ "]}"
 		)
@@ -710,7 +711,7 @@ func test_in_range_card_numbers_in_entries_parse() -> void:
 
 
 func _one_entry_log(entry: String) -> String:
-	return '{"format": 1, "rules": 1, "seed": "1", "actions": [' + entry + "]}"
+	return '{"format": 2, "rules": 2, "seed": "1", "actions": [' + entry + "]}"
 
 
 func test_valid_hand_written_log_parses_and_replays() -> void:
@@ -722,7 +723,7 @@ func test_valid_hand_written_log_parses_and_replays() -> void:
 	for entry: Variant in entries:
 		parts.append(JSON.stringify(entry, "  "))
 	var text: String = (
-		'{\n  "seed": "-42",\n  "rules": 1,\n  "format": 1,\n  "actions": [\n'
+		'{\n  "seed": "-42",\n  "rules": 2,\n  "format": 2,\n  "actions": [\n'
 		+ ",\n".join(parts)
 		+ "\n  ]\n}"
 	)

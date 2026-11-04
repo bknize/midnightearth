@@ -437,7 +437,7 @@ func _reveal(step: BoardStep) -> void:
 			_show(card, step)
 			_flip_up(card, step.duration)
 	if step.seat >= 0 and step.seat < _scores.size():
-		_scores[step.seat] += step.power
+		_scores[step.seat] += step.flat
 	hud.set_scores(_scores)
 
 

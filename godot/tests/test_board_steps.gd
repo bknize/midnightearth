@@ -116,7 +116,7 @@ func test_the_opponent_hand_is_hidden_in_deal_steps() -> void:
 # --- Reveals and scores ---------------------------------------------------------------
 
 
-func test_reveal_steps_carry_engine_order_and_power() -> void:
+func test_reveal_steps_carry_engine_order_and_flat() -> void:
 	var cards: CardDb = CardDb.load_default()
 	var reveals: int = 0
 	var next_order: int = 0
@@ -128,20 +128,21 @@ func test_reveal_steps_carry_engine_order_and_power() -> void:
 		reveals += 1
 		var payload: Dictionary = step.source.payload
 		var order: int = payload["order"]
-		var power: int = payload["power"]
+		var flat: int = payload["flat"]
 		assert_int(step.order).is_equal(order)
 		assert_int(step.order).is_equal(next_order)
-		assert_int(step.power).is_equal(power)
+		assert_int(step.flat).is_equal(flat)
 		assert_int(step.card).is_greater_equal(0)
 		assert_int(step.def_index).is_equal(step.card % MatchRules.DECK_SIZE)
 		var def: CardDef = cards.card_at(step.def_index)
 		assert_object(def).is_not_null()
-		assert_int(def.power).is_equal(step.power)
+		assert_int(def.flat).is_equal(step.flat)
 		next_order += 1
 	assert_int(reveals).is_greater(0)
 
 
-func test_summed_reveal_power_equals_the_turn_end_scores() -> void:
+## Until DC-05 T03 adds the walk, a turn's score is the summed flat of its reveals.
+func test_summed_reveal_flat_equals_the_turn_end_scores() -> void:
 	var turn_totals: Array[int] = [0, 0]
 	var previous: Array[int] = [0, 0]
 	var turn_ends: int = 0
@@ -151,7 +152,7 @@ func test_summed_reveal_power_equals_the_turn_end_scores() -> void:
 			if step.turn == 1:
 				previous = [0, 0]
 		elif step.kind == BoardStep.Kind.REVEAL:
-			turn_totals[step.seat] += step.power
+			turn_totals[step.seat] += step.flat
 		elif step.kind == BoardStep.Kind.TURN_END:
 			turn_ends += 1
 			assert_int(step.scores.size()).is_equal(2)

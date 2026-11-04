@@ -20,7 +20,7 @@ enum Kind {
 	OPPONENT_COMMIT,
 	## The viewer's own commit: the cards are already on the row.
 	PLAYER_COMMIT,
-	## A card flips face up and its power joins `seat`'s score.
+	## A card flips face up and its flat joins `seat`'s score.
 	REVEAL,
 	## Both displayed scores are set from `scores`.
 	TURN_END,
@@ -36,7 +36,7 @@ var seat: int = -1
 var card: int = -1
 ## Index into the card database; -1 when unknown.
 var def_index: int = -1
-var power: int = 0
+var flat: int = 0
 ## Cards committed (opponent and player commits).
 var count: int = 0
 ## Engine reveal order (REVEAL).

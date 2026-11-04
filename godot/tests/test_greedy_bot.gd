@@ -1,12 +1,13 @@
 class_name TestGreedyBot
 extends GdUnitTestSuite
 ## The greedy bot (C8; Phase 3 R7): R35 (reads only a seat's view plus its seed, returns
-## a commit for that seat), R36 (a highest-power legal set, ties broken by its seeded
+## a commit for that seat), R36 (a highest-flat legal set, ties broken by its seeded
 ## randomness), R37 (same seed and view give the same action) and R38 (the engine never
-## rejects its action).
+## rejects its action). Until the preview-driven bot (DC-05 T06) it ignores bonus and
+## effects.
 ##
 ## Hand-built views use instance ids from the card table: id = seat * 20 + index, so id 0
-## is c01 (cost 1, power 1), id 3 is c04 (1, 3), id 7 is c08 (2, 4), and so on. Every
+## is c01 (cost 1, flat 1), id 3 is c04 (1, 3), id 7 is c08 (2, 4), and so on. Every
 ## loop that drives the engine shares a cap of MAX_ACTIONS per test, so a bug fails the
 ## test instead of hanging the suite.
 
@@ -66,30 +67,30 @@ func _bot(bot_seed: int) -> GreedyBot:
 	return GreedyBot.new(bot_seed, _db())
 
 
-func _power(cards: Array[int]) -> int:
+func _flat(cards: Array[int]) -> int:
 	var total: int = 0
 	for card: int in cards:
-		total += _card_power(card)
+		total += _card_flat(card)
 	return total
 
 
-func _card_power(card: int) -> int:
-	return _db().card_at(card % MatchRules.DECK_SIZE).power
+func _card_flat(card: int) -> int:
+	return _db().card_at(card % MatchRules.DECK_SIZE).flat
 
 
-## The highest total power over every legal set, computed independently of the bot.
-func _max_power(view: SeatView) -> int:
+## The highest total flat over every legal set, computed independently of the bot.
+func _max_flat(view: SeatView) -> int:
 	var best: int = 0
 	for s: Array in LegalPlays.enumerate(view.own_hand, view.energy, _db()):
-		best = maxi(best, _power(_typed(s)))
+		best = maxi(best, _flat(_typed(s)))
 	return best
 
 
-## Whether `cards` runs in descending power, then ascending instance id.
+## Whether `cards` runs in descending flat, then ascending instance id.
 func _is_commit_order(cards: Array[int]) -> bool:
 	for i: int in range(1, cards.size()):
-		var pa: int = _card_power(cards[i - 1])
-		var pb: int = _card_power(cards[i])
+		var pa: int = _card_flat(cards[i - 1])
+		var pb: int = _card_flat(cards[i])
 		if pa < pb or (pa == pb and cards[i - 1] >= cards[i]):
 			return false
 	return true
@@ -124,12 +125,12 @@ func test_choose_leaves_the_view_unchanged() -> void:
 	assert_dict(view.to_dict()).is_equal(before)
 
 
-# --- R36: highest power ---------------------------------------------------------------
+# --- R36: highest flat ----------------------------------------------------------------
 
 
-func test_picks_the_known_highest_power_set() -> void:
+func test_picks_the_known_highest_flat_set() -> void:
 	# Energy 4 over c01 (1/1), c04 (1/3), c08 (2/4), c14 (4/6): c14 alone is 6, but
-	# c01 + c04 + c08 costs 4 for power 8, the unique best.
+	# c01 + c04 + c08 costs 4 for flat 8, the unique best.
 	for seat: int in range(2):
 		var base: int = seat * MatchRules.DECK_SIZE
 		var hand: Array[int] = [base + 0, base + 3, base + 7, base + 13]
@@ -139,9 +140,9 @@ func test_picks_the_known_highest_power_set() -> void:
 			assert_array(action.cards).is_equal(expected)
 
 
-func test_prefers_one_big_card_when_it_outpowers_the_combinations() -> void:
-	# Energy 7 over c20 (7/9), c01 (1/1), c02 (1/2), c05 (2/2): the small cards sum to
-	# cost 4 and power 5, so c20 alone (9) wins.
+func test_prefers_one_big_card_when_it_outscores_the_combinations() -> void:
+	# Energy 7 over c20 (7/7), c01 (1/1), c02 (1/2), c05 (2/1): the small cards sum to
+	# cost 4 and flat 4, so c20 alone (7) wins.
 	var hand: Array[int] = [0, 1, 4, 19]
 	var expected: Array[int] = [19]
 	assert_array(_bot(3).choose(_view(0, hand, 7)).cards).is_equal(expected)
@@ -170,21 +171,22 @@ func test_failed_card_data_makes_the_bot_pass() -> void:
 	assert_array(action.cards).is_equal(none)
 
 
-func test_commit_order_is_descending_power_then_ascending_id() -> void:
-	# Energy 5 affords all four: c05 (2/2), c04 (1/3), c03 (1/2), c02 (1/2).
+func test_commit_order_is_descending_flat_then_ascending_id() -> void:
+	# Energy 5 affords all four: c05 (2/1), c04 (1/3), c03 (1/1), c02 (1/2); c03 and c05
+	# tie at flat 1, so the lower id goes first.
 	var hand: Array[int] = [4, 3, 2, 1]
 	var expected: Array[int] = [3, 1, 2, 4]
 	assert_array(_bot(1).choose(_view(0, hand, 5)).cards).is_equal(expected)
 
 
 func test_best_sets_lists_every_tied_set() -> void:
-	# Energy 1 over c02 and c03 (both 1/2): {c02} and {c03} tie at power 2.
-	var hand: Array[int] = [1, 2]
+	# Energy 1 over c01 and c03 (both 1/1): {c01} and {c03} tie at flat 1.
+	var hand: Array[int] = [0, 2]
 	var best: Array[Array] = _bot(1).best_sets(_view(0, hand, 1))
 	assert_int(best.size()).is_equal(2)
-	var only_c02: Array[int] = [1]
+	var only_c01: Array[int] = [0]
 	var only_c03: Array[int] = [2]
-	assert_array(_typed(best[0])).is_equal(only_c02)
+	assert_array(_typed(best[0])).is_equal(only_c01)
 	assert_array(_typed(best[1])).is_equal(only_c03)
 
 
@@ -208,7 +210,7 @@ func test_ignores_the_opponents_board_and_face_down_count() -> void:
 
 
 func test_tie_break_is_stable_for_a_fixed_seed_and_view() -> void:
-	var hand: Array[int] = [1, 2]
+	var hand: Array[int] = [0, 2]
 	var view: SeatView = _view(0, hand, 1)
 	for bot_seed: int in range(1, 33):
 		var bot: GreedyBot = _bot(bot_seed)
@@ -219,26 +221,26 @@ func test_tie_break_is_stable_for_a_fixed_seed_and_view() -> void:
 
 
 func test_different_seeds_can_pick_differently_among_tied_sets() -> void:
-	# {c02} and {c03} tie; over 200 seeds each should be picked a fair share of the time.
-	var hand: Array[int] = [1, 2]
+	# {c01} and {c03} tie; over 200 seeds each should be picked a fair share of the time.
+	var hand: Array[int] = [0, 2]
 	var view: SeatView = _view(0, hand, 1)
-	var picked_c02: int = 0
+	var picked_c01: int = 0
 	var picked_c03: int = 0
 	for bot_seed: int in range(1, 201):
 		var cards: Array[int] = _bot(bot_seed).choose(view).cards
 		assert_int(cards.size()).is_equal(1)
-		if cards[0] == 1:
-			picked_c02 += 1
+		if cards[0] == 0:
+			picked_c01 += 1
 		elif cards[0] == 2:
 			picked_c03 += 1
-	assert_int(picked_c02 + picked_c03).is_equal(200)
-	assert_int(picked_c02).is_between(60, 140)
+	assert_int(picked_c01 + picked_c03).is_equal(200)
+	assert_int(picked_c01).is_between(60, 140)
 	assert_int(picked_c03).is_between(60, 140)
 
 
 func test_tie_break_varies_with_round_and_turn() -> void:
 	# The per-decision seed mixes in [round, turn], so one bot is not stuck on one pick.
-	var hand: Array[int] = [1, 2]
+	var hand: Array[int] = [0, 2]
 	var seen: Dictionary[int, bool] = {}
 	var bot: GreedyBot = _bot(7)
 	for round_number: int in range(1, 41):
@@ -282,8 +284,8 @@ func test_engine_never_rejects_the_bot_over_full_matches() -> void:
 			assert_bool(view.is_awaited()).is_true()
 			var action: EngineAction = bots[seat].choose(view)
 			assert_int(action.seat).is_equal(seat)
-			# R36 on a sampled view: the commit reaches the view's best power, in order.
-			assert_int(_power(action.cards)).is_equal(_max_power(view))
+			# R36 on a sampled view: the commit reaches the view's best flat, in order.
+			assert_int(_flat(action.cards)).is_equal(_max_flat(view))
 			assert_bool(_is_commit_order(action.cards)).is_true()
 			var result: ApplyResult = engine.apply(action)
 			actions += 1

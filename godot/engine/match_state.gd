@@ -23,7 +23,7 @@ var first_seat: int = 0
 var seats: Array[SeatPiles] = []
 ## The first committer's face-down cards, in commit order.
 var pending: Array[int] = []
-## Board scores (sum of power on each side) and round wins.
+## Board scores (the sum of flat on each side until DC-05 T03) and round wins.
 var scores: Array[int] = [0, 0]
 var wins: Array[int] = [0, 0]
 ## Winner of the last resolved turn in this round; -1 for a tie or none yet.
