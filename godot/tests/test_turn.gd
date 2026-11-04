@@ -2,10 +2,12 @@
 class_name TestTurn
 extends GdUnitTestSuite
 ## MatchEngine core flow: R3-R4 (entry point, run to the next decision), R9 (instance
-## ids), R11-R17 (round start, draw and burn, energy, two-step commit, reveal interleave,
-## scoring, turn order for turns 2-7), R26-R27 (every error code leaves the state and the
-## accepted actions unchanged; the engine never prints). The action shapes (R5) are in
-## test_engine_action.gd. DC-05: R5-R8 (positional commits, the second committer sees
+## ids), R11-R17 (round start, draw and burn, energy, two-step commit, the tied turn, turn
+## order for turns 2-7), R26-R27 (every error code leaves the state and the accepted
+## actions unchanged; the engine never prints). The action shapes (R5) are in
+## test_engine_action.gd; the walk's reveals and scores (DC-05 R11-R17, which replace
+## cycle 1's reveal interleave and summed flat) are in test_score_walk.gd. DC-05: R5-R8
+## (positional commits, the second committer sees
 ## the first's slots, both commits merge into their rows at resolution), R9-R10 (per-seat
 ## budget, free first card), a choice with no prompt, the empty-slots default.
 ##
@@ -161,10 +163,6 @@ func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
 	return none
 
 
-func _flat(card: int) -> int:
-	return _db().card_at(card % MatchRules.DECK_SIZE).flat
-
-
 func _ids(seat: int) -> Array[int]:
 	var out: Array[int] = []
 	for index: int in range(MatchRules.DECK_SIZE):
@@ -184,20 +182,6 @@ func _assert_rejected(engine: MatchEngine, action: EngineAction, code: int) -> v
 	assert_dict(engine.full_state()).is_equal(before)
 	assert_int(engine.accepted_action_count()).is_equal(count)
 	assert_int(engine.awaited_seat()).is_equal(awaited)
-
-
-## A seed whose turn-7 hands let the first committer play `first_size` cards and the
-## second `second_size`, after both pass turns 1-6; -1 when none in the search range.
-func _seed_with_sets(first_size: int, second_size: int) -> int:
-	for match_seed: int in range(1, SEARCH_SEEDS + 1):
-		var engine: MatchEngine = _started(match_seed)
-		_pass_until_turn(engine, MatchRules.TURNS)
-		var first: int = engine.awaited_seat()
-		var a: Array[int] = _find_set(_hand(engine, first), engine.energy(), first_size)
-		var b: Array[int] = _find_set(_hand(engine, 1 - first), engine.energy(), second_size)
-		if not a.is_empty() and not b.is_empty():
-			return match_seed
-	return -1
 
 
 # --- R3: entry point -------------------------------------------------------------------
@@ -331,8 +315,10 @@ func test_second_commit_runs_into_the_next_turn() -> void:
 	var engine: MatchEngine = _started(SEED)
 	_pass(engine)
 	var result: ApplyResult = _pass(engine)
+	# Both rows are empty: the walk starts (R11) and ends at once, with no pulse.
 	var expected: Array[int] = [
 		MatchEvent.Kind.COMMITTED,
+		MatchEvent.Kind.WALK_STARTED,
 		MatchEvent.Kind.TURN_ENDED,
 		MatchEvent.Kind.TURN_STARTED,
 		MatchEvent.Kind.CARD_DRAWN,
@@ -436,93 +422,7 @@ func test_first_commit_is_face_down_and_awaits_second() -> void:
 	assert_array(_pending_slots(engine)).is_equal(_typed([0]))
 
 
-# --- R15, R16: reveal interleave and scoring ------------------------------------------
-
-
-func test_reveal_three_against_one() -> void:
-	var match_seed: int = _seed_with_sets(3, 1)
-	assert_int(match_seed).is_greater(0)
-	if match_seed < 0:
-		return
-	var engine: MatchEngine = _started(match_seed)
-	_pass_until_turn(engine, MatchRules.TURNS)
-	var first: int = engine.awaited_seat()
-	var second: int = 1 - first
-	var a: Array[int] = _find_set(_hand(engine, first), engine.energy(), 3)
-	var b: Array[int] = _find_set(_hand(engine, second), engine.energy(), 1)
-	# Commit out of hand order with no slots: the append default places the cards in the
-	# order given, and the reveal follows it (R5).
-	a.reverse()
-	engine.apply(EngineAction.commit(first, a))
-	var result: ApplyResult = engine.apply(EngineAction.commit(second, b))
-	assert_bool(result.ok).is_true()
-	var reveals: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.CARD_REVEALED)
-	var expected_cards: Array[int] = [a[0], b[0], a[1], a[2]]
-	var expected_seats: Array[int] = [first, second, first, first]
-	# Rows were empty (every earlier turn passed) and turn 7 ends the round, clearing them,
-	# so the slots are the append positions rather than a look-up after the fact.
-	var expected_slots: Array[int] = [0, 0, 1, 2]
-	assert_int(reveals.size()).is_equal(4)
-	for i: int in range(reveals.size()):
-		assert_int(_payload_int(reveals[i], "card")).is_equal(expected_cards[i])
-		assert_int(_payload_int(reveals[i], "seat")).is_equal(expected_seats[i])
-		assert_int(_payload_int(reveals[i], "order")).is_equal(i)
-		assert_int(_payload_int(reveals[i], "flat")).is_equal(_flat(expected_cards[i]))
-		assert_int(_payload_int(reveals[i], "slot")).is_equal(expected_slots[i])
-		assert_int(reveals[i].owner_seat).is_equal(MatchEvent.PUBLIC)
-	# Scoring: each side sums its board's flat; the higher board wins the turn.
-	var expected_scores: Array[int] = [0, 0]
-	for card: int in a:
-		expected_scores[first] += _flat(card)
-	expected_scores[second] += _flat(b[0])
-	var ended: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.TURN_ENDED)
-	assert_int(ended.size()).is_equal(1)
-	assert_array(_payload_ints(ended[0], "scores")).is_equal(expected_scores)
-	var expected_winner: int = -1
-	if expected_scores[0] > expected_scores[1]:
-		expected_winner = 0
-	elif expected_scores[1] > expected_scores[0]:
-		expected_winner = 1
-	assert_int(_payload_int(ended[0], "winner")).is_equal(expected_winner)
-
-
-func test_reveal_one_against_three() -> void:
-	var match_seed: int = _seed_with_sets(1, 3)
-	assert_int(match_seed).is_greater(0)
-	if match_seed < 0:
-		return
-	var engine: MatchEngine = _started(match_seed)
-	_pass_until_turn(engine, MatchRules.TURNS)
-	var first: int = engine.awaited_seat()
-	var second: int = 1 - first
-	var a: Array[int] = _find_set(_hand(engine, first), engine.energy(), 1)
-	var b: Array[int] = _find_set(_hand(engine, second), engine.energy(), 3)
-	engine.apply(EngineAction.commit(first, a))
-	var result: ApplyResult = engine.apply(EngineAction.commit(second, b))
-	var reveals: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.CARD_REVEALED)
-	var expected_cards: Array[int] = [a[0], b[0], b[1], b[2]]
-	var expected_seats: Array[int] = [first, second, second, second]
-	assert_int(reveals.size()).is_equal(4)
-	for i: int in range(reveals.size()):
-		assert_int(_payload_int(reveals[i], "card")).is_equal(expected_cards[i])
-		assert_int(_payload_int(reveals[i], "seat")).is_equal(expected_seats[i])
-
-
-func test_reveal_puts_cards_on_boards_and_scores_in_state() -> void:
-	var engine: MatchEngine = _started(SEED)
-	_pass_until_turn(engine, 4)
-	var first: int = engine.awaited_seat()
-	var second: int = 1 - first
-	var a: Array[int] = _find_set(_hand(engine, first), engine.energy(), 1)
-	var b: Array[int] = _find_set(_hand(engine, second), engine.energy(), 1)
-	engine.apply(EngineAction.commit(first, a))
-	engine.apply(EngineAction.commit(second, b))
-	assert_array(_board(engine, first)).is_equal(a)
-	assert_array(_board(engine, second)).is_equal(b)
-	assert_array(_pending(engine)).is_empty()
-	var scores: Array[int] = _scores(engine)
-	assert_int(scores[first]).is_equal(_flat(a[0]))
-	assert_int(scores[second]).is_equal(_flat(b[0]))
+# --- R16: scoring (the walk and its reveals: test_score_walk.gd) ----------------
 
 
 func test_tied_turn_has_no_winner() -> void:

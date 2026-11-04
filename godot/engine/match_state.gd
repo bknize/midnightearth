@@ -28,7 +28,8 @@ var pending: Array[int] = []
 var pending_slots: Array[int] = []
 ## Per-seat energy state (plan P7).
 var energy: EnergyState = EnergyState.new()
-## Board scores (the sum of flat on each side until DC-05 T03) and round wins.
+## Board scores (each seat's last walk total, R17; the running total during a walk) and
+## round wins.
 var scores: Array[int] = [0, 0]
 var wins: Array[int] = [0, 0]
 ## Winner of the last resolved turn in this round; -1 for a tie or none yet.
@@ -39,6 +40,11 @@ var last_round_winner: int = -1
 var result: Dictionary = {}
 ## Accepted actions so far; equals the action log's length.
 var actions_applied: int = 0
+## Per-instance modifiers of cards on the rows (plan, MatchState additions), by instance
+## id. Cleared at round start and whenever a card leaves the board (clear_card_state).
+var card_states: Dictionary[int, CardState] = {}
+## The score walk's resumable progress (plan P3), driven by ScoreWalk.
+var walk: WalkState = WalkState.new()
 
 
 func _init(p_match_seed: int = 0) -> void:
@@ -83,7 +89,66 @@ func to_dict() -> Dictionary:
 		"last_round_winner": last_round_winner,
 		"result": result.duplicate(true),
 		"actions_applied": actions_applied,
+		"card_states": _card_states_dict(),
+		"walk": walk.to_dict(),
 	}
+
+
+## A deep copy: no array, dictionary or inner object is shared with this state (plan P12,
+## the preview's clone). The copy's to_dict() equals this one's.
+func duplicate() -> MatchState:
+	var out: MatchState = MatchState.new(match_seed)
+	out.rng_state = rng_state
+	out.round_number = round_number
+	out.turn = turn
+	out.sudden_death = sudden_death
+	out.phase = phase
+	out.first_seat = first_seat
+	out.seats.clear()
+	for piles: SeatPiles in seats:
+		out.seats.append(piles.copy())
+	out.pending.assign(pending)
+	out.pending_slots.assign(pending_slots)
+	out.energy = energy.copy()
+	out.scores.assign(scores)
+	out.wins.assign(wins)
+	out.last_turn_winner = last_turn_winner
+	out.last_round_winner = last_round_winner
+	out.result = result.duplicate(true)
+	out.actions_applied = actions_applied
+	for card: int in card_states:
+		var held: CardState = card_states[card]
+		out.card_states[card] = held.copy()
+	out.walk = walk.copy()
+	return out
+
+
+## `card`'s modifiers, or null when it has none.
+func card_state(card: int) -> CardState:
+	if card_states.has(card):
+		return card_states[card]
+	return null
+
+
+## `card`'s modifiers, created at their defaults when it has none (T04 and T05 write them).
+func card_state_for(card: int) -> CardState:
+	if not card_states.has(card):
+		card_states[card] = CardState.new()
+	return card_states[card]
+
+
+## Drops `card`'s modifiers: call whenever the card leaves the board. True when it had any.
+func clear_card_state(card: int) -> bool:
+	return card_states.erase(card)
+
+
+## The modifiers as plain data, keyed by instance id.
+func _card_states_dict() -> Dictionary:
+	var out: Dictionary = {}
+	for card: int in card_states:
+		var held: CardState = card_states[card]
+		out[card] = held.to_dict()
+	return out
 
 
 ## An untyped copy, so serialized forms hold plain data only.
@@ -112,6 +177,19 @@ class SeatPiles:
 		out.sort()
 		return out
 
+	## Whether `card` has been revealed on this row.
+	func is_revealed(card: int) -> bool:
+		return revealed.has(card) and revealed[card]
+
+	func copy() -> SeatPiles:
+		var out: SeatPiles = SeatPiles.new()
+		out.deck.assign(deck)
+		out.hand.assign(hand)
+		out.board.assign(board)
+		out.burned.assign(burned)
+		out.revealed.assign(revealed)
+		return out
+
 
 ## Per-seat energy (plan P7), each pair indexed by seat. The budget is turn + carry; a
 ## true `free_first` makes the leftmost card of that seat's next commit cost 0 and is
@@ -123,6 +201,13 @@ class EnergyState:
 	var free_first: Array[bool] = [false, false]
 	var spent: Array[int] = [0, 0]
 
+	func copy() -> EnergyState:
+		var out: EnergyState = EnergyState.new()
+		out.carry.assign(carry)
+		out.free_first.assign(free_first)
+		out.spent.assign(spent)
+		return out
+
 	func to_dict() -> Dictionary:
 		var flags: Array = []
 		flags.assign(free_first)
@@ -130,4 +215,45 @@ class EnergyState:
 			"carry": MatchState.plain(carry),
 			"free_first": flags,
 			"spent": MatchState.plain(spent),
+		}
+
+
+## The score walk's progress (plan P3, P5), written only by ScoreWalk. `active` holds from
+## ScoreWalk.begin() until a step finds no card left to pulse. `next_seat` is the seat whose
+## row is tried first on the next pulse; `pulsed` holds every card pulsed in this walk, so
+## nothing is pulsed twice whatever moves; `mult` is each seat's running multiplier.
+class WalkState:
+	extends RefCounted
+
+	var active: bool = false
+	var next_seat: int = 0
+	var pulsed: Dictionary[int, bool] = {}
+	var mult: Array[int] = [1, 1]
+	## Cards revealed so far in this walk: the CARD_REVEALED `order` the board still reads
+	## (kept until the board moves to the walk's events, DC-05 T08 and T11).
+	var reveals: int = 0
+
+	## The pulsed card ids, ascending.
+	func pulsed_ids() -> Array[int]:
+		var out: Array[int] = []
+		out.assign(pulsed.keys())
+		out.sort()
+		return out
+
+	func copy() -> WalkState:
+		var out: WalkState = WalkState.new()
+		out.active = active
+		out.next_seat = next_seat
+		out.pulsed.assign(pulsed)
+		out.mult.assign(mult)
+		out.reveals = reveals
+		return out
+
+	func to_dict() -> Dictionary:
+		return {
+			"active": active,
+			"next_seat": next_seat,
+			"pulsed": MatchState.plain(pulsed_ids()),
+			"mult": MatchState.plain(mult),
+			"reveals": reveals,
 		}

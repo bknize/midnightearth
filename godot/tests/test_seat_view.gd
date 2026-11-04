@@ -30,11 +30,14 @@ const VIEW_KEYS: Array[String] = [
 	"own_pending",
 	"own_board",
 	"opponent_board",
+	"own_row",
+	"opponent_row",
 	"opponent_hand_count",
 	"opponent_pending_count",
 	"opponent_pending_slots",
 	"deck_counts",
 	"scores",
+	"mults",
 	"wins",
 	"round",
 	"turn",
@@ -262,8 +265,13 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.COMMITTED:
 			keys = ["seat", "count", "cards", "slots"]
 		MatchEvent.Kind.CARD_REVEALED:
-			# "flat" was "power" before DC-05; "slot" is new in DC-05.
-			keys = ["seat", "card", "def_id", "flat", "order", "slot"]
+			# "flat" was "power" before DC-05; "slot" and "bonus" are new in DC-05. "order"
+			# stays for the board until it reads the walk's events (DC-05 T08, T11).
+			keys = ["seat", "card", "def_id", "flat", "bonus", "order", "slot"]
+		MatchEvent.Kind.WALK_STARTED:
+			keys = ["round", "turn", "first_seat"]
+		MatchEvent.Kind.CARD_SCORED:
+			keys = ["seat", "card", "slot", "flat", "bonus", "mult", "added", "score"]
 		MatchEvent.Kind.TURN_ENDED:
 			keys = ["round", "turn", "scores", "winner"]
 		MatchEvent.Kind.ROUND_ENDED:
@@ -273,6 +281,32 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.MATCH_ENDED:
 			keys = ["winner", "reason", "wins", "rounds_played"]
 	return keys
+
+
+## A view row (own_row or opponent_row) against `row_seat`'s board in `state`: one entry
+## per card in slot order with its revealed flag and its shown stats. No effect sets a
+## CardState before DC-05 T04, so a shown card shows its definition's flat and bonus; an
+## opponent card not yet revealed shows 0 and 0.
+func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: bool) -> void:
+	var board: Array[int] = _state_list(state, "board", row_seat)
+	var revealed: Array[int] = _state_list(state, "revealed", row_seat)
+	assert_int(row.size()).is_equal(board.size())
+	for slot: int in range(mini(row.size(), board.size())):
+		var entry: Dictionary = row[slot]
+		assert_array(_sorted_keys(entry)).is_equal(_sorted(["card", "flat", "bonus", "revealed"]))
+		var card: int = entry["card"]
+		var flat: int = entry["flat"]
+		var bonus: int = entry["bonus"]
+		var shown: bool = entry["revealed"]
+		assert_int(card).is_equal(board[slot])
+		assert_bool(shown).is_equal(revealed.has(card))
+		var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
+		if own or shown:
+			assert_int(flat).is_equal(def.flat)
+			assert_int(bonus).is_equal(def.bonus)
+		else:
+			assert_int(flat).is_equal(0)
+			assert_int(bonus).is_equal(0)
 
 
 ## The view agrees with the full state on every R28 field.
@@ -309,6 +343,10 @@ func _assert_view_matches_state(view: SeatView, step: Step, seat: int) -> void:
 	]
 	assert_array(view.deck_counts).is_equal(deck_counts)
 	assert_array(view.scores).is_equal(_state_ints(state, "scores"))
+	var walk: Dictionary = state["walk"]
+	assert_array(view.mults).is_equal(_state_ints(walk, "mult"))
+	_assert_row(view.own_row, state, seat, true)
+	_assert_row(view.opponent_row, state, opp, false)
 	assert_array(view.wins).is_equal(_state_ints(state, "wins"))
 	assert_int(view.round_number).is_equal(_state_int(state, "round"))
 	assert_int(view.turn).is_equal(_state_int(state, "turn"))
