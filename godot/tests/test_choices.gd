@@ -3,11 +3,11 @@ class_name TestChoices
 extends GdUnitTestSuite
 ## Prompts and choices (DC-05 T05; R20, R24-R26, R28-R34, R39, plan P3, P9, P10): Choice's
 ## zones and eligibility, the paths for 0, 1 and 2 or more eligible targets, each prompt
-## verb's result (draw then discard, swap, switch, return), a return to a full hand
-## burning, a swap never pulsing a card twice, a paused walk resuming in the same pulse,
-## the engine's AWAIT_CHOICE phase, every choice error code leaving the state and the log
-## unchanged, a concede while prompted, the bot's interim answer, and replay of a log with
-## a choice.
+## verb's result (draw then discard, swap, return; the switch retired at DC-07 T01), a
+## return to a full hand burning, a swap never pulsing a card twice, a paused walk resuming
+## in the same pulse, the engine's AWAIT_CHOICE phase, every choice error code leaving the
+## state and the log unchanged, a concede while prompted, the bot's interim answer, and
+## replay of a log with a choice.
 ##
 ## Walk cases build MatchStates directly. Engine cases are scripted on searched seeds (no
 ## private fields): the first committer plays its c09 on turn 3 and the other passes,
@@ -19,6 +19,12 @@ const MAX_STEPS: int = 100
 ## Bot matches searched for prompts to check preview_choice against the live engine.
 const PREVIEW_SEEDS: int = 50
 const MAX_ACTIONS: int = 2000
+## Every fixture verb that prompts (the switch retired at DC-07 T01).
+const PROMPT_VERBS: Array[int] = [
+	CardEffect.Verb.DRAW_THEN_DISCARD,
+	CardEffect.Verb.SWAP_PLACES,
+	CardEffect.Verb.RETURN_AT_TURN_END,
+]
 
 # Definition indices in the default card list.
 const C04: int = 3
@@ -28,7 +34,7 @@ const C08: int = 7
 const C09_DRAW_DISCARD: int = 8
 const C11: int = 10
 const C12_SWAP: int = 11
-const C13_SWITCH: int = 12
+const C13: int = 12
 const C17_RETURN: int = 16
 
 const PUBLIC: int = MatchEvent.PUBLIC
@@ -252,7 +258,7 @@ func test_zones_are_relative_to_the_prompted_seat() -> void:
 
 
 func test_eligibility_per_verb() -> void:
-	var source: int = _id(0, C13_SWITCH)
+	var source: int = _id(0, C13)
 	var shown: int = _id(0, C04)
 	var hidden: int = _id(0, C08)
 	var theirs: int = _id(1, C07)
@@ -263,7 +269,6 @@ func test_eligibility_per_verb() -> void:
 	var cases: Dictionary = {
 		CardEffect.Verb.DRAW_THEN_DISCARD: [Choice.Zone.OWN_HAND, [0, 1]],
 		CardEffect.Verb.SWAP_PLACES: [Choice.Zone.OWN_BOARD, [0, 2]],
-		CardEffect.Verb.SWITCH_STATS: [Choice.Zone.BOTH_BOARDS, [0, 1, 3]],
 		CardEffect.Verb.RETURN_AT_TURN_END: [Choice.Zone.BOTH_BOARDS, [0, 3]],
 	}
 	for verb: int in cases:
@@ -279,7 +284,7 @@ func test_eligibility_per_verb() -> void:
 	assert_bool(Choice.needs_choice(CardEffect.Verb.DRAW)).is_false()
 
 
-## DC-06 R16: the swap may target a destroyed card; the switch and the return may not.
+## DC-06 R16: the swap may target a destroyed card; the return may not.
 ## Seat 0's row: a revealed card, the source, a face-down card and a destroyed revealed
 ## card; seat 1's: a destroyed revealed card and a live one.
 func test_destroyed_cards_are_swap_targets_only() -> void:
@@ -297,7 +302,6 @@ func test_destroyed_cards_are_swap_targets_only() -> void:
 	state.card_state_for(their_wreck).destroyed = true
 	var cases: Dictionary = {
 		CardEffect.Verb.SWAP_PLACES: [Choice.Zone.OWN_BOARD, [0, 2, 3]],
-		CardEffect.Verb.SWITCH_STATS: [Choice.Zone.BOTH_BOARDS, [0, 1, 5]],
 		CardEffect.Verb.RETURN_AT_TURN_END: [Choice.Zone.BOTH_BOARDS, [0, 5]],
 	}
 	for verb: int in cases:
@@ -493,7 +497,7 @@ func test_draw_then_discard_draws_two_then_discards_the_chosen_hand_card() -> vo
 	var card: int = _id(0, C09_DRAW_DISCARD)
 	var state: MatchState = _state(_typed([card]), _none(), 0)
 	var held: Array[int] = [_id(0, C04), _id(0, C07)]
-	var deck: Array[int] = [_id(0, C08), _id(0, C11), _id(0, C13_SWITCH)]
+	var deck: Array[int] = [_id(0, C08), _id(0, C11), _id(0, C13)]
 	state.seats[0].hand.assign(held)
 	state.seats[0].deck.assign(deck)
 	var recorder: Recorder = Recorder.new()
@@ -553,82 +557,6 @@ func test_draw_then_discard_at_the_cap_burns_the_overflow_then_prompts() -> void
 	)
 	assert_int(state.seats[0].hand.size()).is_equal(MatchRules.HAND_CAP)
 	assert_int(Choice.options_of(state.prompt).size()).is_equal(MatchRules.HAND_CAP)
-
-
-# --- SWITCH_STATS (R20, R21) ----------------------------------------------------------
-
-
-func test_switch_stats_switches_a_revealed_card_on_either_board() -> void:
-	var card: int = _id(0, C13_SWITCH)
-	var theirs: int = _id(1, C07)
-	var state: MatchState = _state(_typed([card]), _typed([theirs]), 0)
-	_reveal(state, 1, _typed([theirs]))
-	var recorder: Recorder = Recorder.new()
-	ScoreWalk.begin(state)
-	assert_bool(_run(state, recorder)).is_true()
-	var zone: int = state.prompt["zone"]
-	assert_int(zone).is_equal(Choice.Zone.BOTH_BOARDS)
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0, 1]))
-	assert_bool(_answer(state, 1, recorder)).is_false()
-	var events: Array[MatchEvent] = recorder.events
-	var expected: Array[int] = [REVEALED, FIRED, REQUESTED, MADE, STATS, SCORED, SCORED]
-	assert_array(_kinds(events)).is_equal(expected)
-	_assert_event(events[3], MADE, _made(0, card, "both_boards", 1, theirs, false), PUBLIC)
-	var switched: Dictionary = {"seat": 1, "card": theirs, "flat": 1, "bonus": 2, "cause": "switch"}
-	_assert_event(events[4], STATS, switched, PUBLIC)
-	assert_bool(state.card_state(theirs).has_base).is_true()
-	assert_vector(ScoreWalk.effective(theirs, state, _db())).is_equal(Vector2i(1, 2))
-	# c13 scores 2 x (1 + 2); the switched (1, 2) card scores 1 x (1 + 2).
-	assert_array(state.scores).is_equal(_typed([6, 3]))
-
-
-func test_switch_stats_switches_back_and_may_pick_its_own_card() -> void:
-	var card: int = _id(0, C13_SWITCH)
-	var alone: MatchState = _state(_typed([card]), _none(), 0)
-	var recorder: Recorder = Recorder.new()
-	_walk(alone, recorder)
-	assert_array(_kinds(recorder.events)).is_equal(_typed([REVEALED, FIRED, MADE, STATS, SCORED]))
-	_assert_event(recorder.events[2], MADE, _made(0, card, "both_boards", 0, card, true), PUBLIC)
-	assert_bool(alone.card_state(card).has_base).is_true()
-	# Switching an already switched card switches what it shows now back: (1, 2) to (2, 1).
-	var theirs: int = _id(1, C07)
-	var state: MatchState = _state(_typed([card]), _typed([theirs]), 0)
-	_reveal(state, 1, _typed([theirs]))
-	ScoreWalk.switch_stats(theirs, state, _db())
-	assert_vector(ScoreWalk.effective(theirs, state, _db())).is_equal(Vector2i(1, 2))
-	var again: Recorder = Recorder.new()
-	ScoreWalk.begin(state)
-	_run(state, again)
-	_answer(state, 1, again)
-	assert_vector(ScoreWalk.effective(theirs, state, _db())).is_equal(Vector2i(2, 1))
-	var stats: MatchEvent = _of_kind(again.events, STATS)[0]
-	assert_int(_payload_int(stats, "flat")).is_equal(2)
-	assert_int(_payload_int(stats, "bonus")).is_equal(1)
-
-
-## Ben's ruling 1a (DC-05 T13): c13 switches a c06 that has flatted up twice, (3, 0), to
-## (0, 3), and the STATS_CHANGED payload says so; c06 then scores 0 and its flat-up raises
-## the new flat to (1, 3).
-func test_switch_stats_swaps_a_flatted_up_card_as_it_stands() -> void:
-	var card: int = _id(0, C13_SWITCH)
-	var theirs: int = _id(1, C06_FLAT_UP)
-	var state: MatchState = _state(_typed([card]), _typed([theirs]), 0)
-	_reveal(state, 1, _typed([theirs]))
-	state.card_state_for(theirs).flat_delta = 2
-	assert_vector(ScoreWalk.effective(theirs, state, _db())).is_equal(Vector2i(3, 0))
-	var recorder: Recorder = Recorder.new()
-	ScoreWalk.begin(state)
-	assert_bool(_run(state, recorder)).is_true()
-	assert_bool(_answer(state, 1, recorder)).is_false()
-	var changed: Array[MatchEvent] = _of_kind(recorder.events, STATS)
-	assert_int(changed.size()).is_equal(2)
-	var switched: Dictionary = {"seat": 1, "card": theirs, "flat": 0, "bonus": 3, "cause": "switch"}
-	_assert_event(changed[0], STATS, switched, PUBLIC)
-	var raised: Dictionary = {"seat": 1, "card": theirs, "flat": 1, "bonus": 3, "cause": "flat_up"}
-	_assert_event(changed[1], STATS, raised, PUBLIC)
-	# c13 scores 2 x (1 + 2); the switched c06 scores 0 x (1 + 3).
-	assert_array(state.scores).is_equal(_typed([6, 0]))
-	assert_vector(ScoreWalk.effective(theirs, state, _db())).is_equal(Vector2i(1, 3))
 
 
 # --- RETURN_AT_TURN_END (R20, R24, R25) -----------------------------------------------
@@ -815,9 +743,10 @@ func test_the_bot_answers_its_prompt_with_a_best_option() -> void:
 
 ## R35, R37 (DC-05 T13): for every option of an open prompt, preview_choice equals the
 ## scores the live engine ends that walk on after the same choice. Prompts come from bot
-## matches (one per verb, until a switch prompt is found); the live side is a fresh engine
-## that replays the paused match's log, submits the option, and answers any later prompt
-## with its first option, as the preview's policy does. Only prompts whose remaining walk
+## matches (one per verb, until every prompt verb is found; the switch this looked for
+## retired at DC-07 T01); the live side is a fresh engine that replays the paused match's
+## log, submits the option, and answers any later prompt with its first option, as the
+## preview's policy does. Only prompts whose remaining walk
 ## the preview sees in full are taken (_preview_is_exact).
 func test_preview_choice_equals_the_live_outcome_for_every_option() -> void:
 	var seen: Dictionary = {}
@@ -839,9 +768,12 @@ func test_preview_choice_equals_the_live_outcome_for_every_option() -> void:
 			)
 			assert_int(live.size()).override_failure_message(where).is_equal(2)
 			assert_array(previewed).override_failure_message(where).is_equal(live)
-		if seen.has(CardEffect.Verb.SWITCH_STATS):
+		if seen.size() == PROMPT_VERBS.size():
 			return
-	fail("no bot match in %d seeds opened an exactly previewable switch prompt" % PREVIEW_SEEDS)
+	var none_found: String = (
+		"no bot match in %d seeds opened an exactly previewable prompt" % PREVIEW_SEEDS
+	)
+	assert_bool(seen.is_empty()).override_failure_message(none_found).is_false()
 
 
 ## Plays `match_seed` bot against bot until a prompt opens whose verb is not in `seen` and

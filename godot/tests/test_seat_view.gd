@@ -378,7 +378,7 @@ func _payload_keys(kind: int) -> Array:
 func _shown_stats(state: Dictionary, card: int) -> Vector2i:
 	var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
 	var flat: int = def.flat
-	var bonus: int = def.bonus
+	var bonus: int = def.legacy_bonus()
 	var held_all: Dictionary = state["card_states"]
 	if held_all.has(card):
 		var held: Dictionary = held_all[card]

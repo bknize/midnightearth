@@ -128,7 +128,8 @@ static func _held_stats(card: int, state: MatchState, cards: CardDb) -> Vector2i
 	if def == null:
 		return Vector2i.ZERO
 	var flat: int = def.flat
-	var bonus: int = def.bonus
+	# The integer mult reads the DC-05 bonus until DC-07 T03's hundredths mult.
+	var bonus: int = def.legacy_bonus()
 	var held: CardState = state.card_state(card)
 	if held != null:
 		if held.has_base:

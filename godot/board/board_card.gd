@@ -60,14 +60,10 @@ func show_def(def: CardDef) -> void:
 	_cost_label.text = str(def.cost)
 	var times: int = ScoreTracker.MULT_ONE
 	var plus: int = 0
-	if "times" in def or "plus" in def:
-		var raw_times: Variant = def.get("times")
-		var raw_plus: Variant = def.get("plus")
-		times = raw_times if raw_times is int else ScoreTracker.MULT_ONE
-		plus = raw_plus if raw_plus is int else 0
-	elif def.bonus != 0:
-		# Until CardDef carries {times, plus}: the printed bonus is a whole-number multiplier.
-		times = def.bonus * ScoreTracker.MULT_ONE
+	if def.bonus_kind == CardDef.BonusKind.TIMES:
+		times = def.bonus
+	elif def.bonus_kind == CardDef.BonusKind.PLUS:
+		plus = def.bonus
 	_set_numbers(def.flat, times, plus)
 	if def.effect != null:
 		_text_label.text = def.effect.text

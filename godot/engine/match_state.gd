@@ -48,7 +48,7 @@ var card_states: Dictionary[int, CardState] = {}
 ## The score walk's resumable progress (plan P3), driven by ScoreWalk.
 var walk: WalkState = WalkState.new()
 ## Per seat that will suffer it: the bonus-0 mark (R22). Set by the opponent's
-## OPPONENT_NEXT_BONUS_ZERO effect, spent by this seat's next reveal; a bool, so setting it
+## OPPONENT_NEXT_NO_BONUS effect, spent by this seat's next reveal; a bool, so setting it
 ## again before it is spent does not stack. Cleared at round start (MatchEngine).
 var bonus_zero_pending: Array[bool] = [false, false]
 ## The open prompt (plan P9): {seat, card, verb, zone, options}, with `verb` a

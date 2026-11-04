@@ -14,15 +14,14 @@ const PROMPT_SEEDS: int = 10
 const NOT_AN_OPTION: int = 99
 ## Sentinel line meaning "not pinned yet".
 const LINE_UNPINNED: String = ""
-## Seed 1's pinned board result line, re-pinned at DC-06 T09 for rules version 3 (the DC-05
-## line was "Board: match ended seed=1 winner=0 wins=4-2 rounds=6 end=wins actions=114").
+## Seed 1's pinned board result line, unpinned at DC-07 T01 (c13 became vanilla flat 5);
+## the DC-06 T09 line (rules version 3) was "Board: match ended seed=1 winner=0 wins=4-3
+## rounds=7 end=wins actions=120", the DC-05 line "... wins=4-2 rounds=6 ... actions=114".
 ## While it is LINE_UNPINNED the pinned-line test is skipped with LINE_SKIP_NOTE; the
 ## autoplay test still compares against a direct bot-vs-bot engine run.
-const EXPECTED_LINE: String = (
-	"Board: match ended seed=1 winner=0 wins=4-3" + " rounds=7 end=wins actions=120"
-)
+const EXPECTED_LINE: String = LINE_UNPINNED
 const LINE_SKIP_NOTE: String = (
-	"re-pinned at DC-06 T09 (rules version 3): pin EXPECTED_LINE from seed 1's"
+	"unpinned at DC-07 T01 (card data format 3): pin EXPECTED_LINE from seed 1's"
 	+ " 'Board: match ended' line"
 )
 ## Event kinds whose card ids are private to their owner.

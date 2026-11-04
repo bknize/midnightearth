@@ -329,7 +329,7 @@ func _walk_score(row: Array[int]) -> int:
 	var total: int = 0
 	for card: int in row:
 		var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
-		mult += def.bonus
+		mult += def.legacy_bonus()
 		total += def.flat * mult
 	return total
 

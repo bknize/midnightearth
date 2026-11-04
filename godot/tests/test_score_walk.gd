@@ -22,7 +22,6 @@ const C06_FLAT_UP: int = 5
 const C08: int = 7
 const C11: int = 10
 const C12_SWAP: int = 11
-const C13_SWITCH: int = 12
 
 var _cached_db: CardDb = null
 
@@ -54,7 +53,7 @@ func _vanilla() -> Array[int]:
 func _card_with(seat: int, flat: int, bonus: int) -> int:
 	for index: int in _vanilla():
 		var def: CardDef = _db().card_at(index)
-		if def.flat == flat and def.bonus == bonus:
+		if def.flat == flat and def.legacy_bonus() == bonus:
 			return seat * MatchRules.DECK_SIZE + index
 	return -1
 
@@ -84,7 +83,7 @@ func _walk_score(row: Array[int]) -> int:
 	var total: int = 0
 	for card: int in row:
 		var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
-		mult += def.bonus
+		mult += def.legacy_bonus()
 		total += def.flat * mult
 	return total
 
@@ -263,7 +262,7 @@ func test_an_unrevealed_card_is_revealed_then_scored_and_a_revealed_one_only_sco
 	assert_str(def_id).is_equal(def.id)
 	assert_int(_payload_int(reveal, "slot")).is_equal(1)
 	assert_int(_payload_int(reveal, "flat")).is_equal(def.flat)
-	assert_int(_payload_int(reveal, "bonus")).is_equal(def.bonus)
+	assert_int(_payload_int(reveal, "bonus")).is_equal(def.legacy_bonus())
 	assert_int(_payload_int(reveal, "order")).is_equal(0)
 	assert_bool(state.seats[0].is_revealed(row[1])).is_true()
 
@@ -700,15 +699,16 @@ func test_a_switch_after_two_flat_ups_swaps_the_raised_flat() -> void:
 
 
 func test_a_switch_after_bonus_zero_swaps_the_zeroed_bonus() -> void:
-	# c13 is printed (2, 2); the bonus-0 mark spent on it leaves (2, 0).
-	var card: int = C13_SWITCH
-	assert_vector(Vector2i(_flat(card), _bonus(card))).is_equal(Vector2i(2, 2))
+	# c11 is printed (3, 1) (c13, used here before, is vanilla (5, 0) since DC-07 T01); the
+	# bonus-0 mark spent on it leaves (3, 0).
+	var card: int = C11
+	assert_vector(Vector2i(_flat(card), _bonus(card))).is_equal(Vector2i(3, 1))
 	var state: MatchState = _alone(card)
 	state.bonus_zero_pending[0] = true
 	EffectResolver.spend_bonus_zero(state, _db(), 0, card)
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(2, 0))
+	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(3, 0))
 	ScoreWalk.switch_stats(card, state, _db())
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(0, 2))
+	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(0, 3))
 	# The mark is folded into the base, not kept: the new bonus stands.
 	assert_bool(state.card_state(card).bonus_zero).is_false()
 
@@ -864,7 +864,7 @@ func _flat(card: int) -> int:
 
 
 func _bonus(card: int) -> int:
-	return _db().card_at(card % MatchRules.DECK_SIZE).bonus
+	return _db().card_at(card % MatchRules.DECK_SIZE).legacy_bonus()
 
 
 func _pending(engine: MatchEngine) -> Array[int]:

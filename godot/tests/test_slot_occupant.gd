@@ -16,7 +16,7 @@ const MAX_STEPS: int = 100
 const C04: int = 3
 const C08: int = 7
 const C12_SWAP: int = 11
-const C13_SWITCH: int = 12
+const C17_RETURN: int = 16
 
 var _cached_db: CardDb = null
 
@@ -167,13 +167,13 @@ func test_a_destroyed_card_swapped_onto_the_slot_flips_and_scores_nothing() -> v
 # --- R5, C24: the card landing on the slot reveals in full, prompts, then scores ------
 
 
-## c12 swaps with x, a face-down c13 (on-reveal switch). x, now on slot 1, reveals in full
-## in c12's pulse: CARD_REVEALED at slot 1, the bonus-0 mark spent on it, its on-reveal
-## switch opening a prompt of its own. That pause records x and slot 1; the resume after
-## the switch scores x on slot 1 (flat 2, bonus 0 after the mark), and c12 scores once at
-## slot 2.
+## c12 swaps with x, a face-down c17 (on-reveal return; c13's switch retired at DC-07 T01).
+## x, now on slot 1, reveals in full in c12's pulse: CARD_REVEALED at slot 1, the bonus-0
+## mark spent on it, its on-reveal return opening a prompt of its own (c04, c12 and seat
+## 1's revealed c02). That pause records x and slot 1; the resume after the return scores x
+## on slot 1 (flat 6, bonus 0), and c12 scores once at slot 2.
 func test_the_card_landing_on_the_slot_reveals_in_full_before_it_scores() -> void:
-	var x: int = C13_SWITCH
+	var x: int = C17_RETURN
 	var state: MatchState = _swap_state(x)
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
@@ -188,7 +188,7 @@ func test_the_card_landing_on_the_slot_reveals_in_full_before_it_scores() -> voi
 	var prompt_card: int = state.prompt["card"]
 	var prompt_verb: int = state.prompt["verb"]
 	assert_int(prompt_card).is_equal(x)
-	assert_int(prompt_verb).is_equal(CardEffect.Verb.SWITCH_STATS)
+	assert_int(prompt_verb).is_equal(CardEffect.Verb.RETURN_AT_TURN_END)
 	assert_int(state.walk.paused_card).is_equal(x)
 	assert_int(state.walk.paused_slot).is_equal(1)
 	assert_int(state.walk.paused_stage).is_equal(ScoreWalk.Stage.WATCHERS)
@@ -203,7 +203,7 @@ func test_the_card_landing_on_the_slot_reveals_in_full_before_it_scores() -> voi
 	assert_bool(state.card_state(x).bonus_zero).is_true()
 	assert_int(_for_card(recorder.events, MatchEvent.Kind.STATS_CHANGED, x).size()).is_equal(1)
 	assert_array(_for_card(recorder.events, MatchEvent.Kind.CARD_SCORED, x)).is_empty()
-	# Switch c04 (position 0 of both boards, already scored): x is scored next, on slot 1.
+	# Mark c04 (position 0 of both boards, already scored): x is scored next, on slot 1.
 	_answer(state, 0, recorder)
 	var before_resume: int = recorder.events.size()
 	assert_bool(_run(state, recorder)).is_false()
@@ -211,14 +211,14 @@ func test_the_card_landing_on_the_slot_reveals_in_full_before_it_scores() -> voi
 	var first_score: MatchEvent = _of_kind(resumed, MatchEvent.Kind.CARD_SCORED)[0]
 	assert_int(_payload_int(first_score, "card")).is_equal(x)
 	assert_int(_payload_int(first_score, "slot")).is_equal(1)
-	assert_int(_payload_int(first_score, "added")).is_equal(2)
+	assert_int(_payload_int(first_score, "added")).is_equal(6)
 	var theirs: Array[int] = _theirs()
 	var scored: Array[int] = _cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)
 	assert_array(scored).is_equal(_typed([C04, theirs[0], x, theirs[1], C12_SWAP]))
 	var want_again: Array[bool] = [false, false, false, false, false]
 	assert_array(_again_flags(recorder.events)).is_equal(want_again)
-	# c04 3 + c13 2*1 + c12 4*1.
-	assert_int(state.scores[0]).is_equal(9)
+	# c04 3 + c17 6*1 + c12 4*1.
+	assert_int(state.scores[0]).is_equal(13)
 	assert_int(state.walk.paused_slot).is_equal(-1)
 	assert_bool(state.walk.active).is_false()
 

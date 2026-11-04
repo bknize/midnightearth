@@ -16,9 +16,10 @@ extends RefCounted
 ## - FREE_FIRST_NEXT_TURN: sets `energy.free_first[owner]`, FREE_FIRST_SET {seat}. It fires
 ##   during a walk, after both commits, so the owner's next commit is the next turn's; that
 ##   commit consumes it whether or not it uses it, so an unused free card is lost (P7).
-## - OPPONENT_NEXT_BONUS_ZERO: sets `bonus_zero_pending[opponent]` (no stacking, R22),
-##   BONUS_ZERO_SET {seat: the opponent}. spend_bonus_zero() spends it on that seat's next
-##   reveal, in this walk or a later one.
+## - OPPONENT_NEXT_NO_BONUS (DC-05's OPPONENT_NEXT_BONUS_ZERO, renamed at DC-07 T01):
+##   sets `bonus_zero_pending[opponent]` (no stacking, R22), BONUS_ZERO_SET {seat: the
+##   opponent}. spend_bonus_zero() spends it on that seat's next reveal, in this walk or a
+##   later one.
 ## - DESTROY_RANDOM_OPPONENT: picks one live (not yet destroyed) card of the opponent's row
 ##   (P11, R27; DC-06 R16) and marks it destroyed in place (DC-06 R12, P4): it keeps its
 ##   slot, CARD_DESTROYED {seat, card, slot}. A row with no live card fizzles (R26, DC-06
@@ -44,9 +45,6 @@ extends RefCounted
 ##     a card moved ahead of it is pulsed again there, and the pulse running the swap
 ##     scores the card that landed on its slot (revealing it first if face down), not the
 ##     source.
-##   - SWITCH_STATS: exchanges the target's current flat and bonus, flat-ups and the
-##     bonus-0 mark included (ScoreWalk.switch_stats; Ben's ruling 1a): STATS_CHANGED
-##     (cause switch).
 ##   - RETURN_AT_TURN_END: sets the target's CardState.return_marked; resolve_returns()
 ##     takes it back to its owner's hand at turn end, or burns it at the cap (R24, R25);
 ##     a marked card destroyed by then is discarded by clear_destroyed() instead (DC-06
@@ -73,7 +71,6 @@ extends RefCounted
 
 const CAUSE_FLAT_UP: String = "flat_up"
 const CAUSE_BONUS_ZERO: String = "bonus_zero"
-const CAUSE_SWITCH: String = "switch"
 const KEY_SEAT: String = "seat"
 const KEY_CARD: String = "card"
 const KEY_VERB: String = "verb"
@@ -115,7 +112,7 @@ static func apply(
 			_draw(state, seat, effect.amount, outcome)
 		CardEffect.Verb.FREE_FIRST_NEXT_TURN:
 			_free_first(state, seat, outcome)
-		CardEffect.Verb.OPPONENT_NEXT_BONUS_ZERO:
+		CardEffect.Verb.OPPONENT_NEXT_NO_BONUS:
 			_mark_bonus_zero(state, seat, outcome)
 		CardEffect.Verb.DESTROY_RANDOM_OPPONENT:
 			_destroy_random(state, cards, rng, policy, seat, card, outcome)
@@ -126,9 +123,13 @@ static func apply(
 		CardEffect.Verb.DRAW_THEN_DISCARD:
 			_draw(state, seat, effect.amount, outcome)
 			_ask(state, cards, policy, seat, card, effect, outcome)
-		_:
-			# SWAP_PLACES, SWITCH_STATS, RETURN_AT_TURN_END: a target, then the verb.
+		CardEffect.Verb.SWAP_PLACES, CardEffect.Verb.RETURN_AT_TURN_END:
+			# A target, then the verb.
 			_ask(state, cards, policy, seat, card, effect, outcome)
+		_:
+			# The DC-07 Ruin and Drift verbs are known names only until T05-T07 give them
+			# behaviour: EFFECT_FIRED and nothing else.
+			pass
 	return outcome
 
 
@@ -194,9 +195,10 @@ static func answer(state: MatchState, cards: CardDb, index: int) -> Array[MatchE
 
 
 ## Applies `prompt`'s verb to position `index` of its zone: CHOICE_MADE, then the verb's
-## own events (see the class comment). Empty when the position names no card.
+## own events (see the class comment). Empty when the position names no card. `_cards` is
+## unused since the switch retired (DC-07 T01); the verbs of T05-T07 read it again.
 static func apply_choice(
-	state: MatchState, cards: CardDb, prompt: Dictionary, index: int, auto: bool
+	state: MatchState, _cards: CardDb, prompt: Dictionary, index: int, auto: bool
 ) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	var seat: int = prompt.get(KEY_SEAT, -1)
@@ -222,9 +224,6 @@ static func apply_choice(
 			out.append(_discard(state, holder, target))
 		CardEffect.Verb.SWAP_PLACES:
 			out.append_array(_swap(state, holder, source, target))
-		CardEffect.Verb.SWITCH_STATS:
-			ScoreWalk.switch_stats(target, state, cards)
-			out.append(_stats_changed(state, cards, holder, target, CAUSE_SWITCH))
 		CardEffect.Verb.RETURN_AT_TURN_END:
 			state.card_state_for(target).return_marked = true
 	return out

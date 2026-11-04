@@ -8,17 +8,17 @@ extends RefCounted
 ## choice (R30): a hand in hand order, a row in slot order. A face-down card is chosen by
 ## its position, never by its id.
 ##
-## Two-board zone (DC-05 T05): a verb whose targets may lie on either row (SWITCH_STATS,
-## RETURN_AT_TURN_END) uses BOTH_BOARDS, one flat list made of the prompted seat's own row
-## in slot order followed by the opponent's row in slot order. Index i < own row size is
-## own slot i; otherwise it is opponent slot i - own row size. Both row sizes are public,
-## so either seat (and the board's PromptRules) can map an index to a card.
+## Two-board zone (DC-05 T05): a verb whose targets may lie on either row
+## (RETURN_AT_TURN_END; the switch it also served retired at DC-07 T01) uses BOTH_BOARDS,
+## one flat list made of the prompted seat's own row in slot order followed by the
+## opponent's row in slot order. Index i < own row size is own slot i; otherwise it is
+## opponent slot i - own row size. Both row sizes are public, so either seat (and the
+## board's PromptRules) can map an index to a card.
 ##
 ## Eligibility per verb (R20):
 ## - DRAW_THEN_DISCARD: OWN_HAND, every position (after the draws).
 ## - SWAP_PLACES: OWN_BOARD, every card but the source, revealed or not, destroyed or not
 ##   (DC-06 R16).
-## - SWITCH_STATS: BOTH_BOARDS, every revealed card not destroyed, the source included.
 ## - RETURN_AT_TURN_END: BOTH_BOARDS, every revealed card not destroyed but the source.
 ## Any other verb needs no choice: eligible() gives zone -1 and no options.
 ##
@@ -53,7 +53,6 @@ static func needs_choice(verb: int) -> bool:
 	return (
 		verb == CardEffect.Verb.DRAW_THEN_DISCARD
 		or verb == CardEffect.Verb.SWAP_PLACES
-		or verb == CardEffect.Verb.SWITCH_STATS
 		or verb == CardEffect.Verb.RETURN_AT_TURN_END
 	)
 
@@ -65,7 +64,7 @@ static func zone_for(verb: int) -> int:
 			return Zone.OWN_HAND
 		CardEffect.Verb.SWAP_PLACES:
 			return Zone.OWN_BOARD
-		CardEffect.Verb.SWITCH_STATS, CardEffect.Verb.RETURN_AT_TURN_END:
+		CardEffect.Verb.RETURN_AT_TURN_END:
 			return Zone.BOTH_BOARDS
 	return NO_ZONE
 
@@ -158,15 +157,13 @@ static func _is_eligible(
 			return true
 		CardEffect.Verb.SWAP_PLACES:
 			return card != source
-		CardEffect.Verb.SWITCH_STATS:
-			return _is_live_and_revealed(state, seat, zone, index, card)
 		CardEffect.Verb.RETURN_AT_TURN_END:
 			return card != source and _is_live_and_revealed(state, seat, zone, index, card)
 	return false
 
 
-## Whether `card` is revealed and not destroyed (DC-06 R16): the switch and the return skip
-## destroyed cards; the swap does not ask.
+## Whether `card` is revealed and not destroyed (DC-06 R16): the return skips destroyed
+## cards; the swap does not ask.
 static func _is_live_and_revealed(
 	state: MatchState, seat: int, zone: int, index: int, card: int
 ) -> bool:

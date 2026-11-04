@@ -129,7 +129,8 @@ func test_other_taps_do_nothing_when_nothing_is_lifted() -> void:
 func test_action_label_names_the_move() -> void:
 	assert_str(PromptRules.action_label("swap_places")).is_equal("Swap")
 	assert_str(PromptRules.action_label("draw_then_discard")).is_equal("Discard")
-	assert_str(PromptRules.action_label("switch_stats")).is_equal("Switch")
+	# The switch and its label retired at DC-07 T01 (R15, C20).
+	assert_str(PromptRules.action_label("switch_stats")).is_equal("")
 	assert_str(PromptRules.action_label("return_at_turn_end")).is_equal("Return")
 	assert_str(PromptRules.action_label("nope")).is_equal("")
 
@@ -139,7 +140,6 @@ func test_action_label_reads_the_engine_prompt_verb() -> void:
 	var cases: Dictionary[int, String] = {
 		CardEffect.Verb.SWAP_PLACES: "Swap",
 		CardEffect.Verb.DRAW_THEN_DISCARD: "Discard",
-		CardEffect.Verb.SWITCH_STATS: "Switch",
 		CardEffect.Verb.RETURN_AT_TURN_END: "Return",
 	}
 	for verb: int in cases:
