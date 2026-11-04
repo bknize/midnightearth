@@ -69,9 +69,13 @@ preview follows the same cursor, and every match still replays from its log.
   shall be pulsed in order; when neither has one, the walk shall end.
 - R4. A walk shall pulse every slot of both rows exactly once, so the number of pulses in a
   walk equals the number of slots on both rows when the walk starts.
-- R5. The pulse shall belong to the card occupying the slot when the pulse starts; when an
-  effect fired by that pulse moves the card, the pulse shall complete on that card wherever
-  it has landed: its score and its on-score effect, as DC-05 R13–R15 order them.
+- R5. A pulse's reveal stage shall belong to the card occupying the slot when the pulse
+  starts; its score stage shall belong to the card occupying that slot once the reveal
+  stage's effects have resolved (C23, amended 2026-11-04). When that card is not the one
+  that revealed and is unrevealed, it shall first reveal in full (bonus-0 spend, its
+  on-reveal effect, the opponent's on-reveal watchers) and then score (C24); when it has
+  already scored in this walk, it shall score again as R9 says (C25); when it is destroyed,
+  it shall flip if face down and score nothing (R13, R14).
 - R6. When an effect moves a card to a slot of its row the cursor has not passed, the
   cursor shall pulse that card again when it reaches that slot.
 - R7. When an effect moves a card to a slot of its row the cursor has passed, the cursor
@@ -84,8 +88,10 @@ preview follows the same cursor, and every match still replays from its log.
   its effective flat times that multiplier to the seat's score again, and shall fire its
   on-score effect again.
 - R10. When a swap moves two cards, R5–R8 shall apply to each card separately.
-- R11. When the card on a slot the cursor has passed is replaced by a swap, the card that
-  landed there shall not score on that slot this walk.
+- R11. When an effect fired by a pulse moves the pulsed card off its slot, the moved card
+  shall not score in that pulse: it shall score when the cursor reaches its new slot if that
+  slot is unpassed (R6), and not in this walk if it is passed (R7) (C23, amended
+  2026-11-04; the card that landed on the pulsed slot scores in its place, R5).
 
 ### Destroyed cards (replaces DC-05 R23; C5, C7–C9, C11)
 
@@ -200,12 +206,12 @@ defaults stated in rounds 2 and 4 with no objection.
 | # | Question | Decision |
 |---|---|---|
 | C1 | Ben's request | In his words: "Swap positions changes the order in which the cards are scored. If you swap a card behind where the cursor already scored, then that card does not get scored or revealed this turn. Likewise, if you swap an already-scored card in front of the cursor, it gets scored again" |
-| C2 | c12 swaps with a card that has already scored; it lands on c12's slot, the one being pulsed. Behind or in front? | "Behind. The cursor scored this slot already to initiate the swap, so the newly-swapped card does not score on this slot." (R11) |
-| C3 | c12 swaps forward: score now and again, or only at the new slot? | "Now and again. The swap effect is only on reveal so no other ability fires." (R5, R6) |
+| C2 | c12 swaps with a card that has already scored; it lands on c12's slot, the one being pulsed. Behind or in front? | "Behind. The cursor scored this slot already to initiate the swap, so the newly-swapped card does not score on this slot." (R11) Superseded by C23 (2026-11-04). |
+| C3 | c12 swaps forward: score now and again, or only at the new slot? | "Now and again. The swap effect is only on reveal so no other ability fires." (R5, R6) Superseded by C23 (2026-11-04). |
 | C4 | A card scoring a second time: on-score again or points only? | "On-score triggers again" (R9) |
 | C5 | A face-down card swapped behind the cursor: hidden until a later turn? | "Yes, next turn it will reveal as normal" (R8) |
 | C6 | Destroying a card left of the cursor shifts the row | "A 'destroyed' card is a state. It doesn't score or trigger score-events, it DOES reveal, and at the end of the turn it's discarded from the board." Replaces DC-05 R23 (R12–R22) |
-| C7 | Round 1 Q1: what c12's running pulse does once c12 has moved | 1a: the pulse belongs to c12 and completes wherever it landed; the slot counts as passed; forward scores again, behind does not (R2, R5–R7) |
+| C7 | Round 1 Q1: what c12's running pulse does once c12 has moved | 1a: the pulse belongs to c12 and completes wherever it landed; the slot counts as passed; forward scores again, behind does not (R2, R5–R7) Superseded by C23 (2026-11-04). |
 | C8 | Round 1 Q2: what else happens at a destroyed card's flip | 2a: nothing; inert beyond the flip: no on-reveal, no bonus-0 spend, no watcher, no energy carry (R14, R15) |
 | C9 | Round 1 Q3: can a destroyed card be targeted | 3a: only by the swap; switch, return and random destroy skip it; destroy fizzles with no live card (R16, R17) |
 | C10 | Round 1 Q4: which pile at turn end | 4a: the burn pile, no new pile (R18) |
@@ -220,16 +226,20 @@ defaults stated in rounds 2 and 4 with no objection.
 | C20 | Round 5 Q1 and Q2: the tap flow and the button | 1a: a tap on a glowing card lifts it with one action button; the button submits; a tap on the card, the table or Escape puts it down; another glowing card swaps the lift; non-eligible face-up cards lift with no button. 2a: a HUD button under the lifted card, plain Theme, labels "Swap", "Discard", "Switch", "Return"; the banner keeps the rules text (R40–R44, R47) |
 | C21 | Round 5 Q3: a face-down card in the reader during a prompt | 3a, with Ben's caveat: "In the case of selecting an enemy's card, it will not flip over and show the face." Own face-down cards show their face and flip back on put-down; an opponent's stay a back (R45, R46) |
 | C22 | Round 5 Q4: scope of the reader-with-button | 4a: prompts only this cycle; staging a hand card stays a drag (R47) |
+| C23 | After T08, Ben reconsidered C2, C3 and C7 | In his words: "This change cements 'reveal' as an event before 'scoring'. Therefore, a swap which happens BEFORE scoring, should score the fresh card now and the original card later." The score stage of a pulse belongs to the slot: the card on it once the reveal stage's effects resolve scores. The moved card scores later if it landed ahead, not this walk if behind (R5, R11). Built by reopening NSC-76 (T01) and re-dispatching the engine agent (3a) |
+| C24 | The card landing on the pulsed slot is face down | 1a: it reveals in full now (bonus-0 spend, its on-reveal, the opponent's watchers), then scores (R5) |
+| C25 | The card landing on the pulsed slot already scored this walk | 2a: it scores again now, with `again` (R5, R9). A destroyed card landing there flips if face down and scores nothing (orchestrator default, existing rule R13) |
 | C18 | Defaults stated in rounds 2 and 4, no objection | A return-marked destroyed card is discarded, not returned (R19); the random destroy picks only among live cards (R17); the preview treats the opponent's face-down cards as inert slots rather than removing them (R23); the HUD's "×mult" readout leaves the HUD for the tally and the chips (R33) |
 
 ## Scenarios
 
 - **Given** seat 0's row [A, B, C] with the cursor at slot 1 (A scored), **when** c12 at
-  slot 1 flips and swaps with A, **then** c12 scores in this pulse at slot 0, A sits on slot
-  1 and does not score, and the cursor pulses C next (C2, C7).
-- **Given** the same row, **when** c12 at slot 1 swaps with C, **then** c12 scores now at
-  slot 2's pulse again when the cursor reaches it, C sits on slot 1 and does not score this
-  walk, and seat 0 scores c12's flat twice (C3).
+  slot 1 flips and swaps with A, **then** A, now on slot 1, scores again in this pulse
+  (`again`), c12 on slot 0 does not score this walk, and the cursor pulses C next (C23,
+  C25).
+- **Given** the same row with C face down, **when** c12 at slot 1 swaps with C, **then** C,
+  now on slot 1, reveals in full and scores in this pulse, and c12 scores once when the
+  cursor reaches slot 2 (C23, C24).
 - **Given** c06 (on-score flat-up) swapped forward, **when** it scores twice in one walk,
   **then** its flat is base + 2 and the second pulse used base + 1 (C4).
 - **Given** a face-down card swapped behind the cursor, **then** it stays face down this

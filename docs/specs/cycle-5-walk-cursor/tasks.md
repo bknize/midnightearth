@@ -51,10 +51,12 @@ Owned by the orchestrator, on `cycle-5-walk-cursor`, editor opened on the cycle 
 - [ ] 50-seed sweep passes with prompts and destroys; record the longest walk (pulses), the
       longest match and the slowest bot decision, and post the numbers to NSC-74 as a
       comment (the issue stays in Backlog).
-- [ ] **Cursor.** On a scripted or seeded turn where c12 swaps forward: node queries show
-      the card pulsing twice in slot order with the short pulse the second time, the HUD
-      holding, and the engine's `CARD_SCORED` pair for it; where c12 swaps behind: the card
-      that landed on the passed slot is not pulsed again this turn.
+- [ ] **Cursor** (amended 2026-11-04, C23). On a scripted or seeded turn where c12 swaps
+      forward: node queries show c12 flipping at its slot, the move, then the card that
+      landed on c12's slot scoring there (revealing first if it was face down), and c12
+      scoring once when the cursor reaches its new slot, with the HUD holding; where c12
+      swaps behind: the already-scored card that landed on c12's slot scores again there
+      (`again`, short pulse) and c12 does not score this walk.
 - [ ] **Destroyed.** After a destroy the card stays in `OpponentRow` (or `PlayerRow`)
       dimmed, tilted and cracked; when the cursor reaches it face down it flips without
       lifting and no chip appears; at `TURN_END` it flies off and the row shrinks.
