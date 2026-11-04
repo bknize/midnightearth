@@ -9,7 +9,8 @@ extends RefCounted
 ## shown flat and bonus and its revealed flag (own_row, opponent_row).
 ##
 ## Never holds the match seed, the stream state, any deck order, or the id of any card in
-## the opponent's hand, deck, face-down commit or burn pile. Seat-indexed pairs
+## the opponent's hand, deck, face-down commit or burn pile. `free_first` is this seat's
+## own free-first grant only. Seat-indexed pairs
 ## (deck_counts, scores, wins, budgets) are indexed by seat number, like MatchState.
 ##
 ## Every array is a copy: mutating a view never touches the engine's state.
@@ -48,6 +49,9 @@ var turn: int = 0
 var energy: int = 0
 ## Both seats' budgets this turn, turn + carry (R9).
 var budgets: Array[int] = [0, 0]
+## True when this seat's next commit has its leftmost card free (R10, plan P7). Own seat
+## only (plan, SeatView additions; DC-05 T07); TURN_STARTED announces both seats' grants.
+var free_first: bool = false
 ## A MatchState.Phase.
 var phase: int = MatchState.Phase.NOT_STARTED
 ## The seat whose commit is awaited; -1 before the start and once the match is over.
@@ -97,6 +101,7 @@ static func build(
 	view.round_number = state.round_number
 	view.turn = state.turn
 	view.energy = view.budgets[view.seat]
+	view.free_first = state.energy.free_first[view.seat]
 	view.phase = state.phase
 	view.awaited_seat = p_awaited
 	view.first_seat = state.first_seat
@@ -200,6 +205,7 @@ func to_dict() -> Dictionary:
 		"turn": turn,
 		"energy": energy,
 		"budgets": MatchState.plain(budgets),
+		"free_first": free_first,
 		"phase": phase,
 		"awaited_seat": awaited_seat,
 		"first_seat": first_seat,

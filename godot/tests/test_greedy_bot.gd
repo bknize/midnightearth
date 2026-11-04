@@ -365,6 +365,40 @@ func test_candidates_cover_both_orders_and_both_ends() -> void:
 	assert_int(_bot(1).candidates(empty_row.view_for(0)).size()).is_equal(5)
 
 
+## The free first card (R10, DC-05 T07): at energy 1, c03 alone (cost 1) scores 2, the
+## best the bot can afford without the grant. With it, c14 (cost 4, flat 6) leftmost is free
+## and c03 after it costs 1: 6 + 1 * 2 = 8. The bonus-first order (c03 first) would cost 4,
+## so the set needs c14 leftmost, which the flat-first order and, without it, the
+## costliest-first order list.
+func test_the_free_first_card_affords_a_set_the_budget_alone_does_not() -> void:
+	var cheap: int = _id(0, C03)
+	var big: int = _id(0, C14)
+	var hand: Array[int] = [cheap, big]
+	for flat_first: bool in [true, false]:
+		for bot_seed: int in range(1, 5):
+			var plain: MatchEngine = _position(0, 1, hand, _none(), _none(), _none())
+			assert_bool(plain.view_for(0).free_first).is_false()
+			var bot: GreedyBot = _bot(bot_seed)
+			bot.search_flat_first = flat_first
+			var without: EngineAction = bot.choose(plain.view_for(0), plain)
+			assert_array(without.cards).is_equal(_typed([cheap]))
+			var engine: MatchEngine = _position(0, 1, hand, _none(), _none(), _none())
+			engine._state.energy.free_first[0] = true
+			var view: SeatView = engine.view_for(0)
+			assert_bool(view.free_first).is_true()
+			assert_bool(engine.view_for(1).free_first).is_false()
+			# Every candidate is one the engine would accept.
+			for candidate: EngineAction in bot.candidates(view):
+				var at: String = "%s@%s" % [str(candidate.cards), str(candidate.slots)]
+				var scores: Array[int] = engine.preview(0, candidate)
+				assert_int(scores.size()).override_failure_message(at).is_equal(2)
+			var action: EngineAction = bot.choose(view, engine)
+			assert_array(action.cards).is_equal(_typed([big, cheap]))
+			assert_array(action.slots).is_equal(_typed([0, 1]))
+			assert_array(engine.preview(0, action)).is_equal(_typed([8, 0]))
+			assert_bool(engine.apply(action).ok).is_true()
+
+
 func test_a_null_engine_still_gives_a_legal_commit() -> void:
 	var hand: Array[int] = [_id(0, C03), _id(0, C04), _id(0, C14)]
 	var engine: MatchEngine = _position(0, 2, hand, _none(), _none(), _none())

@@ -3,8 +3,10 @@ extends GdUnitTestSuite
 ## Full bot-vs-bot matches (C11): R33 (replay through JSON reaches an equal full state),
 ## R37 (the bot is a function of its seed and view, so a seed always plays the same match),
 ## R38 (the engine never rejects a bot action) and the spec's 50-seed scenario: every match
-## ends, no hand exceeds 7, no commit exceeds the turn's energy, no view or redacted event
-## leaks a hidden card, and every log replays to an equal state.
+## ends, no hand exceeds 7, no commit exceeds the seat's budget (carry and the free first
+## card included), no view or redacted event leaks a hidden card (prompts included), every
+## log replays to an equal state, and the sweep answers at least one prompt (DC-05 T07, R39).
+## The sweep prints "Sweep: longest=.. seed=.. slowest_decision_us=.. prompts=..".
 ##
 ## Matches are played exactly as main.gd plays its smoke run: one GreedyBot per seat,
 ## seeded GreedyBot.seed_for(match_seed, seat), asked only for the awaited seat. A harness
@@ -23,7 +25,10 @@ const GOLDEN_ACTIONS: int = 0
 
 ## Sentinel winner meaning "not pinned yet".
 const GOLDEN_UNPINNED: int = -2
-const GOLDEN_SKIP_NOTE: String = "re-pinned at DC-05 T14 (card data format 2)"
+const GOLDEN_SKIP_NOTE: String = (
+	"re-pinned at DC-05 T14 (card data format 2): pin GOLDEN_WINNER, GOLDEN_WINS,"
+	+ " GOLDEN_ROUNDS, GOLDEN_REASON and GOLDEN_ACTIONS from seed 1's smoke line"
+)
 const SEED: int = 1
 const SWEEP_FIRST: int = 1
 const SWEEP_LAST: int = 50
@@ -41,6 +46,11 @@ const REASONS: Array[String] = [
 ## The longest swept match in accepted actions, and its seed; set by the sweep test.
 static var longest_actions: int = 0
 static var longest_seed: int = 0
+## The slowest single GreedyBot.choose() call of the sweep, in microseconds, its seed, and
+## the prompts the sweep's bots answered; set by the sweep test (read at DC-05 T14).
+static var slowest_decision_us: int = 0
+static var slowest_seed: int = 0
+static var sweep_prompts: int = 0
 
 var _cached_db: CardDb = null
 
@@ -75,18 +85,33 @@ func _owner(card: int) -> int:
 	return 1 if card >= MatchRules.DECK_SIZE else 0
 
 
-## The summed cost of a commit, from CardDb; an unknown id costs more than any energy.
-func _commit_cost(cards: Array[int]) -> int:
+## The cost of one card, from CardDb; an unknown id costs more than any energy.
+func _card_cost(card: int) -> int:
+	var def: CardDef = null
+	if card >= 0:
+		def = _db().card_at(card % MatchRules.DECK_SIZE)
+	if def == null:
+		return MAX_ACTIONS
+	return def.cost
+
+
+## The summed cost of a commit whose cards are in slot order, less the leftmost card's when
+## `free_first` (R10): computed here from CardDb, not through LegalPlays.
+func _commit_cost(cards: Array[int], free_first: bool) -> int:
 	var total: int = 0
 	for card: int in cards:
-		var def: CardDef = null
-		if card >= 0:
-			def = _db().card_at(card % MatchRules.DECK_SIZE)
-		if def == null:
-			total += MAX_ACTIONS
-		else:
-			total += def.cost
+		total += _card_cost(card)
+	if free_first and not cards.is_empty():
+		total -= _card_cost(cards[0])
 	return total
+
+
+## Whether `seat` holds the free first card in a full-state dictionary.
+func _free_first(state: Dictionary, seat: int) -> bool:
+	var energy: Dictionary = state["energy"]
+	var flags: Array = energy["free_first"]
+	var granted: bool = flags[seat]
+	return granted
 
 
 ## Every id of `seat`'s cards its opponent may not know in `state`, as a set: its hand,
@@ -107,13 +132,26 @@ func _hidden_set(state: Dictionary, seat: int) -> Dictionary:
 	return out
 
 
-## Every card id a view names (its card-id fields).
+## Every card id a view names: its card-id fields, each row entry's `card` and the open
+## prompt's source `card` (its options are positions, not ids).
 func _view_card_ids(view: SeatView) -> Array[int]:
 	var out: Array[int] = []
 	out.append_array(view.own_hand)
 	out.append_array(view.own_pending)
 	out.append_array(view.own_board)
 	out.append_array(view.opponent_board)
+	var entries: Array[Dictionary] = []
+	entries.append_array(view.own_row)
+	entries.append_array(view.opponent_row)
+	for entry: Dictionary in entries:
+		var shown: Variant = entry.get(MatchEvent.KEY_CARD)
+		if shown is int:
+			var card: int = shown
+			out.append(card)
+	var source: Variant = view.prompt.get(MatchEvent.KEY_CARD)
+	if source is int:
+		var prompt_card: int = source
+		out.append(prompt_card)
 	return out
 
 
@@ -172,10 +210,15 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 		if seat < 0 or seat >= MatchEngine.SEATS:
 			run.rejections.append("action %d: no seat awaited mid-match" % run.actions)
 			return run
-		var action: EngineAction = bots[seat].choose(engine.view_for(seat), engine)
-		# The seat's budget, not the turn: a carry card raises it (DC-05 T04, R9).
+		var view: SeatView = engine.view_for(seat)
+		var started_us: int = Time.get_ticks_usec()
+		var action: EngineAction = bots[seat].choose(view, engine)
+		run.slowest_decision_us = maxi(run.slowest_decision_us, Time.get_ticks_usec() - started_us)
+		# The seat's budget, not the turn: a carry card raises it (DC-05 T04, R9), and the
+		# free first card makes the leftmost card free (R10).
 		var prompted: bool = not engine.open_prompt().is_empty()
-		_check_commit(run, action, seat, engine.budget_for(seat), prompted)
+		var budget: int = engine.budget_for(seat)
+		_check_commit(run, action, seat, budget, _free_first(after, seat), prompted)
 		before = after
 		result = engine.apply(action)
 		if not result.ok:
@@ -194,10 +237,11 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 	return run
 
 
-## The bot's action is for the awaited seat: a commit costing no more than its budget, or,
-## while a prompt is open (DC-05 T05), a choice.
+## The bot's action is for the awaited seat: a commit costing no more than its budget (with
+## the free first card when the seat holds it), or, while a prompt is open (DC-05 T05), a
+## choice.
 func _check_commit(
-	run: MatchRun, action: EngineAction, seat: int, energy: int, prompted: bool
+	run: MatchRun, action: EngineAction, seat: int, energy: int, free_first: bool, prompted: bool
 ) -> void:
 	var where: String = "action %d" % run.actions
 	if action == null:
@@ -209,7 +253,7 @@ func _check_commit(
 	if prompted:
 		run.choices += 1
 		return
-	var cost: int = _commit_cost(action.cards)
+	var cost: int = _commit_cost(action.cards, free_first)
 	if cost > energy:
 		run.energy_violations.append(where + ": cost %d over energy %d" % [cost, energy])
 
@@ -387,7 +431,7 @@ func test_seed_1_is_the_same_match_every_time() -> void:
 
 
 ## The pinned golden result. Skipped, with GOLDEN_SKIP_NOTE as the reason, until the
-## orchestrator pins the GOLDEN block at T12.
+## orchestrator pins the GOLDEN block at DC-05 T14.
 func test_seed_1_matches_the_golden_result(
 	_do_skip: bool = GOLDEN_WINNER == GOLDEN_UNPINNED, _skip_reason: String = GOLDEN_SKIP_NOTE
 ) -> void:
@@ -402,6 +446,9 @@ func test_seed_1_matches_the_golden_result(
 func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	longest_actions = 0
 	longest_seed = 0
+	slowest_decision_us = 0
+	slowest_seed = 0
+	sweep_prompts = 0
 	var face_down_seen: int = 0
 	var redacted_seen: int = 0
 	var choices: int = 0
@@ -417,6 +464,17 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 		if run.actions > longest_actions:
 			longest_actions = run.actions
 			longest_seed = match_seed
+		if run.slowest_decision_us > slowest_decision_us:
+			slowest_decision_us = run.slowest_decision_us
+			slowest_seed = match_seed
+	sweep_prompts = choices
+	# One line for the orchestrator to read at DC-05 T14.
+	print(
+		(
+			"Sweep: longest=%d seed=%d slowest_decision_us=%d prompts=%d"
+			% [longest_actions, longest_seed, slowest_decision_us, sweep_prompts]
+		)
+	)
 	assert_int(ended).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
 	assert_int(face_down_seen).is_greater(0)
 	assert_int(redacted_seen).is_greater(0)
@@ -447,6 +505,8 @@ class MatchRun:
 	var redacted_seen: int = 0
 	## Prompts the bots answered (DC-05 T05).
 	var choices: int = 0
+	## The slowest GreedyBot.choose() call, in microseconds (DC-05 T07).
+	var slowest_decision_us: int = 0
 	var rejections: Array[String] = []
 	var hand_violations: Array[String] = []
 	var energy_violations: Array[String] = []

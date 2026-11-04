@@ -45,6 +45,7 @@ const VIEW_KEYS: Array[String] = [
 	"turn",
 	"energy",
 	"budgets",
+	"free_first",
 	"phase",
 	"awaited_seat",
 	"first_seat",
@@ -448,6 +449,10 @@ func _assert_view_matches_state(view: SeatView, step: Step, seat: int) -> void:
 	var carry: Array[int] = _state_ints(energy, "carry")
 	assert_array(view.budgets).is_equal([view.turn + carry[0], view.turn + carry[1]])
 	assert_int(view.budgets[seat]).is_equal(view.energy)
+	# The seat's own free-first grant only (R10, DC-05 T07).
+	var free_flags: Array = energy["free_first"]
+	var own_free: bool = free_flags[seat]
+	assert_bool(view.free_first).is_equal(own_free)
 	assert_int(view.phase).is_equal(phase)
 	assert_int(view.awaited_seat).is_equal(step.awaited)
 	assert_bool(view.is_awaited()).is_equal(step.awaited == seat)
