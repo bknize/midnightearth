@@ -389,6 +389,4 @@ static func _card_step(kind: int, event: MatchEvent) -> BoardStep:
 	var card: int = event.payload["card"]
 	step.seat = seat
 	step.card = card
-	if card >= 0:
-		step.def_index = card % MatchRules.DECK_SIZE
 	return step

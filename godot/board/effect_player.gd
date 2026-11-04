@@ -19,7 +19,8 @@ var opponent_row: CardCollection3D = null
 var opponent_hand: CardCollection3D = null
 var loose: Node3D = null
 var exit_marker: Node3D = null
-var cards: CardDb = null
+## The match's definitions by instance id: the two seats may play different decks.
+var match_cards: MatchCards = null
 ## The deck strip of a recover prompt (T10 sets it); null while there is none.
 var strip: CardCollection3D = null
 ## The board's zone-glow material, copied per card for CHOICE_SHOW (and T12's prompts).
@@ -185,20 +186,34 @@ func unreveal(step: BoardStep) -> void:
 
 
 ## A card leaves the deck strip for `seat`'s hand. With no strip card to fly (the strip is
-## not up, or the card is the opponent's hidden one) nothing moves here.
+## not up) nothing moves here. The strip card is found by its id, else by the pile and place
+## the engine names (a card the viewer had only as a back); a viewer's own recovery turns it up.
 func recover(step: BoardStep) -> void:
 	if strip == null:
 		return
 	var card: BoardCard = null
+	var from_pile: BoardCard = null
 	for candidate: Card3D in strip.cards:
 		var named: BoardCard = candidate as BoardCard
-		if named != null and named.instance_id == step.card:
+		if named == null:
+			continue
+		if step.card >= 0 and named.instance_id == step.card:
 			card = named
+		var pile_seat: int = named.get_meta(DeckStrip.META_SEAT, -1)
+		var pile_place: int = named.get_meta(DeckStrip.META_POSITION, -1)
+		if pile_seat == step.from_seat and pile_place == step.slot:
+			from_pile = named
+	if card == null:
+		card = from_pile
 	if card == null:
 		return
 	if step.seat == 0:
-		player_cards[step.card] = card
-	move_card(card, strip, _hand_of(step.seat), step.duration, step.slot)
+		if card.face_down:
+			show(card, step)
+			_flip_up(card, step.duration)
+		if step.card >= 0:
+			player_cards[step.card] = card
+	move_card(card, strip, _hand_of(step.seat), step.duration)
 
 
 ## The card flies to its owner's hand: face up for the player, face down for the opponent.
@@ -337,9 +352,9 @@ func reset() -> void:
 ## Face text for a card the viewer may see. The card must be in the tree.
 func show(card: BoardCard, step: BoardStep) -> void:
 	card.instance_id = step.card
-	var def: CardDef = cards.card_at(step.def_index)
+	var def: CardDef = null if match_cards == null else match_cards.def_of(step.card)
 	if def == null:
-		push_warning("Board: no card definition for index %d" % step.def_index)
+		push_warning("Board: no card definition for card %d" % step.card)
 		return
 	card.show_def(def)
 

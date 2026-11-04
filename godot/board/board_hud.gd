@@ -13,6 +13,8 @@ signal rematch_pressed
 signal decks_pressed
 ## The prompt reader's action button was pressed (R42).
 signal action_pressed
+## The multi-select prompt's confirm button was pressed (R48).
+signal confirm_pressed
 
 const PIPS_PER_SEAT: int = 4
 const PIP_ON: Color = Color(0.95, 0.78, 0.25, 1.0)
@@ -23,6 +25,11 @@ const FLASH_SECONDS: float = 0.45
 var _energy_tween: Tween
 ## The prompt reader's button; built in code, present only while a prompt has a card lifted.
 var _action_button: Button = null
+## The multi-select confirm button, built in code; "Destroy N" while that prompt is open.
+var _confirm_button: Button = null
+## The confirm is out of sight while a card is lifted, so it never meets the action button.
+var _confirm_suspended: bool = false
+var _confirm_wanted: bool = false
 
 var _score_labels: Array[Label] = []
 var _destroyed_labels: Array[Label] = []
@@ -177,21 +184,28 @@ func hide_prompt() -> void:
 	_prompt_text.text = ""
 
 
-## Shows the reader's action button under the lifted card (R40, R41), a plain Theme Button.
-func show_action(text: String) -> void:
+## Shows the reader's action button (R40, R41), a plain Theme Button. `rect` is where it goes
+## in viewport pixels, under the lifted card (CardLift.button_rect, NSC-85); an empty rect keeps
+## it at the bottom centre.
+func show_action(text: String, rect: Rect2 = Rect2()) -> void:
 	if _action_button == null:
 		_action_button = Button.new()
 		_action_button.name = "ActionButton"
 		_action_button.custom_minimum_size = Vector2(200.0, 64.0)
+		var err: int = _action_button.pressed.connect(_on_action_button_pressed)
+		if err != OK:
+			push_warning("BoardHud: could not connect the action button")
+		$Root.add_child(_action_button)
+	if rect.size.x > 0.0:
+		_action_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		_action_button.position = rect.position
+		_action_button.size = rect.size
+	else:
 		_action_button.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 		_action_button.offset_left = -100.0
 		_action_button.offset_right = 100.0
 		_action_button.offset_top = -110.0
 		_action_button.offset_bottom = -46.0
-		var err: int = _action_button.pressed.connect(_on_action_button_pressed)
-		if err != OK:
-			push_warning("BoardHud: could not connect the action button")
-		$Root.add_child(_action_button)
 	_action_button.text = text
 	_action_button.visible = true
 
@@ -207,8 +221,62 @@ func action_visible() -> bool:
 	return _action_button != null and _action_button.visible
 
 
+## The action button's rect in viewport pixels, or an empty rect while it is not built.
+func action_rect() -> Rect2:
+	if _action_button == null:
+		return Rect2()
+	return _action_button.get_global_rect()
+
+
 func _on_action_button_pressed() -> void:
 	action_pressed.emit()
+
+
+## Shows the multi-select confirm button with `text` ("Destroy 2"); calling it again updates
+## the text (R48). A plain Theme Button above Commit.
+func show_confirm(text: String) -> void:
+	if _confirm_button == null:
+		_confirm_button = Button.new()
+		_confirm_button.name = "ConfirmButton"
+		_confirm_button.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+		_confirm_button.offset_left = -190.0
+		_confirm_button.offset_right = -20.0
+		_confirm_button.offset_top = -148.0
+		_confirm_button.offset_bottom = -88.0
+		var err: int = _confirm_button.pressed.connect(_on_confirm_button_pressed)
+		if err != OK:
+			push_warning("BoardHud: could not connect the confirm button")
+		$Root.add_child(_confirm_button)
+	_confirm_button.text = text
+	_confirm_wanted = true
+	_confirm_button.visible = not _confirm_suspended
+
+
+func hide_confirm() -> void:
+	_confirm_wanted = false
+	_confirm_suspended = false
+	if _confirm_button != null:
+		_confirm_button.visible = false
+
+
+## Hides the confirm button while a card is lifted, and brings it back after.
+func set_confirm_suspended(suspended: bool) -> void:
+	_confirm_suspended = suspended
+	if _confirm_button != null:
+		_confirm_button.visible = _confirm_wanted and not suspended
+
+
+## The confirm button's text, or "" while there is none.
+func confirm_text() -> String:
+	return "" if _confirm_button == null else _confirm_button.text
+
+
+func confirm_visible() -> bool:
+	return _confirm_button != null and _confirm_button.visible
+
+
+func _on_confirm_button_pressed() -> void:
+	confirm_pressed.emit()
 
 
 func show_pause(shown: bool) -> void:

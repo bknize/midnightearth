@@ -13,6 +13,8 @@ const GLOW_PRIORITY: int = 2
 ## The glow and the note sit this far in front of the face.
 const GLOW_Z: float = 0.05
 const NOTE_Z: float = 0.1
+## A selected card (multi-select prompt, R48) stands this far in front of its slot.
+const SELECT_RAISE: float = 0.03
 const NOTE_COLOR: Color = Color(0.75, 0.1, 0.1, 1.0)
 const NOTE_FONT_SIZE: int = 44
 
@@ -39,6 +41,7 @@ var _glow: MeshInstance3D = null
 var _crack: MeshInstance3D = null
 var _crack_material: StandardMaterial3D = null
 var _destroyed: bool = false
+var _selected: bool = false
 ## 0 (intact) to 1 (fully marked); the dim, tilt and crack alpha follow it.
 var _amount: float = 0.0
 var _tilt: Vector3 = Vector3.ZERO
@@ -103,6 +106,18 @@ func set_glow(source: Material, alpha: float) -> void:
 		_glow.material_override = material
 	material.albedo_color = Color(material.albedo_color, alpha)
 	_glow.visible = alpha > 0.0
+
+
+## Raises the card to show it is in the prompt's selection, or sets it back (R48).
+func set_selected(on: bool) -> void:
+	_selected = on
+	var mesh: Node3D = get_node_or_null("CardMesh") as Node3D
+	if mesh != null:
+		mesh.position.z = SELECT_RAISE if on else 0.0
+
+
+func is_selected() -> bool:
+	return _selected
 
 
 func clear_glow() -> void:

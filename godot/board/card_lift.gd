@@ -31,6 +31,8 @@ var held: BoardCard = null
 
 ## The dimmer's alpha when nothing is held: 0, or the prompt's dim (R55) while one is open.
 var _rest_alpha: float = 0.0
+## The share of the view height the lifted card fills; smaller when a button sits under it.
+var _fill: float = LIFT_FILL
 var _mode: Mode = Mode.IDLE
 var _stand_in: BoardCard = null
 ## True while the stand-in shows the face of a face-down card (R45).
@@ -95,7 +97,8 @@ func is_holding() -> bool:
 
 ## Picks the card up. Does nothing if a card is already held. `show_face` turns a face-down
 ## card of the player's own face up in the lift (R45); it flips back down on put-down.
-func lift(card: BoardCard, show_face: bool = false) -> void:
+## `with_button` leaves room under the card for the prompt's action button (NSC-85).
+func lift(card: BoardCard, show_face: bool = false, with_button: bool = false) -> void:
 	if held != null or card == null or _camera == null or not _spawn.is_valid():
 		return
 	var made: Object = _spawn.call()
@@ -103,6 +106,7 @@ func lift(card: BoardCard, show_face: bool = false) -> void:
 	if stand_in == null:
 		return
 	_loose.add_child(stand_in)
+	_fill = LiftLayout.fill_for(_view_size(), _safe(), LIFT_FILL, with_button)
 	stand_in.copy_face_from(card)
 	stand_in.disable_collision()
 	stand_in.global_transform = card.global_transform
@@ -173,16 +177,33 @@ func _target() -> Transform3D:
 	return _lift_pose()
 
 
+## Where the action button goes under the held card, in viewport pixels (NSC-85).
+func button_rect() -> Rect2:
+	return LiftLayout.button_rect(_view_size(), _safe(), _fill)
+
+
+func _view_size() -> Vector2:
+	if _camera == null or _camera.get_viewport() == null:
+		return Vector2(1280.0, 720.0)
+	return _camera.get_viewport().get_visible_rect().size
+
+
+func _safe() -> Rect2:
+	return LiftLayout.safe_rect(
+		_view_size(), DisplayServer.screen_get_size(), DisplayServer.get_display_safe_area()
+	)
+
+
 func _lift_pose() -> Transform3D:
 	var half_fov: float = deg_to_rad(_camera.fov) / 2.0
-	var d: float = CARD_HEIGHT / (LIFT_FILL * 2.0 * tan(half_fov))
+	var d: float = CARD_HEIGHT / (_fill * 2.0 * tan(half_fov))
 	return _camera.global_transform * Transform3D(Basis(), Vector3(0.0, 0.0, -d))
 
 
 ## Parks the dimmer just behind the lift pose and sizes it to cover the view there.
 func _place_dimmer() -> void:
 	var half_fov: float = deg_to_rad(_camera.fov) / 2.0
-	var d: float = CARD_HEIGHT / (LIFT_FILL * 2.0 * tan(half_fov))
+	var d: float = CARD_HEIGHT / (_fill * 2.0 * tan(half_fov))
 	var dist: float = d + DIMMER_GAP
 	_dimmer.position = Vector3(0.0, 0.0, -dist)
 	var view_height: float = 2.0 * dist * tan(half_fov)

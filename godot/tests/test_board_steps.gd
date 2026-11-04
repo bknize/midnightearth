@@ -113,11 +113,9 @@ func test_the_opponent_hand_is_hidden_in_deal_steps() -> void:
 		if step.seat == 0:
 			own_seen += 1
 			assert_int(step.card).is_greater_equal(0)
-			assert_int(step.def_index).is_equal(step.card % MatchRules.DECK_SIZE)
 		else:
 			hidden_seen += 1
 			assert_int(step.card).is_equal(-1)
-			assert_int(step.def_index).is_equal(-1)
 	assert_int(own_seen).is_greater(0)
 	assert_int(hidden_seen).is_greater(0)
 
@@ -142,8 +140,7 @@ func test_reveal_steps_carry_engine_order_and_flat() -> void:
 		assert_int(step.order).is_equal(next_order)
 		assert_int(step.flat).is_equal(flat)
 		assert_int(step.card).is_greater_equal(0)
-		assert_int(step.def_index).is_equal(step.card % MatchRules.DECK_SIZE)
-		var def: CardDef = cards.card_at(step.def_index)
+		var def: CardDef = cards.card_at(step.card % MatchRules.DECK_SIZE)
 		assert_object(def).is_not_null()
 		assert_int(def.flat).is_equal(step.flat)
 		next_order += 1
@@ -196,12 +193,10 @@ func test_burn_steps_go_entry_to_exit() -> void:
 	assert_int(steps[0].kind).is_equal(BoardStep.Kind.BURN)
 	assert_int(steps[0].seat).is_equal(0)
 	assert_int(steps[0].card).is_equal(5)
-	assert_int(steps[0].def_index).is_equal(5)
 	assert_float(steps[0].duration).is_equal_approx(0.45, EPSILON)
 	assert_int(steps[1].kind).is_equal(BoardStep.Kind.BURN)
 	assert_int(steps[1].seat).is_equal(1)
 	assert_int(steps[1].card).is_equal(-1)
-	assert_int(steps[1].def_index).is_equal(-1)
 	for step: BoardStep in _steps(1.0):
 		if step.kind == BoardStep.Kind.BURN:
 			assert_float(step.duration).is_equal_approx(0.45, EPSILON)

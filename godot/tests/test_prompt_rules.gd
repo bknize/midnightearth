@@ -1,3 +1,4 @@
+# gdlint: ignore=max-public-methods
 class_name TestPromptRules
 extends GdUnitTestSuite
 ## PromptRules (plan P19, R55, R56, C16): the glow set per zone and the tap routing, on
@@ -156,3 +157,84 @@ func test_the_runner_waits_on_a_prompt_unless_autoplay() -> void:
 	assert_bool(PromptRules.waits(prompt, false)).is_true()
 	assert_bool(PromptRules.waits(prompt, true)).is_false()
 	assert_bool(PromptRules.waits(pulse, false)).is_false()
+
+
+# --- The multi-select and the recover strip (DC-07 R48, R49) -------------------------------
+
+
+func _multi_prompt(options: Array[int]) -> Dictionary:
+	return {
+		"seat": 0,
+		"card": 5,
+		"verb": CardEffect.Verb.SACRIFICE_DESTROY,
+		"zone": Choice.Zone.OWN_BOARD,
+		"options": options,
+		"multi": true,
+	}
+
+
+func test_tap_on_an_eligible_card_in_a_multi_prompt_lifts_it() -> void:
+	var prompt: Dictionary = _multi_prompt([0, 2])
+	var tap: PromptTap = PromptRules.on_tap(CardSpot.new(0, false, 2), true, prompt, OWN_SIZE)
+	assert_int(tap.kind).is_equal(PromptRules.Tap.LIFT_ELIGIBLE)
+	assert_int(tap.index).is_equal(2)
+	var other: PromptTap = PromptRules.on_tap(CardSpot.new(0, false, 1), true, prompt, OWN_SIZE)
+	assert_int(other.kind).is_equal(PromptRules.Tap.LIFT)
+
+
+func test_the_button_toggles_in_a_multi_prompt_and_chooses_otherwise() -> void:
+	var multi: PromptTap = PromptRules.action_tap(_multi_prompt([0, 2]), 2)
+	assert_int(multi.kind).is_equal(PromptRules.Tap.TOGGLE_SELECT)
+	assert_int(multi.index).is_equal(2)
+	var single: PromptTap = PromptRules.action_tap(_prompt(Choice.Zone.OWN_HAND, [1]), 1)
+	assert_int(single.kind).is_equal(PromptRules.Tap.CHOOSE)
+	var none: PromptTap = PromptRules.action_tap(_multi_prompt([0]), -1)
+	assert_int(none.kind).is_equal(PromptRules.Tap.NOTHING)
+
+
+func test_toggled_adds_then_removes_a_position() -> void:
+	var empty: Array[int] = []
+	var one: Array[int] = PromptRules.toggled(empty, 2)
+	assert_array(one).is_equal([2])
+	var two: Array[int] = PromptRules.toggled(one, 0)
+	assert_array(two).is_equal([0, 2])
+	var back: Array[int] = PromptRules.toggled(two, 2)
+	assert_array(back).is_equal([0])
+	assert_array(one).is_equal([2])
+
+
+func test_action_label_by_verb_and_state() -> void:
+	var names: Dictionary[String, String] = {
+		"discard_own": "Discard",
+		"destroy_own_then_draw": "Destroy",
+		"destroy_own_then_flat_up": "Destroy",
+		"sacrifice_destroy": "Destroy",
+		"copy_stats": "Copy",
+		"move_opponent_left": "Move",
+		"swap_opponent_right": "Swap",
+		"swap_places": "Swap",
+		"recover_destroyed": "Recover",
+	}
+	for verb: String in names:
+		assert_str(PromptRules.action_label(verb)).is_equal(names[verb])
+	assert_str(PromptRules.action_label("sacrifice_destroy", true, false)).is_equal("Select")
+	assert_str(PromptRules.action_label("sacrifice_destroy", true, true)).is_equal("Deselect")
+	var prompt: Dictionary = _multi_prompt([0])
+	assert_str(PromptRules.action_label_for(prompt, false)).is_equal("Select")
+	assert_str(PromptRules.action_label_for(prompt, true)).is_equal("Deselect")
+
+
+func test_the_confirm_text_follows_the_set_size() -> void:
+	var prompt: Dictionary = _multi_prompt([0, 1, 2])
+	assert_str(PromptRules.confirm_text(prompt, 0)).is_equal("Destroy 0")
+	assert_str(PromptRules.confirm_text(prompt, 2)).is_equal("Destroy 2")
+
+
+func test_a_pile_prompt_glows_no_row_card_and_routes_strip_entries() -> void:
+	var prompt: Dictionary = _prompt(Choice.Zone.BOTH_DESTROYED, [0, 1])
+	assert_int(PromptRules.glow_set(prompt, _view(OWN_SIZE)).size()).is_equal(0)
+	var lift: PromptTap = PromptRules.route(true, 1, false)
+	assert_int(lift.kind).is_equal(PromptRules.Tap.LIFT_ELIGIBLE)
+	assert_int(lift.index).is_equal(1)
+	var swap: PromptTap = PromptRules.route(true, 0, true, 1)
+	assert_int(swap.kind).is_equal(PromptRules.Tap.SWAP_LIFT)
