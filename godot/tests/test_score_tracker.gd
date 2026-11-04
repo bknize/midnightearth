@@ -139,3 +139,28 @@ func test_the_destroyed_piles_count_clears_and_recovers_and_reset_at_the_table_c
 	assert_array(tracker.destroyed).is_equal([0, 1])
 	tracker.apply(_kind_step(BoardStep.Kind.CLEAR_TABLE))
 	assert_array(tracker.destroyed).is_equal([0, 0])
+
+
+func test_the_destroyed_piles_empty_at_the_round_end() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	var cleared: BoardStep = _kind_step(BoardStep.Kind.CLEAR_DESTROYED)
+	cleared.seat = 0
+	cleared.pile = true
+	tracker.apply(cleared)
+	cleared.seat = 1
+	tracker.apply(cleared)
+	assert_array(tracker.destroyed).is_equal([1, 1])
+	tracker.apply(_kind_step(BoardStep.Kind.ROUND_END))
+	assert_array(tracker.destroyed).is_equal([0, 0])
+
+
+func test_a_recovery_into_a_full_hand_burns_the_card_it_added() -> void:
+	var viewer_hand: Array[int] = [4, 5, 9]
+	assert_int(EffectPlayer.hand_burn_index(viewer_hand, 9, 0, 0)).is_equal(2)
+	assert_int(EffectPlayer.hand_burn_index(viewer_hand, 7, 0, 0)).is_equal(-1)
+	var backs: Array[int] = [-1, -1, -1]
+	assert_int(EffectPlayer.hand_burn_index(backs, -1, 1, 1)).is_equal(2)
+	# A deck burn at the cap (no recovery just before) leaves the hand alone.
+	assert_int(EffectPlayer.hand_burn_index(backs, -1, 1, -1)).is_equal(-1)
+	assert_int(EffectPlayer.hand_burn_index(backs, -1, 1, 0)).is_equal(-1)
+	assert_int(EffectPlayer.hand_burn_index(viewer_hand, -1, 0, 0)).is_equal(-1)
