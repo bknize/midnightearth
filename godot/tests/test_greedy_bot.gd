@@ -8,7 +8,9 @@ extends GdUnitTestSuite
 ## seed), R37 (a prompt is answered with its best-previewed option) and R38 (never
 ## rejected; the action depends only on the seed and the view). Cycle 1's "highest total
 ## flat" cases are rewritten to the preview rule. DC-07 T02: the bot reads MatchCards and
-## every match here plays the fixture deck on both seats.
+## every match here plays the fixture deck on both seats. DC-07 T08 (P13, R36-R38): the
+## bonus-first order is +-part, then ×-part, then flat; a multi-select prompt is answered
+## from n + 1 previewed sets; a Ruin bot and a Drift bot (the shipped decks) play seed 1 out.
 ##
 ## Hand-built positions start a real engine and then set its state (`_position`): instance
 ## id = seat * 20 + index, so id 2 is c03 (cost 1, flat 1, ×1.25), id 3 is c04 (1, 3, no
@@ -393,6 +395,7 @@ func test_source_reads_only_its_view_and_its_own_previews() -> void:
 			fail("greedy_bot.gd contains %s" % token)
 	assert_str(text).contains("preview(")
 	assert_str(text).contains("preview_choice(")
+	assert_str(text).contains("preview_set(")
 
 
 func test_choose_leaves_the_view_and_the_engine_unchanged() -> void:
@@ -761,3 +764,127 @@ func test_bot_choices_replay_identically_for_a_fixed_match_seed() -> void:
 		actions += 1
 	assert_bool(a.is_over()).is_true()
 	assert_dict(a.full_state()).is_equal(b.full_state())
+
+
+# --- DC-07 T08: the bonus order, the set answer, the shipped decks ----------------------
+
+
+## The shipped pool and list with Ruin on seat 0 and Drift on seat 1 (instance id = seat
+## * 20 + the FixtureDecks R*/D* index).
+func _ruin_drift_defs() -> MatchCards:
+	var pair: Array[String] = [FixtureDecks.RUIN_DECK_ID, FixtureDecks.DRIFT_DECK_ID]
+	return MatchCards.build(CardDb.load_default(), DeckList.load_default(), pair)
+
+
+## P13, R36: bonus first is +-part desc, then ×-part desc, then flat desc. Vane (+1, flat
+## 3) orders before Horizon (×2, flat 7), which orders before Cinder (flat 7, no bonus);
+## flat first puts the two 7s first, Horizon ahead on its ×-part, then Vane. The search
+## lists the three-card set in those two orders.
+func test_a_plus_card_orders_before_a_times_card_before_a_flat_card() -> void:
+	var defs: MatchCards = _ruin_drift_defs()
+	assert_bool(defs.is_valid()).override_failure_message(defs.build_error()).is_true()
+	var cinder: int = _id(0, FixtureDecks.R11_CINDER)
+	var horizon: int = _id(1, FixtureDecks.D20_HORIZON)
+	var vane: int = _id(1, FixtureDecks.D18_VANE)
+	var bot: GreedyBot = GreedyBot.new(1, defs)
+	assert_that(bot.stats_of(vane)).is_equal(Vector3i(3, MatchRules.MULT_ONE, 1))
+	assert_that(bot.stats_of(horizon)).is_equal(Vector3i(7, 200, 0))
+	assert_that(bot.stats_of(cinder)).is_equal(Vector3i(7, MatchRules.MULT_ONE, 0))
+	var bonus_first: Array[int] = [cinder, horizon, vane]
+	bonus_first.sort_custom(bot._bonus_before)
+	assert_array(bonus_first).is_equal(_typed([vane, horizon, cinder]))
+	var flat_first: Array[int] = [vane, cinder, horizon]
+	flat_first.sort_custom(bot._flat_before)
+	assert_array(flat_first).is_equal(_typed([horizon, cinder, vane]))
+	var view: SeatView = SeatView.new()
+	view.own_hand.assign([cinder, horizon, vane])
+	view.energy = 20
+	var orders: Array[Array] = []
+	for action: EngineAction in bot.candidates(view):
+		if action.cards.size() == 3:
+			orders.append(action.cards)
+	assert_int(orders.size()).is_equal(2)
+	if orders.size() == 2:
+		assert_array(orders[0]).is_equal(_typed([vane, horizon, cinder]))
+		assert_array(orders[1]).is_equal(_typed([horizon, cinder, vane]))
+
+
+## Seat 0's table [c04, c08, c03, c02] (c02 carries sacrifice_destroy) against [c14, c07],
+## all face down; both pass and the walk pauses on c02's multi-select prompt over own row
+## positions 0, 1 and 2 (shown flats 3, 4 and 1).
+func _sacrifice_prompt() -> MatchEngine:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, FixtureDecks.sacrifice_cards())
+	assert_bool(engine.start().ok).is_true()
+	var own: Array[int] = [
+		_id(0, C04), _id(0, C08), _id(0, C03), _id(0, FixtureDecks.C02_SACRIFICE)
+	]
+	var theirs: Array[int] = [_id(1, C14), _id(1, C07)]
+	assert_bool(FixtureDecks.play_table(engine, own, theirs)).is_true()
+	return engine
+
+
+## P13, R37: n options give n + 1 candidate sets, the k lowest shown flats each (ties by
+## position), every index offered and none repeated; each previews, the answer is one of
+## them with the best previewed value, and the engine accepts it. Choosing changes nothing.
+func test_the_set_answer_previews_n_plus_one_candidates() -> void:
+	for bot_seed: int in range(1, 9):
+		var engine: MatchEngine = _sacrifice_prompt()
+		assert_int(engine.awaited_seat()).is_equal(0)
+		var view: SeatView = engine.view_for(0)
+		assert_bool(Choice.is_multi_prompt(view.prompt)).is_true()
+		var options: Array[int] = Choice.options_of(view.prompt)
+		assert_array(options).is_equal(_typed([0, 1, 2]))
+		var bot: GreedyBot = GreedyBot.new(bot_seed, engine.match_cards())
+		var sets: Array[Array] = bot.set_candidates(view)
+		assert_int(sets.size()).is_equal(options.size() + 1)
+		# Shown flats 3, 4, 1: the lowest is position 2, then 0, then 1.
+		var expected: Array[String] = ["[]", "[2]", "[0, 2]", "[0, 1, 2]"]
+		var shown: Array[String] = []
+		for listed: Array in sets:
+			shown.append(str(listed))
+		assert_array(shown).is_equal(expected)
+		var best: int = -1000000
+		for listed: Array in sets:
+			var indices: Array[int] = _typed(listed)
+			var label: String = str(indices)
+			var seen: Dictionary[int, bool] = {}
+			for index: int in indices:
+				assert_bool(options.has(index)).override_failure_message(label).is_true()
+				assert_bool(seen.has(index)).override_failure_message(label).is_false()
+				seen[index] = true
+			var scores: Array[int] = engine.preview_set(0, indices)
+			assert_int(scores.size()).override_failure_message(label).is_equal(2)
+			best = maxi(best, _value(scores, 0))
+		var before: Dictionary = _snapshot(engine)
+		var action: EngineAction = bot.choose(view, engine)
+		assert_dict(_snapshot(engine)).is_equal(before)
+		assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE_SET)
+		assert_int(action.zone).is_equal(Choice.Zone.OWN_BOARD)
+		var answer: String = str(action.indices)
+		assert_bool(sets.has(action.indices)).override_failure_message(answer).is_true()
+		assert_int(_value(engine.preview_set(0, action.indices), 0)).is_equal(best)
+		assert_bool(engine.apply(action).ok).is_true()
+
+
+## R38 on the shipped decks: a Ruin bot (seat 0) against a Drift bot (seat 1) plays seed 1
+## to the end, and the engine accepts every action, set answers included.
+func test_a_ruin_bot_and_a_drift_bot_play_seed_1_out() -> void:
+	var pair: Array[String] = [FixtureDecks.RUIN_DECK_ID, FixtureDecks.DRIFT_DECK_ID]
+	var engine: MatchEngine = MatchEngine.create(
+		SEED, CardDb.load_default(), DeckList.load_default(), pair
+	)
+	assert_bool(engine.start().ok).is_true()
+	var bots: Array[GreedyBot] = []
+	for seat: int in range(MatchEngine.SEATS):
+		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), engine.match_cards()))
+	var actions: int = 0
+	while not engine.is_over() and actions < MAX_ACTIONS:
+		var seat: int = engine.awaited_seat()
+		var action: EngineAction = bots[seat].choose(engine.view_for(seat), engine)
+		var result: ApplyResult = engine.apply(action)
+		if not result.ok:
+			fail("action %d %s rejected with error %d" % [actions, action.to_dict(), result.error])
+			return
+		actions += 1
+	assert_bool(engine.is_over()).override_failure_message("not over").is_true()
+	assert_array(engine.deck_ids()).is_equal(pair)
