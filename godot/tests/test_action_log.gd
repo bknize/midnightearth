@@ -612,6 +612,34 @@ func test_rules_mismatch_fails_replay() -> void:
 		assert_object(replayed.engine).is_null()
 
 
+## DC-06 R24: a DC-05 log (format 2, rules 2) still parses, and replay refuses it on the
+## rules version before running anything. The rules version is 3; the format stays 2.
+func test_a_rules_2_log_fails_replay_with_rules_mismatch() -> void:
+	assert_int(MatchRules.RULES_VERSION).is_equal(3)
+	assert_int(MatchRules.LOG_FORMAT).is_equal(2)
+	var text: String = (
+		'{"format": 2, "rules": 2, "seed": "1",'
+		+ ' "actions": [{"k": "commit", "s": 0, "c": [], "p": []}, {"k": "concede", "s": 1}]}'
+	)
+	var parsed: ActionLog = ActionLog.from_json(text)
+	assert_object(parsed).is_not_null()
+	if parsed == null:
+		return
+	assert_int(parsed.format_version).is_equal(2)
+	assert_int(parsed.rules_version).is_equal(2)
+	var replayed: ReplayResult = parsed.replay(_db())
+	assert_bool(replayed.ok).is_false()
+	assert_int(replayed.reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
+	assert_int(replayed.failed_index).is_equal(-1)
+	assert_int(replayed.error).is_equal(EngineError.Code.MALFORMED)
+	assert_object(replayed.engine).is_null()
+	# The same log of a real match, written under rules 2, fails the same way.
+	var the_log: ActionLog = _scripted(SEED, 0, 6).action_log()
+	the_log.rules_version = 2
+	var old: ReplayResult = _through_json(the_log).replay(_db())
+	assert_int(old.reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
+
+
 func test_bad_slots_fail_replay_at_their_index() -> void:
 	var engine: MatchEngine = _scripted(SEED, 0, ROUND_PLUS_TWO)
 	var actions: Array[EngineAction] = engine.accepted_actions()
@@ -630,13 +658,14 @@ func test_bad_slots_fail_replay_at_their_index() -> void:
 func test_format_2_round_trips_with_slots_and_choices() -> void:
 	var the_log: ActionLog = _log_of(SEED, _sample_actions())
 	var text: String = the_log.to_json()
-	assert_bool(text.begins_with('{"format":2,"rules":2,"seed":"1"')).is_true()
+	# Rules 3 since DC-06 T01 (the slot cursor); the format stays 2.
+	assert_bool(text.begins_with('{"format":2,"rules":3,"seed":"1"')).is_true()
 	assert_bool(text.contains('{"k":"commit","s":0,"c":[3,7],"p":[0,2]}')).is_true()
 	assert_bool(text.contains('{"k":"commit","s":1,"c":[],"p":[]}')).is_true()
 	assert_bool(text.contains('{"k":"choose","s":0,"z":1,"i":2}')).is_true()
 	var parsed: ActionLog = _through_json(the_log)
 	assert_int(parsed.format_version).is_equal(2)
-	assert_int(parsed.rules_version).is_equal(2)
+	assert_int(parsed.rules_version).is_equal(3)
 	assert_array(_dicts(parsed.actions)).is_equal(_dicts(the_log.actions))
 	assert_str(parsed.to_json()).is_equal(text)
 	var chosen: EngineAction = parsed.actions[3]

@@ -5,11 +5,20 @@ extends RefCounted
 ## state, and a preview can run it on a copy (MatchState.duplicate()).
 ##
 ## A walk: begin() resets both scores to 0 and both multipliers to 1 (R11), then each
-## step() pulses one card until no card is left. The cursor (P5): the next pulse is the
-## leftmost card of `walk.next_seat`'s row that is not in `walk.pulsed`; when that row has
-## none, the other row's; when neither has one, the walk ends. Every pulse flips
-## `next_seat`. Moved and destroyed cards are handled by the `pulsed` set, never by
-## indices, so nothing is pulsed twice or skipped (R16).
+## step() pulses one slot until no slot is left. The cursor (DC-06 R1-R4, P1): one slot
+## index per row, `walk.cursor[seat]`, the number of that row's slots already passed, 0 for
+## both rows at begin(). The next pulse is the slot at the cursor of `walk.next_seat`'s row
+## when that row has one left, else the other row's, else the walk ends (next_slot()).
+## A pulse at (seat, slot) first sets `cursor[seat] = slot + 1`, then flips `next_seat`,
+## then runs on the card at that slot: the slot counts as passed before any effect fired
+## by the pulse resolves (R2). A walk therefore pulses each slot of both rows once (R4).
+##
+## The pulse owns its card (R5, P2): it keeps the instance id it started with, and when an
+## effect moves that card (c12's swap) it scores it wherever it landed. A card moved onto a
+## slot the cursor has passed is not reached again this walk (R7, R11): face down, it stays
+## face down until a later walk (R8). A card moved onto a slot ahead of the cursor is pulsed
+## again there (R6): already revealed, it scores and fires its on-score effect again, with
+## no reveal (R9), and its CARD_SCORED carries `again` true (`walk.scored`, P3).
 ##
 ## A pulse (P4, R13, R14): an unrevealed card is revealed first (CARD_REVEALED); then
 ## `mult[seat] += bonus`, `added = flat * mult[seat]`, `scores[seat] += added`
@@ -43,30 +52,44 @@ extends RefCounted
 enum Stage { REVEAL_EFFECT, WATCHERS, SCORE, DONE }
 
 
-## Starts a walk on `state` (R11): both scores 0, both multipliers 1, nothing pulsed, the
-## turn's first committer pulses first.
+## Starts a walk on `state` (R11): both scores 0, both multipliers 1, both cursors at slot
+## 0, nothing scored, the turn's first committer pulses first.
 static func begin(state: MatchState) -> void:
 	state.scores[0] = 0
 	state.scores[1] = 0
 	var walk: MatchState.WalkState = state.walk
 	walk.active = true
 	walk.next_seat = state.first_seat
-	walk.pulsed.clear()
+	walk.cursor[0] = 0
+	walk.cursor[1] = 0
+	walk.scored.clear()
 	walk.mult[0] = 1
 	walk.mult[1] = 1
 	walk.reveals = 0
 
 
-## The instance id of the next card to pulse (P5), or -1 when the walk is over or the
-## rows hold no unpulsed card.
+## The next slot to pulse as (seat, slot) (DC-06 P1, R3), or (-1, -1) when the walk is over
+## or neither row has a slot the cursor has not passed: `next_seat`'s row when its cursor
+## is short of the row's size, else the other row's.
+static func next_slot(state: MatchState) -> Vector2i:
+	var walk: MatchState.WalkState = state.walk
+	if not walk.active:
+		return Vector2i(-1, -1)
+	var seat: int = walk.next_seat
+	for candidate: int in [seat, 1 - seat]:
+		var piles: MatchState.SeatPiles = state.seats[candidate]
+		if walk.cursor[candidate] < piles.board.size():
+			return Vector2i(candidate, walk.cursor[candidate])
+	return Vector2i(-1, -1)
+
+
+## The instance id of the card on next_slot(), or -1 when there is none.
 static func next_card(state: MatchState) -> int:
-	if not state.walk.active:
+	var at: Vector2i = next_slot(state)
+	if at.x < 0:
 		return -1
-	var seat: int = state.walk.next_seat
-	var card: int = _leftmost_unpulsed(state, seat)
-	if card >= 0:
-		return card
-	return _leftmost_unpulsed(state, 1 - seat)
+	var piles: MatchState.SeatPiles = state.seats[at.x]
+	return piles.board[at.y]
 
 
 ## `card`'s shown stats as (flat, bonus) (P4): its CardState's (_held_stats: the base, the
@@ -123,11 +146,12 @@ static func _definition(card: int, cards: CardDb) -> CardDef:
 ## Prompts (DC-05 T05): an effect that needs a choice between two or more targets returns
 ## its prompt from EffectResolver.apply(); step() stores it in `state.prompt`, records
 ## where the pulse stopped (`walk.paused_*`, with the watcher snapshot and index for the
-## WATCHERS stage) and returns true. The card is already in
-## `walk.pulsed` and, for an on-reveal prompt, not yet scored. Once the choice has been
-## applied (EffectResolver.answer clears the prompt), the next step() finishes that same
-## pulse from where it stopped (the remaining reveal hooks, the score, the on-score
-## effect) before the cursor moves on. A preview never pauses: its policy answers at once.
+## WATCHERS stage) and returns true. The card's slot is already passed and, for an
+## on-reveal prompt, the card is not yet scored. Once the choice has been applied
+## (EffectResolver.answer clears the prompt), the next step() finishes that same pulse from
+## where it stopped (the remaining reveal hooks, the score, the on-score effect) on the
+## paused card by id, wherever the choice moved it, before the cursor moves on. A preview
+## never pauses: its policy answers at once.
 static func step(
 	state: MatchState, cards: CardDb, rng: MatchRng, sink: Callable, policy: PreviewPolicy
 ) -> bool:
@@ -146,15 +170,17 @@ static func step(
 		walk.paused_watchers.clear()
 		walk.paused_watcher_at = 0
 		return pulse.run(_row_seat(state, resumed), resumed, stage)
-	var card: int = next_card(state)
-	if card < 0:
+	var at: Vector2i = next_slot(state)
+	if at.x < 0:
 		walk.active = false
 		return false
-	var seat: int = _row_seat(state, card)
-	walk.pulsed[card] = true
+	var seat: int = at.x
+	var piles: MatchState.SeatPiles = state.seats[seat]
+	var card: int = piles.board[at.y]
+	# The slot is passed before anything the pulse fires resolves (R2).
+	walk.cursor[seat] = at.y + 1
 	walk.next_seat = 1 - walk.next_seat
 	var live: bool = policy == null and sink.is_valid()
-	var piles: MatchState.SeatPiles = state.seats[seat]
 	var first_stage: int = Stage.SCORE
 	if not piles.is_revealed(card):
 		piles.revealed[card] = true
@@ -188,7 +214,9 @@ static func _forward(events: Array[MatchEvent], sink: Callable, policy: PreviewP
 
 
 ## The score of `card` on `seat`'s row (P4, R14): the multiplier gains its bonus, then the
-## seat's score gains its flat times the multiplier; CARD_SCORED on a live walk.
+## seat's score gains its flat times the multiplier; CARD_SCORED on a live walk, its `slot`
+## looked up by id (the card may have moved in its own pulse) and `again` true when the
+## card already scored in this walk (DC-06 R9, P3).
 static func _score(
 	state: MatchState, cards: CardDb, sink: Callable, live: bool, seat: int, card: int
 ) -> void:
@@ -199,6 +227,8 @@ static func _score(
 	var mult: int = walk.mult[seat]
 	var added: int = stats.x * mult
 	state.scores[seat] += added
+	var again: bool = walk.scored.has(card)
+	walk.scored[card] = true
 	if live:
 		var scored: Dictionary = {
 			"seat": seat,
@@ -209,6 +239,7 @@ static func _score(
 			"mult": mult,
 			"added": added,
 			"score": state.scores[seat],
+			"again": again,
 		}
 		sink.call(MatchEvent.Kind.CARD_SCORED, scored)
 
@@ -236,15 +267,6 @@ static func _emit_reveal(
 		"order": state.walk.reveals,
 	}
 	sink.call(MatchEvent.Kind.CARD_REVEALED, revealed)
-
-
-## The leftmost card of `seat`'s row not yet pulsed in this walk, or -1.
-static func _leftmost_unpulsed(state: MatchState, seat: int) -> int:
-	var piles: MatchState.SeatPiles = state.seats[seat]
-	for card: int in piles.board:
-		if not state.walk.pulsed.has(card):
-			return card
-	return -1
 
 
 ## The seat whose row holds `card`, or -1 when neither row does.
@@ -302,7 +324,8 @@ class Pulse:
 			if _watchers(seat, card):
 				return true
 			at = ScoreWalk.Stage.SCORE
-		# A card an effect took off the row before its score is not scored (R23).
+		# A card an effect took off the row before its score is not scored (R23). A card
+		# an effect moved within its row is scored where it landed (DC-06 R5).
 		if at != ScoreWalk.Stage.SCORE or not state.seats[seat].board.has(card):
 			return false
 		var live: bool = policy == null and sink.is_valid()

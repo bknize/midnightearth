@@ -556,7 +556,8 @@ func test_destroy_picks_from_the_stream_and_the_card_leaves_at_once() -> void:
 		assert_array(state.seats[1].board).is_equal(rest)
 		assert_array(_cards_of(events, REVEALED)).is_equal(_typed([source] + rest))
 		assert_array(_cards_of(events, SCORED)).is_equal(_typed([source] + rest))
-		assert_bool(state.walk.pulsed.has(target)).is_false()
+		# Seat 1's cursor passed the three cards left on its row (DC-06 R1).
+		assert_array(state.walk.cursor).is_equal(_typed([1, rest.size()]))
 		assert_bool(state.seats[1].is_revealed(target)).is_false()
 		assert_array(state.seats[1].burned).is_equal(_typed([target]))
 	# Two seeds differ.

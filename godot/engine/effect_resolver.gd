@@ -37,7 +37,10 @@ extends RefCounted
 ##     private to the owner.
 ##   - SWAP_PLACES: the source and another card of the owner's row exchange slots: two
 ##     CARD_MOVED {seat, card, from_slot, to_slot}, the source's first. A face-down card's
-##     move is private to its seat. The walk's `pulsed` set keeps either from pulsing twice.
+##     move is private to its seat. The walk's slot cursor decides what scores next
+##     (DC-06 R5-R11): a card moved behind the cursor is not reached again this walk, a
+##     card moved ahead of it is pulsed again there; the source's own pulse scores it
+##     wherever it landed.
 ##   - SWITCH_STATS: exchanges the target's current flat and bonus, flat-ups and the
 ##     bonus-0 mark included (ScoreWalk.switch_stats; Ben's ruling 1a): STATS_CHANGED
 ##     (cause switch).
