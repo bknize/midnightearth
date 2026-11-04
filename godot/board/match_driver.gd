@@ -37,13 +37,13 @@ var _end_payload: Dictionary = {}
 ## an empty id takes the seed's own pairing (DC-07 R6, P14; MatchEngine.create). An
 ## unknown id or failed data makes start() return no events.
 static func create(
-	p_seed: int, cards: CardDb, decks: DeckList, deck_ids: Array[String], p_autoplay: bool
+	p_seed: int, cards: CardDb, decks: DeckList, ids: Array[String], p_autoplay: bool
 ) -> MatchDriver:
 	var driver: MatchDriver = MatchDriver.new()
 	driver._seed = p_seed
 	driver._autoplay = p_autoplay
 	driver._cards = cards
-	driver._engine = MatchEngine.create(p_seed, cards, decks, deck_ids)
+	driver._engine = MatchEngine.create(p_seed, cards, decks, ids)
 	var defs: MatchCards = driver._engine.match_cards()
 	for seat: int in MatchEngine.SEATS:
 		if seat == PLAYER_SEAT and not p_autoplay:

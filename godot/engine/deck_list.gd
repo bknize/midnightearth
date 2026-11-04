@@ -74,19 +74,19 @@ static func from_json(text: String) -> DeckList:
 	var entries: Array = root["decks"]
 	var out: DeckList = DeckList.new()
 	for i: int in range(entries.size()):
-		var deck: Dictionary = _parse_deck(entries[i])
-		if deck.is_empty():
+		var parsed: Dictionary = _parse_deck(entries[i])
+		if parsed.is_empty():
 			return _failed(
 				(
 					"%s: deck %d needs non-empty string id and name, a string theme %s"
 					% [ERR_SHAPE, i, "and a cards array of strings"]
 				)
 			)
-		var deck_id: String = deck[KEY_ID]
+		var deck_id: String = parsed[KEY_ID]
 		if out._index_by_id.has(deck_id):
 			return _failed("%s: %s" % [ERR_DUPLICATE_DECK, deck_id])
 		out._index_by_id[deck_id] = out._decks.size()
-		out._decks.append(deck)
+		out._decks.append(parsed)
 	return out
 
 
@@ -107,8 +107,8 @@ func size() -> int:
 ## Every deck id, in file order.
 func ids() -> Array[String]:
 	var out: Array[String] = []
-	for deck: Dictionary in _decks:
-		var deck_id: String = deck[KEY_ID]
+	for entry: Dictionary in _decks:
+		var deck_id: String = entry[KEY_ID]
 		out.append(deck_id)
 	return out
 

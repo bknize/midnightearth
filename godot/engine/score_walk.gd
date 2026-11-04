@@ -218,6 +218,7 @@ static func _ongoing_amount(effect: CardEffect, verb: int) -> int:
 ## `a * b` for two hundredths values, rounded to the nearest hundredth (DC-07 P4): the
 ## mult times a ×-part, and one ×-part times another.
 static func times_hundredths(a: int, b: int) -> int:
+	@warning_ignore("integer_division")
 	return (a * b + HALF_HUNDREDTH) / MatchRules.MULT_ONE
 
 
@@ -326,6 +327,7 @@ static func _score(
 	var mult: int = times_hundredths(walk.mult[seat], stats.times)
 	mult += stats.plus * MatchRules.MULT_ONE
 	walk.mult[seat] = mult
+	@warning_ignore("integer_division")
 	var added: int = stats.flat * mult / MatchRules.MULT_ONE
 	state.scores[seat] += added
 	var again: bool = walk.scored.has(card)

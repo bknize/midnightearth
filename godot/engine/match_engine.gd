@@ -66,15 +66,15 @@ var _policy: PreviewPolicy = PreviewPolicy.new()
 ## CARD_DATA_INVALID, and an id the list does not hold (or a `deck_ids` other than one id
 ## per seat) with DECK_UNKNOWN.
 static func create(
-	match_seed: int, cards: CardDb, decks: DeckList, deck_ids: Array[String]
+	match_seed: int, cards: CardDb, decks: DeckList, ids: Array[String]
 ) -> MatchEngine:
 	var engine: MatchEngine = MatchEngine.new()
 	engine._rng = MatchRng.new(match_seed)
 	engine._state = MatchState.new(match_seed)
 	engine._state.rng_state = engine._rng.state
-	var resolved: Array[String] = _resolved_deck_ids(match_seed, decks, deck_ids)
+	var resolved: Array[String] = _resolved_deck_ids(match_seed, decks, ids)
 	engine._state.deck_ids.assign(resolved)
-	engine._setup_error = _deck_problem(cards, decks, deck_ids.size(), resolved)
+	engine._setup_error = _deck_problem(cards, decks, ids.size(), resolved)
 	if engine._setup_error == EngineError.Code.NONE:
 		engine._cards = MatchCards.build(cards, decks, resolved)
 		if not engine._cards.is_valid():
@@ -834,11 +834,11 @@ static func _plain_strings(values: Array[String]) -> Array:
 ## `deck_ids` with each empty id replaced by the seat's seeded pick (DC-07 R6, P14), when
 ## `decks` loaded; otherwise unchanged. Seats beyond SEATS are not looked at.
 static func _resolved_deck_ids(
-	match_seed: int, decks: DeckList, deck_ids: Array[String]
+	match_seed: int, decks: DeckList, ids: Array[String]
 ) -> Array[String]:
 	var out: Array[String] = []
-	for seat: int in range(mini(deck_ids.size(), SEATS)):
-		var deck_id: String = deck_ids[seat]
+	for seat: int in range(mini(ids.size(), SEATS)):
+		var deck_id: String = ids[seat]
 		if deck_id == "" and decks != null and decks.is_valid():
 			deck_id = decks.seeded_pick(match_seed, seat)
 		out.append(deck_id)

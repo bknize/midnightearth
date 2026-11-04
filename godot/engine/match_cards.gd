@@ -22,7 +22,7 @@ var _triggers: Dictionary[int, bool] = {}
 ## `decks`, its cards from `cards`. Fails (build_error() not empty, no definitions) when
 ## the pool or list is invalid, a deck fails DeckList.validate(), `deck_ids` does not name
 ## one deck per seat, or an id is not in the list.
-static func build(cards: CardDb, decks: DeckList, deck_ids: Array[String]) -> MatchCards:
+static func build(cards: CardDb, decks: DeckList, ids: Array[String]) -> MatchCards:
 	var out: MatchCards = MatchCards.new()
 	if cards == null or decks == null:
 		out._error = "no card pool or deck list"
@@ -31,18 +31,18 @@ static func build(cards: CardDb, decks: DeckList, deck_ids: Array[String]) -> Ma
 	if problem != "":
 		out._error = problem
 		return out
-	if deck_ids.size() != 2:
-		out._error = "expected 2 deck ids, got %d" % deck_ids.size()
+	if ids.size() != 2:
+		out._error = "expected 2 deck ids, got %d" % ids.size()
 		return out
 	var defs: Array[CardDef] = []
-	for deck_id: String in deck_ids:
+	for deck_id: String in ids:
 		if not decks.has_deck(deck_id):
 			out._error = "unknown deck: %s" % deck_id
 			return out
 		for card_id: String in decks.card_ids(deck_id):
 			defs.append(cards.card_by_id(card_id))
 	out._defs = defs
-	out._deck_ids.assign(deck_ids)
+	out._deck_ids.assign(ids)
 	for def: CardDef in defs:
 		if def != null and def.effect != null:
 			out._verbs[def.effect.verb] = true
@@ -75,6 +75,7 @@ func def_of(instance: int) -> CardDef:
 func origin_of(instance: int) -> int:
 	if instance < 0 or instance >= _defs.size():
 		return -1
+	@warning_ignore("integer_division")
 	return instance / MatchRules.DECK_SIZE
 
 
