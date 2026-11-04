@@ -1,7 +1,7 @@
 class_name TestLiftRules
 extends GdUnitTestSuite
 ## LiftRules (R1, R2, R9, R11). Steps come from a real seed-1 bot-vs-bot match, built the
-## way test_board_steps.gd builds them.
+## way test_board_steps.gd builds them (the fixture deck on both seats, DC-07 T02).
 
 const SEED: int = 1
 const MAX_ACTIONS: int = 2000
@@ -16,15 +16,15 @@ var _cached_steps: Array[BoardStep] = []
 func _steps() -> Array[BoardStep]:
 	if not _cached_steps.is_empty():
 		return _cached_steps
-	var cards: CardDb = CardDb.load_default()
-	var engine: MatchEngine = MatchEngine.create(SEED, cards)
+	var cards: CardDb = FixtureDecks.cards()
+	var engine: MatchEngine = FixtureDecks.engine(SEED, cards)
 	var collected: Array[MatchEvent] = []
 	var started: ApplyResult = engine.start()
 	assert_bool(started.ok).is_true()
 	collected.append_array(started.events_for(0))
 	var bots: Array[GreedyBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), cards))
+		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), engine.match_cards()))
 	var actions: int = 0
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var awaited: int = engine.awaited_seat()

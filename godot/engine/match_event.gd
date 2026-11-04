@@ -37,6 +37,10 @@ enum Kind {
 	FREE_FIRST_SET,
 	# DC-06 (cycle-5-walk-cursor plan, event table). Appended so earlier ordinals hold.
 	DESTROYED_CLEARED,
+	# DC-07 (cycle-6-constructed-decks plan, event table). Appended so earlier ordinals hold.
+	## The first event of start(): {decks: [seat 0's deck id, seat 1's]}. Public (R5); it
+	## carries no seed, which would predict every shuffle (R28, R29).
+	MATCH_STARTED,
 }
 
 ## owner_seat of an event every seat may see in full.

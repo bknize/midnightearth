@@ -1,5 +1,6 @@
 extends Node3D
-## Main scene. Runs the engine smoke match (R39, R40), then instances the board (R1, R44)
+## Main scene. Runs the engine smoke match (R39, R40; seed 1 under its seeded deck pairing,
+## DC-07 P14), then instances the board (R1, R44)
 ## and prints the lines the build gate looks for: the "Engine smoke:" line, then
 ## "Main ready" once the board is in the tree.
 
@@ -24,17 +25,20 @@ func _ready() -> void:
 	print("Main ready")
 
 
-## Plays seed 1 to the end with one GreedyBot per seat and prints the summary line.
-## Returns false after a push_error: a rejected action, the action cap or a start failure.
+## Plays seed 1 to the end under its seeded deck pairing (DC-07 P14) with one GreedyBot per
+## seat and prints the summary line, the deck ids right after the seed. Returns false after
+## a push_error: a rejected action, the action cap or a start failure.
 func _run_smoke(cards: CardDb) -> bool:
-	var engine: MatchEngine = MatchEngine.create(SMOKE_SEED, cards)
+	var seeded: Array[String] = ["", ""]
+	var engine: MatchEngine = MatchEngine.create(SMOKE_SEED, cards, DeckList.load_default(), seeded)
 	var started: ApplyResult = engine.start()
 	if not started.ok:
 		push_error("Engine smoke: start rejected, code %d" % started.error)
 		return false
+	var decks: Array[String] = engine.deck_ids()
 	var bots: Array[GreedyBot] = []
 	for seat: int in MatchEngine.SEATS:
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SMOKE_SEED, seat), cards))
+		bots.append(GreedyBot.new(GreedyBot.seed_for(SMOKE_SEED, seat), engine.match_cards()))
 	var actions: int = 0
 	var last: ApplyResult = started
 	while not engine.is_over():
@@ -60,8 +64,18 @@ func _run_smoke(cards: CardDb) -> bool:
 		wins.assign(raw_wins)
 		print(
 			(
-				"Engine smoke: seed=%d winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
-				% [SMOKE_SEED, winner, wins[0], wins[1], rounds, reason, actions]
+				"Engine smoke: seed=%d decks=%s/%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
+				% [
+					SMOKE_SEED,
+					decks[0],
+					decks[1],
+					winner,
+					wins[0],
+					wins[1],
+					rounds,
+					reason,
+					actions
+				]
 			)
 		)
 		return true

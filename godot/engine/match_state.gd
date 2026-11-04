@@ -5,7 +5,8 @@ extends RefCounted
 ##
 ## Derived, not stored: the budget (= turn + energy.carry[seat], MatchEngine.budget_for)
 ## and the awaited seat (from phase and first_seat).
-## Card instance ids are seat * DECK_SIZE + definition index (R9, C5).
+## Card instance ids are origin seat * DECK_SIZE + index into that seat's deck list (R9,
+## C5; DC-07 P3, MatchCards); `deck_ids` names each seat's deck.
 
 ## NOT_STARTED holds until start() succeeds; the plan's three phases follow it. AWAIT_CHOICE
 ## (DC-05 T05, appended so earlier ordinals hold) is a walk paused on an open `prompt`.
@@ -13,6 +14,9 @@ extends RefCounted
 enum Phase { NOT_STARTED, AWAIT_FIRST, AWAIT_SECOND, OVER, AWAIT_CHOICE }
 
 var match_seed: int = 0
+## The deck id each seat plays, indexed by seat (DC-07 R5, P2): resolved at create(), a
+## seeded pick already applied, so never "" in a started match.
+var deck_ids: Array[String] = ["", ""]
 ## Mirror of the engine stream's state, refreshed by the engine after every change.
 var rng_state: int = 0
 ## Counts past MatchRules.ROUNDS in sudden death.
@@ -79,6 +83,7 @@ func to_dict() -> Dictionary:
 		revealed.append(plain(piles.revealed_ids()))
 	return {
 		"seed": match_seed,
+		"deck_ids": _plain_strings(deck_ids),
 		"rng_state": rng_state,
 		"round": round_number,
 		"turn": turn,
@@ -110,6 +115,7 @@ func to_dict() -> Dictionary:
 ## the preview's clone). The copy's to_dict() equals this one's.
 func duplicate() -> MatchState:
 	var out: MatchState = MatchState.new(match_seed)
+	out.deck_ids.assign(deck_ids)
 	out.rng_state = rng_state
 	out.round_number = round_number
 	out.turn = turn
@@ -188,6 +194,13 @@ func _card_states_dict() -> Dictionary:
 	for card: int in card_states:
 		var held: CardState = card_states[card]
 		out[card] = held.to_dict()
+	return out
+
+
+## An untyped copy of the deck ids, for to_dict().
+static func _plain_strings(values: Array[String]) -> Array:
+	var out: Array = []
+	out.assign(values)
 	return out
 
 

@@ -7,7 +7,8 @@ extends GdUnitTestSuite
 ## best own-minus-opponent commit over legal sets x two orders x two row ends, ties by the
 ## seed), R37 (a prompt is answered with its best-previewed option) and R38 (never
 ## rejected; the action depends only on the seed and the view). Cycle 1's "highest total
-## flat" cases are rewritten to the preview rule.
+## flat" cases are rewritten to the preview rule. DC-07 T02: the bot reads MatchCards and
+## every match here plays the fixture deck on both seats.
 ##
 ## Hand-built positions start a real engine and then set its state (`_position`): instance
 ## id = seat * 20 + index, so id 2 is c03 (cost 1, flat 1, bonus 1), id 3 is c04 (1, 3, 0),
@@ -53,14 +54,22 @@ const C19_DESTROY: int = 18
 const C20: int = 19
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for the MatchCards APIs.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
 
 
 func _typed(values: Array) -> Array[int]:
@@ -79,7 +88,7 @@ func _none() -> Array[int]:
 
 
 func _bot(bot_seed: int) -> GreedyBot:
-	return GreedyBot.new(bot_seed, _db())
+	return GreedyBot.new(bot_seed, _defs())
 
 
 ## A started engine set to round 1, turn `turn` (so each budget is `turn`), `first`
@@ -93,7 +102,7 @@ func _position(
 	row_0: Array[int],
 	row_1: Array[int]
 ) -> MatchEngine:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	engine.start()
 	var state: MatchState = engine._state
 	state.round_number = 1
@@ -209,7 +218,7 @@ func test_preview_treats_the_opponents_face_down_commit_as_absent() -> void:
 func test_preview_changes_nothing() -> void:
 	var actions: int = 0
 	for match_seed: int in PURITY_SEEDS:
-		var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+		var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 		assert_bool(engine.start().ok).is_true()
 		var bots: Array[GreedyBot] = [
 			_bot(GreedyBot.seed_for(match_seed, 0)), _bot(GreedyBot.seed_for(match_seed, 1))
@@ -456,7 +465,7 @@ func test_commits_nothing_when_nothing_fits() -> void:
 func test_failed_card_data_makes_the_bot_pass() -> void:
 	# The documented fallback: with no valid card data no card is priced, so the only
 	# candidate is the empty set and the bot commits nothing for its own seat.
-	var broken: CardDb = CardDb.from_json("{}")
+	var broken: MatchCards = FixtureDecks.defs(CardDb.from_json("{}"))
 	assert_bool(broken.is_valid()).is_false()
 	var hand: Array[int] = [_id(1, C02), _id(1, C03), _id(1, C04), _id(1, C08)]
 	var engine: MatchEngine = _position(1, 4, _none(), hand, _none(), _none())
@@ -464,6 +473,9 @@ func test_failed_card_data_makes_the_bot_pass() -> void:
 	assert_int(action.kind).is_equal(EngineAction.Kind.COMMIT)
 	assert_int(action.seat).is_equal(1)
 	assert_array(action.cards).is_empty()
+	# A null MatchCards is the same fallback (DC-07 T02: the bot no longer loads a default).
+	var bare: EngineAction = GreedyBot.new(1, null).choose(engine.view_for(1), engine)
+	assert_array(bare.cards).is_empty()
 
 
 ## Each set is listed in bonus-first then flat-first order (when they differ), each at the
@@ -632,12 +644,14 @@ func test_tie_break_varies_with_round_and_turn() -> void:
 	assert_int(seen.size()).is_equal(2)
 
 
-func test_default_card_db_matches_an_explicit_one() -> void:
+## DC-07 T02: the engine's own MatchCards (what the board and the smoke give the bot) and
+## a fresh build over the same pool and decks choose alike.
+func test_engine_match_cards_match_an_explicit_build() -> void:
 	var hand: Array[int] = [_id(0, 5), _id(0, 6), _id(0, 0), _id(0, 8)]
 	var engine: MatchEngine = _position(0, 3, hand, _none(), _none(), _none())
 	var view: SeatView = engine.view_for(0)
 	for bot_seed: int in range(1, 9):
-		var a: EngineAction = GreedyBot.new(bot_seed).choose(view, engine)
+		var a: EngineAction = GreedyBot.new(bot_seed, engine.match_cards()).choose(view, engine)
 		var b: EngineAction = _bot(bot_seed).choose(view, engine)
 		assert_dict(a.to_dict()).is_equal(b.to_dict())
 
@@ -657,7 +671,7 @@ func test_engine_never_rejects_the_bot_over_full_matches() -> void:
 	var prompts: int = 0
 	var matches_finished: int = 0
 	for match_seed: int in MATCH_SEEDS:
-		var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+		var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 		assert_bool(engine.start().ok).is_true()
 		var bots: Array[GreedyBot] = [
 			_bot(GreedyBot.seed_for(match_seed, 0)), _bot(GreedyBot.seed_for(match_seed, 1))
@@ -720,8 +734,8 @@ func _assert_best_option(engine: MatchEngine, view: SeatView, action: EngineActi
 func test_bot_choices_replay_identically_for_a_fixed_match_seed() -> void:
 	# R38 end to end: two engines on one seed with freshly built bots stay in lockstep.
 	var match_seed: int = 11
-	var a: MatchEngine = MatchEngine.create(match_seed, _db())
-	var b: MatchEngine = MatchEngine.create(match_seed, _db())
+	var a: MatchEngine = FixtureDecks.engine(match_seed, _db())
+	var b: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	a.start()
 	b.start()
 	var bots_a: Array[GreedyBot] = [

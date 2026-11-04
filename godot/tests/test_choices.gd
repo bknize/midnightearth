@@ -52,14 +52,23 @@ const RETURNED: int = MatchEvent.Kind.CARD_RETURNED
 const DISCARDED: int = MatchEvent.Kind.CARD_DISCARDED
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for the MatchCards APIs:
+## ScoreWalk, EffectResolver and GreedyBot.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
 
 
 func _typed(values: Array) -> Array[int]:
@@ -95,7 +104,7 @@ func _reveal(state: MatchState, seat: int, cards: Array[int]) -> void:
 func _run(state: MatchState, recorder: Recorder) -> bool:
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		if ScoreWalk.step(state, _db(), MatchRng.new(SEED), recorder.record, null):
+		if ScoreWalk.step(state, _defs(), MatchRng.new(SEED), recorder.record, null):
 			return true
 		guard += 1
 	return false
@@ -109,7 +118,7 @@ func _walk(state: MatchState, recorder: Recorder) -> void:
 
 ## Answers the open prompt with `index`, recording its events, then runs the walk on.
 func _answer(state: MatchState, index: int, recorder: Recorder) -> bool:
-	recorder.events.append_array(EffectResolver.answer(state, _db(), index))
+	recorder.events.append_array(EffectResolver.answer(state, _defs(), index))
 	return _run(state, recorder)
 
 
@@ -157,7 +166,7 @@ func _text(index: int) -> String:
 
 
 func _started(match_seed: int) -> MatchEngine:
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
 	return engine
 
@@ -404,7 +413,7 @@ func test_two_or_more_targets_pause_the_walk_on_a_prompt() -> void:
 	assert_array(state.scores).is_equal(_typed([3, 0]))
 	assert_bool(state.walk.active).is_true()
 	var still: Dictionary = state.to_dict()
-	assert_bool(ScoreWalk.step(state, _db(), null, recorder.record, null)).is_true()
+	assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record, null)).is_true()
 	assert_dict(state.to_dict()).is_equal(still)
 	assert_int(recorder.events.size()).is_equal(4)
 
@@ -463,7 +472,7 @@ func test_a_face_down_swap_target_stays_hidden() -> void:
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
 	_run(state, recorder)
-	var answered: Array[MatchEvent] = EffectResolver.answer(state, _db(), 2)
+	var answered: Array[MatchEvent] = EffectResolver.answer(state, _defs(), 2)
 	assert_array(_kinds(answered)).is_equal(_typed([MADE, MOVED, MOVED]))
 	_assert_event(answered[0], MADE, _made(0, card, "own_board", 2, b, false), 0)
 	_assert_event(
@@ -480,7 +489,7 @@ func test_a_face_down_swap_target_stays_hidden() -> void:
 func test_a_preview_takes_the_first_option_without_pausing() -> void:
 	var state: MatchState = _swap_state()
 	ScoreWalk.begin(state)
-	var paused: bool = ScoreWalk.run(state, _db(), null, Callable(), PreviewPolicy.new())
+	var paused: bool = ScoreWalk.run(state, _defs(), null, Callable(), PreviewPolicy.new())
 	assert_bool(paused).is_false()
 	assert_dict(state.prompt).is_empty()
 	var a: int = _id(0, C04)
@@ -725,7 +734,7 @@ func test_the_bot_answers_its_prompt_with_a_best_option() -> void:
 	if engine == null:
 		return
 	var asked: int = engine.awaited_seat()
-	var bot: GreedyBot = GreedyBot.new(GreedyBot.seed_for(SEED, asked), _db())
+	var bot: GreedyBot = GreedyBot.new(GreedyBot.seed_for(SEED, asked), _defs())
 	var action: EngineAction = bot.choose(engine.view_for(asked), engine)
 	assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
 	assert_int(action.seat).is_equal(asked)
@@ -782,7 +791,7 @@ func _bot_engine_at_exact_prompt(match_seed: int, seen: Dictionary) -> MatchEngi
 	var engine: MatchEngine = _started(match_seed)
 	var bots: Array[GreedyBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(match_seed, seat), _db()))
+		bots.append(GreedyBot.new(GreedyBot.seed_for(match_seed, seat), _defs()))
 	var actions: int = 0
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var prompt: Dictionary = engine.open_prompt()
@@ -825,7 +834,7 @@ func _preview_is_exact(engine: MatchEngine) -> bool:
 ## when the replay or a choice fails or no turn ends.
 func _live_walk_end(logged: String, seat: int, zone: int, option: int) -> Array[int]:
 	var none: Array[int] = []
-	var replayed: ReplayResult = ActionLog.from_json(logged).replay(_db())
+	var replayed: ReplayResult = ActionLog.from_json(logged).replay(_db(), FixtureDecks.decks())
 	if not replayed.ok:
 		return none
 	var live: MatchEngine = replayed.engine
@@ -859,7 +868,9 @@ func test_a_log_with_a_choice_replays_to_an_equal_state() -> void:
 	if engine == null:
 		return
 	# Replay of the paused match reaches the same open prompt.
-	var paused: ReplayResult = ActionLog.from_json(engine.action_log().to_json()).replay(_db())
+	var paused: ReplayResult = ActionLog.from_json(engine.action_log().to_json()).replay(
+		_db(), FixtureDecks.decks()
+	)
 	assert_bool(paused.ok).is_true()
 	assert_dict(paused.engine.full_state()).is_equal(engine.full_state())
 	var asked: int = engine.awaited_seat()
@@ -868,7 +879,7 @@ func test_a_log_with_a_choice_replays_to_an_equal_state() -> void:
 	var text: String = engine.action_log().to_json()
 	var entry: String = '{"k":"choose","s":%d,"z":%d,"i":3}' % [asked, Choice.Zone.OWN_HAND]
 	assert_bool(text.contains(entry)).override_failure_message(text).is_true()
-	var replayed: ReplayResult = ActionLog.from_json(text).replay(_db())
+	var replayed: ReplayResult = ActionLog.from_json(text).replay(_db(), FixtureDecks.decks())
 	assert_bool(replayed.ok).is_true()
 	assert_dict(replayed.engine.full_state()).is_equal(engine.full_state())
 	assert_str(replayed.engine.action_log().to_json()).is_equal(text)

@@ -107,7 +107,7 @@ static func next_card(state: MatchState) -> int:
 ## deck; R18's hook, which would go here and is never folded by a switch). (0, 0) for a
 ## card with no definition. Every reader (the walk, previews, SeatView, STATS_CHANGED, the
 ## destroy's preview rule) goes through this one function.
-static func effective(card: int, state: MatchState, cards: CardDb) -> Vector2i:
+static func effective(card: int, state: MatchState, cards: MatchCards) -> Vector2i:
 	return _held_stats(card, state, cards)
 
 
@@ -115,7 +115,7 @@ static func effective(card: int, state: MatchState, cards: CardDb) -> Vector2i:
 ## and the bonus-0 mark included, are exchanged and stored as its new base
 ## (CardState.apply_switch). Later modifiers apply to the switched stats; a second switch
 ## exchanges what is current then. Nothing happens for a card with no definition.
-static func switch_stats(card: int, state: MatchState, cards: CardDb) -> void:
+static func switch_stats(card: int, state: MatchState, cards: MatchCards) -> void:
 	if _definition(card, cards) == null:
 		return
 	var current: Vector2i = _held_stats(card, state, cards)
@@ -123,7 +123,7 @@ static func switch_stats(card: int, state: MatchState, cards: CardDb) -> void:
 
 
 ## `card`'s stats from its definition and its CardState alone (see effective()).
-static func _held_stats(card: int, state: MatchState, cards: CardDb) -> Vector2i:
+static func _held_stats(card: int, state: MatchState, cards: MatchCards) -> Vector2i:
 	var def: CardDef = _definition(card, cards)
 	if def == null:
 		return Vector2i.ZERO
@@ -141,11 +141,11 @@ static func _held_stats(card: int, state: MatchState, cards: CardDb) -> Vector2i
 	return Vector2i(flat, bonus)
 
 
-## The definition of `card` (an instance id), or null.
-static func _definition(card: int, cards: CardDb) -> CardDef:
+## The definition of `card` (an instance id, read through its origin's deck), or null.
+static func _definition(card: int, cards: MatchCards) -> CardDef:
 	if cards == null:
 		return null
-	return cards.card_at(card % MatchRules.DECK_SIZE)
+	return cards.def_of(card)
 
 
 ## One pulse (P3). Returns true when the walk paused on a prompt. When no card is left the
@@ -163,7 +163,7 @@ static func _definition(card: int, cards: CardDb) -> CardDef:
 ## paused slot, `walk.paused_slot`, whatever card the choice left there) before the cursor
 ## moves on. A preview never pauses: its policy answers at once.
 static func step(
-	state: MatchState, cards: CardDb, rng: MatchRng, sink: Callable, policy: PreviewPolicy
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, policy: PreviewPolicy
 ) -> bool:
 	var walk: MatchState.WalkState = state.walk
 	# Still waiting for the choice: nothing moves until EffectResolver.answer() runs.
@@ -200,7 +200,7 @@ static func step(
 ## no on-reveal effect, no watcher and no score; face up, the pulse ends with no event. The
 ## same holds for a destroyed card an effect put on the pulsed slot (C25).
 static func _pulse_destroyed(
-	state: MatchState, cards: CardDb, sink: Callable, live: bool, seat: int, card: int
+	state: MatchState, cards: MatchCards, sink: Callable, live: bool, seat: int, card: int
 ) -> void:
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	if piles.is_revealed(card):
@@ -215,7 +215,7 @@ static func _pulse_destroyed(
 ## preview's loop (plan P12); the live engine loops step() itself so it can stop between
 ## pulses.
 static func run(
-	state: MatchState, cards: CardDb, rng: MatchRng, sink: Callable, policy: PreviewPolicy
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, policy: PreviewPolicy
 ) -> bool:
 	while state.walk.active:
 		if step(state, cards, rng, sink, policy):
@@ -236,7 +236,7 @@ static func _forward(events: Array[MatchEvent], sink: Callable, policy: PreviewP
 ## looked up by id (the pulsed slot, which the card holds) and `again` true when the card
 ## already scored in this walk (DC-06 R9, P3).
 static func _score(
-	state: MatchState, cards: CardDb, sink: Callable, live: bool, seat: int, card: int
+	state: MatchState, cards: MatchCards, sink: Callable, live: bool, seat: int, card: int
 ) -> void:
 	var walk: MatchState.WalkState = state.walk
 	var piles: MatchState.SeatPiles = state.seats[seat]
@@ -266,11 +266,11 @@ static func _score(
 ## the reveals of this walk from 0 (the board still reads it until DC-05 T08 and T11);
 ## `destroyed` is true when the card was destroyed before the cursor reached it (DC-06 R14).
 static func _emit_reveal(
-	state: MatchState, cards: CardDb, sink: Callable, seat: int, card: int, destroyed: bool
+	state: MatchState, cards: MatchCards, sink: Callable, seat: int, card: int, destroyed: bool
 ) -> void:
 	var def: CardDef = null
 	if cards != null:
-		def = cards.card_at(card % MatchRules.DECK_SIZE)
+		def = cards.def_of(card)
 	var def_id: String = ""
 	if def != null:
 		def_id = def.id
@@ -305,7 +305,7 @@ class Pulse:
 	extends RefCounted
 
 	var state: MatchState = null
-	var cards: CardDb = null
+	var cards: MatchCards = null
 	var rng: MatchRng = null
 	var sink: Callable = Callable()
 	var policy: PreviewPolicy = null
@@ -319,7 +319,7 @@ class Pulse:
 
 	func _init(
 		p_state: MatchState,
-		p_cards: CardDb,
+		p_cards: MatchCards,
 		p_rng: MatchRng,
 		p_sink: Callable,
 		p_policy: PreviewPolicy

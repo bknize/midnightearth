@@ -19,14 +19,23 @@ const C12_SWAP: int = 11
 const C17_RETURN: int = 16
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for ScoreWalk and
+## EffectResolver.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
 
 
 func _typed(values: Array) -> Array[int]:
@@ -60,7 +69,7 @@ func _swap_state(third: int) -> MatchState:
 func _run(state: MatchState, recorder: Recorder) -> bool:
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		if ScoreWalk.step(state, _db(), null, recorder.record, null):
+		if ScoreWalk.step(state, _defs(), null, recorder.record, null):
 			return true
 		guard += 1
 	return false
@@ -68,7 +77,7 @@ func _run(state: MatchState, recorder: Recorder) -> bool:
 
 ## Answers the open prompt with position `index`, recording the choice's events.
 func _answer(state: MatchState, index: int, recorder: Recorder) -> void:
-	recorder.events.append_array(EffectResolver.answer(state, _db(), index))
+	recorder.events.append_array(EffectResolver.answer(state, _defs(), index))
 
 
 func _of_kind(events: Array[MatchEvent], kind: int) -> Array[MatchEvent]:
@@ -133,7 +142,7 @@ func test_a_destroyed_card_swapped_onto_the_slot_flips_and_scores_nothing() -> v
 			guard += 1
 			if state.walk.paused_card < 0 and ScoreWalk.next_slot(state).x >= 0:
 				pulses += 1
-			if ScoreWalk.step(state, _db(), null, recorder.record, null):
+			if ScoreWalk.step(state, _defs(), null, recorder.record, null):
 				state.bonus_zero_pending[0] = true
 				_answer(state, 2, recorder)
 		assert_int(pulses).override_failure_message(where).is_equal(5)
@@ -243,8 +252,8 @@ func test_a_resume_after_the_swap_prompt_scores_the_slots_occupant() -> void:
 	assert_dict(copy.to_dict()).is_equal(state.to_dict())
 	var live: Recorder = Recorder.new()
 	var copied: Recorder = Recorder.new()
-	assert_bool(ScoreWalk.step(state, _db(), null, live.record, null)).is_false()
-	assert_bool(ScoreWalk.step(copy, _db(), null, copied.record, null)).is_false()
+	assert_bool(ScoreWalk.step(state, _defs(), null, live.record, null)).is_false()
+	assert_bool(ScoreWalk.step(copy, _defs(), null, copied.record, null)).is_false()
 	var kinds: Array[int] = []
 	for event: MatchEvent in live.events:
 		kinds.append(event.kind)

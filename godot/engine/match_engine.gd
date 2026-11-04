@@ -1,6 +1,7 @@
 class_name MatchEngine
 extends RefCounted
-## The match entry point (R3, C1): create from a seed and the card data, start() once,
+## The match entry point (R3, C1): create from a seed, the card pool, the deck list and a
+## deck id per seat (DC-07 P2, P3; every definition then comes from MatchCards), start() once,
 ## then apply() actions. Each accepted call runs the match to the next point that needs a
 ## seat's decision and returns every event on the way, in order (R4).
 ##
@@ -42,7 +43,11 @@ const REASON_ROUNDS: String = "rounds"
 const REASON_SUDDEN_DEATH: String = "sudden_death"
 const REASON_CONCEDE: String = "concede"
 
-var _cards: CardDb = null
+## The match's 40 definitions by instance id (DC-07 P3); built by create() only when the
+## pool, the list and both deck ids are good, else an empty MatchCards.
+var _cards: MatchCards = MatchCards.new()
+## Why start() must fail (EngineError.Code), decided by create(); NONE when it may start.
+var _setup_error: int = EngineError.Code.NONE
 var _rng: MatchRng = null
 var _state: MatchState = null
 ## Every accepted action in order, copied; T07's ActionLog is built from this.
@@ -53,24 +58,42 @@ var _events: Array[MatchEvent] = []
 var _policy: PreviewPolicy = PreviewPolicy.new()
 
 
-static func create(match_seed: int, cards: CardDb) -> MatchEngine:
+## A match on `match_seed` where seat s plays the deck `deck_ids[s]` of `decks`, its cards
+## from the pool `cards` (DC-07 R5, P2, P3). An empty id resolves to
+## DeckList.seeded_pick(match_seed, seat) (R6, P14), so deck_ids() and the log hold the
+## resolved ids. Never fails here: a bad pool or list makes start() fail with
+## CARD_DATA_INVALID, and an id the list does not hold (or a `deck_ids` other than one id
+## per seat) with DECK_UNKNOWN.
+static func create(
+	match_seed: int, cards: CardDb, decks: DeckList, deck_ids: Array[String]
+) -> MatchEngine:
 	var engine: MatchEngine = MatchEngine.new()
-	engine._cards = cards
 	engine._rng = MatchRng.new(match_seed)
 	engine._state = MatchState.new(match_seed)
 	engine._state.rng_state = engine._rng.state
+	var resolved: Array[String] = _resolved_deck_ids(match_seed, decks, deck_ids)
+	engine._state.deck_ids.assign(resolved)
+	engine._setup_error = _deck_problem(cards, decks, deck_ids.size(), resolved)
+	if engine._setup_error == EngineError.Code.NONE:
+		engine._cards = MatchCards.build(cards, decks, resolved)
+		if not engine._cards.is_valid():
+			engine._setup_error = EngineError.Code.CARD_DATA_INVALID
 	return engine
 
 
 ## Deals round 1 and runs to the first decision point. Not logged: it is fully determined
-## by the seed. Fails with CARD_DATA_INVALID on failed card data (R8) and MALFORMED when
-## the match has already started; either way nothing changes.
+## by the seed and the deck ids. Its first event is MATCH_STARTED {decks} (DC-07). Fails
+## with CARD_DATA_INVALID on a failed pool or deck list (R8, R3), DECK_UNKNOWN on a deck id
+## the list does not hold (DC-07 P2), and MALFORMED when the match has already started;
+## either way nothing changes.
 func start() -> ApplyResult:
-	if _cards == null or not _cards.is_valid():
-		return ApplyResult.failure(EngineError.Code.CARD_DATA_INVALID)
+	if _setup_error != EngineError.Code.NONE:
+		return ApplyResult.failure(_setup_error)
 	if _state.phase != MatchState.Phase.NOT_STARTED:
 		return ApplyResult.failure(EngineError.Code.MALFORMED)
 	_events.clear()
+	# The seed stays out of every event: it would predict each shuffle (R28, R29).
+	_emit(MatchEvent.Kind.MATCH_STARTED, {"decks": _plain_strings(_state.deck_ids)})
 	_begin_round()
 	_begin_turn()
 	_state.rng_state = _rng.state
@@ -219,9 +242,25 @@ func full_state() -> Dictionary:
 	return _state.to_dict()
 
 
-## The replayable log (R31): this match's seed and copies of its accepted actions only.
+## The replayable log (R31, DC-07 R7): this match's seed, its resolved deck ids and copies
+## of its accepted actions only.
 func action_log() -> ActionLog:
-	return ActionLog.create(_state.match_seed, _accepted)
+	return ActionLog.create(_state.match_seed, _state.deck_ids, _accepted)
+
+
+## The deck id each seat plays, indexed by seat, as resolved by create() (an empty id
+## already replaced by its seeded pick; DC-07 P2, P14). A copy.
+func deck_ids() -> Array[String]:
+	var out: Array[String] = []
+	out.assign(_state.deck_ids)
+	return out
+
+
+## The match's definitions by instance id (DC-07 P3), for the bot and the board; an empty
+## MatchCards when start() would fail. Names no hidden card: both deck lists are public and
+## an instance id indexes its origin's list, not the shuffled deck.
+func match_cards() -> MatchCards:
+	return _cards
 
 
 func accepted_action_count() -> int:
@@ -697,6 +736,48 @@ func _wins_leader() -> int:
 
 func _pair(values: Array[int]) -> Array:
 	return [values[0], values[1]]
+
+
+static func _plain_strings(values: Array[String]) -> Array:
+	var out: Array = []
+	out.assign(values)
+	return out
+
+
+# --- Decks ----------------------------------------------------------------------------
+
+
+## `deck_ids` with each empty id replaced by the seat's seeded pick (DC-07 R6, P14), when
+## `decks` loaded; otherwise unchanged. Seats beyond SEATS are not looked at.
+static func _resolved_deck_ids(
+	match_seed: int, decks: DeckList, deck_ids: Array[String]
+) -> Array[String]:
+	var out: Array[String] = []
+	for seat: int in range(mini(deck_ids.size(), SEATS)):
+		var deck_id: String = deck_ids[seat]
+		if deck_id == "" and decks != null and decks.is_valid():
+			deck_id = decks.seeded_pick(match_seed, seat)
+		out.append(deck_id)
+	return out
+
+
+## Why a match on these inputs cannot start (an EngineError.Code), or NONE: a failed or
+## missing pool, or a deck list that failed to load or to validate against it, is
+## CARD_DATA_INVALID (R3, R8); a `deck_ids` that does not name one deck per seat, or
+## names one the list does not hold, is DECK_UNKNOWN (DC-07 P2).
+static func _deck_problem(
+	cards: CardDb, decks: DeckList, requested: int, resolved: Array[String]
+) -> int:
+	if cards == null or not cards.is_valid() or decks == null:
+		return EngineError.Code.CARD_DATA_INVALID
+	if decks.validate(cards) != "":
+		return EngineError.Code.CARD_DATA_INVALID
+	if requested != SEATS:
+		return EngineError.Code.DECK_UNKNOWN
+	for deck_id: String in resolved:
+		if not decks.has_deck(deck_id):
+			return EngineError.Code.DECK_UNKNOWN
+	return EngineError.Code.NONE
 
 
 func _emit(kind: int, payload: Dictionary, owner: int = MatchEvent.PUBLIC) -> void:

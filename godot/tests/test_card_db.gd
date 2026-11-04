@@ -631,10 +631,11 @@ func test_missing_file_fails() -> void:
 	assert_int(db.size()).is_equal(0)
 
 
+## The failed pool under the fixture deck list (DC-07 T02): start() refuses it.
 func test_a_failed_load_refuses_to_start_a_match() -> void:
 	var db: CardDb = CardDb.from_json(_with_bonus(0, {"x": 130}))
 	assert_bool(db.is_valid()).is_false()
-	var engine: MatchEngine = MatchEngine.create(1, db)
+	var engine: MatchEngine = FixtureDecks.engine(1, db)
 	var started: ApplyResult = engine.start()
 	assert_bool(started.ok).is_false()
 	assert_int(started.error).is_equal(EngineError.Code.CARD_DATA_INVALID)

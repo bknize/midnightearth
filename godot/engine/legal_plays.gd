@@ -4,8 +4,8 @@ extends RefCounted
 ##
 ## A card set is legal when every card is in the hand, no card appears twice, and the
 ## total cost is at most the energy given (enumeration) or the seat's budget with the
-## free first card (validate, R9, R10). Costs come from CardDb by instance id:
-## instance id = seat * DECK_SIZE + index, so the definition is card_at(id % DECK_SIZE).
+## free first card (validate, R9, R10). Costs come from MatchCards by instance id
+## (MatchCards.def_of: origin * DECK_SIZE + index into the origin's deck, DC-07 P3).
 ##
 ## Enumeration order is deterministic and part of the contract (the bot's seeded
 ## tie-break depends on it): subsets are listed by ascending bitmask over the hand's
@@ -17,17 +17,17 @@ extends RefCounted
 
 
 ## The cost of one card instance, or -1 when the id maps to no definition.
-static func cost_of(instance_id: int, cards: CardDb) -> int:
+static func cost_of(instance_id: int, cards: MatchCards) -> int:
 	if instance_id < 0:
 		return -1
-	var def: CardDef = cards.card_at(instance_id % MatchRules.DECK_SIZE)
+	var def: CardDef = cards.def_of(instance_id)
 	if def == null:
 		return -1
 	return def.cost
 
 
 ## The summed cost of a card list, or -1 when any card maps to no definition.
-static func total_cost(card_ids: Array[int], cards: CardDb) -> int:
+static func total_cost(card_ids: Array[int], cards: MatchCards) -> int:
 	var total: int = 0
 	for instance_id: int in card_ids:
 		var cost: int = cost_of(instance_id, cards)
@@ -40,7 +40,7 @@ static func total_cost(card_ids: Array[int], cards: CardDb) -> int:
 ## Bitmasks over the hand's order of every legal subset, ascending. Mask 0 (the empty
 ## set, a pass) is always included, even if energy is negative. A subset containing a
 ## card with no definition is never legal.
-static func enumerate_masks(hand: Array[int], energy: int, cards: CardDb) -> Array[int]:
+static func enumerate_masks(hand: Array[int], energy: int, cards: MatchCards) -> Array[int]:
 	var costs: Array[int] = []
 	for instance_id: int in hand:
 		costs.append(cost_of(instance_id, cards))
@@ -71,7 +71,7 @@ static func subset(hand: Array[int], mask: int) -> Array[int]:
 
 
 ## Every legal subset (each an Array[int] in the hand's order), in enumerate_masks order.
-static func enumerate(hand: Array[int], energy: int, cards: CardDb) -> Array[Array]:
+static func enumerate(hand: Array[int], energy: int, cards: MatchCards) -> Array[Array]:
 	var out: Array[Array] = []
 	for mask: int in enumerate_masks(hand, energy, cards):
 		out.append(subset(hand, mask))
@@ -98,7 +98,7 @@ static func validate(
 	row_size: int,
 	budget: int,
 	free_first: bool,
-	cards: CardDb
+	cards: MatchCards
 ) -> int:
 	var seen: Dictionary[int, bool] = {}
 	for instance_id: int in proposal:
@@ -144,7 +144,7 @@ static func append_slots(row_size: int, count: int) -> Array[int]:
 
 ## What a commit of `proposal` (in slot order) costs: the summed cost, less the leftmost
 ## card's when `free_first` is true (R10). -1 when any card maps to no definition.
-static func commit_cost(proposal: Array[int], free_first: bool, cards: CardDb) -> int:
+static func commit_cost(proposal: Array[int], free_first: bool, cards: MatchCards) -> int:
 	var total: int = total_cost(proposal, cards)
 	if total < 0 or proposal.is_empty() or not free_first:
 		return total

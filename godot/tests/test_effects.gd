@@ -52,6 +52,7 @@ const CARRIED: int = MatchEvent.Kind.ENERGY_CARRIED
 const FREE_SET: int = MatchEvent.Kind.FREE_FIRST_SET
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 var _cached_watcher_db: CardDb = null
 var _cached_swap_watcher_db: CardDb = null
 
@@ -60,16 +61,24 @@ var _cached_swap_watcher_db: CardDb = null
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
 
 
-## The default card list with c02 given an on-opponent-reveal "draw 1" (in-memory JSON;
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for ScoreWalk and
+## EffectResolver.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
+
+
+## The fixture card list with c02 given an on-opponent-reveal "draw 1" (in-memory JSON;
 ## C13: the framework supports the trigger, no deck card uses it).
 func _watcher_db() -> CardDb:
 	if _cached_watcher_db != null:
 		return _cached_watcher_db
-	var text: String = FileAccess.get_file_as_string(CardDb.DEFAULT_PATH)
+	var text: String = FileAccess.get_file_as_string(FixtureDecks.CARDS_PATH)
 	var parsed: Variant = JSON.parse_string(text)
 	var root: Dictionary = parsed
 	var entries: Array = root["cards"]
@@ -84,13 +93,13 @@ func _watcher_db() -> CardDb:
 	return _cached_watcher_db
 
 
-## The default card list with two watchers (in-memory JSON, as _watcher_db): c02 swaps
+## The fixture card list with two watchers (in-memory JSON, as _watcher_db): c02 swaps
 ## places on an opponent's reveal (a prompt over its own row) and c03 draws 1. For the
 ## watcher snapshot (DC-05 T13): a swap by one watcher reorders the row the others sit on.
 func _swap_watcher_db() -> CardDb:
 	if _cached_swap_watcher_db != null:
 		return _cached_swap_watcher_db
-	var text: String = FileAccess.get_file_as_string(CardDb.DEFAULT_PATH)
+	var text: String = FileAccess.get_file_as_string(FixtureDecks.CARDS_PATH)
 	var parsed: Variant = JSON.parse_string(text)
 	var root: Dictionary = parsed
 	var entries: Array = root["cards"]
@@ -142,7 +151,7 @@ func _reveal(state: MatchState, seat: int, cards: Array[int]) -> void:
 
 
 ## Runs one live walk on `state` from begin() to its end, recording the events.
-func _walk(state: MatchState, cards: CardDb, rng: MatchRng, recorder: Recorder) -> void:
+func _walk(state: MatchState, cards: MatchCards, rng: MatchRng, recorder: Recorder) -> void:
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
@@ -201,7 +210,7 @@ func _fired(seat: int, card: int, verb: String, trigger: String) -> Dictionary:
 
 
 func _started(match_seed: int) -> MatchEngine:
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
 	return engine
 
@@ -304,7 +313,7 @@ func test_draw_draws_for_the_owner_with_a_private_event() -> void:
 	var next: int = _id(0, C03)
 	state.seats[0].deck.assign([top, next])
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _db(), null, recorder)
+	_walk(state, _defs(), null, recorder)
 	var events: Array[MatchEvent] = recorder.events
 	assert_array(_kinds(events)).is_equal(_typed([REVEALED, FIRED, DRAWN, SCORED]))
 	_assert_event(events[1], FIRED, _fired(0, card, "draw", "on_reveal"), PUBLIC)
@@ -327,7 +336,7 @@ func test_draw_at_the_hand_cap_burns() -> void:
 	var top: int = _id(0, C02)
 	state.seats[0].deck.assign([top])
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _db(), null, recorder)
+	_walk(state, _defs(), null, recorder)
 	var events: Array[MatchEvent] = recorder.events
 	assert_array(_kinds(events)).is_equal(_typed([REVEALED, FIRED, BURNED, SCORED]))
 	_assert_event(events[2], BURNED, {"seat": 0, "card": top}, 0)
@@ -343,7 +352,7 @@ func test_free_first_sets_the_owners_flag() -> void:
 	var card: int = _id(1, C10_FREE_FIRST)
 	var state: MatchState = _state(_none(), _typed([card]), 1)
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _db(), null, recorder)
+	_walk(state, _defs(), null, recorder)
 	var events: Array[MatchEvent] = recorder.events
 	assert_array(_kinds(events)).is_equal(_typed([REVEALED, FIRED, FREE_SET, SCORED]))
 	_assert_event(events[1], FIRED, _fired(1, card, "free_first_next_turn", "on_reveal"), PUBLIC)
@@ -422,7 +431,7 @@ func test_bonus_zero_is_spent_on_the_opponents_next_reveal() -> void:
 	var spared: int = _id(1, C07)
 	var state: MatchState = _state(_typed([source]), _typed([hit, spared]), 0)
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _db(), null, recorder)
+	_walk(state, _defs(), null, recorder)
 	var events: Array[MatchEvent] = recorder.events
 	var expected: Array[int] = [
 		REVEALED, FIRED, ZERO_SET, SCORED, REVEALED, STATS, SCORED, REVEALED, SCORED
@@ -447,7 +456,7 @@ func test_bonus_zero_is_spent_on_the_opponents_next_reveal() -> void:
 	assert_array(state.bonus_zero_pending).is_equal([false, false])
 	assert_bool(state.card_state(hit).bonus_zero).is_true()
 	assert_object(state.card_state(spared)).is_null()
-	assert_vector(ScoreWalk.effective(hit, state, _db())).is_equal(Vector2i(1, 0))
+	assert_vector(ScoreWalk.effective(hit, state, _defs())).is_equal(Vector2i(1, 0))
 
 
 func test_bonus_zero_does_not_stack() -> void:
@@ -458,13 +467,13 @@ func test_bonus_zero_does_not_stack() -> void:
 	_reveal(state, 0, _typed([source]))
 	for _set: int in range(2):
 		var outcome: EffectResolver.Outcome = EffectResolver.apply(
-			state, _db(), null, null, 0, source
+			state, _defs(), null, null, 0, source
 		)
 		assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, ZERO_SET]))
 		assert_bool(outcome.needs_prompt()).is_false()
 	assert_array(state.bonus_zero_pending).is_equal([false, true])
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _db(), null, recorder)
+	_walk(state, _defs(), null, recorder)
 	# One mark, one card: only the first reveal loses its bonus.
 	var changed: Array[MatchEvent] = _of_kind(recorder.events, STATS)
 	assert_int(changed.size()).is_equal(1)
@@ -481,11 +490,11 @@ func test_bonus_zero_waits_for_a_later_walk_and_ignores_the_setter_seat() -> voi
 	var state: MatchState = _state(_typed([source, own_new]), _typed([old]), 0)
 	_reveal(state, 0, _typed([source]))
 	_reveal(state, 1, _typed([old]))
-	EffectResolver.apply(state, _db(), null, null, 0, source)
+	EffectResolver.apply(state, _defs(), null, null, 0, source)
 	assert_array(state.bonus_zero_pending).is_equal([false, true])
 	# This walk reveals only the setter's own card: the mark waits.
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _db(), null, recorder)
+	_walk(state, _defs(), null, recorder)
 	assert_array(_of_kind(recorder.events, STATS)).is_empty()
 	assert_array(state.bonus_zero_pending).is_equal([false, true])
 	assert_object(state.card_state(old)).is_null()
@@ -493,7 +502,7 @@ func test_bonus_zero_waits_for_a_later_walk_and_ignores_the_setter_seat() -> voi
 	var late: int = _id(1, C03)
 	state.seats[1].board.append(late)
 	var later: Recorder = Recorder.new()
-	_walk(state, _db(), null, later)
+	_walk(state, _defs(), null, later)
 	var changed: Array[MatchEvent] = _of_kind(later.events, STATS)
 	assert_int(changed.size()).is_equal(1)
 	assert_int(_payload_int(changed[0], "card")).is_equal(late)
@@ -509,7 +518,7 @@ func test_destroy_fizzles_on_an_empty_row_without_touching_the_stream() -> void:
 	var rng: MatchRng = MatchRng.new(SEED)
 	var stream: int = rng.state
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _db(), rng, recorder)
+	_walk(state, _defs(), rng, recorder)
 	var events: Array[MatchEvent] = recorder.events
 	assert_array(_kinds(events)).is_equal(_typed([REVEALED, FIRED, FIZZLED, SCORED]))
 	_assert_event(events[1], FIRED, _fired(0, card, "destroy_random_opponent", "on_reveal"), PUBLIC)
@@ -525,7 +534,7 @@ func _destroy_case(match_seed: int, recorder: Recorder) -> MatchState:
 	var source: int = _id(0, C19_DESTROY)
 	var row: Array[int] = [_id(1, C02), _id(1, C03), _id(1, C04), _id(1, C07)]
 	var state: MatchState = _state(_typed([source]), row, 0)
-	_walk(state, _db(), MatchRng.new(match_seed), recorder)
+	_walk(state, _defs(), MatchRng.new(match_seed), recorder)
 	return state
 
 
@@ -603,7 +612,7 @@ func test_destroying_a_revealed_card_is_public_and_it_clears_at_turn_end() -> vo
 	_reveal(state, 1, _typed([target]))
 	state.card_state_for(target).flat_delta = 2
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _db(), MatchRng.new(SEED), recorder)
+	_walk(state, _defs(), MatchRng.new(SEED), recorder)
 	var destroyed: Array[MatchEvent] = _of_kind(recorder.events, DESTROYED)
 	assert_int(destroyed.size()).is_equal(1)
 	_assert_event(destroyed[0], DESTROYED, {"seat": 1, "card": target, "slot": 0}, PUBLIC)
@@ -635,7 +644,7 @@ func test_a_preview_destroys_the_lowest_flat_card_without_the_stream() -> void:
 	var stream: int = rng.state
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
-	var paused: bool = ScoreWalk.run(state, _db(), rng, recorder.record, PreviewPolicy.new())
+	var paused: bool = ScoreWalk.run(state, _defs(), rng, recorder.record, PreviewPolicy.new())
 	assert_bool(paused).is_false()
 	assert_array(recorder.events).is_empty()
 	assert_int(rng.state).is_equal(stream)
@@ -654,7 +663,7 @@ func test_flat_up_applies_after_each_scoring() -> void:
 	var state: MatchState = _state(_typed([card]), _none(), 0)
 	for walk: int in range(3):
 		var recorder: Recorder = Recorder.new()
-		_walk(state, _db(), null, recorder)
+		_walk(state, _defs(), null, recorder)
 		var events: Array[MatchEvent] = recorder.events
 		var expected: Array[int] = [SCORED, FIRED, STATS]
 		if walk == 0:
@@ -673,7 +682,7 @@ func test_flat_up_applies_after_each_scoring() -> void:
 		)
 	# Pulsed three times: shown flat is base + 3.
 	assert_int(state.card_state(card).flat_delta).is_equal(3)
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(4, 0))
+	assert_vector(ScoreWalk.effective(card, state, _defs())).is_equal(Vector2i(4, 0))
 
 
 # --- CARRY_ENERGY (R9, R20, P7, P14) --------------------------------------------------
@@ -737,11 +746,11 @@ func test_settle_energy_without_a_revealed_carry_card_zeroes_the_carry() -> void
 	state.energy.carry[1] = 2
 	state.energy.spent[0] = 1
 	# Face down (never true at a real turn end): it does not carry.
-	assert_array(EffectResolver.settle_energy(state, _db())).is_empty()
+	assert_array(EffectResolver.settle_energy(state, _defs())).is_empty()
 	assert_array(state.energy.carry).is_equal(_typed([0, 0]))
 	# Revealed: budget 4 + 0 less 1 spent.
 	_reveal(state, 0, _typed([carrier]))
-	var events: Array[MatchEvent] = EffectResolver.settle_energy(state, _db())
+	var events: Array[MatchEvent] = EffectResolver.settle_energy(state, _defs())
 	assert_array(_kinds(events)).is_equal(_typed([FIRED, CARRIED]))
 	_assert_event(events[1], CARRIED, {"seat": 0, "amount": 3}, PUBLIC)
 	assert_array(state.energy.carry).is_equal(_typed([3, 0]))
@@ -758,7 +767,7 @@ func test_on_opponent_reveal_fires_once_per_revealed_card_of_the_other_seat() ->
 	var deck: Array[int] = [_id(0, C11), _id(0, C08), _id(0, C07)]
 	state.seats[0].deck.assign(deck)
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _watcher_db(), null, recorder)
+	_walk(state, FixtureDecks.defs(_watcher_db()), null, recorder)
 	var events: Array[MatchEvent] = recorder.events
 	var expected: Array[int] = [
 		SCORED, REVEALED, FIRED, DRAWN, SCORED, REVEALED, FIRED, DRAWN, SCORED
@@ -779,7 +788,7 @@ func test_on_opponent_reveal_needs_its_card_revealed_and_ignores_its_own_seat() 
 	var state: MatchState = _state(_typed([own, watcher]), theirs, 1)
 	state.seats[0].deck.assign([_id(0, C11)])
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _watcher_db(), null, recorder)
+	_walk(state, FixtureDecks.defs(_watcher_db()), null, recorder)
 	var events: Array[MatchEvent] = recorder.events
 	var expected: Array[int] = [
 		REVEALED,
@@ -804,7 +813,7 @@ func test_on_opponent_reveal_needs_its_card_revealed_and_ignores_its_own_seat() 
 ## card, seat 1 first: its reveal fires seat 0's watchers. Walks live under
 ## _swap_watcher_db, answering the swap's prompt with `answer`; returns the events.
 func _swap_watcher_walk(row: Array[int], answer: int) -> Array[MatchEvent]:
-	var cards: CardDb = _swap_watcher_db()
+	var cards: MatchCards = FixtureDecks.defs(_swap_watcher_db())
 	var state: MatchState = _state(row, _typed([_id(1, C08)]), 1)
 	_reveal(state, 0, row)
 	state.seats[0].deck.assign([_id(0, C11), _id(0, C07)])

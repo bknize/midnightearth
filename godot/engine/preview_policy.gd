@@ -30,8 +30,9 @@ func option_for(options: Array[int]) -> int:
 ## one. 0 when no entry is live (the caller fizzles an empty live list before asking).
 ## Static, since a live walk given no stream uses the same rule (EffectResolver). In a
 ## preview the opponent's unrevealed cards are marked destroyed on the clone
-## (MatchEngine._hide_opponent), so this rule reads only revealed cards' stats.
-static func destroy_slot(state: MatchState, cards: CardDb, row: Array[int]) -> int:
+## (MatchEngine._hide_opponent), so this rule reads only revealed cards' stats. `cards` is
+## the match's MatchCards (DC-07 P3).
+static func destroy_slot(state: MatchState, cards: MatchCards, row: Array[int]) -> int:
 	var best: int = 0
 	var best_flat: int = 0
 	var found: bool = false

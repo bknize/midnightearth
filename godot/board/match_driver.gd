@@ -1,7 +1,8 @@
 class_name MatchDriver
 extends RefCounted
-## Owns one match for the board (R2, R5, R6): the card data, the engine, the bots, the seed
-## and the MATCH_ENDED payload. Seat 1 is always a GreedyBot; seat 0 is too under autoplay.
+## Owns one match for the board (R2, R5, R6): the card data, the engine, the bots, the seed,
+## both deck ids (DC-07 P14) and the MATCH_ENDED payload. Seat 1 is always a GreedyBot;
+## seat 0 is too under autoplay.
 ##
 ## Bots are seeded GreedyBot.seed_for(seed, seat), exactly as main.gd's smoke run, so the
 ## seed-1 autoplay match is the smoke match. Only seat 0's redacted events leave the driver
@@ -32,23 +33,41 @@ var _last_events: Array[MatchEvent] = []
 var _end_payload: Dictionary = {}
 
 
-static func create(p_seed: int, cards: CardDb, p_autoplay: bool) -> MatchDriver:
+## A match on `p_seed` where seat s plays `deck_ids[s]` of `decks` over the pool `cards`;
+## an empty id takes the seed's own pairing (DC-07 R6, P14; MatchEngine.create). An
+## unknown id or failed data makes start() return no events.
+static func create(
+	p_seed: int, cards: CardDb, decks: DeckList, deck_ids: Array[String], p_autoplay: bool
+) -> MatchDriver:
 	var driver: MatchDriver = MatchDriver.new()
 	driver._seed = p_seed
 	driver._autoplay = p_autoplay
 	driver._cards = cards
-	driver._engine = MatchEngine.create(p_seed, cards)
+	driver._engine = MatchEngine.create(p_seed, cards, decks, deck_ids)
+	var defs: MatchCards = driver._engine.match_cards()
 	for seat: int in MatchEngine.SEATS:
 		if seat == PLAYER_SEAT and not p_autoplay:
 			driver._bots.append(null)
 		else:
-			driver._bots.append(GreedyBot.new(GreedyBot.seed_for(p_seed, seat), cards))
+			driver._bots.append(GreedyBot.new(GreedyBot.seed_for(p_seed, seat), defs))
 	return driver
 
 
-## The card data the match was created with.
+## The card pool the match was created with.
 func card_db() -> CardDb:
 	return _cards
+
+
+## The match's definitions by instance id (DC-07 P3): read a card through its origin's
+## deck, not the pool.
+func match_cards() -> MatchCards:
+	return _engine.match_cards()
+
+
+## The deck id each seat plays, indexed by seat, with a seeded pairing already resolved
+## (DC-07 P14).
+func deck_ids() -> Array[String]:
+	return _engine.deck_ids()
 
 
 ## Starts the engine and returns seat 0's redacted events. Empty if the start was rejected
@@ -128,7 +147,8 @@ func action_count() -> int:
 	return _engine.accepted_action_count()
 
 
-## The smoke line's fields (R5); empty until the match is over.
+## The smoke line's fields (R5), with both deck ids right after the seed (DC-07 P14,
+## R53); empty until the match is over.
 func result_line() -> String:
 	if _end_payload.is_empty():
 		return ""
@@ -138,9 +158,20 @@ func result_line() -> String:
 	var raw_wins: Array = _end_payload["wins"]
 	var wins: Array[int] = []
 	wins.assign(raw_wins)
+	var decks: Array[String] = _engine.deck_ids()
 	return (
-		"Board: match ended seed=%d winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
-		% [_seed, winner, wins[0], wins[1], rounds, reason, _engine.accepted_action_count()]
+		"Board: match ended seed=%d decks=%s/%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
+		% [
+			_seed,
+			decks[0],
+			decks[1],
+			winner,
+			wins[0],
+			wins[1],
+			rounds,
+			reason,
+			_engine.accepted_action_count(),
+		]
 	)
 
 
