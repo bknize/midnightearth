@@ -84,7 +84,7 @@ func play_bot() -> ApplyResult:
 		return ApplyResult.failure(EngineError.Code.WRONG_SEAT)
 	var seat: int = _engine.awaited_seat()
 	var bot: GreedyBot = _bots[seat]
-	var action: EngineAction = bot.choose(_engine.view_for(seat))
+	var action: EngineAction = bot.choose(_engine.view_for(seat), _engine)
 	var result: ApplyResult = _engine.apply(action)
 	_take(result)
 	return result

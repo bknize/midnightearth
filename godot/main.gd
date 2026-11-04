@@ -42,7 +42,7 @@ func _run_smoke(cards: CardDb) -> bool:
 			push_error("Engine smoke: match not over after %d actions" % MAX_ACTIONS)
 			return false
 		var seat: int = engine.awaited_seat()
-		var action: EngineAction = bots[seat].choose(engine.view_for(seat))
+		var action: EngineAction = bots[seat].choose(engine.view_for(seat), engine)
 		last = engine.apply(action)
 		if not last.ok:
 			push_error("Engine smoke: action rejected, code %d" % last.error)

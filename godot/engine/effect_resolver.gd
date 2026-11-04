@@ -54,9 +54,11 @@ extends RefCounted
 ## Preview seam (orchestrator, DC-05 T04): a null `policy` is a live walk, which always picks
 ## the destroyed card with MatchRng.pick_index on the engine stream at the moment the effect
 ## fires; walk order is deterministic given the log, so a replay destroys the same card. A
-## non-null policy is a preview (plan P12, T06's rule): the opponent's lowest-flat card
-## (effective flat, leftmost on a tie), with no stream. A live walk given no stream (`rng`
-## null, as unit tests do) takes the preview's rule rather than fail.
+## non-null policy is a preview (plan P12): PreviewPolicy.destroy_slot, the opponent's
+## lowest-flat card (effective flat, leftmost on a tie), with no stream. A live walk given no
+## stream (`rng` null, as unit tests do) takes the preview's rule rather than fail. A
+## preview's prompt takes PreviewPolicy.option_for (its first option), and a preview's
+## Outcome is quiet: the events a preview would drop are not built where avoidable.
 
 const CAUSE_FLAT_UP: String = "flat_up"
 const CAUSE_BONUS_ZERO: String = "bonus_zero"
@@ -84,16 +86,19 @@ static func apply(
 	state: MatchState, cards: CardDb, rng: MatchRng, policy: PreviewPolicy, seat: int, card: int
 ) -> Outcome:
 	var outcome: Outcome = Outcome.new()
+	# A preview drops every event, so it builds none it can avoid (DC-05 T06).
+	outcome.quiet = policy != null
 	var effect: CardEffect = effect_of(card, cards)
 	if effect == null:
 		return outcome
-	var fired: Dictionary = {
-		"seat": seat,
-		"card": card,
-		"verb": CardEffect.verb_name(effect.verb),
-		"trigger": CardEffect.trigger_name(effect.trigger),
-	}
-	outcome.add(MatchEvent.Kind.EFFECT_FIRED, fired)
+	if not outcome.quiet:
+		var fired: Dictionary = {
+			"seat": seat,
+			"card": card,
+			"verb": CardEffect.verb_name(effect.verb),
+			"trigger": CardEffect.trigger_name(effect.trigger),
+		}
+		outcome.add(MatchEvent.Kind.EFFECT_FIRED, fired)
 	match effect.verb:
 		CardEffect.Verb.DRAW:
 			_draw(state, seat, effect.amount, outcome)
@@ -251,7 +256,7 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 static func _draw(state: MatchState, seat: int, amount: int, outcome: Outcome) -> void:
 	for _i: int in range(amount):
 		var drawn: MatchEvent = draw_card(state, seat)
-		if drawn != null:
+		if drawn != null and not outcome.quiet:
 			outcome.events.append(drawn)
 
 
@@ -286,7 +291,7 @@ static func _destroy_random(
 	if policy == null and rng != null:
 		slot = rng.pick_index(piles.board.size())
 	else:
-		slot = _lowest_flat_index(state, cards, piles.board)
+		slot = PreviewPolicy.destroy_slot(state, cards, piles.board)
 	var target: int = piles.board[slot]
 	var was_revealed: bool = state.take_from_row(opponent, target)
 	# Out of play for the rest of the round, so every card stays in exactly one pile.
@@ -301,7 +306,8 @@ static func _flat_up(
 	state: MatchState, cards: CardDb, seat: int, card: int, amount: int, outcome: Outcome
 ) -> void:
 	state.card_state_for(card).flat_delta += amount
-	outcome.events.append(_stats_changed(state, cards, seat, card, CAUSE_FLAT_UP))
+	if not outcome.quiet:
+		outcome.events.append(_stats_changed(state, cards, seat, card, CAUSE_FLAT_UP))
 
 
 static func _carry(state: MatchState, seat: int, outcome: Outcome) -> void:
@@ -337,7 +343,12 @@ static func _ask(
 	}
 	if options.size() == 1 or policy != null:
 		var auto: bool = options.size() == 1
-		outcome.events.append_array(apply_choice(state, cards, prompt, options[0], auto))
+		var picked: int = options[0]
+		if policy != null:
+			picked = policy.option_for(options)
+		var made: Array[MatchEvent] = apply_choice(state, cards, prompt, picked, auto)
+		if not outcome.quiet:
+			outcome.events.append_array(made)
 		return
 	outcome.prompt = prompt
 	var requested: Dictionary = {
@@ -424,19 +435,6 @@ static func _carrier(state: MatchState, cards: CardDb, seat: int) -> int:
 	return -1
 
 
-## The index in `row` of its lowest effective flat, the leftmost on a tie (the preview's
-## destroy rule, plan P12). 0 for an empty row.
-static func _lowest_flat_index(state: MatchState, cards: CardDb, row: Array[int]) -> int:
-	var best: int = 0
-	var best_flat: int = 0
-	for i: int in range(row.size()):
-		var flat: int = ScoreWalk.effective(row[i], state, cards).x
-		if i == 0 or flat < best_flat:
-			best = i
-			best_flat = flat
-	return best
-
-
 ## What one firing caused: its events in order and the prompt it needs (plan P9: {seat,
 ## card, verb, zone, options}, as MatchState.prompt). An empty prompt means it resolved.
 class Outcome:
@@ -445,10 +443,15 @@ class Outcome:
 	var events: Array[MatchEvent] = []
 	## Empty unless a prompt verb found two or more targets on a live walk.
 	var prompt: Dictionary = {}
+	## True under a preview policy: add() then builds nothing, since the walk drops every
+	## event of a preview (DC-05 T06, cost).
+	var quiet: bool = false
 
 	## Whether the walk must pause for a choice.
 	func needs_prompt() -> bool:
 		return not prompt.is_empty()
 
 	func add(kind: int, payload: Dictionary, owner: int = MatchEvent.PUBLIC) -> void:
+		if quiet:
+			return
 		events.append(MatchEvent.new(kind, payload, owner))

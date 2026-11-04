@@ -711,7 +711,8 @@ func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 	var turn_events: Array[MatchEvent] = []
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var awaited: int = engine.awaited_seat()
-		var result: ApplyResult = engine.apply(bots[awaited].choose(engine.view_for(awaited)))
+		var action: EngineAction = bots[awaited].choose(engine.view_for(awaited), engine)
+		var result: ApplyResult = engine.apply(action)
 		assert_bool(result.ok).is_true()
 		actions += 1
 		turn_events.append_array(result.events)

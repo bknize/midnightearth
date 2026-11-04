@@ -20,7 +20,8 @@ func _steps() -> Array[BoardStep]:
 	var actions: int = 0
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var awaited: int = engine.awaited_seat()
-		var result: ApplyResult = engine.apply(bots[awaited].choose(engine.view_for(awaited)))
+		var action: EngineAction = bots[awaited].choose(engine.view_for(awaited), engine)
+		var result: ApplyResult = engine.apply(action)
 		assert_bool(result.ok).is_true()
 		if not result.ok:
 			break
