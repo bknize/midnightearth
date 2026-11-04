@@ -428,6 +428,8 @@ func _apply_effect(step: BoardStep) -> void:
 			_fx.stats(step)
 		BoardStep.Kind.DESTROY:
 			_fx.destroy(step)
+		BoardStep.Kind.CLEAR_DESTROYED:
+			_fx.clear_destroyed(step)
 		BoardStep.Kind.MOVE:
 			_fx.move(step)
 		BoardStep.Kind.RETURN:
