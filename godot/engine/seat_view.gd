@@ -75,9 +75,10 @@ var awaited_seat: int = -1
 var first_seat: int = 0
 var sudden_death: bool = false
 ## The open prompt (plan, SeatView additions; DC-05 T05). Empty when none is open. For the
-## prompted seat: {open: true, seat, card, verb, text, zone, options}, with `verb` the
+## prompted seat: {open: true, seat, card, verb, text, zone, options, multi}, with `verb` the
 ## CardEffect.Verb, `zone` the Choice.Zone (relative to this seat) and `options` the
-## eligible positions in it, ready for EngineAction.choose(seat, zone, options[i]). For the
+## eligible positions in it, ready for EngineAction.choose(seat, zone, options[i]), or when
+## `multi` is true for EngineAction.choose_set(seat, zone, a subset) (DC-07 P7). For the
 ## other seat only {open: true, seat}.
 var prompt: Dictionary = {}
 
@@ -151,6 +152,7 @@ static func _prompt(state: MatchState, p_seat: int, cards: MatchCards) -> Dictio
 		"text": text,
 		"zone": zone,
 		"options": MatchState.plain(Choice.options_of(state.prompt)),
+		"multi": Choice.is_multi_prompt(state.prompt),
 	}
 
 

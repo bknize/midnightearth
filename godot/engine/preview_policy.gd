@@ -6,6 +6,9 @@ extends RefCounted
 ##
 ## The decisions (DC-05 T06):
 ## - a prompt takes its first option at once, so a preview never pauses (option_for);
+## - a multi-select prompt met inside a preview's walk is declined: the empty set, so the
+##   effect fizzles (set_for; DC-07 P7, P13). MatchEngine.preview_set() previews the open
+##   multi prompt's own answer; this rule covers only one the previewed walk opens later;
 ## - a random pick (the destroy, P11) takes the opponent's live card with the lowest
 ##   effective flat, the leftmost on a tie, with no draw from any stream (destroy_slot;
 ##   DC-06 R16, R17: never a destroyed card).
@@ -21,6 +24,13 @@ func option_for(options: Array[int]) -> int:
 	if options.is_empty():
 		return -1
 	return options[0]
+
+
+## The set a preview takes for a nested multi-select prompt: always the empty set, the
+## decline (DC-07 P7). `_options` is the prompt's options, unused by this rule.
+func set_for(_options: Array[int]) -> Array[int]:
+	var none: Array[int] = []
+	return none
 
 
 ## The position in `row` a preview's random destroy takes: among the live (not destroyed,

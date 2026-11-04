@@ -7,7 +7,10 @@ extends RefCounted
 ## JSON form (DC-07 plan, action log format 3, P2):
 ## {"format": 3, "rules": 4, "seed": "9007199254740993", "decks": ["ruin", "drift"],
 ##  "actions": [{"k": "commit", "s": 0, "c": [3, 7], "p": [0, 1]},
-##              {"k": "choose", "s": 0, "z": 1, "i": 2}, {"k": "concede", "s": 1}]}
+##              {"k": "choose", "s": 0, "z": 1, "i": 2},
+##              {"k": "choose_set", "s": 1, "z": 1, "i": [0, 2]}, {"k": "concede", "s": 1}]}
+## A set choice (DC-07 P7) is logged with its indices as given, so replay applies the same
+## set and draws the same random destroys from the stream.
 ##
 ## `decks` holds the resolved ids (a seeded pick already applied, MatchEngine.deck_ids()),
 ## so replay() rebuilds the same decks without drawing a pairing. A header without `decks`

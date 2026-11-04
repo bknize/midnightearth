@@ -393,6 +393,7 @@ func test_two_or_more_targets_pause_the_walk_on_a_prompt() -> void:
 		"text": _text(C12_SWAP),
 		"zone": "own_board",
 		"options": [0, 2],
+		"multi": false,
 	}
 	_assert_event(events[3], REQUESTED, requested, PUBLIC)
 	var prompt: Dictionary = {
@@ -401,6 +402,7 @@ func test_two_or_more_targets_pause_the_walk_on_a_prompt() -> void:
 		"verb": CardEffect.Verb.SWAP_PLACES,
 		"zone": Choice.Zone.OWN_BOARD,
 		"options": [0, 2],
+		"multi": false,
 	}
 	assert_dict(state.prompt).is_equal(prompt)
 	assert_dict(state.to_dict()["prompt"]).is_equal(prompt)
@@ -925,6 +927,66 @@ func _first_vanilla(hand: Array[int], budget: int) -> int:
 		if def.effect == null and def.cost <= budget:
 			return card
 	return -1
+
+
+# --- Multi-select (DC-07 T05; R22-R25, P7; c02 given sacrifice_destroy) ---------------
+
+
+## R25: no eligible card fizzles; one still prompts (multi); the empty set fizzles (R24).
+func test_a_multi_select_fizzles_on_none_and_prompts_on_one() -> void:
+	var defs: MatchCards = FixtureDecks.defs(FixtureDecks.sacrifice_cards())
+	var source: int = _id(0, FixtureDecks.C02_SACRIFICE)
+	var recorder: Recorder = Recorder.new()
+	var alone: MatchState = _state(_typed([source]), _none(), 0)
+	ScoreWalk.begin(alone)
+	assert_bool(ScoreWalk.run(alone, defs, null, recorder.record, null)).is_false()
+	assert_array(_kinds(recorder.events)).is_equal(_typed([REVEALED, FIRED, FIZZLED, SCORED]))
+	var other: int = _id(0, C04)
+	var state: MatchState = _state(_typed([other, source]), _none(), 0)
+	_reveal(state, 0, _typed([other]))
+	recorder.events.clear()
+	ScoreWalk.begin(state)
+	assert_bool(ScoreWalk.run(state, defs, null, recorder.record, null)).is_true()
+	assert_array(_kinds(recorder.events)).is_equal(_typed([SCORED, REVEALED, FIRED, REQUESTED]))
+	var multi: bool = recorder.events[3].payload["multi"]
+	assert_bool(multi and Choice.is_multi_prompt(state.prompt)).is_true()
+	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0]))
+	recorder.events.assign(EffectResolver.answer_set(state, defs, null, null, _none()))
+	assert_bool(ScoreWalk.run(state, defs, null, recorder.record, null)).is_false()
+	assert_array(_kinds(recorder.events)).is_equal(_typed([MADE, FIZZLED, SCORED]))
+	assert_array(recorder.events[0].payload["indices"]).is_empty()
+	assert_bool(state.is_destroyed(other)).is_false()
+
+
+## R23, P7: bad sets and wrong kinds change nothing; then the empty set is accepted.
+func test_set_choice_errors_and_the_decline() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, FixtureDecks.sacrifice_cards())
+	engine.start()
+	var own: Array[int] = [_id(0, C04), _id(0, C08), _id(0, FixtureDecks.C02_SACRIFICE)]
+	assert_bool(FixtureDecks.play_table(engine, own, _typed([_id(1, C04)]))).is_true()
+	var board: int = Choice.Zone.OWN_BOARD
+	assert_array(Choice.options_of(engine.open_prompt())).is_equal(_typed([0, 1]))
+	var bad: int = EngineError.Code.BAD_SET
+	_assert_rejected(engine, EngineAction.choose_set(0, board, _typed([1, 1])), bad)
+	_assert_rejected(engine, EngineAction.choose_set(0, board, _typed([0, 2])), bad)
+	_assert_rejected(engine, EngineAction.choose_set(0, Choice.Zone.OWN_HAND, _typed([0])), bad)
+	_assert_rejected(
+		engine, EngineAction.choose_set(1, board, _none()), EngineError.Code.WRONG_SEAT
+	)
+	_assert_rejected(engine, EngineAction.choose(0, board, 0), EngineError.Code.NOT_ELIGIBLE)
+	assert_int(_phase(engine)).is_equal(MatchState.Phase.AWAIT_CHOICE)
+	var single: MatchEngine = _discard_prompt_engine()
+	if single != null:
+		var hand_set: EngineAction = EngineAction.choose_set(single.awaited_seat(), 0, _typed([0]))
+		_assert_rejected(single, hand_set, EngineError.Code.NOT_ELIGIBLE)
+	var idle: MatchEngine = _started(SEED)
+	var early: EngineAction = EngineAction.choose_set(idle.awaited_seat(), board, _none())
+	_assert_rejected(idle, early, EngineError.Code.NO_PROMPT)
+	var declined: ApplyResult = engine.apply(EngineAction.choose_set(0, board, _none()))
+	assert_bool(declined.ok).is_true()
+	var kinds: Array[int] = _kinds(declined.events)
+	assert_array([kinds[0], kinds[1]]).is_equal([MADE, FIZZLED])
+	assert_array(_of_kind(declined.events, MatchEvent.Kind.CARD_DESTROYED)).is_empty()
 
 
 ## Records what a walk sends to its sink, with each event's owner.

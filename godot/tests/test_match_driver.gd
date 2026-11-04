@@ -361,3 +361,32 @@ func test_submit_choice_answers_the_open_player_prompt() -> void:
 	assert_int(driver.action_count()).is_equal(count + 1)
 	var made: bool = _has_kind(driver.last_events(), MatchEvent.Kind.CHOICE_MADE)
 	assert_bool(made).override_failure_message("no CHOICE_MADE for seat 0").is_true()
+
+
+## DC-07 T05 (P7): submit_set() reaches the engine. With c02 given sacrifice_destroy and
+## seat 0's row [c04, c08, c02] set by hand, open_prompt() says `multi`, a set naming the
+## source fails with BAD_SET, and a valid set is accepted with CHOICE_MADE `indices`.
+func test_submit_set_answers_the_open_multi_prompt() -> void:
+	var driver: MatchDriver = MatchDriver.create(
+		SEED, FixtureDecks.sacrifice_cards(), FixtureDecks.decks(), FixtureDecks.ids(), false
+	)
+	driver.start()
+	var own: Array[int] = [3, 7, FixtureDecks.C02_SACRIFICE]
+	var none: Array[int] = []
+	assert_bool(FixtureDecks.play_table(driver._engine, own, none)).is_true()
+	var prompt: Dictionary = driver.open_prompt()
+	var multi: bool = prompt.get(Choice.KEY_MULTI, false)
+	assert_bool(multi).is_true()
+	var count: int = driver.action_count()
+	var bad: Array[int] = [2]
+	var refused: ApplyResult = driver.submit_set(Choice.Zone.OWN_BOARD, bad)
+	assert_int(refused.error).is_equal(EngineError.Code.BAD_SET)
+	var chosen: Array[int] = [1]
+	var result: ApplyResult = driver.submit_set(Choice.Zone.OWN_BOARD, chosen)
+	assert_bool(result.ok).is_true()
+	assert_int(driver.action_count()).is_equal(count + 1)
+	var indices: Array = []
+	for event: MatchEvent in driver.last_events():
+		if event.kind == MatchEvent.Kind.CHOICE_MADE:
+			indices = event.payload["indices"]
+	assert_array(indices).is_equal([1])
