@@ -6,6 +6,8 @@ extends RefCounted
 ## depend on the shipped pool or deck list. Not a suite: builders only, nothing cached.
 ## DC-07 T06 adds the Ruin deck in memory (RUIN_TABLE, ruin_cards(), ruin_decks()), the
 ## fixture pool and list plus the plan's twenty Ruin rows, until T08 ships them.
+## DC-07 T07 adds the Drift deck the same way (DRIFT_TABLE, drift_cards(), drift_decks(),
+## drift_defs(), drift_engine()); its pool holds the fixture, Ruin and Drift cards.
 
 const CARDS_PATH: String = "res://tests/fixtures/dc05_cards.json"
 const DECKS_PATH: String = "res://tests/fixtures/dc05_decks.json"
@@ -42,6 +44,174 @@ const R17_BONFIRE: int = 16
 const R18_REAPER: int = 17
 const R19_ASHEN_KING: int = 18
 const R20_CATACLYSM: int = 19
+## The Drift deck built in memory from the plan's Drift table (DC-07 T07) until T08 ships it:
+## its id, and the definition index (= instance index) of each card in the deck's list.
+const DRIFT_DECK_ID: String = "drift"
+const DRIFT_THEME: String = "Positional bonuses and moving cards on both rows."
+const D01_GUST: int = 0
+const D02_SPRITE: int = 1
+const D03_SCOUT: int = 2
+const D04_PEBBLE: int = 3
+const D05_EDDY: int = 4
+const D06_COURIER: int = 5
+const D07_MIRROR: int = 6
+const D08_TIDE: int = 7
+const D09_SHEPHERD: int = 8
+const D10_LODESTONE: int = 9
+const D11_CURRENT: int = 10
+const D12_HERALD: int = 11
+const D13_HOOK: int = 12
+const D14_KEEL: int = 13
+const D15_UNDERTOW: int = 14
+const D16_BEACON: int = 15
+const D17_TEMPEST: int = 16
+const D18_VANE: int = 17
+const D19_MAELSTROM: int = 18
+const D20_HORIZON: int = 19
+## The plan's Drift table, in RUIN_TABLE's row format.
+const DRIFT_TABLE: Array = [
+	["d01", "Gust", 1, 2, "", 0, "", "", 0, ""],
+	["d02", "Sprite", 1, 1, "x", 125, "", "", 0, ""],
+	[
+		"d03",
+		"Scout",
+		1,
+		1,
+		"x",
+		125,
+		"on_reveal",
+		"move_self_left",
+		0,
+		"Move to the far left of your row."
+	],
+	["d04", "Pebble", 1, 3, "", 0, "", "", 0, ""],
+	[
+		"d05",
+		"Eddy",
+		2,
+		1,
+		"",
+		0,
+		"on_moved",
+		"plus_on_moved",
+		2,
+		"When this card is moved, +2 until the walk ends."
+	],
+	[
+		"d06",
+		"Courier",
+		2,
+		2,
+		"x",
+		125,
+		"on_reveal",
+		"move_self_right",
+		0,
+		"Move to the far right of your row."
+	],
+	[
+		"d07",
+		"Mirror",
+		2,
+		0,
+		"",
+		0,
+		"on_reveal",
+		"copy_stats",
+		0,
+		"Copy an enemy card's current flat and bonus."
+	],
+	["d08", "Tide", 2, 3, "x", 125, "", "", 0, ""],
+	[
+		"d09",
+		"Shepherd",
+		3,
+		3,
+		"",
+		0,
+		"on_reveal",
+		"swap_places",
+		0,
+		"Swap places with a card on your row."
+	],
+	[
+		"d10",
+		"Lodestone",
+		3,
+		2,
+		"",
+		0,
+		"ongoing",
+		"neighbour_times",
+		125,
+		"The cards on either side of this one get ×1.25."
+	],
+	["d11", "Current", 3, 4, "x", 125, "", "", 0, ""],
+	[
+		"d12",
+		"Herald",
+		4,
+		3,
+		"",
+		0,
+		"ongoing",
+		"edge_left_times",
+		150,
+		"While this card is on the far left of your row, it has ×1.5."
+	],
+	[
+		"d13",
+		"Hook",
+		4,
+		4,
+		"",
+		0,
+		"on_reveal",
+		"move_opponent_left",
+		0,
+		"Move an enemy card to the far left of its row."
+	],
+	["d14", "Keel", 4, 5, "x", 125, "", "", 0, ""],
+	[
+		"d15",
+		"Undertow",
+		5,
+		4,
+		"",
+		0,
+		"on_reveal",
+		"shift_own_left",
+		0,
+		"Move each of your other cards one slot left; the leftmost goes to the far right."
+	],
+	["d16", "Beacon", 5, 5, "x", 150, "", "", 0, ""],
+	[
+		"d17",
+		"Tempest",
+		6,
+		5,
+		"",
+		0,
+		"on_reveal",
+		"reverse_opponent_row",
+		0,
+		"Reverse the order of the enemy row."
+	],
+	["d18", "Vane", 6, 3, "plus", 1, "", "", 0, ""],
+	[
+		"d19",
+		"Maelstrom",
+		7,
+		6,
+		"",
+		0,
+		"on_reveal",
+		"swap_opponent_right",
+		0,
+		"Swap an enemy card with the card to its right."
+	],
+	["d20", "Horizon", 7, 7, "x", 200, "", "", 0, ""],
+]
 ## The plan's Ruin table, one row per card in deck order: [id, name, cost, flat, bonus key
 ## ("x", "plus" or "" for none), bonus amount, trigger ("" for vanilla), verb, amount, text].
 const RUIN_TABLE: Array = [
@@ -226,8 +396,13 @@ static func sacrifice_cards() -> CardDb:
 
 ## RUIN_TABLE as format-3 pool entries, in deck order (DC-07 T06; T08 ships the same rows).
 static func ruin_entries() -> Array:
+	return table_entries(RUIN_TABLE)
+
+
+## A table in RUIN_TABLE's row format as format-3 pool entries, in deck order.
+static func table_entries(table: Array) -> Array:
 	var out: Array = []
-	for raw: Variant in RUIN_TABLE:
+	for raw: Variant in table:
 		var row: Array = raw
 		var bonus_key: String = row[4]
 		var bonus: Variant = null
@@ -251,8 +426,13 @@ static func ruin_entries() -> Array:
 
 ## The ids of RUIN_TABLE, in deck order.
 static func ruin_card_ids() -> Array:
+	return table_ids(RUIN_TABLE)
+
+
+## The ids of a table in RUIN_TABLE's row format, in deck order.
+static func table_ids(table: Array) -> Array:
 	var out: Array = []
-	for raw: Variant in RUIN_TABLE:
+	for raw: Variant in table:
 		var row: Array = raw
 		out.append(row[0])
 	return out
@@ -322,3 +502,50 @@ static func play_table(engine: MatchEngine, own: Array[int], theirs: Array[int])
 		if not engine.apply(EngineAction.commit(engine.awaited_seat(), none)).ok:
 			return false
 	return true
+
+
+## The fixture pool with the twenty Ruin and twenty Drift cards added (in-memory JSON); null
+## if the file is unread.
+static func drift_cards() -> CardDb:
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(CARDS_PATH))
+	if not parsed is Dictionary:
+		return null
+	var root: Dictionary = parsed
+	var entries: Array = root["cards"]
+	entries.append_array(ruin_entries())
+	entries.append_array(table_entries(DRIFT_TABLE))
+	return CardDb.from_json(JSON.stringify(root))
+
+
+## The fixture deck list with the Ruin and Drift decks added (in-memory JSON); null if the
+## file is unread.
+static func drift_decks() -> DeckList:
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(DECKS_PATH))
+	if not parsed is Dictionary:
+		return null
+	var root: Dictionary = parsed
+	var listed: Array = root["decks"]
+	listed.append(
+		{"id": RUIN_DECK_ID, "name": "Ruin", "theme": RUIN_THEME, "cards": ruin_card_ids()}
+	)
+	var drift: Dictionary = {
+		"id": DRIFT_DECK_ID, "name": "Drift", "theme": DRIFT_THEME, "cards": table_ids(DRIFT_TABLE)
+	}
+	listed.append(drift)
+	return DeckList.from_json(JSON.stringify(root))
+
+
+## The Drift deck on both seats.
+static func drift_ids() -> Array[String]:
+	var out: Array[String] = [DRIFT_DECK_ID, DRIFT_DECK_ID]
+	return out
+
+
+## The definitions of a Drift-vs-Drift match: instance id = seat * 20 + the D* index.
+static func drift_defs() -> MatchCards:
+	return MatchCards.build(drift_cards(), drift_decks(), drift_ids())
+
+
+## A Drift-vs-Drift match on `match_seed` (not started).
+static func drift_engine(match_seed: int) -> MatchEngine:
+	return MatchEngine.create(match_seed, drift_cards(), drift_decks(), drift_ids())

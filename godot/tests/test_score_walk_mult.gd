@@ -308,6 +308,55 @@ func test_preview_equals_live_on_a_row_with_both_bonus_kinds() -> void:
 	assert_dict(copy.to_dict()).is_equal(state.to_dict())
 
 
+## DC-07 T07: a Drift row with a neighbour (Lodestone), an edge (Herald on slot 0) and moves
+## (Courier to the far right, Tempest reversing the other row, Eddy's +2 when moved): a
+## preview walk on a copy ends on the live walk's scores, mults, rows and state.
+func test_preview_equals_live_on_a_row_with_a_neighbour_and_an_edge() -> void:
+	var drift: MatchCards = FixtureDecks.drift_defs()
+	var herald: int = FixtureDecks.D12_HERALD
+	var lodestone: int = FixtureDecks.D10_LODESTONE
+	var sprite: int = FixtureDecks.D02_SPRITE
+	var tempest: int = FixtureDecks.D17_TEMPEST
+	var eddy: int = MatchRules.DECK_SIZE + FixtureDecks.D05_EDDY
+	var courier: int = MatchRules.DECK_SIZE + FixtureDecks.D06_COURIER
+	var tide: int = MatchRules.DECK_SIZE + FixtureDecks.D08_TIDE
+	var pebble: int = MatchRules.DECK_SIZE + FixtureDecks.D04_PEBBLE
+	var state: MatchState = _state(
+		_typed([herald, lodestone, sprite, tempest]), _typed([eddy, courier, tide, pebble])
+	)
+	state.seats[1].revealed[eddy] = true
+	var copy: MatchState = state.duplicate()
+	var recorder: Recorder = Recorder.new()
+	ScoreWalk.begin(state)
+	var guard: int = 0
+	while state.walk.active and guard < 100:
+		var paused: bool = ScoreWalk.step(state, drift, null, recorder.record, null)
+		assert_bool(paused).is_false()
+		guard += 1
+	ScoreWalk.begin(copy)
+	var preview_paused: bool = ScoreWalk.run(copy, drift, null, Callable(), PreviewPolicy.new())
+	assert_bool(preview_paused).is_false()
+	# The moves happened: Courier went right, then Tempest reversed seat 1's row.
+	assert_array(state.seats[1].board).is_equal(_typed([courier, pebble, tide, eddy]))
+	assert_int(_of_kind(recorder.events, MatchEvent.Kind.CARD_MOVED).size()).is_greater(0)
+	# Herald scored at ×1.5 on slot 0 and Sprite with Lodestone's ×1.25.
+	var times: Dictionary = {}
+	for event: MatchEvent in _of_kind(recorder.events, MatchEvent.Kind.CARD_SCORED):
+		times[_payload_int(event, "card")] = _payload_int(event, "times")
+	assert_int(_dict_int(times, herald)).is_equal(150)
+	assert_int(_dict_int(times, sprite)).is_equal(156)
+	assert_int(state.scores[0]).is_greater(0)
+	assert_array(copy.scores).is_equal(state.scores)
+	assert_array(copy.walk.mult).is_equal(state.walk.mult)
+	assert_array(copy.seats[1].board).is_equal(state.seats[1].board)
+	assert_dict(copy.to_dict()).is_equal(state.to_dict())
+
+
+func _dict_int(values: Dictionary, key: int) -> int:
+	var value: int = values.get(key, -1)
+	return value
+
+
 ## A bot match over the edited pool: after each turn that neither ends a round nor changed
 ## a card mid-walk (a destroy, a choice, a stat change), a preview walk on a copy of the
 ## engine's state gives the live TURN_ENDED scores.
