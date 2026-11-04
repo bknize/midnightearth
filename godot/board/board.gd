@@ -15,6 +15,8 @@ signal player_turn_started
 signal wait_finished
 ## Internal: emitted when the open prompt is answered, or cut short by a restart or exit.
 signal prompt_resolved
+## Emitted when a pause or result "Decks" button is pressed; main frees the board.
+signal decks_requested
 
 ## The drop-zone glow looks (R12-R14).
 enum GlowLook { IDLE, HOVER, REFUSE }
@@ -22,7 +24,6 @@ enum GlowLook { IDLE, HOVER, REFUSE }
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
 const NORMAL_SPEED: float = 1.0
-const SEED_ARG: String = "--seed="
 const AUTOPLAY_ARG: String = "--autoplay"
 const GLOW_GOLD: Color = Color(1.0, 0.85, 0.45)
 const GLOW_RED: Color = Color(0.95, 0.25, 0.2)
@@ -30,7 +31,6 @@ const GLOW_IDLE_ALPHA: float = 0.18
 const GLOW_HOVER_ALPHA: float = 0.35
 ## Seconds at 1x for a player commit to slide onto the row when it is not already there.
 const PLAYER_COMMIT_TIME: float = 0.25
-const SEED_MASK: int = 0x7FFFFFFF
 ## Where a row's tally rests: past the right end of the row, and toward the camera.
 const TALLY_OFFSET: Vector3 = Vector3(14.5, 0.0, 1.0)
 ## Seconds at 1x for an unstaged card to slide back to the hand.
@@ -39,6 +39,8 @@ const UNSTAGE_TIME: float = 0.2
 ## 0 means "ask the command line, then the clock".
 @export var fixed_seed: int = 0
 @export var autoplay: bool = false
+## True for stand-alone verify scenes: start the seeded pairing in _ready. Main starts it.
+@export var auto_start: bool = false
 
 ## The current match, for T08 and tests.
 var driver: MatchDriver = null
@@ -55,6 +57,9 @@ var speed: float = NORMAL_SPEED
 var staging: Staging = Staging.new()
 
 var _cards: CardDb = null
+var _decks: DeckList = null
+## The ids of the running match ("" = the seeded pick); a rematch keeps them.
+var _deck_ids: Array[String] = ["", ""]
 var _autoplay: bool = false
 var _input_locked: bool = true
 ## Whether seat 0 is awaited; refreshed once per step in _advance(), false while steps run.
@@ -121,9 +126,11 @@ func _ready() -> void:
 	var lifted_err: int = card_lift.lifted.connect(_on_card_lifted)
 	var down_err: int = card_lift.put_down_finished.connect(_on_card_put_down)
 	var action_err: int = hud.action_pressed.connect(_on_action_pressed)
-	if lifted_err != OK or down_err != OK or action_err != OK:
+	var decks_err: int = hud.decks_pressed.connect(decks_requested.emit)
+	if lifted_err != OK or down_err != OK or action_err != OK or decks_err != OK:
 		push_warning("Board: could not connect the card lift or action signals")
 	_cards = CardDb.load_default()
+	_decks = DeckList.load_default()
 	if not _cards.is_valid():
 		push_error("Card data failed to load: %s" % _cards.load_error())
 		return
@@ -131,7 +138,9 @@ func _ready() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	_autoplay = autoplay or args.has(AUTOPLAY_ARG)
 	speed = AUTOPLAY_SPEED if _autoplay else NORMAL_SPEED
-	start_match(_resolve_seed(args))
+	var first_seed: int = _resolve_seed(args)
+	if auto_start:
+		start_match(first_seed, _deck_ids)
 
 
 func _process(delta: float) -> void:
@@ -187,7 +196,8 @@ func _setup_effects() -> void:
 
 
 ## Starts a fresh match: new driver, empty table, the opening events as steps.
-func start_match(new_seed: int) -> void:
+## `deck_ids` are the two seats' deck ids; "" takes the seeded pick for that seat.
+func start_match(new_seed: int, deck_ids: Array[String]) -> void:
 	_serial += 1
 	_end_wait()
 	card_lift.drop_now()
@@ -198,7 +208,8 @@ func start_match(new_seed: int) -> void:
 	_paused = false
 	_queue.clear()
 	_close_prompt()
-	driver = MatchDriver.create(new_seed, _cards, _autoplay)
+	driver = MatchDriver.create(new_seed, _cards, _decks, deck_ids, _autoplay)
+	_deck_ids = driver.deck_ids()
 	_clear_table_now()
 	hud.show_pause(false)
 	_refresh_staging_ui()
@@ -259,32 +270,16 @@ func _submit(action: EngineAction) -> bool:
 
 ## The seed for a first match: fixed, then --seed=N, then the clock.
 func _resolve_seed(args: PackedStringArray) -> int:
-	if fixed_seed != 0:
-		_seed_fixed = true
-		return fixed_seed
-	for arg: String in args:
-		if arg.begins_with(SEED_ARG):
-			var text: String = arg.substr(SEED_ARG.length())
-			if text.is_valid_int():
-				_seed_fixed = true
-				return text.to_int()
-	return _clock_seed()
-
-
-## The only clock read: a fresh seed for a first match with no fixed seed, or a rematch.
-func _clock_seed() -> int:
-	var ticks: int = Time.get_ticks_usec()
-	var unix_usec: int = int(Time.get_unix_time_from_system() * 1000000.0)
-	var mixed: int = (ticks ^ (unix_usec << 7) ^ (unix_usec >> 11)) & SEED_MASK
-	return mixed if mixed != 0 else 1
+	var flagged: int = fixed_seed if fixed_seed != 0 else BoardSeeds.from_args(args)
+	_seed_fixed = flagged != 0
+	return flagged if flagged != 0 else BoardSeeds.clock_seed()
 
 
 ## The rematch seed (R43): seed + 1 when the first seed was fixed, else a fresh clock seed.
 func _next_seed() -> int:
 	if _seed_fixed and driver != null:
-		var bumped: int = (driver.match_seed + 1) & SEED_MASK
-		return bumped if bumped != 0 else 1
-	return _clock_seed()
+		return BoardSeeds.bumped(driver.match_seed)
+	return BoardSeeds.clock_seed()
 
 
 # --- The queue ---------------------------------------------------------------------------
@@ -995,4 +990,4 @@ func _on_concede_pressed() -> void:
 
 func _on_rematch_pressed() -> void:
 	hud.hide_result()
-	start_match(_next_seed())
+	start_match(_next_seed(), _deck_ids)

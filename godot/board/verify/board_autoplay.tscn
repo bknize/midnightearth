@@ -5,3 +5,4 @@
 [node name="BoardAutoplay" instance=ExtResource("1_board")]
 fixed_seed = 1
 autoplay = true
+auto_start = true

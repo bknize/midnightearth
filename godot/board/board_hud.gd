@@ -10,6 +10,7 @@ signal pause_pressed
 signal concede_pressed
 signal resume_pressed
 signal rematch_pressed
+signal decks_pressed
 ## The prompt reader's action button was pressed (R42).
 signal action_pressed
 
@@ -265,3 +266,7 @@ func _on_concede_button_pressed() -> void:
 
 func _on_rematch_button_pressed() -> void:
 	rematch_pressed.emit()
+
+
+func _on_decks_button_pressed() -> void:
+	decks_pressed.emit()
