@@ -38,7 +38,13 @@ extends RefCounted
 ##   already-revealed card of the other seat with an ON_OPPONENT_REVEAL effect fires, in
 ##   row order as snapshotted when the first of them is due (Pulse.watchers); all of it
 ##   before the card scores (R13);
-## - after CARD_SCORED, the card's ON_SCORE effect fires (R15), each time it scores (C4);
+## - after CARD_SCORED, every revealed, live card of the other seat with an
+##   ON_OPPONENT_SCORE effect fires (DC-07 P10, R26: the burst), in row order as snapshotted
+##   right after the score (Pulse.watchers' rule; each entry still on its row, face up and
+##   live when its turn comes); then, while the card is still face up and live, its ON_SCORE
+##   effect fires (R15), each time it scores (C4). The burst opens no prompt, so its
+##   snapshot never pauses; should a later on-opponent-score verb prompt, the pulse pauses
+##   at DONE and the rest of the snapshot and the on-score effect are skipped;
 ## - ONGOING effects never fire in a pulse: effective() reads them (no deck card changes
 ##   stats that way, the hook is kept) and turn end settles the energy carry
 ##   (EffectResolver.settle_energy, called by MatchEngine).
@@ -407,6 +413,10 @@ class Pulse:
 				var occupant: int = _occupant(seat, slot)
 				if not _needs_reveal(seat, occupant):
 					return _score_slot(seat, slot, occupant)
+				if occupant == revealer:
+					# Un-revealed during its own reveal stages (DC-07 P9): it stays face down
+					# until a later pulse reaches it (R30), and the loop still ends.
+					return false
 				_reveal(seat, occupant)
 				revealer = occupant
 				at = ScoreWalk.Stage.REVEAL_EFFECT
@@ -443,7 +453,9 @@ class Pulse:
 
 	## The end of the score stage for `card`, the card on `slot` of `seat`'s row (none when
 	## -1): a destroyed card only flips if face down (DC-06 R13, R14, C25); a live card
-	## scores, then fires its on-score effect (R15). True when that effect opened a prompt.
+	## scores, then the other seat's on-opponent-score cards fire (DC-07 P10), then, while
+	## the card is still face up (a burst may have destroyed or un-revealed it), its on-score
+	## effect (R15). True when an effect opened a prompt.
 	func _score_slot(seat: int, slot: int, card: int) -> bool:
 		if card < 0:
 			return false
@@ -452,9 +464,29 @@ class Pulse:
 			ScoreWalk._pulse_destroyed(state, cards, sink, live, seat, card)
 			return false
 		ScoreWalk._score(state, cards, sink, live, seat, card)
+		if _opponent_score(seat):
+			_pause(card, slot, ScoreWalk.Stage.DONE)
+			return true
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		if not piles.is_revealed(card):
+			return false
 		if _fire(seat, card, CardEffect.Trigger.ON_SCORE):
 			_pause(card, slot, ScoreWalk.Stage.DONE)
 			return true
+		return false
+
+	## The other seat's revealed, live cards with an ON_OPPONENT_SCORE effect fire after a
+	## card of `seat` scored (DC-07 P10, R26), in row order as snapshotted now; an entry no
+	## longer on that row, face up and live by its turn is skipped (_fire skips a destroyed
+	## one). True when one opened a prompt (none does: see the class comment).
+	func _opponent_score(seat: int) -> bool:
+		var other: int = 1 - seat
+		var piles: MatchState.SeatPiles = state.seats[other]
+		for watcher: int in _watcher_snapshot(other, CardEffect.Trigger.ON_OPPONENT_SCORE):
+			if not piles.board.has(watcher) or not piles.is_revealed(watcher):
+				continue
+			if _fire(other, watcher, CardEffect.Trigger.ON_OPPONENT_SCORE):
+				return true
 		return false
 
 	## The other seat's revealed cards with an ON_OPPONENT_REVEAL effect fire for `card`,
@@ -467,7 +499,7 @@ class Pulse:
 		var other: int = 1 - seat
 		var piles: MatchState.SeatPiles = state.seats[other]
 		if watchers.is_empty():
-			watchers = _watcher_snapshot(other)
+			watchers = _watcher_snapshot(other, CardEffect.Trigger.ON_OPPONENT_REVEAL)
 			watcher_at = 0
 		while watcher_at < watchers.size():
 			var watcher: int = watchers[watcher_at]
@@ -480,16 +512,16 @@ class Pulse:
 				return true
 		return false
 
-	## `seat`'s revealed, live (not destroyed) cards with an ON_OPPONENT_REVEAL effect, in
-	## row order.
-	func _watcher_snapshot(seat: int) -> Array[int]:
+	## `seat`'s revealed, live (not destroyed) cards with a `trigger` effect
+	## (ON_OPPONENT_REVEAL or ON_OPPONENT_SCORE), in row order.
+	func _watcher_snapshot(seat: int, trigger: int) -> Array[int]:
 		var out: Array[int] = []
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		for watcher: int in piles.board:
 			if not piles.is_revealed(watcher) or state.is_destroyed(watcher):
 				continue
 			var effect: CardEffect = EffectResolver.effect_of(watcher, cards)
-			if effect != null and effect.trigger == CardEffect.Trigger.ON_OPPONENT_REVEAL:
+			if effect != null and effect.trigger == trigger:
 				out.append(watcher)
 		return out
 

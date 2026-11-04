@@ -72,10 +72,7 @@ func test_moves_of_two_seats_are_two_steps() -> void:
 
 
 func test_unreveal_step() -> void:
-	var unrevealed: int = BoardSteps.kind_of("CARD_UNREVEALED")
-	if unrevealed < 0:
-		# The engine kind arrives with T06; this runs from then on.
-		return
+	var unrevealed: int = MatchEvent.Kind.CARD_UNREVEALED
 	var flip: BoardStep = _one(_event(unrevealed, {"seat": 1, "card": 25, "slot": 2}), 2.0)
 	assert_int(flip.kind).is_equal(BoardStep.Kind.UNREVEAL)
 	assert_int(flip.slot).is_equal(2)

@@ -411,7 +411,9 @@ func _may_name_public_card(event: MatchEvent) -> bool:
 			return true
 		MatchEvent.Kind.STATS_CHANGED, MatchEvent.Kind.CARD_RETURNED:
 			return true
-		MatchEvent.Kind.EFFECT_FIRED, MatchEvent.Kind.CHOICE_MADE:
+		# DC-07 P9: CARD_UNREVEALED is a face-up card flipping down in public; the face-down
+		# rules hide it from then on.
+		MatchEvent.Kind.EFFECT_FIRED, MatchEvent.Kind.CHOICE_MADE, MatchEvent.Kind.CARD_UNREVEALED:
 			return true
 		MatchEvent.Kind.CARD_BURNED, MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.CARD_MOVED:
 			return not event.is_private()

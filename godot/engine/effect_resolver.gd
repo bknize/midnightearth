@@ -21,10 +21,13 @@ extends RefCounted
 ##   opponent}. spend_bonus_zero() spends it on that seat's next reveal, in this walk or a
 ##   later one.
 ## - DESTROY_RANDOM_OPPONENT: picks one live (not yet destroyed) card of the opponent's row
-##   (P11, R27; DC-06 R16) and marks it destroyed in place (DC-06 R12, P4): it keeps its
-##   slot, CARD_DESTROYED {seat, card, slot}. A row with no live card fizzles (R26, DC-06
-##   R17) and draws nothing from the stream. clear_destroyed() takes it to its owner's burn
-##   destroyed pile at turn end (DC-07 R16).
+##   (P11, R27; DC-06 R16) and destroys it through destroy() (DC-07 P9). A row with no live
+##   card fizzles (R26, DC-06 R17) and draws nothing from the stream. clear_destroyed()
+##   takes a destroyed card to its owner's destroyed pile at turn end (DC-07 R16).
+## - The Ruin verbs (DC-07 T06, P8, P10, P12, R26, R27): DESTROY_LEFTMOST_OWN and BURST are
+##   RuinEffects' (no prompt); DISCARD_OWN, DESTROY_OWN_THEN_DRAW and
+##   DESTROY_OWN_THEN_FLAT_UP are prompt verbs (below). UNREVEAL_INSTEAD is an ongoing
+##   marker read by destroy(); it never fires.
 ## - FLAT_UP_ON_SCORE (amount): `flat_delta += amount`, STATS_CHANGED (cause flat_up).
 ## - CARRY_ENERGY (ongoing): `carry[owner] = budget - spent[owner]`, ENERGY_CARRIED
 ##   {seat, amount}. Only settle_energy() fires it, at turn end.
@@ -49,6 +52,13 @@ extends RefCounted
 ##     a card moved ahead of it is pulsed again there, and the pulse running the swap
 ##     scores the card that landed on its slot (revealing it first if face down), not the
 ##     source.
+##   - DISCARD_OWN (DC-07 R27, C17): one card of the owner's hand to its burn pile, as
+##     DRAW_THEN_DISCARD's discard (CARD_DISCARDED, private). An empty hand fizzles and the
+##     card still scores. Every table row has amount 1: one choice, one discard.
+##   - DESTROY_OWN_THEN_DRAW (amount), DESTROY_OWN_THEN_FLAT_UP: the chosen own card goes
+##     through destroy(), then the owner draws `amount` (RuinEffects.destroy_then_draw) or
+##     the source gains the target's effective flat as read before the destroy
+##     (RuinEffects.destroy_then_flat_up; STATS_CHANGED cause flat_up).
 ##   - RETURN_AT_TURN_END: sets the target's CardState.return_marked; resolve_returns()
 ##     takes it back to its owner's hand at turn end, or burns it at the cap (R24, R25);
 ##     a marked card destroyed by then is discarded by clear_destroyed() instead (DC-06
@@ -68,6 +78,16 @@ extends RefCounted
 ##   target when the zone is a hand or the target is face down (R30, R34); MatchEvent
 ##   redaction then hides `target` (only) from the other seat. In a destroyed-pile zone it
 ##   is private to the chooser unless the target's identity is public (as CARD_RECOVERED).
+##
+## The destroy pipeline (DC-07 P9, R30-R32, C9, C18): every destroy, random or chosen, own
+## or opponent, goes through destroy(). A revealed, live card carrying the ongoing
+## UNREVEAL_INSTEAD is un-revealed instead: it leaves the revealed set, its CardState goes
+## (printed stats, no marks), STATS_CHANGED (cause unreveal) when that changed its shown
+## stats, then CARD_UNREVEALED {seat, card, slot}, both public, and it stays in its slot,
+## live. Any other card is marked destroyed in place (DC-06 R12) with CARD_DESTROYED. Both
+## count as destroyed for the effect (true). The cursor treats an un-revealed card as any
+## face-down card: ahead of the cursor it reveals in full when reached (DC-06 R5, C24),
+## behind it it stays down until the next walk (R8). Only the carrier is protected (C18).
 ##
 ## Hidden information on destroy (orchestrator, DC-05 T04; DC-06 R20, R21): instance ids
 ## map to card definitions, so naming a face-down card would leak it. When the destroyed
@@ -89,6 +109,8 @@ const CAUSE_FLAT_UP: String = "flat_up"
 const CAUSE_BONUS_ZERO: String = "bonus_zero"
 ## A card's `temp_plus` changed (DC-07 P5): cleared at the walk's end.
 const CAUSE_TEMP_PLUS: String = "temp_plus"
+## A card's CardState went with an un-reveal (DC-07 P9): printed stats again.
+const CAUSE_UNREVEAL: String = "unreveal"
 const KEY_SEAT: String = "seat"
 const KEY_CARD: String = "card"
 const KEY_VERB: String = "verb"
@@ -145,6 +167,15 @@ static func apply(
 		CardEffect.Verb.SWAP_PLACES, CardEffect.Verb.RETURN_AT_TURN_END:
 			# A target, then the verb.
 			_ask(state, cards, policy, seat, card, effect, outcome)
+		CardEffect.Verb.DISCARD_OWN, CardEffect.Verb.DESTROY_OWN_THEN_DRAW:
+			# A card of the owner's hand or row (DC-07 P12), then the verb.
+			_ask(state, cards, policy, seat, card, effect, outcome)
+		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
+			_ask(state, cards, policy, seat, card, effect, outcome)
+		CardEffect.Verb.DESTROY_LEFTMOST_OWN:
+			RuinEffects.destroy_leftmost(state, cards, seat, card, outcome)
+		CardEffect.Verb.BURST:
+			RuinEffects.burst(state, cards, rng, policy, seat, card, outcome)
 		CardEffect.Verb.RECOVER_DESTROYED:
 			# A card from either destroyed pile (DC-07 P12), then the recovery.
 			_ask(state, cards, policy, seat, card, effect, outcome)
@@ -152,7 +183,7 @@ static func apply(
 			# A set of own live cards (DC-07 P7, P12), then as many random destroys.
 			_ask_set(state, cards, rng, policy, seat, card, effect, outcome)
 		_:
-			# The DC-07 Ruin and Drift verbs are known names only until T05-T07 give them
+			# UNREVEAL_INSTEAD (read by destroy()) and the Drift verbs until T07 gives them
 			# behaviour: EFFECT_FIRED and nothing else.
 			pass
 	return outcome
@@ -221,10 +252,9 @@ static func answer(state: MatchState, cards: MatchCards, index: int) -> Array[Ma
 
 
 ## Applies `prompt`'s verb to position `index` of its zone: CHOICE_MADE, then the verb's
-## own events (see the class comment). Empty when the position names no card. `_cards` is
-## unused since the switch retired (DC-07 T01); the verbs of T05-T07 read it again.
+## own events (see the class comment). Empty when the position names no card.
 static func apply_choice(
-	state: MatchState, _cards: MatchCards, prompt: Dictionary, index: int, auto: bool
+	state: MatchState, cards: MatchCards, prompt: Dictionary, index: int, auto: bool
 ) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	var seat: int = prompt.get(KEY_SEAT, -1)
@@ -255,6 +285,13 @@ static func apply_choice(
 		CardEffect.Verb.RECOVER_DESTROYED:
 			var position: int = Choice.local_index(state, seat, zone, index)
 			out.append_array(_recover(state, seat, holder, target, position))
+		CardEffect.Verb.DISCARD_OWN:
+			out.append(_discard(state, holder, target))
+		CardEffect.Verb.DESTROY_OWN_THEN_DRAW:
+			var amount: int = _amount_of(source, cards)
+			out.append_array(RuinEffects.destroy_then_draw(state, cards, holder, target, amount))
+		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
+			out.append_array(RuinEffects.destroy_then_flat_up(state, cards, holder, source, target))
 	return out
 
 
@@ -278,12 +315,11 @@ static func answer_set(
 ## CHOICE_MADE {seat, card, zone, index: -1, indices, target: -1, auto: false}, public since
 ## it names positions only, then the verb's events. The empty set declines: EFFECT_FIZZLED
 ## follows and nothing else (R24).
-## - SACRIFICE_DESTROY (P12, R27): each chosen own card is destroyed (in row order), then as
-##   many random live opponent cards, each picked as DESTROY_RANDOM_OPPONENT picks (the
-##   engine stream on a live walk, R35; PreviewPolicy.destroy_slot on a preview); with fewer
-##   live opponent cards than that, all of them. Every destroy here is provisional: the
-##   card is marked destroyed in place (DC-06 R12) with CARD_DESTROYED, until T06's P9
-##   pipeline replaces it.
+## - SACRIFICE_DESTROY (P12, R27): each chosen own card goes through destroy() (in row
+##   order), then as many random live opponent cards, each picked as
+##   DESTROY_RANDOM_OPPONENT picks (the engine stream on a live walk, R35;
+##   PreviewPolicy.destroy_slot on a preview); with fewer live opponent cards than that, all
+##   of them. A chosen card un-revealed instead still counts (P9, R32).
 static func apply_set(
 	state: MatchState,
 	cards: MatchCards,
@@ -422,20 +458,19 @@ static func _destroy_random(
 	outcome: Outcome
 ) -> void:
 	var opponent: int = 1 - seat
-	var target: int = _random_live(state, cards, rng, policy, opponent)
+	var target: int = random_live(state, cards, rng, policy, opponent)
 	if target < 0:
 		_fizzle(seat, card, CardEffect.Verb.DESTROY_RANDOM_OPPONENT, outcome)
 		return
-	var destroyed: MatchEvent = _destroy_in_place(state, opponent, target)
-	if not outcome.quiet:
-		outcome.events.append(destroyed)
+	if not destroy(state, cards, target, outcome):
+		push_error("EffectResolver: a live row card refused its destroy")
 
 
 ## A random live card of `seat`'s row, or -1 when it holds none (nothing is drawn then).
 ## Only live cards may be picked (DC-06 R16, R17), in row order as the row stands now: one
 ## MatchRng.pick_index on the engine stream on a live walk (P11, R35), else
 ## PreviewPolicy.destroy_slot (a preview, or a live walk given no stream).
-static func _random_live(
+static func random_live(
 	state: MatchState, cards: MatchCards, rng: MatchRng, policy: PreviewPolicy, seat: int
 ) -> int:
 	var piles: MatchState.SeatPiles = state.seats[seat]
@@ -453,22 +488,50 @@ static func _random_live(
 	return live[pick]
 
 
-## Marks `card` on `seat`'s row destroyed in place (DC-06 R12): it keeps its slot and stays
-## face up or face down. CARD_DESTROYED {seat, card, slot}, public when the card is revealed,
-## else private to `seat`. The provisional destroy of DC-07 T05; T06's P9 pipeline replaces
-## it.
-static func _destroy_in_place(state: MatchState, seat: int, card: int) -> MatchEvent:
+## The one destroy (DC-07 P9; see the class comment): `card`, live on its controller's
+## row, is un-revealed when it is revealed and carries UNREVEAL_INSTEAD, else marked
+## destroyed in place (DC-06 R12): it keeps its slot and stays face up or face down,
+## CARD_DESTROYED {seat, card, slot}, public when the card is revealed, else private to its
+## seat. The events go to `outcome` (none built when it is quiet). True in both cases, so a
+## sacrifice counts the card (R32); false, changing nothing, when the card is on no row or
+## already destroyed.
+static func destroy(state: MatchState, cards: MatchCards, card: int, outcome: Outcome) -> bool:
+	var seat: int = state.controller_of(card)
+	if seat < 0 or state.is_destroyed(card):
+		return false
 	var piles: MatchState.SeatPiles = state.seats[seat]
-	state.card_state_for(card).destroyed = true
 	var slot: int = piles.board.find(card)
-	var owner: int = MatchEvent.PUBLIC if piles.is_revealed(card) else seat
-	return MatchEvent.new(
-		MatchEvent.Kind.CARD_DESTROYED, {"seat": seat, "card": card, "slot": slot}, owner
-	)
+	if slot < 0:
+		return false
+	var payload: Dictionary = {"seat": seat, "card": card, "slot": slot}
+	var revealed: bool = piles.is_revealed(card)
+	if revealed and RuinEffects.carries(card, cards, CardEffect.Verb.UNREVEAL_INSTEAD):
+		_unreveal(state, cards, seat, card, outcome)
+		outcome.add(MatchEvent.Kind.CARD_UNREVEALED, payload)
+		return true
+	state.card_state_for(card).destroyed = true
+	outcome.add(MatchEvent.Kind.CARD_DESTROYED, payload, PUBLIC if revealed else seat)
+	return true
+
+
+## The un-reveal's state change (P9, R30, C9): `card`'s CardState goes, so it shows its
+## printed stats with no marks (STATS_CHANGED, cause unreveal, while it is still face up and
+## only when that changed its shown stats), then it leaves `seat`'s revealed set.
+static func _unreveal(
+	state: MatchState, cards: MatchCards, seat: int, card: int, outcome: Outcome
+) -> void:
+	var before: Dictionary = ScoreWalk.effective(card, state, cards).to_dict()
+	if state.clear_card_state(card):
+		var after: Dictionary = ScoreWalk.effective(card, state, cards).to_dict()
+		if after != before and not outcome.quiet:
+			outcome.events.append(stats_changed(state, cards, seat, card, CAUSE_UNREVEAL))
+	var piles: MatchState.SeatPiles = state.seats[seat]
+	if not piles.revealed.erase(card):
+		push_error("EffectResolver: un-reveal of a card not revealed")
 
 
 ## SACRIFICE_DESTROY's set (see apply_set): the chosen own cards of `seat`, in row order,
-## each destroyed in place, then one random live opponent card per own card destroyed,
+## each through destroy(), then one random live opponent card per own card counted,
 ## stopping when the opponent's row has no live card left.
 static func _sacrifice(
 	state: MatchState,
@@ -489,14 +552,17 @@ static func _sacrifice(
 		var target: int = Choice.resolve(state, seat, zone, index)
 		if target >= 0 and not state.is_destroyed(target):
 			chosen.append(target)
+	var outcome: Outcome = Outcome.new()
+	var count: int = 0
 	for target: int in chosen:
-		out.append(_destroy_in_place(state, seat, target))
+		if destroy(state, cards, target, outcome):
+			count += 1
 	var opponent: int = 1 - seat
-	for _i: int in range(chosen.size()):
-		var victim: int = _random_live(state, cards, rng, policy, opponent)
-		if victim < 0:
+	for _i: int in range(count):
+		var victim: int = random_live(state, cards, rng, policy, opponent)
+		if victim < 0 or not destroy(state, cards, victim, outcome):
 			break
-		out.append(_destroy_in_place(state, opponent, victim))
+	out.append_array(outcome.events)
 	return out
 
 
@@ -671,6 +737,14 @@ static func _moved(
 		"seat": seat, "card": card, "from_slot": from_slot, "to_slot": to_slot
 	}
 	return MatchEvent.new(MatchEvent.Kind.CARD_MOVED, payload, owner)
+
+
+## The amount of `card`'s effect, or 0 when it has none.
+static func _amount_of(card: int, cards: MatchCards) -> int:
+	var effect: CardEffect = effect_of(card, cards)
+	if effect == null:
+		return 0
+	return effect.amount
 
 
 static func _fizzle(seat: int, card: int, verb: int, outcome: Outcome) -> void:
