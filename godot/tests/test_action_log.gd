@@ -469,11 +469,18 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 	)
 	# The whole hand, at the last index where it costs more than the energy. The passing
 	# seat holds 3 + turn cards of cost >= 1 against `turn` energy, so one always exists.
+	# Against the seat's budget with no free first card: since DC-05 T04 the player's carry
+	# and free-card effects can lift it above the turn.
 	var over: int = -1
 	for index: int in range(actions.size()):
 		var before: MatchEngine = _prefix_engine(SEED, actions, index)
-		var awaited_hand: Array[int] = _hand(before, before.awaited_seat())
-		if _cost_of(awaited_hand) > before.energy():
+		var awaited: int = before.awaited_seat()
+		var awaited_hand: Array[int] = _hand(before, awaited)
+		var state: Dictionary = before.full_state()
+		var energy: Dictionary = state["energy"]
+		var frees: Array = energy["free_first"]
+		var free: bool = frees[awaited]
+		if _cost_of(awaited_hand) > before.budget_for(awaited) and not free:
 			over = index
 	assert_int(over).is_greater(0)
 	if over < 0:

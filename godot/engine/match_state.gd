@@ -45,6 +45,10 @@ var actions_applied: int = 0
 var card_states: Dictionary[int, CardState] = {}
 ## The score walk's resumable progress (plan P3), driven by ScoreWalk.
 var walk: WalkState = WalkState.new()
+## Per seat that will suffer it: the bonus-0 mark (R22). Set by the opponent's
+## OPPONENT_NEXT_BONUS_ZERO effect, spent by this seat's next reveal; a bool, so setting it
+## again before it is spent does not stack. Cleared at round start (MatchEngine).
+var bonus_zero_pending: Array[bool] = [false, false]
 
 
 func _init(p_match_seed: int = 0) -> void:
@@ -91,6 +95,7 @@ func to_dict() -> Dictionary:
 		"actions_applied": actions_applied,
 		"card_states": _card_states_dict(),
 		"walk": walk.to_dict(),
+		"bonus_zero_pending": _plain_flags(bonus_zero_pending),
 	}
 
 
@@ -120,6 +125,7 @@ func duplicate() -> MatchState:
 		var held: CardState = card_states[card]
 		out.card_states[card] = held.copy()
 	out.walk = walk.copy()
+	out.bonus_zero_pending.assign(bonus_zero_pending)
 	return out
 
 
@@ -142,12 +148,33 @@ func clear_card_state(card: int) -> bool:
 	return card_states.erase(card)
 
 
+## Takes `card` off `seat`'s row (a destroy, R23; a return, R24): it leaves the row and
+## the revealed set, and its modifiers go (R21). Returns whether the card had been
+## revealed; false, changing nothing, when it was not on that row. Read the card's slot
+## before calling. Where the card goes next is the caller's call.
+func take_from_row(seat: int, card: int) -> bool:
+	var piles: SeatPiles = seats[seat]
+	if not piles.board.has(card):
+		return false
+	piles.board.erase(card)
+	if clear_card_state(card):
+		pass  # Its modifiers leave the board with it; nothing else to do.
+	return piles.revealed.erase(card)
+
+
 ## The modifiers as plain data, keyed by instance id.
 func _card_states_dict() -> Dictionary:
 	var out: Dictionary = {}
 	for card: int in card_states:
 		var held: CardState = card_states[card]
 		out[card] = held.to_dict()
+	return out
+
+
+## An untyped copy of a seat-indexed flag pair, for to_dict().
+static func _plain_flags(values: Array[bool]) -> Array:
+	var out: Array = []
+	out.assign(values)
 	return out
 
 

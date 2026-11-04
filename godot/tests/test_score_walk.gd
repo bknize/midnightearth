@@ -472,8 +472,8 @@ func test_card_states_are_in_the_full_state_and_cleared_at_round_start() -> void
 		{"flat_delta": 2, "switched": false, "bonus_zero": false, "return_marked": false}
 	)
 	assert_bool(plain.has("walk")).is_true()
-	# Nothing in the engine sets a modifier before DC-05 T04, so one is written into the
-	# engine's state directly; the next round start clears it.
+	# A modifier is written into the engine's state directly (both seats only pass here);
+	# the next round start clears it.
 	var engine: MatchEngine = MatchEngine.create(SEED, _db())
 	engine.start()
 	engine._state.card_state_for(card).bonus_zero = true
@@ -510,13 +510,22 @@ func _started(match_seed: int) -> MatchEngine:
 	return engine
 
 
-## The first legal set of exactly `size` cards, or an empty list when none exists.
+## The first legal set of exactly `size` effect-free cards, or an empty list when none
+## exists. Effect-free since DC-05 T04: an effect (a destroy, a bonus-0 mark, a flat-up)
+## would change the reveals and scores these cases predict from the definitions.
 func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
 	for s: Array in LegalPlays.enumerate(hand, energy, _db()):
-		if s.size() == size:
+		if s.size() == size and _all_vanilla(_typed(s)):
 			return _typed(s)
 	var none: Array[int] = []
 	return none
+
+
+func _all_vanilla(cards: Array[int]) -> bool:
+	for card: int in cards:
+		if _db().card_at(card % MatchRules.DECK_SIZE).effect != null:
+			return false
+	return true
 
 
 func _flat(card: int) -> int:
@@ -627,8 +636,20 @@ func test_reveal_one_against_three() -> void:
 
 
 func test_reveal_puts_cards_on_boards_and_scores_in_state() -> void:
-	var engine: MatchEngine = _started(SEED)
-	_pass_until_turn(engine, 4)
+	# The first seed whose turn-4 hands both hold an affordable effect-free card (DC-05 T04).
+	var engine: MatchEngine = null
+	for match_seed: int in range(SEED, SEED + SEARCH_SEEDS):
+		var candidate: MatchEngine = _started(match_seed)
+		_pass_until_turn(candidate, 4)
+		var awaited: int = candidate.awaited_seat()
+		var mine: Array[int] = _find_set(_hand(candidate, awaited), candidate.energy(), 1)
+		var theirs: Array[int] = _find_set(_hand(candidate, 1 - awaited), candidate.energy(), 1)
+		if not mine.is_empty() and not theirs.is_empty():
+			engine = candidate
+			break
+	assert_object(engine).is_not_null()
+	if engine == null:
+		return
 	var first: int = engine.awaited_seat()
 	var second: int = 1 - first
 	var a: Array[int] = _find_set(_hand(engine, first), engine.energy(), 1)
@@ -673,6 +694,8 @@ func test_reveal_puts_cards_on_boards_and_scores_in_state() -> void:
 ## A seed-1 bot match: after every turn that does not end a round, a walk run to the end
 ## on a MatchState.duplicate() of the engine's state (with a PreviewPolicy, no sink and no
 ## stream) gives the live TURN_ENDED scores, emits nothing and leaves the engine alone.
+## Turns whose walk changed a scored card after it scored (a flat-up, a destroy) are
+## skipped (DC-05 T04): re-walking the turn's end state is then a different walk.
 func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 	var engine: MatchEngine = MatchEngine.create(SEED, _db())
 	assert_bool(engine.start().ok).is_true()
@@ -693,6 +716,8 @@ func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 			continue
 		if engine.is_over():
 			continue
+		if _changed_the_walk(result.events):
+			continue
 		var live: Dictionary = engine.full_state()
 		var copy: MatchState = engine._state.duplicate()
 		assert_dict(copy.to_dict()).is_equal(live)
@@ -707,6 +732,18 @@ func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 		compared += 1
 	assert_bool(engine.is_over()).is_true()
 	assert_int(compared).is_greater(0)
+
+
+## Whether a turn's events hold a flat-up or a destroy, after which the turn's end state
+## no longer walks to the turn's scores.
+func _changed_the_walk(events: Array[MatchEvent]) -> bool:
+	if not _of_kind(events, MatchEvent.Kind.CARD_DESTROYED).is_empty():
+		return true
+	for event: MatchEvent in _of_kind(events, MatchEvent.Kind.STATS_CHANGED):
+		var cause: String = event.payload["cause"]
+		if cause == EffectResolver.CAUSE_FLAT_UP:
+			return true
+	return false
 
 
 func test_duplicate_is_deep() -> void:
@@ -739,5 +776,6 @@ class Recorder:
 
 	var events: Array[MatchEvent] = []
 
-	func record(kind: int, payload: Dictionary) -> void:
-		events.append(MatchEvent.new(kind, payload))
+	## The walk sends effect events with their owner (DC-05 T04), its own without.
+	func record(kind: int, payload: Dictionary, owner: int = MatchEvent.PUBLIC) -> void:
+		events.append(MatchEvent.new(kind, payload, owner))

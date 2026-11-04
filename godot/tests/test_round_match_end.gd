@@ -282,6 +282,8 @@ func test_higher_board_wins_when_both_seats_play() -> void:
 		var second: int = 1 - first
 		var strong: int = _strongest(_hand(engine, first))
 		var weak: int = _weakest(_hand(engine, second))
+		if strong < 0 or weak < 0:
+			continue
 		var a: Array[int] = [strong]
 		var b: Array[int] = [weak]
 		if _walk_score(a) == _walk_score(b):
@@ -323,20 +325,31 @@ func _walk_score(row: Array[int]) -> int:
 	return total
 
 
-## The hand card that scores most alone.
-func _strongest(hand: Array[int]) -> int:
-	var best: int = hand[0]
+## The effect-free hand cards, in hand order. Contested rounds play only these (DC-05 T04):
+## a destroy or a bonus-0 mark on the other board would break the scores _walk_score
+## predicts from the definitions.
+func _vanilla(hand: Array[int]) -> Array[int]:
+	var out: Array[int] = []
 	for card: int in hand:
-		if _solo(card) > _solo(best):
+		if _db().card_at(card % MatchRules.DECK_SIZE).effect == null:
+			out.append(card)
+	return out
+
+
+## The effect-free hand card that scores most alone; -1 when the hand holds none.
+func _strongest(hand: Array[int]) -> int:
+	var best: int = -1
+	for card: int in _vanilla(hand):
+		if best < 0 or _solo(card) > _solo(best):
 			best = card
 	return best
 
 
-## The hand card that scores least alone.
+## The effect-free hand card that scores least alone; -1 when the hand holds none.
 func _weakest(hand: Array[int]) -> int:
-	var worst: int = hand[0]
-	for card: int in hand:
-		if _solo(card) < _solo(worst):
+	var worst: int = -1
+	for card: int in _vanilla(hand):
+		if worst < 0 or _solo(card) < _solo(worst):
 			worst = card
 	return worst
 
@@ -420,9 +433,10 @@ func _assert_final_table(engine: MatchEngine, events: Array[MatchEvent]) -> void
 	assert_array(_state_ints(engine, "pending")).is_empty()
 
 
-## Both seats pass turns 1-6; on turn 7 the first committer plays its strongest card and
-## the second its weakest. When those cards score the same alone it stops before turn 7's
-## commits (the round would tie) and the caller tries another seed.
+## Both seats pass turns 1-6; on turn 7 the first committer plays its strongest
+## effect-free card and the second its weakest. When those cards score the same alone, or a
+## hand holds no effect-free card, it stops before turn 7's commits and the caller tries
+## another seed.
 func _play_contested_round(engine: MatchEngine) -> Array[MatchEvent]:
 	var seen: Array[MatchEvent] = []
 	while engine.energy() < MatchRules.TURNS:
@@ -435,7 +449,7 @@ func _play_contested_round(engine: MatchEngine) -> Array[MatchEvent]:
 	var second: int = 1 - first
 	var strong: int = _strongest(_hand(engine, first))
 	var weak: int = _weakest(_hand(engine, second))
-	if _solo(strong) == _solo(weak):
+	if strong < 0 or weak < 0 or _solo(strong) == _solo(weak):
 		return seen
 	var a: Array[int] = [strong]
 	var b: Array[int] = [weak]
