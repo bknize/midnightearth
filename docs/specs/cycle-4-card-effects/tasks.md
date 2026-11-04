@@ -6,7 +6,7 @@ related: ["[[specs/cycle-4-card-effects/spec]]", "[[specs/cycle-4-card-effects/p
 created: 2026-11-03
 updated: 2026-11-03
 uid: 5739f6af-c673-4cc3-b816-ec11153a84a7
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-4-card-effects-032a703ba2d5
 supersedes:
 ---
 
@@ -78,13 +78,33 @@ Owned by the orchestrator, on `cycle-4-card-effects`, editor opened on the cycle
 - [ ] No GDScript warning in the editor run; `obsidian-cli vault=docs orphans` reports
       nothing new (`unresolved` if the CLI build has it).
 
-## Linear
+## Linear (exercised 2026-11-03)
 
-Filled by `/exercise cycle-4-card-effects`. Empty until then.
+Project [Cycle 4 — card effects](https://linear.app/night-science-llc/project/cycle-4-card-effects-032a703ba2d5),
+state Planned until `/cycle plan DC-05` puts the issues into milestone
+`DC-05 card-effects`. Label `spec/cycle-4-card-effects` on all. Engine tasks carry
+`area/engine`, board tasks `area/cards` (T07 both, T12 adds `area/ui`); T01–T12 are
+`type/feature`, T13 and T14 `type/chore`. GitHub links point at `cycle-4-card-effects`
+until `/cycle test` rewrites them to `master` (ADR 0002).
 
-- Project: Cycle 4 — card effects
-- Milestone: `DC-05 card-effects`
-- Issue mapping: T01 … T14
+| Task | Issue | Blocked by |
+|---|---|---|
+| T01 | NSC-59 | – |
+| T02 | NSC-60 | NSC-59 |
+| T03 | NSC-61 | NSC-60 |
+| T04 | NSC-62 | NSC-61 |
+| T05 | NSC-63 | NSC-62 |
+| T06 | NSC-64 | NSC-63 |
+| T07 | NSC-65 | NSC-64 |
+| T08 | NSC-66 | NSC-60 |
+| T09 | NSC-67 | NSC-59 |
+| T10 | NSC-68 | NSC-66, NSC-67 |
+| T11 | NSC-69 | NSC-68 |
+| T12 | NSC-70 | NSC-69 |
+| T13 | NSC-71 | NSC-59 … NSC-70 |
+| T14 | NSC-72 | NSC-59 … NSC-71 |
+
+All fourteen are in Todo.
 
 ## Commit plan
 
