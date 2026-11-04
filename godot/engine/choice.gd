@@ -28,7 +28,13 @@ extends RefCounted
 ##   (DC-06 R16).
 ## - RETURN_AT_TURN_END: BOTH_BOARDS, every revealed card not destroyed but the source.
 ## - RECOVER_DESTROYED: BOTH_DESTROYED, every position (DC-07 P12).
+## - SACRIFICE_DESTROY: OWN_BOARD, every live (not destroyed) card but the source, revealed
+##   or not; a multi-select (DC-07 P7, P12, R22): the answer is a set of those positions.
 ## Any other verb needs no choice: eligible() gives zone -1 and no options.
+##
+## Multi-select prompts (DC-07 P7, R22-R25): the prompt carries `multi` (KEY_MULTI) true;
+## every prompt carries the key, false for a single-target one. is_valid_set() checks a set
+## answer against the prompt.
 ##
 ## Events name zones by ZONE_NAMES (as they name verbs and triggers by their JSON names);
 ## MatchState.prompt, SeatView.prompt and EngineAction.choose use the enum value.
@@ -41,6 +47,9 @@ const ZONE_NAMES: Array[String] = [
 ]
 const KEY_ZONE: String = "zone"
 const KEY_OPTIONS: String = "options"
+## Whether a prompt takes a set (DC-07 P7): MatchState.prompt, SeatView.prompt and
+## CHOICE_REQUESTED all carry it.
+const KEY_MULTI: String = "multi"
 const NO_ZONE: int = -1
 
 
@@ -69,7 +78,39 @@ static func needs_choice(verb: int) -> bool:
 		or verb == CardEffect.Verb.SWAP_PLACES
 		or verb == CardEffect.Verb.RETURN_AT_TURN_END
 		or verb == CardEffect.Verb.RECOVER_DESTROYED
+		or verb == CardEffect.Verb.SACRIFICE_DESTROY
 	)
+
+
+## Whether `verb` (a CardEffect.Verb) asks for a set of targets (DC-07 P7, R22): its prompt
+## is a multi-select, opened even for one eligible position (R25).
+static func is_multi(verb: int) -> bool:
+	return verb == CardEffect.Verb.SACRIFICE_DESTROY
+
+
+## Whether the prompt dictionary `prompt` is a multi-select (its `multi` flag).
+static func is_multi_prompt(prompt: Dictionary) -> bool:
+	var raw: Variant = prompt.get(KEY_MULTI, false)
+	if not raw is bool:
+		return false
+	var multi: bool = raw
+	return multi
+
+
+## Whether `indices` is a valid answer to the multi-select `prompt` in `zone` (R23, P7): the
+## zone is the prompt's, every index is one of its options and none repeats. The empty set
+## is valid (the decline, R24). The caller has checked the prompt is a multi-select.
+static func is_valid_set(prompt: Dictionary, zone: int, indices: Array[int]) -> bool:
+	var prompt_zone: int = prompt.get(KEY_ZONE, NO_ZONE)
+	if zone != prompt_zone:
+		return false
+	var options: Array[int] = options_of(prompt)
+	var seen: Dictionary[int, bool] = {}
+	for index: int in indices:
+		if seen.has(index) or not options.has(index):
+			return false
+		seen[index] = true
+	return true
 
 
 ## The zone `verb` chooses from, or NO_ZONE when it needs no choice.
@@ -77,7 +118,7 @@ static func zone_for(verb: int) -> int:
 	match verb:
 		CardEffect.Verb.DRAW_THEN_DISCARD:
 			return Zone.OWN_HAND
-		CardEffect.Verb.SWAP_PLACES:
+		CardEffect.Verb.SWAP_PLACES, CardEffect.Verb.SACRIFICE_DESTROY:
 			return Zone.OWN_BOARD
 		CardEffect.Verb.RETURN_AT_TURN_END:
 			return Zone.BOTH_BOARDS
@@ -190,6 +231,8 @@ static func _is_eligible(
 			return card != source and _is_live_and_revealed(state, seat, zone, index, card)
 		CardEffect.Verb.RECOVER_DESTROYED:
 			return true
+		CardEffect.Verb.SACRIFICE_DESTROY:
+			return card != source and not state.is_destroyed(card)
 	return false
 
 

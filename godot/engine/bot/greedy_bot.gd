@@ -29,7 +29,9 @@ extends RefCounted
 ##
 ## Prompts (R37): each option of the view's prompt is scored by
 ## MatchEngine.preview_choice() the same way; a tie is broken with the seed derived from
-## [round, turn, PROMPT_TAG, the prompt's source card], distinct from the commit's.
+## [round, turn, PROMPT_TAG, the prompt's source card], distinct from the commit's. A
+## multi-select prompt (DC-07 P7) is declined with the empty set until T08 gives the bot its
+## k-lowest-flat answer (P13).
 ##
 ## Hidden information (R7, R38): the bot reads only its own SeatView (its hand, budget, row
 ## size, prompt, round and turn) and asks the engine only for previews of its own seat's
@@ -126,6 +128,10 @@ func answer_prompt(view: SeatView, engine: MatchEngine) -> EngineAction:
 		return null
 	var options: Array[int] = Choice.options_of(view.prompt)
 	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	if Choice.is_multi_prompt(view.prompt):
+		# Interim (DC-07 T05): decline; T08 previews the k lowest-flat sets (P13).
+		var declined: Array[int] = []
+		return EngineAction.choose_set(view.seat, zone, declined)
 	if options.is_empty():
 		return EngineAction.choose(view.seat, zone, -1)
 	var best: Array[int] = []

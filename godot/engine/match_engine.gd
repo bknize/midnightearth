@@ -9,8 +9,9 @@ extends RefCounted
 ## commit (second) -> _resolve() (both commits merge into their rows, then the walk starts)
 ## -> _run_walk() (ScoreWalk pulses every card on both rows; an effect with two or more
 ## targets pauses it on a prompt, phase AWAIT_CHOICE, until apply(CHOOSE) from the prompted
-## seat resumes it, DC-05 T05) -> _end_turn() (return marks, destroyed cards, energy) -> next
-## _begin_turn(), or after turn 7 _end_round() ->
+## seat resumes it, DC-05 T05; a multi-select prompt, DC-07 P7, opens even for one target
+## and is answered by apply(CHOOSE_SET) instead) -> _end_turn() (return marks, destroyed
+## cards, energy) -> next _begin_turn(), or after turn 7 _end_round() ->
 ## _after_round(), which either ends the match (R20-R22) or begins the next round.
 ## Concede goes straight to _end_match().
 ##
@@ -114,6 +115,8 @@ func apply(action: EngineAction) -> ApplyResult:
 		_concede(accepted.seat)
 	elif accepted.kind == EngineAction.Kind.CHOOSE:
 		_choose(accepted.index)
+	elif accepted.kind == EngineAction.Kind.CHOOSE_SET:
+		_choose_set(accepted.indices)
 	else:
 		_commit(accepted.seat, accepted.cards, accepted.slots)
 	_state.rng_state = _rng.state
@@ -132,9 +135,9 @@ func awaited_seat() -> int:
 	return -1
 
 
-## A copy of the open prompt (plan P9, P12: {seat, card, verb, zone, options}), or {} when
-## none is open. It names no hidden card: options are positions (Choice) and the source is
-## revealed.
+## A copy of the open prompt (plan P9, P12: {seat, card, verb, zone, options, multi}; DC-07
+## P7), or {} when none is open. It names no hidden card: options are positions (Choice)
+## and the source is revealed.
 func open_prompt() -> Dictionary:
 	return _state.prompt.duplicate(true)
 
@@ -183,15 +186,17 @@ func preview(seat: int, action: EngineAction) -> Array[int]:
 
 ## The scores pair the walk would end on if `seat` answered the open prompt with position
 ## `index` of its zone (plan P12, R37), or [] when no prompt is open for `seat` or `index`
-## is not one of its options. Pure, like preview(): the clone applies the answer
-## (EffectResolver.answer), marks the opponent's unrevealed row cards inert in their slots
-## (_hide_opponent) and finishes the paused walk under the PreviewPolicy from the live
-## cursor. The answer is applied before the marking, so `index` means what it means to the
-## live engine; the options never name an unrevealed card of the opponent (Choice), and only
-## the scores come back.
+## is not one of its options, or the prompt is a multi-select (see preview_set). Pure, like
+## preview(): the clone applies the answer (EffectResolver.answer), marks the opponent's
+## unrevealed row cards inert in their slots (_hide_opponent) and finishes the paused walk
+## under the PreviewPolicy from the live cursor. The answer is applied before the marking,
+## so `index` means what it means to the live engine; the options never name an unrevealed
+## card of the opponent (Choice), and only the scores come back.
 func preview_choice(seat: int, index: int) -> Array[int]:
 	var none: Array[int] = []
 	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _prompt_seat() != seat:
+		return none
+	if Choice.is_multi_prompt(_state.prompt):
 		return none
 	var zone: int = _state.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
 	if not Choice.is_offered(_state.prompt, zone, index):
@@ -200,6 +205,34 @@ func preview_choice(seat: int, index: int) -> Array[int]:
 	var answered: Array[MatchEvent] = EffectResolver.answer(clone, _cards, index)
 	answered.clear()  # A preview reports no events.
 	_hide_opponent(clone, seat)
+	clone.phase = MatchState.Phase.AWAIT_SECOND
+	return _finish_preview(clone)
+
+
+## The scores pair the walk would end on if `seat` answered the open multi-select prompt
+## with the set `indices` of its zone (DC-07 P7, P13, R37), or [] when no multi-select prompt
+## is open for `seat` or the engine would reject the set (Choice.is_valid_set). Mirrors
+## preview_choice(), with one difference in order: the opponent's unrevealed row cards are
+## marked inert (_hide_opponent) before the set applies, since the set's random opponent
+## destroys then take the policy's pick (PreviewPolicy.destroy_slot, the lowest effective
+## flat) and must read revealed cards' stats only. The set names positions on the seat's own
+## row, which the marking does not touch, so `indices` means what it means to the live
+## engine. Draws nothing from the stream; only the scores come back.
+func preview_set(seat: int, indices: Array[int]) -> Array[int]:
+	var none: Array[int] = []
+	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _prompt_seat() != seat:
+		return none
+	if not Choice.is_multi_prompt(_state.prompt):
+		return none
+	var zone: int = _state.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	if not Choice.is_valid_set(_state.prompt, zone, indices):
+		return none
+	var clone: MatchState = _state.duplicate()
+	_hide_opponent(clone, seat)
+	var answered: Array[MatchEvent] = EffectResolver.answer_set(
+		clone, _cards, null, _policy, indices
+	)
+	answered.clear()  # A preview reports no events.
 	clone.phase = MatchState.Phase.AWAIT_SECOND
 	return _finish_preview(clone)
 
@@ -288,24 +321,50 @@ func _check(action: EngineAction) -> int:
 		return EngineError.Code.MATCH_OVER
 	if not _is_well_formed(action):
 		return EngineError.Code.MALFORMED
-	if action.kind == EngineAction.Kind.CONCEDE:
-		# Either seat may concede at any time (R23).
-		return EngineError.Code.NONE
-	if action.kind == EngineAction.Kind.CHOOSE:
-		return _check_choice(action)
+	return _check_kind(action)
+
+
+## The per-kind check of a well-formed action in a running match.
+func _check_kind(action: EngineAction) -> int:
+	match action.kind:
+		EngineAction.Kind.CONCEDE:
+			# Either seat may concede at any time (R23).
+			return EngineError.Code.NONE
+		EngineAction.Kind.CHOOSE:
+			return _check_choice(action)
+		EngineAction.Kind.CHOOSE_SET:
+			return _check_set(action)
 	return _check_commit(action)
 
 
 ## A well-formed choice (R31): a prompt is open (NO_PROMPT), the action is the prompted
-## seat's (WRONG_SEAT) and its zone and index are one of the prompt's options
-## (NOT_ELIGIBLE).
+## seat's (WRONG_SEAT), the prompt takes one position, not a set, and the action's zone and
+## index are one of its options (NOT_ELIGIBLE; DC-07 P7).
 func _check_choice(action: EngineAction) -> int:
 	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _state.prompt.is_empty():
 		return EngineError.Code.NO_PROMPT
 	if action.seat != _prompt_seat():
 		return EngineError.Code.WRONG_SEAT
+	if Choice.is_multi_prompt(_state.prompt):
+		return EngineError.Code.NOT_ELIGIBLE
 	if not Choice.is_offered(_state.prompt, action.zone, action.index):
 		return EngineError.Code.NOT_ELIGIBLE
+	return EngineError.Code.NONE
+
+
+## A well-formed set choice (DC-07 P7, R23): a prompt is open (NO_PROMPT), the action is
+## the prompted seat's (WRONG_SEAT), the prompt is a multi-select (a single-target prompt
+## rejects a set: NOT_ELIGIBLE), and the set is in the prompt's zone, every index one of its
+## options and none repeated (BAD_SET). The empty set passes: it declines (R24).
+func _check_set(action: EngineAction) -> int:
+	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _state.prompt.is_empty():
+		return EngineError.Code.NO_PROMPT
+	if action.seat != _prompt_seat():
+		return EngineError.Code.WRONG_SEAT
+	if not Choice.is_multi_prompt(_state.prompt):
+		return EngineError.Code.NOT_ELIGIBLE
+	if not Choice.is_valid_set(_state.prompt, action.zone, action.indices):
+		return EngineError.Code.BAD_SET
 	return EngineError.Code.NONE
 
 
@@ -337,10 +396,14 @@ func _resolved_slots(action: EngineAction) -> Array[int]:
 	return LegalPlays.append_slots(piles.board.size(), action.cards.size())
 
 
-## Not null, a known kind, a seat of 0 or 1, and no cards or slots on a concede or a
-## choice.
+## Not null, a known kind, a seat of 0 or 1, no cards or slots on a concede or a (set)
+## choice, and no set on anything but a set choice.
 func _is_well_formed(action: EngineAction) -> bool:
 	if action == null or action.seat < 0 or action.seat >= SEATS:
+		return false
+	if action.kind == EngineAction.Kind.CHOOSE_SET:
+		return action.cards.is_empty() and action.slots.is_empty()
+	if not action.indices.is_empty():
 		return false
 	if action.kind == EngineAction.Kind.CONCEDE or action.kind == EngineAction.Kind.CHOOSE:
 		return action.cards.is_empty() and action.slots.is_empty()
@@ -593,6 +656,15 @@ func _run_walk() -> void:
 func _choose(index: int) -> void:
 	_state.phase = MatchState.Phase.AWAIT_SECOND
 	_events.append_array(EffectResolver.answer(_state, _cards, index))
+	_run_walk()
+
+
+## An accepted set choice (DC-07 P7, R24), as _choose(): the prompt closes, the set applies
+## (CHOICE_MADE with `indices`, then the verb's events, or EFFECT_FIZZLED for the empty set)
+## with the engine stream for its random destroys (R35), and the walk resumes.
+func _choose_set(indices: Array[int]) -> void:
+	_state.phase = MatchState.Phase.AWAIT_SECOND
+	_events.append_array(EffectResolver.answer_set(_state, _cards, _rng, null, indices))
 	_run_walk()
 
 

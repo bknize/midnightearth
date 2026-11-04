@@ -57,9 +57,10 @@ var walk: WalkState = WalkState.new()
 ## a bool, so setting it again before it is spent does not stack. Cleared at round start
 ## (MatchEngine).
 var bonus_zero_pending: Array[bool] = [false, false]
-## The open prompt (plan P9): {seat, card, verb, zone, options}, with `verb` a
-## CardEffect.Verb, `zone` a Choice.Zone and `options` a plain Array of positions in that
-## zone (Choice). Empty when no prompt is open.
+## The open prompt (plan P9): {seat, card, verb, zone, options, multi}, with `verb` a
+## CardEffect.Verb, `zone` a Choice.Zone, `options` a plain Array of positions in that
+## zone (Choice) and `multi` true when it takes a set (EngineAction.CHOOSE_SET, DC-07 P7)
+## rather than one position. Empty when no prompt is open.
 var prompt: Dictionary = {}
 
 

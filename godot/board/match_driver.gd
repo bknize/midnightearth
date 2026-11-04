@@ -93,8 +93,18 @@ func submit_choice(zone: int, index: int) -> ApplyResult:
 	return submit_player(EngineAction.choose(PLAYER_SEAT, zone, index))
 
 
-## Seat 0's open prompt (`{seat, card, verb, zone, options}`), or `{}` when none is open for
-## seat 0. Options are positions in the zone, never hidden ids (R34).
+## Answers seat 0's open multi-select prompt with the set `indices` of `zone` (a
+## `Choice.Zone` value), as the plan's CHOOSE_SET action (DC-07 P7). An empty set declines.
+## Rejected like any action: NO_PROMPT with no prompt open, NOT_ELIGIBLE for a single-target
+## prompt, BAD_SET for a repeated or non-offered index; the caller reads `events_for(0)` of
+## the result.
+func submit_set(zone: int, indices: Array[int]) -> ApplyResult:
+	return submit_player(EngineAction.choose_set(PLAYER_SEAT, zone, indices))
+
+
+## Seat 0's open prompt (`{seat, card, verb, zone, options, multi}`), or `{}` when none is
+## open for seat 0. Options are positions in the zone, never hidden ids (R34); `multi` is
+## true when the prompt takes a set (submit_set) rather than one position (submit_choice).
 func open_prompt() -> Dictionary:
 	var prompt: Dictionary = _engine.open_prompt()
 	if prompt.is_empty():
@@ -102,6 +112,7 @@ func open_prompt() -> Dictionary:
 	var seat: int = prompt.get("seat", -1)
 	if seat != PLAYER_SEAT:
 		return {}
+	prompt[Choice.KEY_MULTI] = Choice.is_multi_prompt(prompt)
 	return prompt
 
 
