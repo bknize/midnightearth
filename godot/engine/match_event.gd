@@ -47,6 +47,10 @@ enum Kind {
 	## seat sees the pile and position but not the card. At the hand cap a CARD_BURNED with
 	## the same owner follows.
 	CARD_RECOVERED,
+	## A destroy replaced by the un-reveal (DC-07 P9, R30, T06): {seat, card, slot}. The card
+	## flips face down in its slot with printed stats and is not destroyed. Public, since the
+	## card was revealed; from then on the face-down rules hide it as any face-down card.
+	CARD_UNREVEALED,
 }
 
 ## owner_seat of an event every seat may see in full.

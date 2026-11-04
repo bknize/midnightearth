@@ -30,6 +30,9 @@ extends RefCounted
 ## - RECOVER_DESTROYED: BOTH_DESTROYED, every position (DC-07 P12).
 ## - SACRIFICE_DESTROY: OWN_BOARD, every live (not destroyed) card but the source, revealed
 ##   or not; a multi-select (DC-07 P7, P12, R22): the answer is a set of those positions.
+## - DISCARD_OWN (DC-07 P12): OWN_HAND, every position.
+## - DESTROY_OWN_THEN_DRAW, DESTROY_OWN_THEN_FLAT_UP (DC-07 P12): OWN_BOARD, every live card
+##   but the source, revealed or not.
 ## Any other verb needs no choice: eligible() gives zone -1 and no options.
 ##
 ## Multi-select prompts (DC-07 P7, R22-R25): the prompt carries `multi` (KEY_MULTI) true;
@@ -79,6 +82,9 @@ static func needs_choice(verb: int) -> bool:
 		or verb == CardEffect.Verb.RETURN_AT_TURN_END
 		or verb == CardEffect.Verb.RECOVER_DESTROYED
 		or verb == CardEffect.Verb.SACRIFICE_DESTROY
+		or verb == CardEffect.Verb.DISCARD_OWN
+		or verb == CardEffect.Verb.DESTROY_OWN_THEN_DRAW
+		or verb == CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP
 	)
 
 
@@ -116,9 +122,11 @@ static func is_valid_set(prompt: Dictionary, zone: int, indices: Array[int]) -> 
 ## The zone `verb` chooses from, or NO_ZONE when it needs no choice.
 static func zone_for(verb: int) -> int:
 	match verb:
-		CardEffect.Verb.DRAW_THEN_DISCARD:
+		CardEffect.Verb.DRAW_THEN_DISCARD, CardEffect.Verb.DISCARD_OWN:
 			return Zone.OWN_HAND
 		CardEffect.Verb.SWAP_PLACES, CardEffect.Verb.SACRIFICE_DESTROY:
+			return Zone.OWN_BOARD
+		CardEffect.Verb.DESTROY_OWN_THEN_DRAW, CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
 			return Zone.OWN_BOARD
 		CardEffect.Verb.RETURN_AT_TURN_END:
 			return Zone.BOTH_BOARDS
@@ -223,7 +231,7 @@ static func _is_eligible(
 	state: MatchState, seat: int, verb: int, source: int, zone: int, index: int, card: int
 ) -> bool:
 	match verb:
-		CardEffect.Verb.DRAW_THEN_DISCARD:
+		CardEffect.Verb.DRAW_THEN_DISCARD, CardEffect.Verb.DISCARD_OWN:
 			return true
 		CardEffect.Verb.SWAP_PLACES:
 			return card != source
@@ -231,7 +239,9 @@ static func _is_eligible(
 			return card != source and _is_live_and_revealed(state, seat, zone, index, card)
 		CardEffect.Verb.RECOVER_DESTROYED:
 			return true
-		CardEffect.Verb.SACRIFICE_DESTROY:
+		CardEffect.Verb.SACRIFICE_DESTROY, CardEffect.Verb.DESTROY_OWN_THEN_DRAW:
+			return card != source and not state.is_destroyed(card)
+		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
 			return card != source and not state.is_destroyed(card)
 	return false
 
