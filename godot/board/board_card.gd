@@ -68,10 +68,7 @@ func show_def(def: CardDef) -> void:
 	elif def.bonus_kind == CardDef.BonusKind.PLUS:
 		plus = def.bonus
 	_set_numbers(def.flat, times, plus)
-	if def.effect != null:
-		_text_label.text = def.effect.text
-	else:
-		_text_label.text = ""
+	_text_label.text = rules_text(def)
 
 
 ## Updates the shown flat and bonus and pulses the label that changed (R42). The tweens are
@@ -229,6 +226,17 @@ func _set_numbers(flat: int, times: int, plus: int) -> void:
 	_flat_label.text = str(flat)
 	_bonus_label.text = bonus_text(times, plus)
 	_bonus_label.visible = _bonus_label.text != ""
+
+
+## The rules text of a face: the effect's text, or reminder text built from the printed stats.
+static func rules_text(def: CardDef) -> String:
+	if def.effect != null:
+		return def.effect.text
+	if def.bonus_kind == CardDef.BonusKind.TIMES:
+		return "When this scores, your mult %s." % ScoreChips.mult_text(def.bonus)
+	if def.bonus_kind == CardDef.BonusKind.PLUS:
+		return "When this scores, your mult +%d." % def.bonus
+	return "Scores its flat at your mult."
 
 
 ## The face's bonus text from a hundredths `times` and whole `plus`: "×1.25", "+1", "×1.25 +1"
