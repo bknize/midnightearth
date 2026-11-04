@@ -167,7 +167,7 @@ func test_a_destroyed_card_swapped_onto_the_slot_flips_and_scores_nothing() -> v
 		assert_bool(again).is_false()
 		# R14: the flip spends no bonus-0 mark and the card gains none.
 		assert_bool(state.bonus_zero_pending[0]).override_failure_message(where).is_true()
-		assert_bool(state.card_state(C08).bonus_zero).is_false()
+		assert_bool(state.card_state(C08).no_bonus).is_false()
 		assert_bool(state.walk.scored.has(C08)).is_false()
 		# c04 3 + c12 4.
 		assert_int(state.scores[0]).override_failure_message(where).is_equal(7)
@@ -180,7 +180,7 @@ func test_a_destroyed_card_swapped_onto_the_slot_flips_and_scores_nothing() -> v
 ## x, now on slot 1, reveals in full in c12's pulse: CARD_REVEALED at slot 1, the bonus-0
 ## mark spent on it, its on-reveal return opening a prompt of its own (c04, c12 and seat
 ## 1's revealed c02). That pause records x and slot 1; the resume after the return scores x
-## on slot 1 (flat 6, bonus 0), and c12 scores once at slot 2.
+## on slot 1 (flat 6, no bonus), and c12 scores once at slot 2.
 func test_the_card_landing_on_the_slot_reveals_in_full_before_it_scores() -> void:
 	var x: int = C17_RETURN
 	var state: MatchState = _swap_state(x)
@@ -209,7 +209,7 @@ func test_the_card_landing_on_the_slot_reveals_in_full_before_it_scores() -> voi
 	assert_int(reveals.size()).is_equal(1)
 	assert_int(_payload_int(reveals[0], "slot")).is_equal(1)
 	assert_bool(state.bonus_zero_pending[0]).is_false()
-	assert_bool(state.card_state(x).bonus_zero).is_true()
+	assert_bool(state.card_state(x).no_bonus).is_true()
 	assert_int(_for_card(recorder.events, MatchEvent.Kind.STATS_CHANGED, x).size()).is_equal(1)
 	assert_array(_for_card(recorder.events, MatchEvent.Kind.CARD_SCORED, x)).is_empty()
 	# Mark c04 (position 0 of both boards, already scored): x is scored next, on slot 1.

@@ -4,7 +4,8 @@ extends RefCounted
 ## progress lives in `state.walk`, so a walk can stop on a prompt and resume from the same
 ## state, and a preview can run it on a copy (MatchState.duplicate()).
 ##
-## A walk: begin() resets both scores to 0 and both multipliers to 1 (R11), then each
+## A walk: begin() resets both scores to 0 and both multipliers to ×1.00 (R11; DC-07 R10,
+## MatchRules.MULT_ONE in hundredths), then each
 ## step() pulses one slot until no slot is left. The cursor (DC-06 R1-R4, P1): one slot
 ## index per row, `walk.cursor[seat]`, the number of that row's slots already passed, 0 for
 ## both rows at begin(). The next pulse is the slot at the cursor of `walk.next_seat`'s row
@@ -24,12 +25,16 @@ extends RefCounted
 ## later when its new slot is unpassed (R6), and not in this walk when it is passed (R7);
 ## face down there, it stays face down until a later walk (R8).
 ##
-## The score (P4, R14): `mult[seat] += bonus`, `added = flat * mult[seat]`,
-## `scores[seat] += added` (CARD_SCORED), with flat and bonus from effective().
+## The score (DC-07 P4, R10-R12): the mult is an integer in hundredths. With `flat`, `times`
+## (hundredths) and `plus` (whole units) from effective(): `mult = (mult * times + 50) /
+## 100` (times_hundredths: rounded to the nearest hundredth), then `mult += plus * 100`,
+## then `added = flat * mult / 100` (floor) and `scores[seat] += added` (CARD_SCORED).
+## Integer only, so every platform agrees. When the walk ends, every card's `temp_plus` is
+## cleared (DC-07 P5).
 ##
 ## Effect hooks (P6, R13, R15, R18, R19; DC-05 T04), fired through EffectResolver:
-## - at a reveal, right after CARD_REVEALED: the revealing seat's bonus-0 mark is spent on
-##   the card (R22, STATS_CHANGED), then the card's ON_REVEAL effect fires, then every
+## - at a reveal, right after CARD_REVEALED: the revealing seat's no-bonus mark is spent on
+##   the card (R22, DC-07 R14, STATS_CHANGED), then the card's ON_REVEAL effect fires, then every
 ##   already-revealed card of the other seat with an ON_OPPONENT_REVEAL effect fires, in
 ##   row order as snapshotted when the first of them is due (Pulse.watchers); all of it
 ##   before the card scores (R13);
@@ -60,8 +65,11 @@ extends RefCounted
 ## Where a pulse resumes after a prompt (WalkState.paused_stage). DONE: nothing is left.
 enum Stage { REVEAL_EFFECT, WATCHERS, SCORE, DONE }
 
+## Added before the division by 100 so a hundredths product rounds to the nearest (P4).
+const HALF_HUNDREDTH: int = 50
 
-## Starts a walk on `state` (R11): both scores 0, both multipliers 1, both cursors at slot
+
+## Starts a walk on `state` (R11): both scores 0, both multipliers ×1.00, both cursors at slot
 ## 0, nothing scored, the turn's first committer pulses first.
 static func begin(state: MatchState) -> void:
 	state.scores[0] = 0
@@ -72,8 +80,8 @@ static func begin(state: MatchState) -> void:
 	walk.cursor[0] = 0
 	walk.cursor[1] = 0
 	walk.scored.clear()
-	walk.mult[0] = 1
-	walk.mult[1] = 1
+	walk.mult[0] = MatchRules.MULT_ONE
+	walk.mult[1] = MatchRules.MULT_ONE
 	walk.reveals = 0
 
 
@@ -101,44 +109,43 @@ static func next_card(state: MatchState) -> int:
 	return piles.board[at.y]
 
 
-## `card`'s shown stats as (flat, bonus) (P4): its CardState's (_held_stats: the base, the
-## definition's until a switch stores one, then `flat_delta` adds to the flat and
-## `bonus_zero` zeroes the bonus), then ongoing modifiers from revealed cards (none in this
-## deck; R18's hook, which would go here and is never folded by a switch). (0, 0) for a
+## `card`'s shown stats (DC-07 P5, R13, R14): the base (the definition's, or the CardState's
+## `base_*` once a copy stored one), then `flat_delta` adds to the flat and `temp_plus` to
+## the +-part, then `no_bonus` makes the ×-part 100 and the +-part 0. The ongoing ×-parts of
+## revealed neighbours (Lodestone, Herald) join in DC-07 T07. Flat 0, ×1.00 and +0 for a
 ## card with no definition. Every reader (the walk, previews, SeatView, STATS_CHANGED, the
 ## destroy's preview rule) goes through this one function.
-static func effective(card: int, state: MatchState, cards: MatchCards) -> Vector2i:
-	return _held_stats(card, state, cards)
-
-
-## The switch (R20; DC-05 T13, Ben's ruling 1a): `card`'s stats as they stand now, flat-ups
-## and the bonus-0 mark included, are exchanged and stored as its new base
-## (CardState.apply_switch). Later modifiers apply to the switched stats; a second switch
-## exchanges what is current then. Nothing happens for a card with no definition.
-static func switch_stats(card: int, state: MatchState, cards: MatchCards) -> void:
-	if _definition(card, cards) == null:
-		return
-	var current: Vector2i = _held_stats(card, state, cards)
-	state.card_state_for(card).apply_switch(current)
-
-
-## `card`'s stats from its definition and its CardState alone (see effective()).
-static func _held_stats(card: int, state: MatchState, cards: MatchCards) -> Vector2i:
+static func effective(card: int, state: MatchState, cards: MatchCards) -> Effective:
+	var out: Effective = Effective.new()
 	var def: CardDef = _definition(card, cards)
 	if def == null:
-		return Vector2i.ZERO
+		return out
 	var flat: int = def.flat
-	# The integer mult reads the DC-05 bonus until DC-07 T03's hundredths mult.
-	var bonus: int = def.legacy_bonus()
+	var kind: int = def.bonus_kind
+	var bonus: int = def.bonus
 	var held: CardState = state.card_state(card)
+	if held != null and held.has_base:
+		flat = held.base_flat
+		kind = held.base_kind
+		bonus = held.base_bonus
+	out.flat = flat
+	if kind == CardDef.BonusKind.TIMES:
+		out.times = bonus
+	elif kind == CardDef.BonusKind.PLUS:
+		out.plus = bonus
 	if held != null:
-		if held.has_base:
-			flat = held.base_flat
-			bonus = held.base_bonus
-		flat += held.flat_delta
-		if held.bonus_zero:
-			bonus = 0
-	return Vector2i(flat, bonus)
+		out.flat += held.flat_delta
+		out.plus += held.temp_plus
+		if held.no_bonus:
+			out.times = MatchRules.MULT_ONE
+			out.plus = 0
+	return out
+
+
+## `a * b` for two hundredths values, rounded to the nearest hundredth (DC-07 P4): the
+## mult times a ×-part, and one ×-part times another.
+static func times_hundredths(a: int, b: int) -> int:
+	return (a * b + HALF_HUNDREDTH) / MatchRules.MULT_ONE
 
 
 ## The definition of `card` (an instance id, read through its origin's deck), or null.
@@ -186,6 +193,7 @@ static func step(
 	var at: Vector2i = next_slot(state)
 	if at.x < 0:
 		walk.active = false
+		_clear_temp_plus(state, cards, sink, policy)
 		return false
 	var seat: int = at.x
 	# The slot is passed before anything the pulse fires resolves (R2).
@@ -231,19 +239,21 @@ static func _forward(events: Array[MatchEvent], sink: Callable, policy: PreviewP
 		sink.call(event.kind, event.payload, event.owner_seat)
 
 
-## The score of `card` on `seat`'s row (P4, R14): the multiplier gains its bonus, then the
-## seat's score gains its flat times the multiplier; CARD_SCORED on a live walk, its `slot`
-## looked up by id (the pulsed slot, which the card holds) and `again` true when the card
-## already scored in this walk (DC-06 R9, P3).
+## The score of `card` on `seat`'s row (DC-07 P4, R11): the multiplier is multiplied by
+## the card's ×-part (rounded to the nearest hundredth), then gains its +-part in whole
+## units, then the seat's score gains the flat times the multiplier, floored. CARD_SCORED
+## on a live walk, its `slot` looked up by id (the pulsed slot, which the card holds) and
+## `again` true when the card already scored in this walk (DC-06 R9, P3).
 static func _score(
 	state: MatchState, cards: MatchCards, sink: Callable, live: bool, seat: int, card: int
 ) -> void:
 	var walk: MatchState.WalkState = state.walk
 	var piles: MatchState.SeatPiles = state.seats[seat]
-	var stats: Vector2i = effective(card, state, cards)
-	walk.mult[seat] += stats.y
-	var mult: int = walk.mult[seat]
-	var added: int = stats.x * mult
+	var stats: Effective = effective(card, state, cards)
+	var mult: int = times_hundredths(walk.mult[seat], stats.times)
+	mult += stats.plus * MatchRules.MULT_ONE
+	walk.mult[seat] = mult
+	var added: int = stats.flat * mult / MatchRules.MULT_ONE
 	state.scores[seat] += added
 	var again: bool = walk.scored.has(card)
 	walk.scored[card] = true
@@ -252,14 +262,40 @@ static func _score(
 			"seat": seat,
 			"card": card,
 			"slot": piles.board.find(card),
-			"flat": stats.x,
-			"bonus": stats.y,
+			"flat": stats.flat,
+			"times": stats.times,
+			"plus": stats.plus,
 			"mult": mult,
 			"added": added,
 			"score": state.scores[seat],
 			"again": again,
 		}
 		sink.call(MatchEvent.Kind.CARD_SCORED, scored)
+
+
+## The walk's end (DC-07 P5): every card's `temp_plus` goes back to 0. On a live walk a
+## revealed card still on a row gets STATS_CHANGED (cause temp_plus) for it, public.
+static func _clear_temp_plus(
+	state: MatchState, cards: MatchCards, sink: Callable, policy: PreviewPolicy
+) -> void:
+	var live: bool = policy == null and sink.is_valid()
+	var ids: Array[int] = []
+	ids.assign(state.card_states.keys())
+	ids.sort()
+	for card: int in ids:
+		var held: CardState = state.card_states[card]
+		if held.temp_plus == 0:
+			continue
+		held.temp_plus = 0
+		var seat: int = _row_seat(state, card)
+		if not live or seat < 0:
+			continue
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		if piles.is_revealed(card):
+			var changed: MatchEvent = EffectResolver.stats_changed(
+				state, cards, seat, card, EffectResolver.CAUSE_TEMP_PLUS
+			)
+			sink.call(changed.kind, changed.payload, changed.owner_seat)
 
 
 ## CARD_REVEALED for `card`, which has just been revealed on `seat`'s row. `order` counts
@@ -274,15 +310,16 @@ static func _emit_reveal(
 	var def_id: String = ""
 	if def != null:
 		def_id = def.id
-	var stats: Vector2i = effective(card, state, cards)
+	var stats: Effective = effective(card, state, cards)
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	var revealed: Dictionary = {
 		"seat": seat,
 		"card": card,
 		"def_id": def_id,
 		"slot": piles.board.find(card),
-		"flat": stats.x,
-		"bonus": stats.y,
+		"flat": stats.flat,
+		"times": stats.times,
+		"plus": stats.plus,
 		"order": state.walk.reveals,
 		"destroyed": destroyed,
 	}
@@ -296,6 +333,20 @@ static func _row_seat(state: MatchState, card: int) -> int:
 		if piles.board.has(card):
 			return seat
 	return -1
+
+
+## A card's effective stats (DC-07 P5): `flat`, `times` (the ×-part in hundredths, 100 for
+## none) and `plus` (the +-part in whole units). ScoreWalk.effective() builds them.
+class Effective:
+	extends RefCounted
+
+	var flat: int = 0
+	var times: int = MatchRules.MULT_ONE
+	var plus: int = 0
+
+	## The stats as plain data: {flat, times, plus}.
+	func to_dict() -> Dictionary:
+		return {"flat": flat, "times": times, "plus": plus}
 
 
 ## One pulse in progress (DC-05 T05): the walk's context, and the stages of the pulse of one

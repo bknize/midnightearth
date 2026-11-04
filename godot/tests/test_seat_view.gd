@@ -341,14 +341,25 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.COMMITTED:
 			keys = ["seat", "count", "cards", "slots"]
 		MatchEvent.Kind.CARD_REVEALED:
-			# "flat" was "power" before DC-05; "slot" and "bonus" are new in DC-05. "order"
-			# stays for the board until it reads the walk's events (DC-05 T08, T11).
-			# "destroyed" is new in DC-06 (R14).
-			keys = ["seat", "card", "def_id", "flat", "bonus", "order", "slot", "destroyed"]
+			# "flat" was "power" before DC-05; "slot" is new in DC-05. "order" stays for the
+			# board until it reads the walk's events (DC-05 T08, T11). "destroyed" is new in
+			# DC-06 (R14). DC-07 T03 (P4, P5): "times" and "plus" replace "bonus".
+			keys = ["seat", "card", "def_id", "flat", "times", "plus", "order", "slot", "destroyed"]
 		MatchEvent.Kind.WALK_STARTED:
 			keys = ["round", "turn", "first_seat"]
 		MatchEvent.Kind.CARD_SCORED:
-			keys = ["seat", "card", "slot", "flat", "bonus", "mult", "added", "score", "again"]
+			keys = [
+				"seat",
+				"card",
+				"slot",
+				"flat",
+				"times",
+				"plus",
+				"mult",
+				"added",
+				"score",
+				"again",
+			]
 		MatchEvent.Kind.TURN_ENDED:
 			keys = ["round", "turn", "scores", "winner"]
 		MatchEvent.Kind.ROUND_ENDED:
@@ -362,7 +373,7 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.EFFECT_FIZZLED:
 			keys = ["seat", "card", "verb"]
 		MatchEvent.Kind.STATS_CHANGED:
-			keys = ["seat", "card", "flat", "bonus", "cause"]
+			keys = ["seat", "card", "flat", "times", "plus", "cause"]
 		MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.DESTROYED_CLEARED:
 			keys = ["seat", "card", "slot"]
 		MatchEvent.Kind.BONUS_ZERO_SET, MatchEvent.Kind.FREE_FIRST_SET:
@@ -385,26 +396,36 @@ func _payload_keys(kind: int) -> Array:
 	return keys
 
 
-## `card`'s shown stats from the full state (plan P4): its definition's flat and bonus, then
-## its entry in `card_states` (the base a switch stored, flat delta, bonus 0), which
-## effects write since DC-05 T04 (the stored base since T13).
-func _shown_stats(state: Dictionary, card: int) -> Vector2i:
+## `card`'s shown stats from the full state (DC-07 P5) as [flat, times, plus]: its
+## definition's flat and bonus (or the base a copy stored), then its entry in
+## `card_states` (flat delta, temp plus, no bonus), which effects write since DC-05 T04.
+func _shown_stats(state: Dictionary, card: int) -> Array[int]:
 	var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
 	var flat: int = def.flat
-	var bonus: int = def.legacy_bonus()
+	var kind: int = def.bonus_kind
+	var bonus: int = def.bonus
 	var held_all: Dictionary = state["card_states"]
+	var held: Dictionary = {}
 	if held_all.has(card):
-		var held: Dictionary = held_all[card]
+		held = held_all[card]
 		var has_base: bool = held["has_base"]
 		if has_base:
 			flat = held["base_flat"]
+			kind = held["base_kind"]
 			bonus = held["base_bonus"]
+	var times: int = bonus if kind == CardDef.BonusKind.TIMES else MatchRules.MULT_ONE
+	var plus: int = bonus if kind == CardDef.BonusKind.PLUS else 0
+	if not held.is_empty():
 		var delta: int = held["flat_delta"]
+		var temp: int = held["temp_plus"]
 		flat += delta
-		var zeroed: bool = held["bonus_zero"]
-		if zeroed:
-			bonus = 0
-	return Vector2i(flat, bonus)
+		plus += temp
+		var cleared: bool = held["no_bonus"]
+		if cleared:
+			times = MatchRules.MULT_ONE
+			plus = 0
+	var out: Array[int] = [flat, times, plus]
+	return out
 
 
 ## Whether `card` carries the destroyed mark in the full state's `card_states` (DC-06 R22).
@@ -419,19 +440,20 @@ func _is_destroyed(state: Dictionary, card: int) -> bool:
 
 ## A view row (own_row or opponent_row) against `row_seat`'s board in `state`: one entry
 ## per card in slot order with its revealed flag and its shown stats. A shown card shows
-## its effective flat and bonus (_shown_stats); an opponent card not yet revealed shows 0
-## and 0.
+## its effective flat, ×-part and +-part (_shown_stats; DC-07 P5); an opponent card not yet
+## revealed shows flat 0 and no bonus (times 100, plus 0).
 func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: bool) -> void:
 	var board: Array[int] = _state_list(state, "board", row_seat)
 	var revealed: Array[int] = _state_list(state, "revealed", row_seat)
 	assert_int(row.size()).is_equal(board.size())
 	for slot: int in range(mini(row.size(), board.size())):
 		var entry: Dictionary = row[slot]
-		var keys: Array = ["card", "flat", "bonus", "revealed", "destroyed"]
+		var keys: Array = ["card", "flat", "times", "plus", "revealed", "destroyed"]
 		assert_array(_sorted_keys(entry)).is_equal(_sorted(keys))
 		var card: int = entry["card"]
 		var flat: int = entry["flat"]
-		var bonus: int = entry["bonus"]
+		var times: int = entry["times"]
+		var plus: int = entry["plus"]
 		var shown: bool = entry["revealed"]
 		assert_bool(shown).is_equal(revealed.has(board[slot]))
 		# The destroyed flag is public for every card (DC-06 R20).
@@ -443,12 +465,14 @@ func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: 
 			# Face down on the opponent's row (a walk paused on a prompt): no id (R29).
 			assert_int(card).is_equal(MatchEvent.HIDDEN_CARD)
 		if own or shown:
-			var stats: Vector2i = _shown_stats(state, card)
-			assert_int(flat).is_equal(stats.x)
-			assert_int(bonus).is_equal(stats.y)
+			var stats: Array[int] = _shown_stats(state, card)
+			assert_int(flat).is_equal(stats[0])
+			assert_int(times).is_equal(stats[1])
+			assert_int(plus).is_equal(stats[2])
 		else:
 			assert_int(flat).is_equal(0)
-			assert_int(bonus).is_equal(0)
+			assert_int(times).is_equal(MatchRules.MULT_ONE)
+			assert_int(plus).is_equal(0)
 
 
 ## The view agrees with the full state on every R28 field.
@@ -960,6 +984,48 @@ func test_views_carry_both_deck_ids() -> void:
 	var state: Dictionary = engine.full_state()
 	var held: Array = state["deck_ids"]
 	assert_array(held).is_equal(["fixture", "fixture"])
+
+
+# --- DC-07 T03: row stats as {flat, times, plus} ----------------------------------------
+
+
+## Each row entry carries the effective flat, ×-part (hundredths) and +-part (DC-07 P5),
+## and `mults` is in hundredths, ×1.00 before any walk. An opponent card still face down
+## shows flat 0 and no bonus.
+func test_row_entries_carry_times_and_plus() -> void:
+	# Seat 0: c11 (flat 3, ×1.25) and c08 (flat 4) with a stored base of (2, +1). Seat 1:
+	# c04 (flat 3) revealed, then c11 face down.
+	var c04_1: int = MatchRules.DECK_SIZE + 3
+	var c11_1: int = MatchRules.DECK_SIZE + 10
+	var state: MatchState = MatchState.new(SEED)
+	state.seats[0].board.assign([10, 7])
+	state.seats[1].board.assign([c04_1, c11_1])
+	state.seats[1].revealed[c04_1] = true
+	var held: CardState = state.card_state_for(7)
+	held.has_base = true
+	held.base_flat = 2
+	held.base_kind = CardDef.BonusKind.PLUS
+	held.base_bonus = 1
+	var budgets: Array[int] = [1, 1]
+	var view: SeatView = SeatView.build(state, 0, 0, budgets, _defs())
+	assert_array(view.mults).is_equal([100, 100])
+	var own: Array[Dictionary] = [
+		{"card": 10, "flat": 3, "times": 125, "plus": 0, "revealed": false, "destroyed": false},
+		{"card": 7, "flat": 2, "times": 100, "plus": 1, "revealed": false, "destroyed": false},
+	]
+	var hidden: int = MatchEvent.HIDDEN_CARD
+	var theirs: Array[Dictionary] = [
+		{"card": c04_1, "flat": 3, "times": 100, "plus": 0, "revealed": true, "destroyed": false},
+		{"card": hidden, "flat": 0, "times": 100, "plus": 0, "revealed": false, "destroyed": false},
+	]
+	assert_int(view.own_row.size()).is_equal(own.size())
+	assert_int(view.opponent_row.size()).is_equal(theirs.size())
+	for i: int in range(own.size()):
+		assert_dict(view.own_row[i]).is_equal(own[i])
+		assert_dict(view.opponent_row[i]).is_equal(theirs[i])
+	var plain: Array = view.to_dict()["own_row"]
+	var first: Dictionary = plain[0]
+	assert_dict(first).is_equal(own[0])
 
 
 # --- R30: the full-state read ---------------------------------------------------------

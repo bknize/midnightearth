@@ -321,7 +321,16 @@ func test_every_duration_at_speed_four_is_a_quarter() -> void:
 func _reveal_event(card: int, seat: int = 0) -> MatchEvent:
 	return _event(
 		MatchEvent.Kind.CARD_REVEALED,
-		{"seat": seat, "card": card, "def_id": "c01", "slot": 1, "flat": 2, "bonus": 1, "order": 0}
+		{
+			"seat": seat,
+			"card": card,
+			"def_id": "c01",
+			"slot": 1,
+			"flat": 2,
+			"times": 125,
+			"plus": 0,
+			"order": 0,
+		}
 	)
 
 
@@ -424,7 +433,7 @@ func test_effect_event_steps_and_durations() -> void:
 		],
 		[
 			MatchEvent.Kind.STATS_CHANGED,
-			{"seat": 0, "card": 3, "flat": 1, "bonus": 2, "cause": "switch"},
+			{"seat": 0, "card": 3, "flat": 1, "times": 100, "plus": 2, "cause": "flat_up"},
 			BoardStep.Kind.STATS,
 			0.2,
 		],

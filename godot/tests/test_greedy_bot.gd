@@ -11,10 +11,12 @@ extends GdUnitTestSuite
 ## every match here plays the fixture deck on both seats.
 ##
 ## Hand-built positions start a real engine and then set its state (`_position`): instance
-## id = seat * 20 + index, so id 2 is c03 (cost 1, flat 1, bonus 1), id 3 is c04 (1, 3, 0),
-## and so on (data/cards.json). A walk adds `bonus` to the seat's multiplier (from 1), then
-## `flat * multiplier` to its score. Every loop that drives the engine shares a cap of
-## MAX_ACTIONS per test, so a bug fails the test instead of hanging the suite.
+## id = seat * 20 + index, so id 2 is c03 (cost 1, flat 1, ×1.25), id 3 is c04 (1, 3, no
+## bonus), and so on (tests/fixtures/dc05_cards.json). A walk multiplies the seat's
+## multiplier (from ×1.00, in hundredths) by a card's ×-part, rounded to the nearest
+## hundredth, then adds floor(flat × multiplier) to its score (DC-07 P4). Every loop that
+## drives the engine shares a cap of MAX_ACTIONS per test, so a bug fails the test instead
+## of hanging the suite.
 
 const SEED: int = 1
 const MAX_ACTIONS: int = 2000
@@ -45,6 +47,7 @@ const FORBIDDEN_TOKENS: Array[String] = [
 const C02: int = 1
 const C03: int = 2
 const C04: int = 3
+const C07: int = 6
 const C08: int = 7
 const C12_SWAP: int = 11
 const C13: int = 12
@@ -165,15 +168,15 @@ func _scores(engine: MatchEngine) -> Array[int]:
 ## A preview scores a commit as the live walk then does, refuses an illegal one, and
 ## changes nothing.
 func test_preview_scores_a_commit_as_the_live_walk_does() -> void:
-	var hand: Array[int] = [_id(0, C03), _id(0, C04)]
-	var engine: MatchEngine = _position(0, 2, hand, _none(), _none(), _none())
+	var hand: Array[int] = [_id(0, C03), _id(0, C08)]
+	var engine: MatchEngine = _position(0, 3, hand, _none(), _none(), _none())
 	var before: Dictionary = _snapshot(engine)
 	var bonus_first: EngineAction = EngineAction.commit(0, hand, _typed([0, 1]))
 	var flat_first: EngineAction = EngineAction.commit(
 		0, _typed([hand[1], hand[0]]), _typed([0, 1])
 	)
-	# c03 then c04: mult 2, 1*2 + 3*2 = 8. c04 then c03: 3*1 + 1*2 = 5.
-	assert_array(engine.preview(0, bonus_first)).is_equal(_typed([8, 0]))
+	# c03 then c08: mult ×1.25, 1 + floor(4 × 1.25) = 6. c08 then c03: 4 + 1 = 5.
+	assert_array(engine.preview(0, bonus_first)).is_equal(_typed([6, 0]))
 	assert_array(engine.preview(0, flat_first)).is_equal(_typed([5, 0]))
 	# Not this seat's turn, not its card, over budget, not a commit: no scores.
 	assert_array(engine.preview(1, EngineAction.commit(1, _none()))).is_empty()
@@ -183,7 +186,7 @@ func test_preview_scores_a_commit_as_the_live_walk_does() -> void:
 	assert_dict(_snapshot(engine)).is_equal(before)
 	assert_bool(engine.apply(bonus_first).ok).is_true()
 	assert_bool(engine.apply(EngineAction.commit(1, _none())).ok).is_true()
-	assert_array(_scores(engine)).is_equal(_typed([8, 0]))
+	assert_array(_scores(engine)).is_equal(_typed([6, 0]))
 
 
 ## While seat 0 commits second, seat 1's face-down commit counts as absent: the previews
@@ -271,15 +274,15 @@ func _destroy_then_swap(stop_before_walk: bool) -> MatchEngine:
 ## destroy and a forward swap. The score stage belongs to the slot (C23-C25): c12's slot 1
 ## scores the card the swap puts there. At the commit, preview() runs the destroy itself
 ## and takes c12's first option (c19, backward): c19 scores again on slot 1 and c12 never
-## scores, 7 + 7 + 1*2 + 3*2 = 22. On the paused walk, each option's preview_choice()
-## equals the live walk answered the same way: option 2 puts c03 on slot 1, where it
-## reveals and doubles the multiplier before c12 scores at slot 2 (7 + 1*2 + 4*2 + 3*2 =
-## 23); option 3 puts c04 on slot 1 and c12 on slot 3, after c03 (7 + 3 + 1*2 + 4*2 = 20).
-## c14, destroyed, scores nothing throughout.
+## scores, 7 + 7 + 1 + floor(3 × 1.25) = 18. On the paused walk, each option's
+## preview_choice() equals the live walk answered the same way: option 2 puts c03 on slot 1,
+## where it reveals and sets the multiplier to ×1.25 before c12 scores at slot 2 (7 + 1 +
+## 5 + 3 = 16); option 3 puts c04 on slot 1 and c12 on slot 3, after c03 (7 + 3 + 1 + 5 =
+## 16). c14, destroyed, scores nothing throughout.
 func test_preview_equals_live_with_a_forward_swap_and_a_destroy() -> void:
 	var fresh: MatchEngine = _destroy_then_swap(true)
-	assert_array(fresh.preview(0, EngineAction.commit(0, _none()))).is_equal(_typed([22, 0]))
-	var expected: Dictionary = {0: _typed([22, 0]), 2: _typed([23, 0]), 3: _typed([20, 0])}
+	assert_array(fresh.preview(0, EngineAction.commit(0, _none()))).is_equal(_typed([18, 0]))
+	var expected: Dictionary = {0: _typed([18, 0]), 2: _typed([16, 0]), 3: _typed([16, 0])}
 	for option: int in [0, 2, 3]:
 		var engine: MatchEngine = _destroy_then_swap(false)
 		assert_int(engine.awaited_seat()).is_equal(0)
@@ -310,12 +313,12 @@ func _hidden_slot_zero() -> MatchEngine:
 ## DC-06 R23 (spec scenario): mid-walk, the opponent's face-down c02 at slot 0 stays a slot
 ## that scores nothing, so the preview pulses seat 1's slots in the live order. c12's
 ## slot 0 scores the card the swap puts there (C23, C24). Option 2 (c12 onto c03's slot)
-## reveals c03 on slot 0 (1*2) and leaves c19 at slot 1: it pulses after c02's slot and
-## before c14's, destroys c14 (the only live card the preview knows) and the preview reads
-## 2 + 7*2 + 4*2 = 24 to 0. Dropping c02 instead would shift c14 to slot 0, score it before
-## the destroy and read 24 to 6. Option 1 (c12 onto c19's slot) reveals c19 on slot 0,
-## which destroys c14 before its slot: 7 + 4 + 1*2 = 13 to 0. The live walk then gives
-## seat 0 the same 24.
+## reveals c03 on slot 0 (1, mult ×1.25) and leaves c19 at slot 1: it pulses after c02's
+## slot and before c14's, destroys c14 (the only live card the preview knows) and the
+## preview reads 1 + floor(7 × 1.25) + floor(4 × 1.25) = 1 + 8 + 5 = 14 to 0. Dropping c02
+## instead would shift c14 to slot 0, score it before the destroy and read 14 to 6. Option
+## 1 (c12 onto c19's slot) reveals c19 on slot 0, which destroys c14 before its slot:
+## 7 + 4 + 1 = 12 to 0. The live walk then gives seat 0 the same 14.
 func test_preview_mid_walk_keeps_the_live_slot_order() -> void:
 	var engine: MatchEngine = _hidden_slot_zero()
 	var hidden: int = _id(1, C02)
@@ -334,17 +337,17 @@ func test_preview_mid_walk_keeps_the_live_slot_order() -> void:
 	assert_int(ScoreWalk.next_card(live)).is_equal(hidden)
 	assert_bool(clone.is_destroyed(hidden)).is_true()
 	assert_bool(live.is_destroyed(hidden)).is_false()
-	assert_array(engine.preview_choice(0, 1)).is_equal(_typed([13, 0]))
-	assert_array(engine.preview_choice(0, 2)).is_equal(_typed([24, 0]))
+	assert_array(engine.preview_choice(0, 1)).is_equal(_typed([12, 0]))
+	assert_array(engine.preview_choice(0, 2)).is_equal(_typed([14, 0]))
 	assert_bool(engine.apply(EngineAction.choose(0, Choice.Zone.OWN_BOARD, 2)).ok).is_true()
-	assert_int(_scores(engine)[0]).is_equal(24)
+	assert_int(_scores(engine)[0]).is_equal(14)
 
 
 ## A preview leaves its source alone (R35, DC-06 R23): the inert marking of the opponent's
 ## face-down cards lives only on the clone, whether mid-walk (preview_choice) or at a commit
 ## with a face-down opponent card already on the row (one a swap left behind a cursor,
-## DC-06 R8). At that commit, c02's slot scores nothing: c03 then c04 make 1*2 + 3*2 = 8,
-## and c14 makes 6.
+## DC-06 R8). At that commit, c02's slot scores nothing: c03 then c04 make
+## 1 + floor(3 × 1.25) = 4, and c14 makes 6.
 func test_preview_with_hidden_opponent_cards_changes_nothing() -> void:
 	var paused: MatchEngine = _hidden_slot_zero()
 	var hidden: int = _id(1, C02)
@@ -359,7 +362,7 @@ func test_preview_with_hidden_opponent_cards_changes_nothing() -> void:
 	_face_down(engine, 1, _typed([hidden]))
 	var at_commit: Dictionary = _snapshot(engine)
 	var action: EngineAction = EngineAction.commit(0, hand, _typed([0, 1]))
-	assert_array(engine.preview(0, action)).is_equal(_typed([8, 6]))
+	assert_array(engine.preview(0, action)).is_equal(_typed([4, 6]))
 	assert_dict(_snapshot(engine)).is_equal(at_commit)
 	assert_object(engine._state.card_state(hidden)).is_null()
 	assert_bool(engine._state.seats[1].is_revealed(hidden)).is_false()
@@ -403,33 +406,34 @@ func test_choose_leaves_the_view_and_the_engine_unchanged() -> void:
 	assert_dict(_snapshot(engine)).is_equal(before)
 
 
-## Both fit (energy 2): c03 (bonus 1) left of c04 (flat 3) scores 8, the other order 5.
-## On an empty row both ends are the same slots.
+## Both fit (energy 3): c03 (×1.25) left of c08 (flat 4) scores 1 + 5 = 6, the other
+## order 4 + 1 = 5 (c04's flat 3 would tie: floor(3 × 1.25) = 3). On an empty row both ends
+## are the same slots.
 func test_puts_a_bonus_card_left_of_a_flat_card() -> void:
 	var bonus: int = _id(0, C03)
-	var flat: int = _id(0, C04)
+	var flat: int = _id(0, C08)
 	var hand: Array[int] = [flat, bonus]
 	for bot_seed: int in range(1, 9):
-		var engine: MatchEngine = _position(0, 2, hand, _none(), _none(), _none())
+		var engine: MatchEngine = _position(0, 3, hand, _none(), _none(), _none())
 		var action: EngineAction = _bot(bot_seed).choose(engine.view_for(0), engine)
 		assert_array(action.cards).is_equal(_typed([bonus, flat]))
 		assert_array(action.slots).is_equal(_typed([0, 1]))
 		assert_bool(engine.apply(action).ok).is_true()
 
 
-## With c08 (flat 4) already on the row, the left end wins: c03, c04, c08 scores
-## 2 + 6 + 8 = 16, against 12 at the right end and 13 or 9 flat-first.
+## With c14 (flat 6) already on the row and energy 3, the left end wins: c03, c08, c14
+## scores 1 + 5 + 7 = 13, against 12 at the right end (6 + 1 + 5) and 12 or 11 flat-first.
 func test_picks_the_row_end_the_preview_prefers() -> void:
 	var bonus: int = _id(0, C03)
-	var flat: int = _id(0, C04)
-	var row: Array[int] = [_id(0, C08)]
+	var flat: int = _id(0, C08)
+	var row: Array[int] = [_id(0, C14)]
 	var hand: Array[int] = [flat, bonus]
 	for bot_seed: int in range(1, 9):
-		var engine: MatchEngine = _position(0, 2, hand, _none(), row, _none())
+		var engine: MatchEngine = _position(0, 3, hand, _none(), row, _none())
 		var action: EngineAction = _bot(bot_seed).choose(engine.view_for(0), engine)
 		assert_array(action.cards).is_equal(_typed([bonus, flat]))
 		assert_array(action.slots).is_equal(_typed([0, 1]))
-		assert_array(engine.preview(0, action)).is_equal(_typed([16, 0]))
+		assert_array(engine.preview(0, action)).is_equal(_typed([13, 0]))
 
 
 ## Energy 7 affords c18 (flat 8) or c19 (flat 7, destroys the opponent's lowest-flat
@@ -504,11 +508,11 @@ func test_candidates_cover_both_orders_and_both_ends() -> void:
 	assert_int(_bot(1).candidates(empty_row.view_for(0)).size()).is_equal(5)
 
 
-## The free first card (R10, DC-05 T07): at energy 1, c03 alone (cost 1) scores 2, the
+## The free first card (R10, DC-05 T07): at energy 1, c03 alone (cost 1) scores 1, the
 ## best the bot can afford without the grant. With it, c14 (cost 4, flat 6) leftmost is free
-## and c03 after it costs 1: 6 + 1 * 2 = 8. The bonus-first order (c03 first) would cost 4,
-## so the set needs c14 leftmost, which the flat-first order and, without it, the
-## costliest-first order list.
+## and c03 after it costs 1: 6 + floor(1 × 1.25) = 7. The bonus-first order (c03 first)
+## would cost 4, so the set needs c14 leftmost, which the flat-first order and, without
+## it, the costliest-first order list.
 func test_the_free_first_card_affords_a_set_the_budget_alone_does_not() -> void:
 	var cheap: int = _id(0, C03)
 	var big: int = _id(0, C14)
@@ -534,7 +538,7 @@ func test_the_free_first_card_affords_a_set_the_budget_alone_does_not() -> void:
 			var action: EngineAction = bot.choose(view, engine)
 			assert_array(action.cards).is_equal(_typed([big, cheap]))
 			assert_array(action.slots).is_equal(_typed([0, 1]))
-			assert_array(engine.preview(0, action)).is_equal(_typed([8, 0]))
+			assert_array(engine.preview(0, action)).is_equal(_typed([7, 0]))
 			assert_bool(engine.apply(action).ok).is_true()
 
 
@@ -552,9 +556,9 @@ func test_a_null_engine_still_gives_a_legal_commit() -> void:
 
 ## c12 (swap places with a card on its row) pulses first on [c12, c04, c03] against [c08]
 ## (the switch this case used retired at DC-07 T01): swapping c04 forward scores c04 3,
-## c12 4 and c03 1 x 2 (9 - 4); swapping c03 forward scores it 1 x 2, then c04 3 x 2 and
-## c12 4 x 2 (16 - 4), so the bot picks c03, position 2 of OWN_BOARD. A face-down c14
-## committed by seat 1 changes no preview.
+## c12 4 and c03 floor(1 × 1.25) = 1 (8 - 4); swapping c03 forward scores it 1 at ×1.25,
+## then c04 floor(3 × 1.25) = 3 and c12 floor(4 × 1.25) = 5 (9 - 4), so the bot picks c03,
+## position 2 of OWN_BOARD. A face-down c14 committed by seat 1 changes no preview.
 func test_answers_a_prompt_with_the_best_option() -> void:
 	for hide: bool in [false, true]:
 		for bot_seed: int in range(1, 9):
@@ -562,8 +566,8 @@ func test_answers_a_prompt_with_the_best_option() -> void:
 			assert_int(engine.awaited_seat()).is_equal(0)
 			var view: SeatView = engine.view_for(0)
 			assert_array(Choice.options_of(view.prompt)).is_equal(_typed([1, 2]))
-			assert_array(engine.preview_choice(0, 1)).is_equal(_typed([9, 4]))
-			assert_array(engine.preview_choice(0, 2)).is_equal(_typed([16, 4]))
+			assert_array(engine.preview_choice(0, 1)).is_equal(_typed([8, 4]))
+			assert_array(engine.preview_choice(0, 2)).is_equal(_typed([9, 4]))
 			assert_array(engine.preview_choice(1, 2)).is_empty()
 			assert_array(engine.preview_choice(0, 0)).is_empty()
 			var before: Dictionary = _snapshot(engine)
@@ -595,10 +599,11 @@ func _swap_prompt(hide: bool) -> MatchEngine:
 # --- R38: seeded, stable, never rejected ----------------------------------------------
 
 
-## c02 (flat 2) and c03 (flat 1, bonus 1) each score 2 alone; energy 1 affords one.
+## c02 (cost 1, flat 2) and c07 (cost 2, flat 2, ×1.25) each score 2 alone (floor(2 ×
+## 1.25) = 2); energy 2 affords one, not both.
 func _tie() -> MatchEngine:
-	var hand: Array[int] = [_id(0, C02), _id(0, C03)]
-	return _position(0, 1, hand, _none(), _none(), _none())
+	var hand: Array[int] = [_id(0, C02), _id(0, C07)]
+	return _position(0, 2, hand, _none(), _none(), _none())
 
 
 func test_the_same_seed_and_view_give_the_same_action() -> void:
@@ -617,19 +622,19 @@ func test_different_seeds_can_pick_differently_among_ties() -> void:
 	var engine: MatchEngine = _tie()
 	var view: SeatView = engine.view_for(0)
 	var c02: int = _id(0, C02)
-	var c03: int = _id(0, C03)
+	var c07: int = _id(0, C07)
 	var picked_c02: int = 0
-	var picked_c03: int = 0
+	var picked_c07: int = 0
 	for bot_seed: int in range(1, 201):
 		var cards: Array[int] = _bot(bot_seed).choose(view, engine).cards
 		assert_int(cards.size()).is_equal(1)
 		if cards[0] == c02:
 			picked_c02 += 1
-		elif cards[0] == c03:
-			picked_c03 += 1
-	assert_int(picked_c02 + picked_c03).is_equal(200)
+		elif cards[0] == c07:
+			picked_c07 += 1
+	assert_int(picked_c02 + picked_c07).is_equal(200)
 	assert_int(picked_c02).is_between(60, 140)
-	assert_int(picked_c03).is_between(60, 140)
+	assert_int(picked_c07).is_between(60, 140)
 
 
 func test_tie_break_varies_with_round_and_turn() -> void:

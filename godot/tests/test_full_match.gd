@@ -364,8 +364,10 @@ func _scan_destroyed_rows(run: MatchRun, view: SeatView, where: String) -> void:
 		run.destroyed_hidden_seen += 1
 		var card: int = entry.get(MatchEvent.KEY_CARD, MatchEvent.HIDDEN_CARD)
 		var flat: int = entry.get("flat", 0)
-		var bonus: int = entry.get("bonus", 0)
-		if card != MatchEvent.HIDDEN_CARD or flat != 0 or bonus != 0:
+		var times: int = entry.get("times", MatchRules.MULT_ONE)
+		var plus: int = entry.get("plus", 0)
+		var no_bonus: bool = times == MatchRules.MULT_ONE and plus == 0
+		if card != MatchEvent.HIDDEN_CARD or flat != 0 or not no_bonus:
 			run.leaks.append(where + ": destroyed face-down slot %d shows its card" % slot)
 		var on_board: int = MatchEvent.HIDDEN_CARD
 		if slot < view.opponent_board.size():

@@ -13,8 +13,6 @@ const COSTS: Array[int] = [1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6,
 const FLATS: Array[int] = [1, 2, 1, 3, 1, 1, 2, 4, 3, 3, 3, 4, 5, 6, 5, 5, 6, 8, 7, 7]
 ## The ×-bonus in hundredths, 0 for none (DC-05 bonus 1 → ×1.25, 2 → ×1.5; c13 none).
 const TIMES: Array[int] = [0, 0, 125, 0, 0, 0, 125, 0, 0, 0, 125, 0, 0, 0, 0, 125, 0, 0, 0, 150]
-## The DC-05 integer each fixture bonus reads back as (CardDef.legacy_bonus, until T03).
-const LEGACY: Array[int] = [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 2]
 ## The effect cards of the table, by file index: [trigger, verb, amount, text].
 const EFFECTS: Dictionary[int, Array] = {
 	0: [CardEffect.Trigger.ON_REVEAL, CardEffect.Verb.DRAW, 1, "Draw a card."],
@@ -228,7 +226,6 @@ func test_the_fixture_matches_the_table() -> void:
 		else:
 			assert_int(def.bonus_kind).is_equal(CardDef.BonusKind.TIMES)
 		assert_int(def.bonus).is_equal(TIMES[i])
-		assert_int(def.legacy_bonus()).is_equal(LEGACY[i])
 		total_cost += def.cost
 		total_flat += def.flat
 	assert_int(total_cost).is_equal(69)
@@ -297,12 +294,12 @@ func test_card_def_to_dict_round_trips_the_entry() -> void:
 
 func test_every_legal_bonus_loads_with_its_kind() -> void:
 	var cases: Array[Dictionary] = [
-		{"bonus": {"x": 125}, "kind": CardDef.BonusKind.TIMES, "value": 125, "legacy": 1},
-		{"bonus": {"x": 150}, "kind": CardDef.BonusKind.TIMES, "value": 150, "legacy": 2},
-		{"bonus": {"x": 200}, "kind": CardDef.BonusKind.TIMES, "value": 200, "legacy": 4},
-		{"bonus": {"plus": 1}, "kind": CardDef.BonusKind.PLUS, "value": 1, "legacy": 1},
-		{"bonus": {"plus": 2}, "kind": CardDef.BonusKind.PLUS, "value": 2, "legacy": 2},
-		{"bonus": null, "kind": CardDef.BonusKind.NONE, "value": 0, "legacy": 0},
+		{"bonus": {"x": 125}, "kind": CardDef.BonusKind.TIMES, "value": 125},
+		{"bonus": {"x": 150}, "kind": CardDef.BonusKind.TIMES, "value": 150},
+		{"bonus": {"x": 200}, "kind": CardDef.BonusKind.TIMES, "value": 200},
+		{"bonus": {"plus": 1}, "kind": CardDef.BonusKind.PLUS, "value": 1},
+		{"bonus": {"plus": 2}, "kind": CardDef.BonusKind.PLUS, "value": 2},
+		{"bonus": null, "kind": CardDef.BonusKind.NONE, "value": 0},
 	]
 	for case: Dictionary in cases:
 		var db: CardDb = CardDb.from_json(_with_bonus(1, case["bonus"]))
@@ -311,10 +308,8 @@ func test_every_legal_bonus_loads_with_its_kind() -> void:
 		var def: CardDef = db.card_at(1)
 		var kind: int = case["kind"]
 		var value: int = case["value"]
-		var legacy: int = case["legacy"]
 		assert_int(def.bonus_kind).override_failure_message(where).is_equal(kind)
 		assert_int(def.bonus).override_failure_message(where).is_equal(value)
-		assert_int(def.legacy_bonus()).override_failure_message(where).is_equal(legacy)
 		assert_that(def.to_dict()["bonus"]).is_equal(case["bonus"])
 
 
