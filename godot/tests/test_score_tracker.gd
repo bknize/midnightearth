@@ -86,3 +86,56 @@ func test_displayed_score_equals_each_pulses_score_over_a_real_match() -> void:
 func test_score_text_shows_the_mult_only_while_walking() -> void:
 	assert_str(BoardHud.score_text(6, 2, true)).is_equal("6 ×2")
 	assert_str(BoardHud.score_text(6, 2, false)).is_equal("6")
+
+
+func _kind_step(kind: int) -> BoardStep:
+	var step: BoardStep = BoardStep.new()
+	step.kind = kind
+	return step
+
+
+func test_held_never_changes_during_a_walk_and_the_tally_follows_pulses() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	tracker.held.assign([5, 8])
+	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
+	assert_array(tracker.tally).is_equal([0, 0])
+	assert_array(tracker.tally_mults).is_equal([1, 1])
+	tracker.apply(_pulse(0, 3, 2))
+	tracker.apply(_pulse(1, 7, 3))
+	tracker.apply(_pulse(0, 9, 4))
+	assert_array(tracker.tally).is_equal([9, 7])
+	assert_array(tracker.tally_mults).is_equal([4, 3])
+	assert_array(tracker.held).is_equal([5, 8])
+
+
+func test_a_destroyed_pulse_leaves_the_tally_alone() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
+	var step: BoardStep = BoardStep.new()
+	step.kind = BoardStep.Kind.PULSE
+	step.seat = 0
+	step.destroyed = true
+	step.flat = 4
+	tracker.apply(step)
+	assert_array(tracker.tally).is_equal([0, 0])
+
+
+func test_turn_end_moves_the_total_into_held_and_clears_the_tally() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
+	tracker.apply(_pulse(0, 4, 2))
+	var end: BoardStep = _kind_step(BoardStep.Kind.TURN_END)
+	end.scores.assign([4, 6])
+	tracker.apply(end)
+	assert_array(tracker.held).is_equal([4, 6])
+	assert_array(tracker.tally).is_equal([0, 0])
+	assert_array(tracker.tally_mults).is_equal([1, 1])
+
+
+func test_clear_table_resets_held_and_the_tally() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	tracker.held.assign([4, 6])
+	tracker.apply(_pulse(0, 4, 2))
+	tracker.apply(_kind_step(BoardStep.Kind.CLEAR_TABLE))
+	assert_array(tracker.held).is_equal([0, 0])
+	assert_array(tracker.tally).is_equal([0, 0])

@@ -34,6 +34,8 @@ enum Kind {
 	BONUS_ZERO_SET,
 	ENERGY_CARRIED,
 	FREE_FIRST_SET,
+	# DC-06 (cycle-5-walk-cursor plan, event table). Appended so earlier ordinals hold.
+	DESTROYED_CLEARED,
 }
 
 ## owner_seat of an event every seat may see in full.
