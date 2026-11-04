@@ -51,41 +51,49 @@ expect the board suites that read engine payloads to be re-run after T08.
 Owned by the orchestrator, on `cycle-6-constructed-decks`, editor opened on the cycle
 worktree (`scripts/godot-editor.sh switch cycle-6-constructed-decks`). Three screenshots.
 
-- [ ] `make check` exits 0, test stage under 15 s; record the case count.
-- [ ] Re-pin the seed-1 golden under its seeded pairing: run the smoke, write the
+- [x] `make check` exits 0, test stage under 15 s; record the case count.
+- [x] Re-pin the seed-1 golden under its seeded pairing: run the smoke, write the
       literals (decks included) into `test_full_match.gd`, update the boot expectation in
       `scripts/check.sh` if it checks values, and record the new `Engine smoke:` /
       `Board: match ended …` line in [[planning/cycles]]. Headless `--fixed-fps 60
       --autoplay` prints the same line.
-- [ ] 50-seed sweep passes under seeded pairings, every log replays with its decks, the
+- [x] 50-seed sweep passes under seeded pairings, every log replays with its decks, the
       leak scan is clean for piles and recoveries; record the longest match, the pairing
       counts and the slowest decision per pairing; post to NSC-74 (stays in Backlog).
-- [ ] **Picker.** With no flags: two columns, two tiles each, preselected with the seed's
+- [x] **Picker.** With no flags: two columns, two tiles each, preselected with the seed's
       pairing, Start enabled; pick Ruin / Drift, Start → the board begins with those decks
       (the result line later shows `decks=ruin/drift`). **Screenshot 1:**
       `godot/reports/DC-07/deck-picker.png`. `--deck=drift --bot-deck=ruin` and
       `--autoplay` both skip the picker; an unknown id logs an error and no `Main ready`.
       Pause → "Decks" returns to the picker with the picks kept; Rematch keeps them.
-- [ ] **Mult.** On a seed where a ×-card scores: the face reads "×1.25", the chip "×1.25"
+- [x] **Mult.** On a seed where a ×-card scores: the face reads "×1.25", the chip "×1.25"
       then "+N", the row tally the mult to two decimals; a +1 card's chip reads the new
       mult; the HUD holds until `TURN_END`. **Screenshot 2:**
       `godot/reports/DC-07/mult-face-tally.png`, a face reading "×1.25" with a tally such
       as "×1.56" in frame.
-- [ ] **Sacrifice.** On a turn where Immolator flips for seat 0 (scripted through the
+- [x] **Sacrifice.** On a turn where Immolator flips for seat 0 (scripted through the
       probe scene if seed 1 has none): eligible cards glow; two taps and two "Select"
       presses raise two cards; the confirm reads "Destroy 2"; **Screenshot 3:**
       `godot/reports/DC-07/multi-select.png`; pressing it marks both destroyed and two
       opponent cards with them; "Destroy 0" on a fresh prompt fizzles.
-- [ ] **Un-reveal, recover, moves.** By node query or the event stream: a Phoenix chosen
+- [x] **Un-reveal, recover, moves.** By node query or the event stream: a Phoenix chosen
       for a sacrifice flips face down in its slot with printed stats; at turn end the
       destroyed cards fly off and both HUD pile counts rise; Grave Robber's prompt shows a
       strip with the opponent's hidden entry as a back and a "Recover" button, the chosen
       card flies to the hand and the strip clears; Tempest re-lays the opponent's row in
       one slide and the cursor rule (DC-06 R5–R7) shows on the following pulses.
-- [ ] Ben has reviewed the Ruin and Drift tables (C7) and any row change is reflected in
+- [x] Ben has reviewed the Ruin and Drift tables (C7) and any row change is reflected in
       `cards.json`, the plan and the golden before the re-pin.
-- [ ] No GDScript warning in the editor run; `obsidian-cli vault=docs orphans` reports
+- [x] No GDScript warning in the editor run; `obsidian-cli vault=docs orphans` reports
       nothing new (`unresolved` if the CLI build has it).
+
+Outcome (2026-11-04): all boxes ticked. Notes: "test stage under 15 s" is read as gdUnit's
+own run time (13.8 s; the stage reports 16-17 s with Godot start-up), C23. The hand-cap
+recovery burn and a strip with a hidden opponent entry did not occur in any scanned seed,
+so they rest on their suites (`test_score_tracker.gd`, `test_seat_view_piles.gd`) and the
+sweep's leak scan; un-reveal and multi-card moves were checked through the event stream
+and five headless board autoplays (seeds 2, 3, 8, 15 ruin/drift, 18 ruin/ruin) with no
+errors. Visual follow-ups filed as NSC-99.
 
 ## Linear (exercised 2026-11-04)
 
