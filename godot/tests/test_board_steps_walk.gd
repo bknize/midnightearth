@@ -99,3 +99,14 @@ func test_turn_end_takes_time_for_the_fly_in_and_count() -> void:
 	)
 	assert_int(end.kind).is_equal(BoardStep.Kind.TURN_END)
 	assert_float(end.duration).is_equal_approx(0.6, EPSILON)
+
+
+func test_an_opponent_re_pulse_touches_the_card_being_read() -> void:
+	var step: BoardStep = BoardStep.new()
+	step.kind = BoardStep.Kind.PULSE
+	step.seat = 1
+	step.card = 23
+	step.again = true
+	var place: LiftRules.Place = LiftRules.Place.OPPONENT_ROW
+	assert_bool(LiftRules.step_touches(step, 23, place, false)).is_true()
+	assert_bool(LiftRules.step_touches(step, 24, place, false)).is_false()

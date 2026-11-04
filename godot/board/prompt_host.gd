@@ -137,8 +137,7 @@ func _lift(card: BoardCard, option: int) -> void:
 	card_lift.lift(card, card.face_down and spot_of(card).seat == 0)
 	if option >= 0 and card_lift.is_holding():
 		lifted_option = option
-		var verb: String = _prompt.get("verb", "")
-		hud.show_action(PromptRules.action_label(verb))
+		hud.show_action(PromptRules.action_label_for(_prompt))
 
 
 func _collection_of(seat: int, in_hand: bool) -> CardCollection3D:

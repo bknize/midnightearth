@@ -83,6 +83,13 @@ static func action_label(verb: String) -> String:
 	return label
 
 
+## The action button's text for an open prompt as the engine holds it
+## (MatchEngine.open_prompt): its `verb` is the CardEffect.Verb value, not the name (R41).
+static func action_label_for(prompt: Dictionary) -> String:
+	var verb: int = prompt.get("verb", -1)
+	return action_label(CardEffect.verb_name(verb))
+
+
 static func same_spot(a: CardSpot, b: CardSpot) -> bool:
 	return a.seat == b.seat and a.in_hand == b.in_hand and a.slot == b.slot
 

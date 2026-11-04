@@ -41,9 +41,8 @@ func _apply_pulse(step: BoardStep) -> void:
 		return
 	if step.destroyed:
 		return
+	# A pulse with no CARD_SCORED (a reveal paused on its prompt, or a card destroyed before
+	# its score) leaves the tally as it is: it holds until a score arrives (R35).
 	if step.score >= 0:
 		tally[step.seat] = step.score
 		tally_mults[step.seat] = step.mult
-	else:
-		# The engine sent no CARD_SCORED for this card: only its flat is known.
-		tally[step.seat] += step.flat

@@ -21,7 +21,9 @@ static func step_touches(
 		BoardStep.Kind.CLEAR_TABLE:
 			return true
 		BoardStep.Kind.PULSE:
-			return step.seat == 0 and step.card == held_id
+			# Your own card's pulse; an opponent's card only on a re-pulse (`again`), since its
+			# first reveal never touches a card being read (DC-04) (R37).
+			return held_id >= 0 and step.card == held_id and (step.seat == 0 or step.again)
 		BoardStep.Kind.STATS, BoardStep.Kind.DESTROY, BoardStep.Kind.CLEAR_DESTROYED:
 			# Restat, mark or clear: the step names the held card.
 			return held_id >= 0 and step.card == held_id

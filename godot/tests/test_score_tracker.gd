@@ -83,6 +83,21 @@ func test_a_destroyed_pulse_leaves_the_tally_alone() -> void:
 	assert_array(tracker.tally).is_equal([0, 0])
 
 
+func test_a_pulse_without_a_score_leaves_the_tally_alone() -> void:
+	# c12's reveal paused on its prompt: no CARD_SCORED yet, so the tally holds (R35).
+	var tracker: ScoreTracker = ScoreTracker.new()
+	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
+	tracker.apply(_pulse(0, 4, 2))
+	var step: BoardStep = BoardStep.new()
+	step.kind = BoardStep.Kind.PULSE
+	step.seat = 0
+	step.flat = 4
+	step.score = -1
+	tracker.apply(step)
+	assert_array(tracker.tally).is_equal([4, 0])
+	assert_array(tracker.tally_mults).is_equal([2, 1])
+
+
 func test_turn_end_moves_the_total_into_held_and_clears_the_tally() -> void:
 	var tracker: ScoreTracker = ScoreTracker.new()
 	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))

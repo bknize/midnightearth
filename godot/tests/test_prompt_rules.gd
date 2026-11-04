@@ -134,6 +134,20 @@ func test_action_label_names_the_move() -> void:
 	assert_str(PromptRules.action_label("nope")).is_equal("")
 
 
+func test_action_label_reads_the_engine_prompt_verb() -> void:
+	# MatchEngine.open_prompt() holds the CardEffect.Verb value, not its name (R41).
+	var cases: Dictionary[int, String] = {
+		CardEffect.Verb.SWAP_PLACES: "Swap",
+		CardEffect.Verb.DRAW_THEN_DISCARD: "Discard",
+		CardEffect.Verb.SWITCH_STATS: "Switch",
+		CardEffect.Verb.RETURN_AT_TURN_END: "Return",
+	}
+	for verb: int in cases:
+		var prompt: Dictionary = {"seat": 0, "card": 7, "verb": verb, "zone": 0, "options": [1]}
+		assert_str(PromptRules.action_label_for(prompt)).is_equal(cases[verb])
+	assert_str(PromptRules.action_label_for({})).is_equal("")
+
+
 func test_the_runner_waits_on_a_prompt_unless_autoplay() -> void:
 	var prompt: BoardStep = BoardStep.new()
 	prompt.kind = BoardStep.Kind.PROMPT
