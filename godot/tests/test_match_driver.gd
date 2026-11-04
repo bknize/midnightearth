@@ -74,7 +74,8 @@ func _smoke_line() -> String:
 	var actions: int = 0
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var seat: int = engine.awaited_seat()
-		var result: ApplyResult = engine.apply(bots[seat].choose(engine.view_for(seat)))
+		var action: EngineAction = bots[seat].choose(engine.view_for(seat), engine)
+		var result: ApplyResult = engine.apply(action)
 		if not result.ok:
 			return "smoke action %d rejected" % actions
 		actions += 1

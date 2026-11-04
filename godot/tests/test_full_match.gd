@@ -172,7 +172,7 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 		if seat < 0 or seat >= MatchEngine.SEATS:
 			run.rejections.append("action %d: no seat awaited mid-match" % run.actions)
 			return run
-		var action: EngineAction = bots[seat].choose(engine.view_for(seat))
+		var action: EngineAction = bots[seat].choose(engine.view_for(seat), engine)
 		# The seat's budget, not the turn: a carry card raises it (DC-05 T04, R9).
 		var prompted: bool = not engine.open_prompt().is_empty()
 		_check_commit(run, action, seat, engine.budget_for(seat), prompted)

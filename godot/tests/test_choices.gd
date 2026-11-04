@@ -706,18 +706,28 @@ func test_a_concede_while_prompted_ends_the_match_and_closes_the_prompt() -> voi
 	assert_dict(engine.view_for(asked).prompt).is_empty()
 
 
-func test_the_bot_answers_its_prompt_with_the_first_option() -> void:
+## The bot answers with an offered option whose preview is among the best (R37, DC-05 T06;
+## T05's interim first-option rule is gone). A discard never changes a score, so here every
+## option ties and the seed picks; test_greedy_bot covers an untied prompt.
+func test_the_bot_answers_its_prompt_with_a_best_option() -> void:
 	var engine: MatchEngine = _discard_prompt_engine()
 	assert_object(engine).is_not_null()
 	if engine == null:
 		return
 	var asked: int = engine.awaited_seat()
 	var bot: GreedyBot = GreedyBot.new(GreedyBot.seed_for(SEED, asked), _db())
-	var action: EngineAction = bot.choose(engine.view_for(asked))
+	var action: EngineAction = bot.choose(engine.view_for(asked), engine)
 	assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
 	assert_int(action.seat).is_equal(asked)
 	assert_int(action.zone).is_equal(Choice.Zone.OWN_HAND)
-	assert_int(action.index).is_equal(0)
+	var options: Array[int] = Choice.options_of(engine.open_prompt())
+	assert_bool(options.has(action.index)).is_true()
+	var best: int = -1000000
+	for option: int in options:
+		var scores: Array[int] = engine.preview_choice(asked, option)
+		best = maxi(best, scores[asked] - scores[1 - asked])
+	var picked: Array[int] = engine.preview_choice(asked, action.index)
+	assert_int(picked[asked] - picked[1 - asked]).is_equal(best)
 	assert_bool(engine.apply(action).ok).is_true()
 
 
