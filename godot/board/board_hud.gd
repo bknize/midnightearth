@@ -29,6 +29,8 @@ var _pip_rows: Array[HBoxContainer] = []
 @onready var _turn_label: Label = %TurnLabel
 @onready var _energy_label: Label = %EnergyLabel
 @onready var _commit_button: Button = %CommitButton
+@onready var _prompt_banner: PanelContainer = %PromptBanner
+@onready var _prompt_text: Label = %PromptText
 @onready var _pause_menu: Control = %PauseMenu
 @onready var _result_panel: Control = %ResultPanel
 @onready var _result_title: Label = %ResultTitle
@@ -98,6 +100,17 @@ func set_commit_label(has_staged: bool) -> void:
 
 func set_commit_enabled(enabled: bool) -> void:
 	_commit_button.disabled = not enabled
+
+
+## The prompt banner (R55): the open prompt's rules text, until hide_prompt().
+func show_prompt(text: String) -> void:
+	_prompt_text.text = text
+	_prompt_banner.visible = true
+
+
+func hide_prompt() -> void:
+	_prompt_banner.visible = false
+	_prompt_text.text = ""
 
 
 func show_pause(shown: bool) -> void:

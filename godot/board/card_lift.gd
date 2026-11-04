@@ -29,6 +29,8 @@ const DIMMER_COVER: float = 5.0
 ## The real card being held, or null.
 var held: BoardCard = null
 
+## The dimmer's alpha when nothing is held: 0, or the prompt's dim (R55) while one is open.
+var _rest_alpha: float = 0.0
 var _mode: Mode = Mode.IDLE
 var _stand_in: BoardCard = null
 var _camera: Camera3D = null
@@ -73,6 +75,18 @@ func _exit_tree() -> void:
 		drop_now()
 
 
+## Dims the table to `alpha` while no card is held, and a put-down fades back to it instead
+## of to nothing (R55). 0 clears it. Safe mid-lift: the held card keeps the full dim.
+func set_rest_alpha(alpha: float) -> void:
+	_rest_alpha = alpha
+	if _dimmer == null:
+		return
+	if alpha > 0.0:
+		_place_dimmer()
+	if _mode == Mode.IDLE:
+		_set_alpha(alpha)
+
+
 func is_holding() -> bool:
 	return held != null
 
@@ -111,7 +125,7 @@ func put_down(duration: float = PUT_DOWN_TIME) -> void:
 			_finish()
 			return
 		var start: Transform3D = _stand_in.global_transform
-		_begin(Mode.PUTTING, duration, start, 0.0)
+		_begin(Mode.PUTTING, duration, start, _rest_alpha)
 		if duration <= 0.0:
 			_finish()
 			return
@@ -191,6 +205,6 @@ func _finish() -> void:
 	_stand_in = null
 	held = null
 	_mode = Mode.IDLE
-	_set_alpha(0.0)
+	_set_alpha(_rest_alpha)
 	put_down_finished.emit(card)
 	settled.emit()
