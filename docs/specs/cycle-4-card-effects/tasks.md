@@ -4,7 +4,7 @@ tags: [tasks, cycle-4-card-effects, engine, board]
 status: approved
 related: ["[[specs/cycle-4-card-effects/spec]]", "[[specs/cycle-4-card-effects/plan]]", "[[decisions/0002-one-branch-per-cycle]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-03
-updated: 2026-11-03
+updated: 2026-11-04
 uid: 5739f6af-c673-4cc3-b816-ec11153a84a7
 linear: https://linear.app/night-science-llc/project/cycle-4-card-effects-032a703ba2d5
 supersedes:
@@ -47,35 +47,35 @@ writer per wave. Then T13 and T14.
 Owned by the orchestrator, on `cycle-4-card-effects`, editor opened on the cycle worktree
 (`scripts/godot-editor.sh switch cycle-4-card-effects`). Three screenshots in all (C17).
 
-- [ ] `make check` exits 0, test stage under 15 s; record the case count.
-- [ ] Re-pin the seed-1 golden: run the smoke, write the five literals into
+- [x] `make check` exits 0, test stage under 15 s; record the case count.
+- [x] Re-pin the seed-1 golden: run the smoke, write the five literals into
       `test_full_match.gd`, update the boot expectation in `scripts/check.sh` if it checks
       the values, and record the new `Engine smoke:` / `Board: match ended …` line in
       [[planning/cycles]]. Headless `--fixed-fps 60` autoplay prints the same line.
-- [ ] 50-seed sweep passes with prompts and random destroys; note the longest match and
+- [x] 50-seed sweep passes with prompts and random destroys; note the longest match and
       the slowest bot decision.
-- [ ] **Faces.** On `board_seed1.tscn`, every hand card shows name, cost, flat, bonus (when
+- [x] **Faces.** On `board_seed1.tscn`, every hand card shows name, cost, flat, bonus (when
       non-zero) and rules text; a lifted effect card reads cleanly. **Screenshot 3:**
       `godot/reports/DC-05/lifted-effect-card.png`.
-- [ ] **Slots and commit.** Stage a card between two played cards (turn 2 or later): node
+- [x] **Slots and commit.** Stage a card between two played cards (turn 2 or later): node
       query shows it at that row index, the gap opened, and `Staging.slots` matches.
       **Screenshot 1:** `godot/reports/DC-05/staged-between.png`. Click Commit: all staged
       cards are `face_down` in place; the action log's last commit carries the slots. A
       drag on a played card does not start.
-- [ ] **Walk.** At walk start both HUD scores read 0 and `×1`; pulses alternate from the
+- [x] **Walk.** At walk start both HUD scores read 0 and `×1`; pulses alternate from the
       first committer by node query on the lifted card; a revealed pulse is short and a
       flip keeps the reveal beat; after `TURN_END` the scores equal the event's.
-- [ ] **Prompt.** On the first seed-1 turn in which seat 0 is prompted (note the turn):
+- [x] **Prompt.** On the first seed-1 turn in which seat 0 is prompted (note the turn):
       banner text equals the card's text, eligible cards carry a visible `Glow`, the rest
       are dimmed, Commit is disabled. **Screenshot 2:** `godot/reports/DC-05/prompt.png`.
       A tap on a non-eligible face-up card lifts it; a second tap puts it down; the prompt
       still waits. A tap on a glowing card submits the choice; banner, glows and dimmer
       clear; the walk resumes. A bot prompt shows `CHOICE_SHOW` on its pick.
-- [ ] **Effects by node query** (seeded or scripted): a destroyed card leaves
+- [x] **Effects by node query** (seeded or scripted): a destroyed card leaves
       `OpponentRow`; a swap re-orders `PlayerRow`; a returned card is back in the owner's
       fan after `TURN_END`; the energy readout shows the carried budget; the free-first
       mark shows and a cost-above-budget leftmost drop is accepted.
-- [ ] No GDScript warning in the editor run; `obsidian-cli vault=docs orphans` reports
+- [x] No GDScript warning in the editor run; `obsidian-cli vault=docs orphans` reports
       nothing new (`unresolved` if the CLI build has it).
 
 ## Linear (exercised 2026-11-03)

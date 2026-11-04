@@ -18,10 +18,10 @@ var _costs: Dictionary = {}
 
 ## Clears the staged cards and sets the seat's budget for the turn, how many played cards
 ## already sit on the row, and whether the first new card is free.
-func reset(energy: int, played: int = 0, free_first: bool = false) -> void:
+func reset(energy: int, played: int = 0, first_free: bool = false) -> void:
 	_energy = energy
 	_played = maxi(played, 0)
-	_free_first = free_first
+	_free_first = first_free
 	_row.clear()
 	_row_ids.clear()
 	_costs.clear()

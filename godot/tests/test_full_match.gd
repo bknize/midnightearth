@@ -12,15 +12,15 @@ extends GdUnitTestSuite
 ## seeded GreedyBot.seed_for(match_seed, seat), asked only for the awaited seat. A harness
 ## cap of MAX_ACTIONS fails a runaway match instead of hanging the test stage.
 
-# GOLDEN (unpinned at DC-05 T01; re-pinned by the orchestrator at DC-05 T14)
+# GOLDEN (re-pinned by the orchestrator at DC-05 T14, 2026-11-04)
 # Seed 1's bot-vs-bot result, in the smoke line's terms: winner, round wins as "a-b",
 # rounds played, end reason, accepted actions. While GOLDEN_WINNER is GOLDEN_UNPINNED the
 # golden test is skipped with GOLDEN_SKIP_NOTE. Pin by replacing these five literals.
-const GOLDEN_WINNER: int = -2
-const GOLDEN_WINS: String = ""
-const GOLDEN_ROUNDS: int = 0
-const GOLDEN_REASON: String = ""
-const GOLDEN_ACTIONS: int = 0
+const GOLDEN_WINNER: int = 0
+const GOLDEN_WINS: String = "4-2"
+const GOLDEN_ROUNDS: int = 6
+const GOLDEN_REASON: String = "wins"
+const GOLDEN_ACTIONS: int = 114
 # END GOLDEN
 
 ## Sentinel winner meaning "not pinned yet".

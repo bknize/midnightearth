@@ -12,9 +12,11 @@ const MAX_ACTIONS: int = 2000
 const PROMPT_SEEDS: int = 10
 ## An index no prompt offers (options are positions in a zone of at most a few cards).
 const NOT_AN_OPTION: int = 99
-## Seed 1's pinned board result line. Empty while unpinned (re-pinned at DC-05 T14, card
-## data format 2): the test then compares against a direct bot-vs-bot engine run instead.
-const EXPECTED_LINE: String = ""
+## Seed 1's pinned board result line (re-pinned at DC-05 T14, card data format 2). When
+## empty the test compares against a direct bot-vs-bot engine run instead.
+const EXPECTED_LINE: String = (
+	"Board: match ended seed=1 winner=0 wins=4-2" + " rounds=6 end=wins actions=114"
+)
 ## Event kinds whose card ids are private to their owner.
 const PRIVATE_KINDS: Array[int] = [
 	MatchEvent.Kind.CARD_DEALT,
