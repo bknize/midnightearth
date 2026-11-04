@@ -32,7 +32,8 @@ the spec and the `/exercise` write-back, takes every task merge, and merges into
 4. The cycle branch exists already when the cycle has a spec (cut by `/spec`). For a
    cycle with no spec of its own, create it: `git branch cycle-N-<theme> master` with the
    next unused N (never `git switch -c`). Put the main checkout back on `master` (clean;
-   `git switch master`), then keep the cycle branch in its own worktree:
+   `git switch master`), clear what earlier cycles left behind with
+   `scripts/worktree-sweep.sh --apply`, then keep the cycle branch in its own worktree:
    `git worktree add <scratchpad>/<cycle branch> <cycle branch>`. On the cycle branch,
    record the plan row in `docs/planning/cycles.md` (create from the note template if
    missing): milestone, date, issues, theme. Report.
@@ -67,7 +68,14 @@ the spec and the `/exercise` write-back, takes every task merge, and merges into
    comment saying why.
 4. Optional: dispatch `reviewer` on the wave's diff before merging when the wave touches
    `godot/engine/`.
-5. Report after each wave: merged, gate result, remaining waves.
+5. When every issue in the wave is merged on a green gate, remove the wave's agent
+   worktrees and branches: `scripts/worktree-sweep.sh --into <cycle branch> --apply`. It
+   removes only worktrees whose commit is in the cycle branch and whose only leftovers are
+   untracked `.uid` files, and skips locked (still-running) agents; an issue awaiting
+   re-dispatch keeps its worktree. Read its `keep` lines: anything kept for uncommitted
+   changes is work you have not merged yet.
+6. Report after each wave: merged, gate result, worktrees removed and kept, remaining
+   waves.
 
 ## /cycle test DC-NN
 
@@ -90,7 +98,10 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
 4. On the cycle branch, append the outcome row to `docs/planning/cycles.md` and commit
    it, then merge `<cycle branch>` into `master` with `--no-ff` (message
    `cycle-NN: <theme>`), only after 1–3 pass, from the main checkout. Hand the editor
-   back with `scripts/godot-editor.sh switch main`. Do not push unless Ben asks.
+   back with `scripts/godot-editor.sh switch main` (the sweep skips a worktree an editor
+   still has open), then remove the cycle worktree and every agent worktree merged with it:
+   `scripts/worktree-sweep.sh --apply`. The cycle branch itself is kept. Do not push
+   unless Ben asks.
 5. Linear: `save_status_update` on each touched project ("DC-NN done": gate summary,
    screenshots, what was verified, what was left out); move every DC-NN issue to
    `Done` (only after the step 4 merge); create follow-up issues in `Backlog` (`type/bug`
@@ -99,7 +110,7 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
    every issue of the project, replace `blob/<cycle branch>/` with `blob/master/` (they
    resolve once Ben has `master` pushed; ask whether to push).
    Optionally `save_document` with the full test note.
-6. Report to Ben with the screenshot paths and the follow-ups. Ben's manual
+6. Report to Ben with the screenshot paths, the follow-ups and the sweep's last line. Ben's manual
    click-through happens only at milestones; say whether this cycle is one.
 
 ## Rules
@@ -110,4 +121,6 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
   is not done.
 - Never push, never force, never rewrite history on `master`, never commit directly on
   `master`: a fix found after the merge goes on a branch of its own (`CLAUDE.md`, Git).
+- Leave no merged worktree behind: every verb that merges ends with the sweep above.
+  Never `git worktree remove` by hand a worktree the sweep kept without reading why.
 - Keep Linear truthful: state changes happen when the merge or test actually happened.
