@@ -16,6 +16,21 @@ enum Kind {
 	ROUND_ENDED,
 	CONCEDED,
 	MATCH_ENDED,
+	# DC-05 (cycle-4-card-effects plan, event table). Appended so earlier ordinals hold.
+	WALK_STARTED,
+	CARD_SCORED,
+	EFFECT_FIRED,
+	EFFECT_FIZZLED,
+	CHOICE_REQUESTED,
+	CHOICE_MADE,
+	STATS_CHANGED,
+	CARD_DESTROYED,
+	CARD_MOVED,
+	CARD_RETURNED,
+	CARD_DISCARDED,
+	BONUS_ZERO_SET,
+	ENERGY_CARRIED,
+	FREE_FIRST_SET,
 }
 
 ## owner_seat of an event every seat may see in full.
