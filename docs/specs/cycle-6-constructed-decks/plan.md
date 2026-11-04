@@ -152,7 +152,8 @@ func start_match(new_seed: int, deck_ids: Array[String]) -> void
 
 ### Error codes (appended)
 
-`BAD_SET` (repeat or non-offered index in a set, or a set for a single prompt),
+`BAD_SET` (repeat or non-offered index in a set; a set sent to a single-target prompt, like a
+`CHOOSE` on a multi prompt, is `NOT_ELIGIBLE` as P7 says: reconciled at T12, 2026-11-04),
 `DECK_UNKNOWN` (`create()` with an id not in the list; `start()` fails with it).
 
 ## Data model
