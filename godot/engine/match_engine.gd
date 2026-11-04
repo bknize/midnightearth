@@ -8,7 +8,7 @@ extends RefCounted
 ## commit (second) -> _resolve() (both commits merge into their rows, then the walk starts)
 ## -> _run_walk() (ScoreWalk pulses every card on both rows; an effect with two or more
 ## targets pauses it on a prompt, phase AWAIT_CHOICE, until apply(CHOOSE) from the prompted
-## seat resumes it, DC-05 T05) -> _end_turn() (return marks, energy) -> next
+## seat resumes it, DC-05 T05) -> _end_turn() (return marks, destroyed cards, energy) -> next
 ## _begin_turn(), or after turn 7 _end_round() ->
 ## _after_round(), which either ends the match (R20-R22) or begins the next round.
 ## Concede goes straight to _end_match().
@@ -128,12 +128,13 @@ func open_prompt() -> Dictionary:
 ##
 ## Hidden information (R7, R38): the caller learns nothing the seat's own view does not
 ## already hold. The opponent's face-down commit (`pending`, when `seat` commits second) is
-## treated as absent, as are any of its unrevealed row cards (_hide_opponent), so no hidden
-## card's stats reach the walk. Every other card the walk can score or target is on a row
-## and revealed, or is `seat`'s own. Draws and discards in the walk do touch hidden piles
-## (decks, hands), but a hand or deck card never scores, so it cannot change the scores; and
-## the policy's picks only ever read the opponent's row, which is public. Only the two
-## scores come back: no state, event or card id.
+## treated as absent, and any of its unrevealed row cards stays in its slot as an inert
+## one, marked destroyed on the clone (_hide_opponent, DC-06 R23), so no hidden card's
+## stats reach the walk while the slots match the live row. Every other card the walk can
+## score or target is on a row and revealed, or is `seat`'s own. Draws and discards in the
+## walk do touch hidden piles (decks, hands), but a hand or deck card never scores, so it
+## cannot change the scores; and the policy's picks only ever read the opponent's live
+## cards, which are revealed. Only the two scores come back: no state, event or card id.
 func preview(seat: int, action: EngineAction) -> Array[int]:
 	var none: Array[int] = []
 	if action == null or action.kind != EngineAction.Kind.COMMIT or action.seat != seat:
@@ -160,10 +161,11 @@ func preview(seat: int, action: EngineAction) -> Array[int]:
 ## The scores pair the walk would end on if `seat` answered the open prompt with position
 ## `index` of its zone (plan P12, R37), or [] when no prompt is open for `seat` or `index`
 ## is not one of its options. Pure, like preview(): the clone applies the answer
-## (EffectResolver.answer), drops the opponent's unrevealed row cards (_hide_opponent) and
-## finishes the paused walk under the PreviewPolicy. The answer is applied before the drop,
-## so `index` means what it means to the live engine; the options never name an unrevealed
-## card of the opponent (Choice), and only the scores come back.
+## (EffectResolver.answer), marks the opponent's unrevealed row cards inert in their slots
+## (_hide_opponent) and finishes the paused walk under the PreviewPolicy from the live
+## cursor. The answer is applied before the marking, so `index` means what it means to the
+## live engine; the options never name an unrevealed card of the opponent (Choice), and only
+## the scores come back.
 func preview_choice(seat: int, index: int) -> Array[int]:
 	var none: Array[int] = []
 	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _prompt_seat() != seat:
@@ -557,12 +559,15 @@ func _prompt_seat() -> int:
 
 ## Turn end (R17, R24, plan P14), only once the walk is complete: the return marks resolve
 ## first (EffectResolver.resolve_returns: each marked card goes back to its owner's hand,
-## or burns at the cap), then per-seat energy is settled (EffectResolver.settle_energy: a
-## revealed carry card on the row carries `budget - spent`, else the carry is 0, so a
-## returned carry card carries nothing); then the scores are the walk totals and the higher
-## one wins the turn, as cycle 1 R16 did from power.
+## or burns at the cap; a destroyed card is skipped), then the destroyed cards leave their
+## rows for the burn pile (EffectResolver.clear_destroyed, DC-06 R18, P6), then per-seat
+## energy is settled (EffectResolver.settle_energy: a revealed carry card on the row
+## carries `budget - spent`, else the carry is 0, so a returned or destroyed carry card
+## carries nothing); then the scores are the walk totals and the higher one wins the turn,
+## as cycle 1 R16 did from power. Rows shrink only here.
 func _end_turn() -> void:
 	_events.append_array(EffectResolver.resolve_returns(_state))
+	_events.append_array(EffectResolver.clear_destroyed(_state))
 	_events.append_array(EffectResolver.settle_energy(_state, _cards))
 	var winner: int = _leader()
 	_state.last_turn_winner = winner
@@ -585,22 +590,26 @@ func _end_turn() -> void:
 
 
 ## Makes the opponent of `seat` hold nothing hidden on the table of `clone` (a preview's
-## copy, never the live state): its face-down commit is cleared, and any of its row cards not
-## yet revealed (only possible mid-walk) leave the row, modifiers and all. They are dropped,
-## not burned: a preview only reads scores, and the cards are simply absent from its walk.
+## copy, never the live state; DC-06 R23, P7): its face-down commit is cleared, and each of
+## its row cards not yet revealed (mid-walk, or one a swap left face down behind a cursor,
+## DC-06 R8) is marked destroyed on the clone. A destroyed card keeps its slot, scores
+## nothing, fires nothing and cannot be targeted by the switch, the return or the random
+## destroy (ScoreWalk, EffectResolver, Choice; the swap only moves its owner's own row),
+## so its stats never reach the preview's scores, while the row keeps its size: the
+## clone's cursor is untouched and the preview pulses the same slots in the same
+## alternation as the live walk. The mark lives only in
+## the clone's CardState copies (MatchState.duplicate), and a preview runs no turn end, so
+## no clear, energy carry or event ever sees it.
 static func _hide_opponent(clone: MatchState, seat: int) -> void:
 	var opponent: int = 1 - seat
 	# Only the opponent's commit can be pending when `seat` may act (_check).
 	clone.pending.clear()
 	clone.pending_slots.clear()
 	var piles: MatchState.SeatPiles = clone.seats[opponent]
-	var row: Array[int] = []
-	row.assign(piles.board)
-	for card: int in row:
+	for card: int in piles.board:
 		if piles.is_revealed(card):
 			continue
-		if clone.take_from_row(opponent, card):
-			pass  # Unreachable: the card was not revealed. Nothing else to undo.
+		clone.card_state_for(card).destroyed = true
 
 
 ## Runs a preview's walk on `clone` to its end under the policy (no sink, no stream) and

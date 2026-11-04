@@ -61,9 +61,11 @@ const PRIVATE_KINDS: Array[int] = [
 	MatchEvent.Kind.COMMITTED,
 ]
 ## Private in some cases only (DC-05): the destroy or move of a face-down card, a choice
-## of a hand or face-down card, and (public) the burn of a returned, revealed card.
+## of a hand or face-down card, and (public) the burn of a returned, revealed card; the
+## turn-end clear of a destroyed card never revealed (DC-06 R21).
 const SPLIT_KINDS: Array[int] = [
 	MatchEvent.Kind.CARD_DESTROYED,
+	MatchEvent.Kind.DESTROYED_CLEARED,
 	MatchEvent.Kind.CARD_MOVED,
 	MatchEvent.Kind.CHOICE_MADE,
 	MatchEvent.Kind.CARD_BURNED,
@@ -161,7 +163,8 @@ func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
 ## and is hidden after it (DC-05 T13; the rule of test_full_match.gd): scored, revealed,
 ## stats, returned and a public burn, plus the kinds the engine emits for a face-up card in
 ## a walk that a round end, a destroy or a return then hides (an effect firing, a choice,
-## a public destroy or move). Never a deal, draw, discard, commit or other private kind.
+## a public destroy or move, the public turn-end clear of a destroyed card, DC-06). Never a
+## deal, draw, discard, commit or other private kind.
 func _may_name_public_card(event: MatchEvent) -> bool:
 	match event.kind:
 		MatchEvent.Kind.CARD_SCORED, MatchEvent.Kind.CARD_REVEALED:
@@ -171,6 +174,8 @@ func _may_name_public_card(event: MatchEvent) -> bool:
 		MatchEvent.Kind.EFFECT_FIRED, MatchEvent.Kind.CHOICE_MADE:
 			return true
 		MatchEvent.Kind.CARD_BURNED, MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.CARD_MOVED:
+			return not event.is_private()
+		MatchEvent.Kind.DESTROYED_CLEARED:
 			return not event.is_private()
 	return false
 
@@ -328,11 +333,12 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.CARD_REVEALED:
 			# "flat" was "power" before DC-05; "slot" and "bonus" are new in DC-05. "order"
 			# stays for the board until it reads the walk's events (DC-05 T08, T11).
-			keys = ["seat", "card", "def_id", "flat", "bonus", "order", "slot"]
+			# "destroyed" is new in DC-06 (R14).
+			keys = ["seat", "card", "def_id", "flat", "bonus", "order", "slot", "destroyed"]
 		MatchEvent.Kind.WALK_STARTED:
 			keys = ["round", "turn", "first_seat"]
 		MatchEvent.Kind.CARD_SCORED:
-			keys = ["seat", "card", "slot", "flat", "bonus", "mult", "added", "score"]
+			keys = ["seat", "card", "slot", "flat", "bonus", "mult", "added", "score", "again"]
 		MatchEvent.Kind.TURN_ENDED:
 			keys = ["round", "turn", "scores", "winner"]
 		MatchEvent.Kind.ROUND_ENDED:
@@ -347,7 +353,7 @@ func _payload_keys(kind: int) -> Array:
 			keys = ["seat", "card", "verb"]
 		MatchEvent.Kind.STATS_CHANGED:
 			keys = ["seat", "card", "flat", "bonus", "cause"]
-		MatchEvent.Kind.CARD_DESTROYED:
+		MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.DESTROYED_CLEARED:
 			keys = ["seat", "card", "slot"]
 		MatchEvent.Kind.BONUS_ZERO_SET, MatchEvent.Kind.FREE_FIRST_SET:
 			keys = ["seat"]
@@ -388,6 +394,16 @@ func _shown_stats(state: Dictionary, card: int) -> Vector2i:
 	return Vector2i(flat, bonus)
 
 
+## Whether `card` carries the destroyed mark in the full state's `card_states` (DC-06 R22).
+func _is_destroyed(state: Dictionary, card: int) -> bool:
+	var held_all: Dictionary = state["card_states"]
+	if not held_all.has(card):
+		return false
+	var held: Dictionary = held_all[card]
+	var destroyed: bool = held["destroyed"]
+	return destroyed
+
+
 ## A view row (own_row or opponent_row) against `row_seat`'s board in `state`: one entry
 ## per card in slot order with its revealed flag and its shown stats. A shown card shows
 ## its effective flat and bonus (_shown_stats); an opponent card not yet revealed shows 0
@@ -398,12 +414,16 @@ func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: 
 	assert_int(row.size()).is_equal(board.size())
 	for slot: int in range(mini(row.size(), board.size())):
 		var entry: Dictionary = row[slot]
-		assert_array(_sorted_keys(entry)).is_equal(_sorted(["card", "flat", "bonus", "revealed"]))
+		var keys: Array = ["card", "flat", "bonus", "revealed", "destroyed"]
+		assert_array(_sorted_keys(entry)).is_equal(_sorted(keys))
 		var card: int = entry["card"]
 		var flat: int = entry["flat"]
 		var bonus: int = entry["bonus"]
 		var shown: bool = entry["revealed"]
 		assert_bool(shown).is_equal(revealed.has(board[slot]))
+		# The destroyed flag is public for every card (DC-06 R20).
+		var destroyed: bool = entry["destroyed"]
+		assert_bool(destroyed).is_equal(_is_destroyed(state, board[slot]))
 		if own or shown:
 			assert_int(card).is_equal(board[slot])
 		else:

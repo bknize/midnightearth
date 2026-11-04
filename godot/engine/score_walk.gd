@@ -5,15 +5,27 @@ extends RefCounted
 ## state, and a preview can run it on a copy (MatchState.duplicate()).
 ##
 ## A walk: begin() resets both scores to 0 and both multipliers to 1 (R11), then each
-## step() pulses one card until no card is left. The cursor (P5): the next pulse is the
-## leftmost card of `walk.next_seat`'s row that is not in `walk.pulsed`; when that row has
-## none, the other row's; when neither has one, the walk ends. Every pulse flips
-## `next_seat`. Moved and destroyed cards are handled by the `pulsed` set, never by
-## indices, so nothing is pulsed twice or skipped (R16).
+## step() pulses one slot until no slot is left. The cursor (DC-06 R1-R4, P1): one slot
+## index per row, `walk.cursor[seat]`, the number of that row's slots already passed, 0 for
+## both rows at begin(). The next pulse is the slot at the cursor of `walk.next_seat`'s row
+## when that row has one left, else the other row's, else the walk ends (next_slot()).
+## A pulse at (seat, slot) first sets `cursor[seat] = slot + 1`, then flips `next_seat`,
+## then runs on that slot: the slot counts as passed before any effect fired by the pulse
+## resolves (R2). A walk therefore pulses each slot of both rows once (R4).
 ##
-## A pulse (P4, R13, R14): an unrevealed card is revealed first (CARD_REVEALED); then
-## `mult[seat] += bonus`, `added = flat * mult[seat]`, `scores[seat] += added`
-## (CARD_SCORED), with flat and bonus from effective().
+## Reveal, then score (DC-06 R5, R11, C23-C25, P2): a pulse's reveal stage belongs to the
+## card on the slot when the pulse starts, its score stage to the slot. Once the reveal
+## stage's effects resolve, the card holding the slot now is scored, whichever card that
+## is: an unrevealed card first gets a full reveal of its own (CARD_REVEALED, the bonus-0
+## spend, its on-reveal effect, the opponent's watchers; any may prompt), then scores; a
+## revealed card scores, with `again` true when it already scored in this walk (R9,
+## `walk.scored`, P3); a destroyed card flips if face down and scores nothing (R13, R14).
+## A card an effect moved off the slot does not score in this pulse: the cursor reaches it
+## later when its new slot is unpassed (R6), and not in this walk when it is passed (R7);
+## face down there, it stays face down until a later walk (R8).
+##
+## The score (P4, R14): `mult[seat] += bonus`, `added = flat * mult[seat]`,
+## `scores[seat] += added` (CARD_SCORED), with flat and bonus from effective().
 ##
 ## Effect hooks (P6, R13, R15, R18, R19; DC-05 T04), fired through EffectResolver:
 ## - at a reveal, right after CARD_REVEALED: the revealing seat's bonus-0 mark is spent on
@@ -21,52 +33,72 @@ extends RefCounted
 ##   already-revealed card of the other seat with an ON_OPPONENT_REVEAL effect fires, in
 ##   row order as snapshotted when the first of them is due (Pulse.watchers); all of it
 ##   before the card scores (R13);
-## - after CARD_SCORED, the card's ON_SCORE effect fires (R15), on every pulse (C3);
+## - after CARD_SCORED, the card's ON_SCORE effect fires (R15), each time it scores (C4);
 ## - ONGOING effects never fire in a pulse: effective() reads them (no deck card changes
 ##   stats that way, the hook is kept) and turn end settles the energy carry
 ##   (EffectResolver.settle_energy, called by MatchEngine).
-## A card an effect takes off the row before its score (a destroy on the opponent's reveal)
-## is not scored (R23).
+## Destroyed cards (DC-06 R12-R15, P4): a destroy marks the card (CardState.destroyed) and
+## leaves it in its slot, so the cursor still pulses that slot. The pulse of a destroyed
+## card only reveals it when it is face down (CARD_REVEALED with `destroyed` true; every
+## CARD_REVEALED carries the flag) and otherwise does nothing: no bonus-0 spend, no
+## effect, no watcher, no score. A destroyed card never fires (Pulse._fire), never
+## watches, and a card destroyed before its score in its own pulse is not scored.
 ##
 ## Events go to `sink` as sink.call(kind, payload) for the walk's own public events and
 ## sink.call(kind, payload, owner) for an effect's events, which may be private (draws,
 ## burns, the destroy of a face-down card). A null `policy` is a live walk; a preview
 ## passes a PreviewPolicy and gets no events (the effects still change its state).
 ##
-## Prompts and resuming (DC-05 T05): a pulse runs in Stages. A revealed card starts at
-## SCORE; a card revealed by this pulse starts at REVEAL_EFFECT (its on-reveal effect),
-## then WATCHERS (the other seat's on-opponent-reveal effects), then SCORE (its score and
-## its on-score effect). A prompt stops the pulse after the firing that opened it and
-## records the next stage in `walk.paused_*`; the next step() resumes there (step()).
+## Prompts and resuming (DC-05 T05): a pulse runs in Stages. It starts at SCORE, which
+## reads the slot: a card revealed there goes to REVEAL_EFFECT (its on-reveal effect), then
+## WATCHERS (the other seat's on-opponent-reveal effects), then back to SCORE, which reads
+## the slot again (the score and the on-score effect of its card, or the reveal of a card
+## an effect put there). A prompt stops the pulse after the firing that opened it and
+## records the card, the slot and the next stage in `walk.paused_*`; the next step()
+## resumes there (step()).
 
 ## Where a pulse resumes after a prompt (WalkState.paused_stage). DONE: nothing is left.
 enum Stage { REVEAL_EFFECT, WATCHERS, SCORE, DONE }
 
 
-## Starts a walk on `state` (R11): both scores 0, both multipliers 1, nothing pulsed, the
-## turn's first committer pulses first.
+## Starts a walk on `state` (R11): both scores 0, both multipliers 1, both cursors at slot
+## 0, nothing scored, the turn's first committer pulses first.
 static func begin(state: MatchState) -> void:
 	state.scores[0] = 0
 	state.scores[1] = 0
 	var walk: MatchState.WalkState = state.walk
 	walk.active = true
 	walk.next_seat = state.first_seat
-	walk.pulsed.clear()
+	walk.cursor[0] = 0
+	walk.cursor[1] = 0
+	walk.scored.clear()
 	walk.mult[0] = 1
 	walk.mult[1] = 1
 	walk.reveals = 0
 
 
-## The instance id of the next card to pulse (P5), or -1 when the walk is over or the
-## rows hold no unpulsed card.
+## The next slot to pulse as (seat, slot) (DC-06 P1, R3), or (-1, -1) when the walk is over
+## or neither row has a slot the cursor has not passed: `next_seat`'s row when its cursor
+## is short of the row's size, else the other row's.
+static func next_slot(state: MatchState) -> Vector2i:
+	var walk: MatchState.WalkState = state.walk
+	if not walk.active:
+		return Vector2i(-1, -1)
+	var seat: int = walk.next_seat
+	for candidate: int in [seat, 1 - seat]:
+		var piles: MatchState.SeatPiles = state.seats[candidate]
+		if walk.cursor[candidate] < piles.board.size():
+			return Vector2i(candidate, walk.cursor[candidate])
+	return Vector2i(-1, -1)
+
+
+## The instance id of the card on next_slot(), or -1 when there is none.
 static func next_card(state: MatchState) -> int:
-	if not state.walk.active:
+	var at: Vector2i = next_slot(state)
+	if at.x < 0:
 		return -1
-	var seat: int = state.walk.next_seat
-	var card: int = _leftmost_unpulsed(state, seat)
-	if card >= 0:
-		return card
-	return _leftmost_unpulsed(state, 1 - seat)
+	var piles: MatchState.SeatPiles = state.seats[at.x]
+	return piles.board[at.y]
 
 
 ## `card`'s shown stats as (flat, bonus) (P4): its CardState's (_held_stats: the base, the
@@ -123,11 +155,12 @@ static func _definition(card: int, cards: CardDb) -> CardDef:
 ## Prompts (DC-05 T05): an effect that needs a choice between two or more targets returns
 ## its prompt from EffectResolver.apply(); step() stores it in `state.prompt`, records
 ## where the pulse stopped (`walk.paused_*`, with the watcher snapshot and index for the
-## WATCHERS stage) and returns true. The card is already in
-## `walk.pulsed` and, for an on-reveal prompt, not yet scored. Once the choice has been
-## applied (EffectResolver.answer clears the prompt), the next step() finishes that same
-## pulse from where it stopped (the remaining reveal hooks, the score, the on-score
-## effect) before the cursor moves on. A preview never pauses: its policy answers at once.
+## WATCHERS stage) and returns true. The card's slot is already passed and, for an
+## on-reveal prompt, the card is not yet scored. Once the choice has been applied
+## (EffectResolver.answer clears the prompt), the next step() finishes that same pulse from
+## where it stopped (the paused card's remaining reveal hooks, then the score stage of the
+## paused slot, `walk.paused_slot`, whatever card the choice left there) before the cursor
+## moves on. A preview never pauses: its policy answers at once.
 static func step(
 	state: MatchState, cards: CardDb, rng: MatchRng, sink: Callable, policy: PreviewPolicy
 ) -> bool:
@@ -137,34 +170,44 @@ static func step(
 		return true
 	if walk.paused_card >= 0:
 		var resumed: int = walk.paused_card
+		var slot: int = walk.paused_slot
 		var stage: int = walk.paused_stage
 		var pulse: Pulse = Pulse.new(state, cards, rng, sink, policy)
 		pulse.watchers.assign(walk.paused_watchers)
 		pulse.watcher_at = walk.paused_watcher_at
 		walk.paused_card = -1
+		walk.paused_slot = -1
 		walk.paused_stage = Stage.REVEAL_EFFECT
 		walk.paused_watchers.clear()
 		walk.paused_watcher_at = 0
-		return pulse.run(_row_seat(state, resumed), resumed, stage)
-	var card: int = next_card(state)
-	if card < 0:
+		# The paused card is on the pulse's row: a swap moves a card only within its row.
+		return pulse.run(_row_seat(state, resumed), slot, resumed, stage)
+	var at: Vector2i = next_slot(state)
+	if at.x < 0:
 		walk.active = false
 		return false
-	var seat: int = _row_seat(state, card)
-	walk.pulsed[card] = true
+	var seat: int = at.x
+	# The slot is passed before anything the pulse fires resolves (R2).
+	walk.cursor[seat] = at.y + 1
 	walk.next_seat = 1 - walk.next_seat
-	var live: bool = policy == null and sink.is_valid()
+	# The score stage reads the slot: it reveals, scores or flips its card (DC-06 P2).
+	return Pulse.new(state, cards, rng, sink, policy).run(seat, at.y, -1, Stage.SCORE)
+
+
+## The pulse of a destroyed `card` on `seat`'s row (DC-06 R13, R14, P4): face down, it is
+## revealed (CARD_REVEALED with `destroyed` true) and nothing more, so no bonus-0 spend,
+## no on-reveal effect, no watcher and no score; face up, the pulse ends with no event. The
+## same holds for a destroyed card an effect put on the pulsed slot (C25).
+static func _pulse_destroyed(
+	state: MatchState, cards: CardDb, sink: Callable, live: bool, seat: int, card: int
+) -> void:
 	var piles: MatchState.SeatPiles = state.seats[seat]
-	var first_stage: int = Stage.SCORE
-	if not piles.is_revealed(card):
-		piles.revealed[card] = true
-		if live:
-			_emit_reveal(state, cards, sink, seat, card)
-		walk.reveals += 1
-		# The bonus-0 mark is spent on the reveal itself (R22), before any effect.
-		_forward(EffectResolver.spend_bonus_zero(state, cards, seat, card), sink, policy)
-		first_stage = Stage.REVEAL_EFFECT
-	return Pulse.new(state, cards, rng, sink, policy).run(seat, card, first_stage)
+	if piles.is_revealed(card):
+		return
+	piles.revealed[card] = true
+	if live:
+		_emit_reveal(state, cards, sink, seat, card, true)
+	state.walk.reveals += 1
 
 
 ## Runs the walk from its current point to its end or to a prompt; true on a prompt. The
@@ -188,7 +231,9 @@ static func _forward(events: Array[MatchEvent], sink: Callable, policy: PreviewP
 
 
 ## The score of `card` on `seat`'s row (P4, R14): the multiplier gains its bonus, then the
-## seat's score gains its flat times the multiplier; CARD_SCORED on a live walk.
+## seat's score gains its flat times the multiplier; CARD_SCORED on a live walk, its `slot`
+## looked up by id (the pulsed slot, which the card holds) and `again` true when the card
+## already scored in this walk (DC-06 R9, P3).
 static func _score(
 	state: MatchState, cards: CardDb, sink: Callable, live: bool, seat: int, card: int
 ) -> void:
@@ -199,6 +244,8 @@ static func _score(
 	var mult: int = walk.mult[seat]
 	var added: int = stats.x * mult
 	state.scores[seat] += added
+	var again: bool = walk.scored.has(card)
+	walk.scored[card] = true
 	if live:
 		var scored: Dictionary = {
 			"seat": seat,
@@ -209,14 +256,16 @@ static func _score(
 			"mult": mult,
 			"added": added,
 			"score": state.scores[seat],
+			"again": again,
 		}
 		sink.call(MatchEvent.Kind.CARD_SCORED, scored)
 
 
 ## CARD_REVEALED for `card`, which has just been revealed on `seat`'s row. `order` counts
-## the reveals of this walk from 0 (the board still reads it until DC-05 T08 and T11).
+## the reveals of this walk from 0 (the board still reads it until DC-05 T08 and T11);
+## `destroyed` is true when the card was destroyed before the cursor reached it (DC-06 R14).
 static func _emit_reveal(
-	state: MatchState, cards: CardDb, sink: Callable, seat: int, card: int
+	state: MatchState, cards: CardDb, sink: Callable, seat: int, card: int, destroyed: bool
 ) -> void:
 	var def: CardDef = null
 	if cards != null:
@@ -234,17 +283,9 @@ static func _emit_reveal(
 		"flat": stats.x,
 		"bonus": stats.y,
 		"order": state.walk.reveals,
+		"destroyed": destroyed,
 	}
 	sink.call(MatchEvent.Kind.CARD_REVEALED, revealed)
-
-
-## The leftmost card of `seat`'s row not yet pulsed in this walk, or -1.
-static func _leftmost_unpulsed(state: MatchState, seat: int) -> int:
-	var piles: MatchState.SeatPiles = state.seats[seat]
-	for card: int in piles.board:
-		if not state.walk.pulsed.has(card):
-			return card
-	return -1
 
 
 ## The seat whose row holds `card`, or -1 when neither row does.
@@ -256,8 +297,8 @@ static func _row_seat(state: MatchState, card: int) -> int:
 	return -1
 
 
-## One pulse in progress (DC-05 T05): the walk's context, and the stages of `card`'s pulse
-## from a given point (ScoreWalk.Stage). Pausing on a prompt stores the prompt in
+## One pulse in progress (DC-05 T05): the walk's context, and the stages of the pulse of one
+## slot from a given point (ScoreWalk.Stage). Pausing on a prompt stores the prompt in
 ## `state.prompt` and the resume point in `state.walk`.
 class Pulse:
 	extends RefCounted
@@ -267,9 +308,10 @@ class Pulse:
 	var rng: MatchRng = null
 	var sink: Callable = Callable()
 	var policy: PreviewPolicy = null
-	## The watcher snapshot of this pulse (DC-05 T13): the other row's revealed cards with an
-	## ON_OPPONENT_REVEAL effect, in row order, taken when the WATCHERS stage first runs for
-	## the card. Empty until then; a resumed pulse gets it back from `walk.paused_watchers`.
+	## The watcher snapshot of the card revealing now (DC-05 T13): the other row's revealed
+	## cards with an ON_OPPONENT_REVEAL effect, in row order, taken when the WATCHERS stage
+	## first runs for the card. Empty until then, and emptied when another card reveals in
+	## the same pulse; a resumed pulse gets it back from `walk.paused_watchers`.
 	var watchers: Array[int] = []
 	## The snapshot index the WATCHERS stage goes on from.
 	var watcher_at: int = 0
@@ -287,28 +329,79 @@ class Pulse:
 		sink = p_sink
 		policy = p_policy
 
-	## Runs `card`'s pulse on `seat`'s row from `stage`; a resumed WATCHERS stage goes on
-	## from `watchers` and `watcher_at` (set by ScoreWalk.step). True on a prompt.
-	func run(seat: int, card: int, stage: int) -> bool:
+	## Runs the pulse of `slot` on `seat`'s row from `stage`, `card` being the card whose
+	## reveal stages run (REVEAL_EFFECT, WATCHERS; -1 for a pulse starting at SCORE). A
+	## resumed WATCHERS stage goes on from `watchers` and `watcher_at` (set by
+	## ScoreWalk.step). The SCORE stage reads the slot (DC-06 P2, C23-C25): a live face-down
+	## card there is revealed and its own reveal stages run, then the slot is read again;
+	## otherwise the card there scores, or only flips when destroyed. Each pass through
+	## SCORE that does not score reveals one more card, so the loop ends. True on a prompt.
+	func run(seat: int, slot: int, card: int, stage: int) -> bool:
 		if seat < 0:
 			return false
+		var revealer: int = card
 		var at: int = stage
-		if at == ScoreWalk.Stage.REVEAL_EFFECT:
-			if _fire(seat, card, CardEffect.Trigger.ON_REVEAL):
-				_pause(card, ScoreWalk.Stage.WATCHERS)
-				return true
-			at = ScoreWalk.Stage.WATCHERS
-		if at == ScoreWalk.Stage.WATCHERS:
-			if _watchers(seat, card):
-				return true
-			at = ScoreWalk.Stage.SCORE
-		# A card an effect took off the row before its score is not scored (R23).
-		if at != ScoreWalk.Stage.SCORE or not state.seats[seat].board.has(card):
+		while at != ScoreWalk.Stage.DONE:
+			if at == ScoreWalk.Stage.REVEAL_EFFECT:
+				if _fire(seat, revealer, CardEffect.Trigger.ON_REVEAL):
+					_pause(revealer, slot, ScoreWalk.Stage.WATCHERS)
+					return true
+				at = ScoreWalk.Stage.WATCHERS
+			elif at == ScoreWalk.Stage.WATCHERS:
+				if _watchers(seat, slot, revealer):
+					return true
+				at = ScoreWalk.Stage.SCORE
+			else:
+				var occupant: int = _occupant(seat, slot)
+				if not _needs_reveal(seat, occupant):
+					return _score_slot(seat, slot, occupant)
+				_reveal(seat, occupant)
+				revealer = occupant
+				at = ScoreWalk.Stage.REVEAL_EFFECT
+		return false
+
+	## The card on `slot` of `seat`'s row, or -1 when the row is shorter.
+	func _occupant(seat: int, slot: int) -> int:
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		if slot < 0 or slot >= piles.board.size():
+			return -1
+		return piles.board[slot]
+
+	## Whether `card`, on `seat`'s row, is live and still face down, so the score stage
+	## reveals it first (DC-06 C24).
+	func _needs_reveal(seat: int, card: int) -> bool:
+		if card < 0 or state.is_destroyed(card):
+			return false
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		return not piles.is_revealed(card)
+
+	## Reveals `card` on `seat`'s row (R13): CARD_REVEALED on a live walk, then the seat's
+	## bonus-0 mark is spent on it (R22), before any of its effects. Its reveal stages start
+	## with a fresh watcher snapshot.
+	func _reveal(seat: int, card: int) -> void:
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		piles.revealed[card] = true
+		if policy == null and sink.is_valid():
+			ScoreWalk._emit_reveal(state, cards, sink, seat, card, false)
+		state.walk.reveals += 1
+		var spent: Array[MatchEvent] = EffectResolver.spend_bonus_zero(state, cards, seat, card)
+		ScoreWalk._forward(spent, sink, policy)
+		watchers.clear()
+		watcher_at = 0
+
+	## The end of the score stage for `card`, the card on `slot` of `seat`'s row (none when
+	## -1): a destroyed card only flips if face down (DC-06 R13, R14, C25); a live card
+	## scores, then fires its on-score effect (R15). True when that effect opened a prompt.
+	func _score_slot(seat: int, slot: int, card: int) -> bool:
+		if card < 0:
 			return false
 		var live: bool = policy == null and sink.is_valid()
+		if state.is_destroyed(card):
+			ScoreWalk._pulse_destroyed(state, cards, sink, live, seat, card)
+			return false
 		ScoreWalk._score(state, cards, sink, live, seat, card)
 		if _fire(seat, card, CardEffect.Trigger.ON_SCORE):
-			_pause(card, ScoreWalk.Stage.DONE)
+			_pause(card, slot, ScoreWalk.Stage.DONE)
 			return true
 		return false
 
@@ -318,7 +411,7 @@ class Pulse:
 	## watcher neither skips nor repeats another; a prompt pauses with the snapshot and the
 	## next index in `state.walk`. A snapshot entry no longer revealed on that row by its
 	## turn is skipped. True on a prompt.
-	func _watchers(seat: int, card: int) -> bool:
+	func _watchers(seat: int, slot: int, card: int) -> bool:
 		var other: int = 1 - seat
 		var piles: MatchState.SeatPiles = state.seats[other]
 		if watchers.is_empty():
@@ -331,25 +424,29 @@ class Pulse:
 			if not piles.board.has(watcher) or not piles.is_revealed(watcher):
 				continue
 			if _fire(other, watcher, CardEffect.Trigger.ON_OPPONENT_REVEAL):
-				_pause(card, ScoreWalk.Stage.WATCHERS)
+				_pause(card, slot, ScoreWalk.Stage.WATCHERS)
 				return true
 		return false
 
-	## `seat`'s revealed cards with an ON_OPPONENT_REVEAL effect, in row order.
+	## `seat`'s revealed, live (not destroyed) cards with an ON_OPPONENT_REVEAL effect, in
+	## row order.
 	func _watcher_snapshot(seat: int) -> Array[int]:
 		var out: Array[int] = []
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		for watcher: int in piles.board:
-			if not piles.is_revealed(watcher):
+			if not piles.is_revealed(watcher) or state.is_destroyed(watcher):
 				continue
 			var effect: CardEffect = EffectResolver.effect_of(watcher, cards)
 			if effect != null and effect.trigger == CardEffect.Trigger.ON_OPPONENT_REVEAL:
 				out.append(watcher)
 		return out
 
-	## Fires `card`'s effect for `seat` when its trigger is `trigger`. True when it opened a
-	## prompt, which is then `state.prompt`.
+	## Fires `card`'s effect for `seat` when its trigger is `trigger`. A destroyed card fires
+	## nothing, by any trigger (DC-06 R15). True when it opened a prompt, which is then
+	## `state.prompt`.
 	func _fire(seat: int, card: int, trigger: int) -> bool:
+		if state.is_destroyed(card):
+			return false
 		var effect: CardEffect = EffectResolver.effect_of(card, cards)
 		if effect == null or effect.trigger != trigger:
 			return false
@@ -362,11 +459,13 @@ class Pulse:
 		state.prompt = outcome.prompt
 		return true
 
-	## Records where `card`'s pulse resumes: `stage`, and for WATCHERS this pulse's snapshot
-	## and next index (an empty snapshot when no watcher has run yet).
-	func _pause(card: int, stage: int) -> void:
+	## Records where the pulse of `slot` resumes: `card`, the card whose stage was running,
+	## `stage`, and for WATCHERS the snapshot and next index (an empty snapshot when no
+	## watcher has run yet).
+	func _pause(card: int, slot: int, stage: int) -> void:
 		var walk: MatchState.WalkState = state.walk
 		walk.paused_card = card
+		walk.paused_slot = slot
 		walk.paused_stage = stage
 		walk.paused_watchers.assign(watchers)
 		walk.paused_watcher_at = watcher_at

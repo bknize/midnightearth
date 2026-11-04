@@ -34,15 +34,17 @@ enum Kind {
 	CHOICE_SHOW,
 	## A card's shown flat and bonus changed.
 	STATS,
-	## A card is destroyed.
+	## A card is marked destroyed in place: dim, tilt and crack; it stays on its row.
 	DESTROY,
+	## A destroyed card flies off the exit side at turn end.
+	CLEAR_DESTROYED,
 	## A card moves between slots (`from_slot` to `slot`).
 	MOVE,
 	## A card returns to its owner's hand.
 	RETURN,
 	## A hand card is discarded off the exit side.
 	DISCARD,
-	## Both displayed scores are set from `scores`.
+	## The tallies fly into the HUD scores, which count to `scores`.
 	TURN_END,
 	## The round's winner (`seat`, -1 for a tie) lights a pip; `wins` is the tally.
 	ROUND_END,
@@ -68,6 +70,13 @@ var revealed: bool = true
 var mult: int = 1
 var added: int = 0
 var score: int = -1
+## PULSE: the card was destroyed, so the step only flips it (no lift, no chips).
+var destroyed: bool = false
+## PULSE: the card already scored this walk, so this is a short re-score pulse.
+var again: bool = false
+## PULSE: seconds after the step starts before its chips show: the flip time on a first
+## reveal, so "×M" and "+N" rise once the card is face up; 0 for a revealed card (R31).
+var chip_delay: float = 0.0
 ## Cards committed (opponent and player commits).
 var count: int = 0
 ## Row slots of the committed cards (commits).

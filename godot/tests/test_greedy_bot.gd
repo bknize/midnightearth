@@ -2,7 +2,8 @@
 class_name TestGreedyBot
 extends GdUnitTestSuite
 ## The preview-driven greedy bot and the engine's pure preview (C8, DC-05 T06): R35 (a
-## preview changes nothing and treats the opponent's face-down cards as absent), R36 (the
+## preview changes nothing and treats the opponent's face-down commit as absent; DC-06 R23:
+## its face-down row cards are inert slots, so the preview walks the live slots), R36 (the
 ## best own-minus-opponent commit over legal sets x two orders x two row ends, ties by the
 ## seed), R37 (a prompt is answered with its best-previewed option) and R38 (never
 ## rejected; the action depends only on the seed and the view). Cycle 1's "highest total
@@ -44,6 +45,7 @@ const C02: int = 1
 const C03: int = 2
 const C04: int = 3
 const C08: int = 7
+const C12_SWAP: int = 11
 const C13_SWITCH: int = 12
 const C14: int = 13
 const C18: int = 17
@@ -227,6 +229,131 @@ func test_preview_changes_nothing() -> void:
 				return
 			actions += 1
 		assert_bool(engine.is_over()).is_true()
+
+
+# --- DC-06 R23: the preview walks the live walk's slots -------------------------------
+
+
+## `cards` on `seat`'s row go face down (not yet revealed), so the walk reveals them.
+func _face_down(engine: MatchEngine, seat: int, cards: Array[int]) -> void:
+	var piles: MatchState.SeatPiles = engine._state.seats[seat]
+	for card: int in cards:
+		if not piles.revealed.erase(card):
+			fail("card %d was not revealed on seat %d's row" % [card, seat])
+
+
+## Seat 0 (first) holds [c19, c12, c03, c04] face down, seat 1 [c14] face up, turn 2. Both
+## pass, so the walk runs: c19 destroys c14 (the only live card, so the live pick and the
+## preview's agree) and scores 7; c14's slot scores nothing; c12 reveals and pauses on its
+## swap prompt (OWN_BOARD options 0, 2, 3) with the cursor past slot 1. Returns the engine
+## paused there; with `stop_before_walk` it returns before either seat commits.
+func _destroy_then_swap(stop_before_walk: bool) -> MatchEngine:
+	var row_0: Array[int] = [_id(0, C19_DESTROY), _id(0, C12_SWAP), _id(0, C03), _id(0, C04)]
+	var engine: MatchEngine = _position(0, 2, _none(), _none(), row_0, _typed([_id(1, C14)]))
+	_face_down(engine, 0, row_0)
+	if stop_before_walk:
+		return engine
+	assert_bool(engine.apply(EngineAction.commit(0, _none())).ok).is_true()
+	assert_bool(engine.apply(EngineAction.commit(1, _none())).ok).is_true()
+	return engine
+
+
+## Preview equals live (DC-06 R23; plan "Risks": a card scored twice) on a walk with a
+## destroy and a forward swap. The score stage belongs to the slot (C23-C25): c12's slot 1
+## scores the card the swap puts there. At the commit, preview() runs the destroy itself
+## and takes c12's first option (c19, backward): c19 scores again on slot 1 and c12 never
+## scores, 7 + 7 + 1*2 + 3*2 = 22. On the paused walk, each option's preview_choice()
+## equals the live walk answered the same way: option 2 puts c03 on slot 1, where it
+## reveals and doubles the multiplier before c12 scores at slot 2 (7 + 1*2 + 4*2 + 3*2 =
+## 23); option 3 puts c04 on slot 1 and c12 on slot 3, after c03 (7 + 3 + 1*2 + 4*2 = 20).
+## c14, destroyed, scores nothing throughout.
+func test_preview_equals_live_with_a_forward_swap_and_a_destroy() -> void:
+	var fresh: MatchEngine = _destroy_then_swap(true)
+	assert_array(fresh.preview(0, EngineAction.commit(0, _none()))).is_equal(_typed([22, 0]))
+	var expected: Dictionary = {0: _typed([22, 0]), 2: _typed([23, 0]), 3: _typed([20, 0])}
+	for option: int in [0, 2, 3]:
+		var engine: MatchEngine = _destroy_then_swap(false)
+		assert_int(engine.awaited_seat()).is_equal(0)
+		assert_bool(engine._state.is_destroyed(_id(1, C14))).is_true()
+		var prompt: Dictionary = engine.open_prompt()
+		assert_array(Choice.options_of(prompt)).is_equal(_typed([0, 2, 3]))
+		var previewed: Array[int] = engine.preview_choice(0, option)
+		var want: Array[int] = expected[option]
+		assert_array(previewed).is_equal(want)
+		var answer: EngineAction = EngineAction.choose(0, Choice.Zone.OWN_BOARD, option)
+		assert_bool(engine.apply(answer).ok).is_true()
+		assert_array(_scores(engine)).is_equal(previewed)
+
+
+## Seat 0 (first) holds [c12, c19, c03] face down, seat 1 [c14] face up, turn 4. Seat 0
+## passes and seat 1 commits c02 face down at slot 0, so the walk pauses on c12's prompt
+## (options 1 and 2) with seat 1's c02 still face down at slot 0, the next slot to pulse.
+func _hidden_slot_zero() -> MatchEngine:
+	var row_0: Array[int] = [_id(0, C12_SWAP), _id(0, C19_DESTROY), _id(0, C03)]
+	var hand_1: Array[int] = [_id(1, C02)]
+	var engine: MatchEngine = _position(0, 4, _none(), hand_1, row_0, _typed([_id(1, C14)]))
+	_face_down(engine, 0, row_0)
+	assert_bool(engine.apply(EngineAction.commit(0, _none())).ok).is_true()
+	assert_bool(engine.apply(EngineAction.commit(1, hand_1, _typed([0]))).ok).is_true()
+	return engine
+
+
+## DC-06 R23 (spec scenario): mid-walk, the opponent's face-down c02 at slot 0 stays a slot
+## that scores nothing, so the preview pulses seat 1's slots in the live order. c12's
+## slot 0 scores the card the swap puts there (C23, C24). Option 2 (c12 onto c03's slot)
+## reveals c03 on slot 0 (1*2) and leaves c19 at slot 1: it pulses after c02's slot and
+## before c14's, destroys c14 (the only live card the preview knows) and the preview reads
+## 2 + 7*2 + 4*2 = 24 to 0. Dropping c02 instead would shift c14 to slot 0, score it before
+## the destroy and read 24 to 6. Option 1 (c12 onto c19's slot) reveals c19 on slot 0,
+## which destroys c14 before its slot: 7 + 4 + 1*2 = 13 to 0. The live walk then gives
+## seat 0 the same 24.
+func test_preview_mid_walk_keeps_the_live_slot_order() -> void:
+	var engine: MatchEngine = _hidden_slot_zero()
+	var hidden: int = _id(1, C02)
+	assert_int(engine.awaited_seat()).is_equal(0)
+	assert_array(Choice.options_of(engine.open_prompt())).is_equal(_typed([1, 2]))
+	var live: MatchState = engine._state
+	assert_bool(live.seats[1].is_revealed(hidden)).is_false()
+	# The hiding marks the clone's copy in place: same row, same cursor, same next slot.
+	var clone: MatchState = live.duplicate()
+	MatchEngine._hide_opponent(clone, 0)
+	assert_array(clone.seats[1].board).is_equal(live.seats[1].board)
+	assert_array(clone.walk.cursor).is_equal(live.walk.cursor)
+	assert_int(clone.walk.next_seat).is_equal(live.walk.next_seat)
+	assert_vector(ScoreWalk.next_slot(clone)).is_equal(Vector2i(1, 0))
+	assert_int(ScoreWalk.next_card(clone)).is_equal(hidden)
+	assert_int(ScoreWalk.next_card(live)).is_equal(hidden)
+	assert_bool(clone.is_destroyed(hidden)).is_true()
+	assert_bool(live.is_destroyed(hidden)).is_false()
+	assert_array(engine.preview_choice(0, 1)).is_equal(_typed([13, 0]))
+	assert_array(engine.preview_choice(0, 2)).is_equal(_typed([24, 0]))
+	assert_bool(engine.apply(EngineAction.choose(0, Choice.Zone.OWN_BOARD, 2)).ok).is_true()
+	assert_int(_scores(engine)[0]).is_equal(24)
+
+
+## A preview leaves its source alone (R35, DC-06 R23): the inert marking of the opponent's
+## face-down cards lives only on the clone, whether mid-walk (preview_choice) or at a commit
+## with a face-down opponent card already on the row (one a swap left behind a cursor,
+## DC-06 R8). At that commit, c02's slot scores nothing: c03 then c04 make 1*2 + 3*2 = 8,
+## and c14 makes 6.
+func test_preview_with_hidden_opponent_cards_changes_nothing() -> void:
+	var paused: MatchEngine = _hidden_slot_zero()
+	var hidden: int = _id(1, C02)
+	var before: Dictionary = _snapshot(paused)
+	for option: int in Choice.options_of(paused.open_prompt()):
+		assert_int(paused.preview_choice(0, option).size()).is_equal(2)
+	assert_dict(_snapshot(paused)).is_equal(before)
+	assert_object(paused._state.card_state(hidden)).is_null()
+	var hand: Array[int] = [_id(0, C03), _id(0, C04)]
+	var row_1: Array[int] = [hidden, _id(1, C14)]
+	var engine: MatchEngine = _position(0, 2, hand, _none(), _none(), row_1)
+	_face_down(engine, 1, _typed([hidden]))
+	var at_commit: Dictionary = _snapshot(engine)
+	var action: EngineAction = EngineAction.commit(0, hand, _typed([0, 1]))
+	assert_array(engine.preview(0, action)).is_equal(_typed([8, 6]))
+	assert_dict(_snapshot(engine)).is_equal(at_commit)
+	assert_object(engine._state.card_state(hidden)).is_null()
+	assert_bool(engine._state.seats[1].is_revealed(hidden)).is_false()
 
 
 # --- R36: the commit search -----------------------------------------------------------

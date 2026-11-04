@@ -3,7 +3,8 @@ extends RefCounted
 ## One thing that happened during start() or apply() (R4). Payload keys per kind are in
 ## the plan's event table. Private events (deal, draw, burn, commit, and the destroy of a
 ## face-down card, DC-05 T04; the discard, a face-down card's move and a choice of a hand or
-## face-down card, DC-05 T05) carry the owning seat; public events carry PUBLIC.
+## face-down card, DC-05 T05; the turn-end clear of a destroyed card never revealed, DC-06
+## R21) carry the owning seat; public events carry PUBLIC.
 ## redacted_for() gives each seat its copy (R29). A private CHOICE_MADE hides only its
 ## `target` (R34); every other private event hides its `card` and `cards`.
 
@@ -34,6 +35,8 @@ enum Kind {
 	BONUS_ZERO_SET,
 	ENERGY_CARRIED,
 	FREE_FIRST_SET,
+	# DC-06 (cycle-5-walk-cursor plan, event table). Appended so earlier ordinals hold.
+	DESTROYED_CLEARED,
 }
 
 ## owner_seat of an event every seat may see in full.

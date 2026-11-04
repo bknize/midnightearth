@@ -31,6 +31,8 @@ const GLOW_HOVER_ALPHA: float = 0.35
 ## Seconds at 1x for a player commit to slide onto the row when it is not already there.
 const PLAYER_COMMIT_TIME: float = 0.25
 const SEED_MASK: int = 0x7FFFFFFF
+## Where a row's tally rests: past the right end of the row, and toward the camera.
+const TALLY_OFFSET: Vector3 = Vector3(14.5, 0.0, 1.0)
 ## Seconds at 1x for an unstaged card to slide back to the hand.
 const UNSTAGE_TIME: float = 0.2
 
@@ -103,6 +105,8 @@ var _last_error: int = EngineError.Code.NONE
 @onready var _exit: Marker3D = $ExitMarker
 @onready var _loose: Node3D = $Loose
 @onready var _dimmer: MeshInstance3D = $Camera3D/Dimmer
+@onready var _chips: ScoreChips = $ScoreChips
+@onready var _tally: RowTally = $RowTally
 
 
 func _ready() -> void:
@@ -111,11 +115,14 @@ func _ready() -> void:
 	opponent_row.drag_strategy = _make_strategy(BoardDragStrategy.Role.OPPONENT)
 	opponent_hand.drag_strategy = _make_strategy(BoardDragStrategy.Role.OPPONENT)
 	hud.set_commit_enabled(false)
+	_tally.place(0, player_row.global_position + TALLY_OFFSET)
+	_tally.place(1, opponent_row.global_position + TALLY_OFFSET)
 	card_lift.setup($Camera3D as Camera3D, _loose, _dimmer, _spawn_card)
 	var lifted_err: int = card_lift.lifted.connect(_on_card_lifted)
 	var down_err: int = card_lift.put_down_finished.connect(_on_card_put_down)
-	if lifted_err != OK or down_err != OK:
-		push_warning("Board: could not connect the card lift signals")
+	var action_err: int = hud.action_pressed.connect(_on_action_pressed)
+	if lifted_err != OK or down_err != OK or action_err != OK:
+		push_warning("Board: could not connect the card lift or action signals")
 	_cards = CardDb.load_default()
 	if not _cards.is_valid():
 		push_error("Card data failed to load: %s" % _cards.load_error())
@@ -145,7 +152,8 @@ func _exit_tree() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		if _prompt.is_open():
-			# R56: Escape does nothing while a prompt is open.
+			# R43: Escape puts a lifted card down; the prompt keeps waiting.
+			_prompt.put_down()
 			get_viewport().set_input_as_handled()
 			return
 		if card_lift.is_holding():
@@ -397,15 +405,18 @@ func _apply(step: BoardStep) -> void:
 			hud.set_round_turn(step.round_number, step.turn, step.round_number > MatchRules.ROUNDS)
 			hud.set_energy(step.budget, step.budget, step.free_first)
 			_on_turn_started(step)
-		BoardStep.Kind.WALK_START, BoardStep.Kind.TURN_END:
-			_refresh_scores()
+		BoardStep.Kind.WALK_START:
+			_refresh_tally(true)
+		BoardStep.Kind.TURN_END:
+			_tally.fly_in(step.scores, hud, $Camera3D as Camera3D, speed)
 		BoardStep.Kind.OPPONENT_COMMIT:
 			_opponent_commit(step)
 		BoardStep.Kind.PLAYER_COMMIT:
 			_player_commit(step)
 		BoardStep.Kind.PULSE:
 			_fx.pulse(step)
-			_refresh_scores()
+			_pulse_chips(step)
+			_refresh_tally(false)
 		BoardStep.Kind.ROUND_END:
 			hud.set_wins(step.wins)
 		BoardStep.Kind.MATCH_END:
@@ -428,6 +439,8 @@ func _apply_effect(step: BoardStep) -> void:
 			_fx.stats(step)
 		BoardStep.Kind.DESTROY:
 			_fx.destroy(step)
+		BoardStep.Kind.CLEAR_DESTROYED:
+			_fx.clear_destroyed(step)
 		BoardStep.Kind.MOVE:
 			_fx.move(step)
 		BoardStep.Kind.RETURN:
@@ -438,9 +451,24 @@ func _apply_effect(step: BoardStep) -> void:
 			_open_prompt(step)
 
 
-## The HUD shows the tracker: "score ×mult" during the walk, the plain score after (R50-R52).
+## The HUD shows the tracker's held totals only: the previous turn's (R33, R35).
 func _refresh_scores() -> void:
-	hud.set_scores(_tracker.scores, _tracker.mults, _tracker.walking)
+	hud.set_scores(_tracker.held)
+
+
+## The row tallies follow the tracker's walk numbers (R32); `reveal` also shows them.
+func _refresh_tally(reveal: bool) -> void:
+	if reveal or _tally.is_shown(0) or _tally.is_shown(1):
+		_tally.show_values(_tracker.tally, _tracker.tally_mults)
+
+
+## R31: the chips above the pulsed card; nothing for a destroyed pulse.
+func _pulse_chips(step: BoardStep) -> void:
+	if ScoreChips.chip_texts(step).is_empty():
+		return
+	var card: BoardCard = _fx.card_for(step)
+	if card != null:
+		_chips.spawn(card, step, speed)
 
 
 func _deal(step: BoardStep) -> void:
@@ -515,6 +543,8 @@ func _clear_table(step: BoardStep) -> void:
 	_committed_ids.clear()
 	_face_down_ids.clear()
 	_fx.reset()
+	_tally.hide_all()
+	_chips.clear()
 	_refresh_scores()
 
 
@@ -567,14 +597,19 @@ func _choose(index: int) -> void:
 	_close_prompt()
 
 
-## One tap while the prompt is open: a glowing card decides, another face-up card lifts to be
-## read (C16), anything else does nothing.
+## One tap while the prompt is open (R40-R44): lift, swap the lift, or put it down.
 func _tap_prompt(card: BoardCard) -> void:
 	var tap: PromptTap = _prompt.tap(card, driver.view().own_board.size())
-	if tap.kind == PromptRules.Tap.CHOOSE:
-		_choose(tap.index)
-	elif tap.kind == PromptRules.Tap.LIFT:
-		card_lift.lift(card)
+	await _prompt.apply_tap(tap, card)
+
+
+## The reader's button (R42): submits the lifted option, then sets the card down (R57).
+func _on_action_pressed() -> void:
+	var option: int = _prompt.lifted_option
+	if option < 0 or not _prompt.is_open():
+		return
+	_choose(option)
+	_prompt.put_down()
 
 
 # --- Card helpers ------------------------------------------------------------------------
@@ -615,6 +650,8 @@ func _clear_table_now() -> void:
 	_drag_from_hand = false
 	_over_row = false
 	_tracker.reset()
+	_tally.hide_all()
+	_chips.clear()
 	_fx.reset()
 	_refresh_scores()
 	var zeros: Array[int] = [0, 0]
@@ -869,6 +906,9 @@ func _place_of(card: Card3D) -> int:
 ## A tap puts a held card down and does nothing else (R5); otherwise it lifts the card under
 ## it if the rules allow (R1, R2), never during a drag or a pause (R7).
 func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
+	if _prompt.is_open() and not _paused:
+		_tap_prompt(_card_from_hit(hit))
+		return
 	if card_lift.is_holding():
 		card_lift.put_down()
 		return
@@ -876,9 +916,6 @@ func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
 		return
 	var card: BoardCard = _card_from_hit(hit)
 	if card == null:
-		return
-	if _prompt.is_open():
-		_tap_prompt(card)
 		return
 	var place: int = _place_of(card)
 	if place < 0:
@@ -898,13 +935,15 @@ func _card_from_hit(hit: Object) -> BoardCard:
 
 
 func _on_card_lifted(_card: BoardCard) -> void:
-	hud.visible = false
+	# The prompt's banner and the action button live in the HUD, so it stays up (R40).
+	hud.visible = _prompt.is_open()
 	player_hand.hover_disabled = true
 	player_row.hover_disabled = true
 	_refresh_commit_enabled()
 
 
 func _on_card_put_down(_card: BoardCard) -> void:
+	_prompt.lift_ended()
 	hud.visible = true
 	player_hand.hover_disabled = false
 	player_row.hover_disabled = false

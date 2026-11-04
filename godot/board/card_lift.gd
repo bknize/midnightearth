@@ -33,6 +33,8 @@ var held: BoardCard = null
 var _rest_alpha: float = 0.0
 var _mode: Mode = Mode.IDLE
 var _stand_in: BoardCard = null
+## True while the stand-in shows the face of a face-down card (R45).
+var _flipped_up: bool = false
 var _camera: Camera3D = null
 var _loose: Node3D = null
 var _dimmer: MeshInstance3D = null
@@ -91,8 +93,9 @@ func is_holding() -> bool:
 	return held != null
 
 
-## Picks the card up. Does nothing if a card is already held.
-func lift(card: BoardCard) -> void:
+## Picks the card up. Does nothing if a card is already held. `show_face` turns a face-down
+## card of the player's own face up in the lift (R45); it flips back down on put-down.
+func lift(card: BoardCard, show_face: bool = false) -> void:
 	if held != null or card == null or _camera == null or not _spawn.is_valid():
 		return
 	var made: Object = _spawn.call()
@@ -103,9 +106,13 @@ func lift(card: BoardCard) -> void:
 	stand_in.copy_face_from(card)
 	stand_in.disable_collision()
 	stand_in.global_transform = card.global_transform
+	_flipped_up = show_face and card.face_down
+	if _flipped_up:
+		stand_in.face_down = false
 	_stand_in = stand_in
 	held = card
 	card.visible = false
+	card.set_tilt_suspended(true)
 	_place_dimmer()
 	_begin(Mode.LIFTING, LIFT_TIME, stand_in.global_transform, DIMMER_ALPHA)
 	lifted.emit(card)
@@ -125,6 +132,9 @@ func put_down(duration: float = PUT_DOWN_TIME) -> void:
 			_finish()
 			return
 		var start: Transform3D = _stand_in.global_transform
+		if _flipped_up:
+			_stand_in.face_down = true
+			_flipped_up = false
 		_begin(Mode.PUTTING, duration, start, _rest_alpha)
 		if duration <= 0.0:
 			_finish()
@@ -200,9 +210,11 @@ func _finish() -> void:
 	var card: BoardCard = held if is_instance_valid(held) else null
 	if card != null:
 		card.visible = true
+		card.set_tilt_suspended(false)
 	if is_instance_valid(_stand_in):
 		_stand_in.queue_free()
 	_stand_in = null
+	_flipped_up = false
 	held = null
 	_mode = Mode.IDLE
 	_set_alpha(_rest_alpha)

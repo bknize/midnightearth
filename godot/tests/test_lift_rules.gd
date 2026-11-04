@@ -208,3 +208,30 @@ func test_effect_fizzle_and_choice_show_never_touch() -> void:
 	for kind: int in kinds:
 		var step: BoardStep = _named(kind, 0, 5)
 		assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.ROW, true)).is_false()
+
+
+# --- DC-06 steps (R37) ------------------------------------------------------------------
+
+
+func _card_step(kind: int, seat: int, card: int) -> BoardStep:
+	var step: BoardStep = BoardStep.new()
+	step.kind = kind
+	step.seat = seat
+	step.card = card
+	return step
+
+
+func test_destroy_mark_and_clear_destroyed_touch_only_the_held_card() -> void:
+	for kind: int in [BoardStep.Kind.DESTROY, BoardStep.Kind.CLEAR_DESTROYED]:
+		var named: BoardStep = _card_step(kind, 0, 7)
+		var other: BoardStep = _card_step(kind, 0, 8)
+		assert_bool(LiftRules.step_touches(named, 7, LiftRules.Place.ROW, false)).is_true()
+		assert_bool(LiftRules.step_touches(other, 7, LiftRules.Place.ROW, false)).is_false()
+
+
+func test_a_re_pulse_of_the_held_card_touches_it() -> void:
+	var pulse: BoardStep = _card_step(BoardStep.Kind.PULSE, 0, 7)
+	pulse.again = true
+	assert_bool(LiftRules.step_touches(pulse, 7, LiftRules.Place.ROW, false)).is_true()
+	var elsewhere: BoardStep = _card_step(BoardStep.Kind.PULSE, 0, 9)
+	assert_bool(LiftRules.step_touches(elsewhere, 7, LiftRules.Place.ROW, false)).is_false()

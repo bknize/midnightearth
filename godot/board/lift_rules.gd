@@ -12,7 +12,7 @@ static func may_lift(_place: Place, face_up: bool) -> bool:
 	return face_up
 
 
-## R9: would this step move, flip or remove the held card? `held_id` is the engine
+## R9: would this step move, flip, mark, re-pulse or remove the held card? `held_id` is the engine
 ## instance id; `held_place` and `held_staged` describe the card now.
 static func step_touches(
 	step: BoardStep, held_id: int, held_place: Place, held_staged: bool
@@ -21,10 +21,14 @@ static func step_touches(
 		BoardStep.Kind.CLEAR_TABLE:
 			return true
 		BoardStep.Kind.PULSE:
-			return step.seat == 0 and step.card == held_id
-		BoardStep.Kind.STATS, BoardStep.Kind.DESTROY, BoardStep.Kind.RETURN, \
-		BoardStep.Kind.DISCARD, BoardStep.Kind.BURN:
-			# Restat, remove or send away: the step names the held card.
+			# Your own card's pulse; an opponent's card only on a re-pulse (`again`), since its
+			# first reveal never touches a card being read (DC-04) (R37).
+			return held_id >= 0 and step.card == held_id and (step.seat == 0 or step.again)
+		BoardStep.Kind.STATS, BoardStep.Kind.DESTROY, BoardStep.Kind.CLEAR_DESTROYED:
+			# Restat, mark or clear: the step names the held card.
+			return held_id >= 0 and step.card == held_id
+		BoardStep.Kind.RETURN, BoardStep.Kind.DISCARD, BoardStep.Kind.BURN:
+			# Remove or send away: the step names the held card.
 			return held_id >= 0 and step.card == held_id
 		BoardStep.Kind.MOVE:
 			return _moves_row_of(step, held_id, held_place)

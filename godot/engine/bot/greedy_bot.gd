@@ -34,7 +34,8 @@ extends RefCounted
 ## Hidden information (R7, R38): the bot reads only its own SeatView (its hand, budget, row
 ## size, prompt, round and turn) and asks the engine only for previews of its own seat's
 ## candidates. A preview returns nothing but two scores, and the engine computes them with
-## the opponent's face-down cards treated as absent (MatchEngine.preview), so the scores are
+## the opponent's face-down cards scoring nothing (MatchEngine.preview: its face-down commit
+## absent, its unrevealed row cards inert in their slots; DC-06 R23), so the scores are
 ## a function of what the view already shows plus the bot's own cards. The choice therefore
 ## depends only on the seed and the view, and the bot can learn no hidden card through it.
 ##

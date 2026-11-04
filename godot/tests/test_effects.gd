@@ -7,7 +7,9 @@ extends GdUnitTestSuite
 ## preview's rule, hidden information), flat-up after every score, the energy carry (only
 ## while the card is on the row at turn end), the free first card (lost when unused),
 ## on-opponent-reveal (an in-memory card: no deck card uses it), and the round boundary.
-## The four prompt verbs (DC-05 T05) are in test_choices.gd.
+## The four prompt verbs (DC-05 T05) are in test_choices.gd. Since DC-06 the destroy marks
+## its card in place; the destroyed card's own rules (its flip, the live-only pick, the
+## carry and the turn-end clear) are in test_destroyed.gd.
 ##
 ## Walk cases build MatchStates directly. Engine cases play seed 1 and plant the effect
 ## card they need into a hand (_plant): a fixture shortcut, since which turn a given card
@@ -527,7 +529,10 @@ func _destroy_case(match_seed: int, recorder: Recorder) -> MatchState:
 	return state
 
 
-func test_destroy_picks_from_the_stream_and_the_card_leaves_at_once() -> void:
+## DC-06 R12-R14: the destroy marks the picked card in place; the row keeps its size, the
+## cursor still reaches the card's slot, and its flip is a CARD_REVEALED with `destroyed`
+## true and nothing after it (no effect, no score).
+func test_destroy_picks_from_the_stream_and_marks_the_card_in_place() -> void:
 	var source: int = _id(0, C19_DESTROY)
 	var row: Array[int] = [_id(1, C02), _id(1, C03), _id(1, C04), _id(1, C07)]
 	var picks: Dictionary = {}
@@ -535,30 +540,41 @@ func test_destroy_picks_from_the_stream_and_the_card_leaves_at_once() -> void:
 		var recorder: Recorder = Recorder.new()
 		var state: MatchState = _destroy_case(match_seed, recorder)
 		var events: Array[MatchEvent] = recorder.events
-		# The pick is the stream's first draw: pick_index over the row as it stands.
+		# The pick is the stream's first draw: pick_index over the live cards of the row.
 		var slot: int = MatchRng.new(match_seed).pick_index(row.size())
 		var target: int = row[slot]
 		picks[target] = true
-		var expected: Array[int] = [
-			REVEALED, FIRED, DESTROYED, SCORED, REVEALED, SCORED, REVEALED, SCORED, REVEALED, SCORED
-		]
+		var expected: Array[int] = [REVEALED, FIRED, DESTROYED, SCORED]
+		for at: int in range(row.size()):
+			expected.append(REVEALED)
+			if at != slot:
+				expected.append(SCORED)
 		assert_array(_kinds(events)).is_equal(expected)
-		# Face down when destroyed: private to its seat (orchestrator decision).
+		# Face down when destroyed: private to its seat (orchestrator decision, DC-06 R20).
 		_assert_event(events[2], DESTROYED, {"seat": 1, "card": target, "slot": slot}, 1)
 		var seen: MatchEvent = events[2].redacted_for(0)
 		assert_int(_payload_int(seen, "card")).is_equal(MatchEvent.HIDDEN_CARD)
 		assert_int(_payload_int(seen, "seat")).is_equal(1)
 		assert_int(_payload_int(seen, "slot")).is_equal(slot)
-		# It left the row at once and is never revealed or pulsed (R23).
+		# It keeps its slot, marked (R12); the row is the same size.
+		assert_array(state.seats[1].board).is_equal(row)
+		assert_bool(state.is_destroyed(target)).is_true()
+		assert_bool(state.card_state(target).destroyed).is_true()
+		assert_array(state.seats[1].burned).is_empty()
+		# The cursor flips it like any card (R14) and every reveal carries the flag.
+		assert_array(_cards_of(events, REVEALED)).is_equal(_typed([source] + row))
+		for reveal: MatchEvent in _of_kind(events, REVEALED):
+			var flagged: bool = reveal.payload["destroyed"]
+			assert_bool(flagged).is_equal(_payload_int(reveal, "card") == target)
+		# Nothing scores it (R13).
 		var rest: Array[int] = []
 		rest.assign(row)
 		rest.erase(target)
-		assert_array(state.seats[1].board).is_equal(rest)
-		assert_array(_cards_of(events, REVEALED)).is_equal(_typed([source] + rest))
 		assert_array(_cards_of(events, SCORED)).is_equal(_typed([source] + rest))
-		assert_bool(state.walk.pulsed.has(target)).is_false()
-		assert_bool(state.seats[1].is_revealed(target)).is_false()
-		assert_array(state.seats[1].burned).is_equal(_typed([target]))
+		assert_array(state.walk.cursor).is_equal(_typed([1, row.size()]))
+		assert_bool(state.seats[1].is_revealed(target)).is_true()
+		var held: Dictionary = state.to_dict()["card_states"]
+		assert_int(held.size()).is_equal(1)
 	# Two seeds differ.
 	assert_int(picks.size()).is_greater(1)
 
@@ -578,7 +594,9 @@ func test_destroy_with_one_seed_repeats() -> void:
 	assert_array(b_events).is_equal(a_events)
 
 
-func test_destroying_a_revealed_card_is_public_and_drops_its_modifiers() -> void:
+## A revealed card's destroy is public; the card keeps its modifiers and its slot until the
+## turn-end clear (DC-06 R12, R18, R22), which burns it with a public DESTROYED_CLEARED.
+func test_destroying_a_revealed_card_is_public_and_it_clears_at_turn_end() -> void:
 	var source: int = _id(0, C19_DESTROY)
 	var target: int = _id(1, C04)
 	var state: MatchState = _state(_typed([source]), _typed([target]), 0)
@@ -589,10 +607,23 @@ func test_destroying_a_revealed_card_is_public_and_drops_its_modifiers() -> void
 	var destroyed: Array[MatchEvent] = _of_kind(recorder.events, DESTROYED)
 	assert_int(destroyed.size()).is_equal(1)
 	_assert_event(destroyed[0], DESTROYED, {"seat": 1, "card": target, "slot": 0}, PUBLIC)
+	# Face up when destroyed: its pulse makes no event at all.
+	assert_array(_kinds(recorder.events)).is_equal(_typed([REVEALED, FIRED, DESTROYED, SCORED]))
+	assert_int(state.card_state(target).flat_delta).is_equal(2)
+	assert_bool(state.is_destroyed(target)).is_true()
+	assert_array(state.seats[1].board).is_equal(_typed([target]))
+	assert_int(state.scores[1]).is_equal(0)
+	# Turn end: it leaves for the burn pile, the mark and the modifiers with it.
+	var cleared: Array[MatchEvent] = EffectResolver.clear_destroyed(state)
+	assert_int(cleared.size()).is_equal(1)
+	var payload: Dictionary = {"seat": 1, "card": target, "slot": 0}
+	_assert_event(cleared[0], MatchEvent.Kind.DESTROYED_CLEARED, payload, PUBLIC)
 	assert_object(state.card_state(target)).is_null()
+	assert_bool(state.is_destroyed(target)).is_false()
 	assert_array(state.seats[1].board).is_empty()
 	assert_array(state.seats[1].revealed_ids()).is_empty()
-	assert_int(state.scores[1]).is_equal(0)
+	assert_array(state.seats[1].burned).is_equal(_typed([target]))
+	assert_array(EffectResolver.clear_destroyed(state)).is_empty()
 
 
 func test_a_preview_destroys_the_lowest_flat_card_without_the_stream() -> void:
@@ -608,8 +639,10 @@ func test_a_preview_destroys_the_lowest_flat_card_without_the_stream() -> void:
 	assert_bool(paused).is_false()
 	assert_array(recorder.events).is_empty()
 	assert_int(rng.state).is_equal(stream)
-	assert_array(state.seats[1].board).is_equal(_typed([_id(1, C04), _id(1, C08)]))
-	assert_array(state.seats[1].burned).is_equal(_typed([_id(1, C02)]))
+	# Marked in place (DC-06 R12, R23): the row keeps its three slots.
+	assert_array(state.seats[1].board).is_equal(row)
+	assert_bool(state.is_destroyed(_id(1, C02))).is_true()
+	assert_array(state.seats[1].burned).is_empty()
 	assert_array(state.scores).is_equal(_typed([7, 3 + 4]))
 
 

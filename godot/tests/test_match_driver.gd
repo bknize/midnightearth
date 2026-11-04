@@ -12,10 +12,18 @@ const MAX_ACTIONS: int = 2000
 const PROMPT_SEEDS: int = 10
 ## An index no prompt offers (options are positions in a zone of at most a few cards).
 const NOT_AN_OPTION: int = 99
-## Seed 1's pinned board result line (re-pinned at DC-05 T14, card data format 2). When
-## empty the test compares against a direct bot-vs-bot engine run instead.
+## Sentinel line meaning "not pinned yet".
+const LINE_UNPINNED: String = ""
+## Seed 1's pinned board result line, re-pinned at DC-06 T09 for rules version 3 (the DC-05
+## line was "Board: match ended seed=1 winner=0 wins=4-2 rounds=6 end=wins actions=114").
+## While it is LINE_UNPINNED the pinned-line test is skipped with LINE_SKIP_NOTE; the
+## autoplay test still compares against a direct bot-vs-bot engine run.
 const EXPECTED_LINE: String = (
-	"Board: match ended seed=1 winner=0 wins=4-2" + " rounds=6 end=wins actions=114"
+	"Board: match ended seed=1 winner=0 wins=4-3" + " rounds=7 end=wins actions=120"
+)
+const LINE_SKIP_NOTE: String = (
+	"re-pinned at DC-06 T09 (rules version 3): pin EXPECTED_LINE from seed 1's"
+	+ " 'Board: match ended' line"
 )
 ## Event kinds whose card ids are private to their owner.
 const PRIVATE_KINDS: Array[int] = [
@@ -161,13 +169,25 @@ func test_seed_1_autoplay_equals_the_smoke_match() -> void:
 		steps += 1
 	assert_bool(driver.is_over()).override_failure_message("not over after %d" % steps).is_true()
 	assert_bool(driver.bot_turn_due()).is_false()
-	var expected: String = EXPECTED_LINE
-	if expected == "":
-		expected = _smoke_line()
-	assert_str(driver.result_line()).is_equal(expected)
+	assert_str(driver.result_line()).is_equal(_smoke_line())
 	assert_int(driver.action_count()).is_equal(steps)
 	# R6: across the whole match, no seat-1 card id reached seat 0.
 	assert_array(leaks).override_failure_message("leaks: %s" % [leaks]).is_empty()
+
+
+## The seed-1 autoplay line equals the pinned EXPECTED_LINE. Skipped, with LINE_SKIP_NOTE
+## as the reason, until the orchestrator pins it at DC-06 T09.
+func test_seed_1_autoplay_prints_the_pinned_line(
+	_do_skip: bool = EXPECTED_LINE == LINE_UNPINNED, _skip_reason: String = LINE_SKIP_NOTE
+) -> void:
+	var driver: MatchDriver = MatchDriver.create(SEED, _db(), true)
+	driver.start()
+	var steps: int = 0
+	while driver.bot_turn_due() and steps < MAX_ACTIONS:
+		if not driver.play_bot().ok:
+			break
+		steps += 1
+	assert_str(driver.result_line()).is_equal(EXPECTED_LINE)
 
 
 func test_seat_0_concede_ends_the_match_with_concede() -> void:

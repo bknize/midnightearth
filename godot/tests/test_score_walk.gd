@@ -1,10 +1,14 @@
-# gdlint: disable=max-public-methods
+# gdlint: disable=max-public-methods,max-file-lines
 class_name TestScoreWalk
 extends GdUnitTestSuite
 ## ScoreWalk (R11-R18, plan P3-P5) and CardState: the walk's math (C2), its cursor (C4),
-## recomputation every turn (C3), the per-walk multiplier, pulse-once under row edits
-## (R16), effective stats from CardState, and a walk on a MatchState.duplicate() giving
-## the live engine's scores (the preview's basis, P12).
+## recomputation every turn (C3), the per-walk multiplier, effective stats from CardState,
+## and a walk on a MatchState.duplicate() giving the live engine's scores (the preview's
+## basis, P12). DC-06 T01 (R1-R11): the slot cursor, one pulse per slot (n + m pulses),
+## the score stage belonging to the slot through c12's swap (C23-C25: the card landing on
+## the pulsed slot scores now, the moved card later or not this walk), a card swapped
+## behind the cursor skipped (and left face down), a card swapped ahead of it scored again
+## with `again`. More slot-occupant cases live in test_slot_occupant.gd.
 ##
 ## Most states are built directly: rows of vanilla cards from the default card list, so no
 ## effect fires once T04 and T05 add them. Card instance ids are seat * DECK_SIZE + index.
@@ -13,8 +17,11 @@ const SEED: int = 1
 const SEARCH_SEEDS: int = 100
 const MAX_ACTIONS: int = 2000
 # Definition indices (= seat-0 instance ids) of the switch cases' cards.
+const C04: int = 3
 const C06_FLAT_UP: int = 5
+const C08: int = 7
 const C11: int = 10
+const C12_SWAP: int = 11
 const C13_SWITCH: int = 12
 
 var _cached_db: CardDb = null
@@ -359,10 +366,21 @@ func test_the_multiplier_resets_per_walk() -> void:
 	var first_scores: Array[int] = []
 	first_scores.assign(state.scores)
 	assert_array(state.walk.mult).is_equal(_typed([2, 2]))
+	# Each cursor passed its whole row; every card scored once (DC-06 P1, P3).
+	var all_cards: Array[int] = []
+	all_cards.append_array(row)
+	all_cards.append_array(other)
+	assert_array(state.walk.cursor).is_equal(_typed([2, 1]))
+	assert_array(state.walk.scored_ids()).is_equal(_sorted(all_cards))
+	var walk_dict: Dictionary = state.to_dict()["walk"]
+	assert_array(_state_ints(walk_dict, "cursor")).is_equal(_typed([2, 1]))
+	assert_array(_state_ints(walk_dict, "scored")).is_equal(_sorted(all_cards))
+	assert_bool(walk_dict.has("pulsed")).is_false()
 	ScoreWalk.begin(state)
 	assert_array(state.walk.mult).is_equal(_typed([1, 1]))
 	assert_array(state.scores).is_equal(_typed([0, 0]))
-	assert_array(state.walk.pulsed_ids()).is_empty()
+	assert_array(state.walk.cursor).is_equal(_typed([0, 0]))
+	assert_array(state.walk.scored_ids()).is_empty()
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
 	# Same totals, not compounded by the first walk's multipliers.
@@ -374,31 +392,45 @@ func test_the_multiplier_resets_per_walk() -> void:
 	assert_array(_of_kind(recorder.events, MatchEvent.Kind.CARD_REVEALED)).is_empty()
 
 
-# --- R16: each card pulses once, whatever moves ---------------------------------------
+# --- DC-06 R1-R11: the slot cursor ----------------------------------------------------
 
 
-## A swap that moves a pulsed card right past unpulsed ones and a destroy of an unpulsed
-## card, both made between steps: the moved card is not pulsed again, the cards it jumped
-## are, and the destroyed card never is.
-func test_swap_and_destroy_mid_walk_never_pulse_a_card_twice() -> void:
+## The `again` flags of `events`' CARD_SCORED, in order.
+func _again_flags(events: Array[MatchEvent]) -> Array[bool]:
+	var out: Array[bool] = []
+	for event: MatchEvent in _of_kind(events, MatchEvent.Kind.CARD_SCORED):
+		var flag: bool = event.payload["again"]
+		out.append(flag)
+	return out
+
+
+## Row edits made between steps (DC-06 R6, R7): the cursor follows slots, not cards. A
+## scored card swapped ahead of the cursor scores again there (`again` true), a card
+## swapped onto a passed slot is not reached, and a card taken off a row ahead of the
+## cursor is simply absent.
+func test_row_edits_between_steps_follow_the_slot_cursor() -> void:
 	var own: Array[int] = _vanilla_cards(0, 4)
 	var theirs: Array[int] = _vanilla_cards(1, 2)
 	var state: MatchState = _state(own, theirs, 0)
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
+	assert_vector(ScoreWalk.next_slot(state)).is_equal(Vector2i(0, 0))
 	ScoreWalk.step(state, _db(), null, recorder.record, null)
-	# Swap the pulsed slot-0 card with the unpulsed slot-2 card (swap behind).
+	assert_array(state.walk.cursor).is_equal(_typed([1, 0]))
+	assert_vector(ScoreWalk.next_slot(state)).is_equal(Vector2i(1, 0))
+	# Swap the scored slot-0 card with the slot-2 card: own[0] lands ahead of the cursor,
+	# own[2] on the passed slot 0.
 	var row: Array[int] = state.seats[0].board
 	var held: int = row[0]
 	row[0] = row[2]
 	row[2] = held
 	ScoreWalk.step(state, _db(), null, recorder.record, null)
 	ScoreWalk.step(state, _db(), null, recorder.record, null)
-	# Destroy seat 1's unpulsed card before its turn comes (destroy ahead).
+	# Take seat 1's slot-1 card off its row before the cursor reaches it.
 	var doomed: int = theirs[1]
 	state.seats[1].board.erase(doomed)
 	state.clear_card_state(doomed)
-	# Swap seat 0's two unpulsed cards (swap ahead): order follows the row as it is now.
+	# Swap own[1] (scored at slot 1) with own[3] (slot 3, ahead).
 	var ahead: Array[int] = state.seats[0].board
 	var b_at: int = ahead.find(own[1])
 	var d_at: int = ahead.find(own[3])
@@ -408,13 +440,206 @@ func test_swap_and_destroy_mid_walk_never_pulse_a_card_twice() -> void:
 	while state.walk.active and guard < 20:
 		ScoreWalk.step(state, _db(), null, recorder.record, null)
 		guard += 1
-	var pulsed: Array[int] = _cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)
-	var expected: Array[int] = [own[0], theirs[0], own[2], own[3], own[1]]
-	assert_array(pulsed).is_equal(expected)
-	for card: int in pulsed:
-		assert_int(pulsed.count(card)).is_equal(1)
-	assert_bool(pulsed.has(doomed)).is_false()
-	assert_array(state.walk.pulsed_ids()).is_equal(_sorted(expected))
+	var scored: Array[int] = _cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)
+	var expected: Array[int] = [own[0], theirs[0], own[1], own[0], own[1]]
+	assert_array(scored).is_equal(expected)
+	var want_again: Array[bool] = [false, false, false, true, true]
+	assert_array(_again_flags(recorder.events)).is_equal(want_again)
+	# own[2] and own[3] sat on passed slots and were never reached; nor was the taken card.
+	for skipped: int in [own[2], own[3]]:
+		assert_bool(scored.has(skipped)).is_false()
+		assert_bool(state.seats[0].is_revealed(skipped)).is_false()
+	assert_bool(scored.has(doomed)).is_false()
+	assert_bool(state.seats[1].is_revealed(doomed)).is_false()
+	assert_array(state.walk.cursor).is_equal(_typed([4, 1]))
+
+
+## Seat 0 [a (revealed c04), c12, b (face-down c08)] against seat 1's two face-down vanilla
+## cards, seat 0 first. The walk pulses a, seat 1's slot 0, then reveals c12, whose swap
+## prompts over a (slot 0) and b (slot 2).
+func _swap_state() -> MatchState:
+	var row: Array[int] = [C04, C12_SWAP, C08]
+	var state: MatchState = _state(row, _vanilla_cards(1, 2), 0)
+	state.seats[0].revealed[C04] = true
+	return state
+
+
+## Walks `state` from begin() to its end with the default cards, answering every prompt
+## with position `answer` of its zone. Returns the number of pulses: the steps that passed
+## a slot (a resumed pulse and the walk's last, empty step are not pulses).
+func _walk_answering(state: MatchState, answer: int, recorder: Recorder) -> int:
+	ScoreWalk.begin(state)
+	var pulses: int = 0
+	var guard: int = 0
+	while state.walk.active and guard < 100:
+		guard += 1
+		if state.walk.paused_card < 0 and ScoreWalk.next_slot(state).x >= 0:
+			pulses += 1
+		if ScoreWalk.step(state, _db(), null, recorder.record, null):
+			recorder.events.append_array(EffectResolver.answer(state, _db(), answer))
+	return pulses
+
+
+## The CARD_SCORED events of `events` for `card`, in order.
+func _scores_of(events: Array[MatchEvent], card: int) -> Array[MatchEvent]:
+	var out: Array[MatchEvent] = []
+	for event: MatchEvent in _of_kind(events, MatchEvent.Kind.CARD_SCORED):
+		if _payload_int(event, "card") == card:
+			out.append(event)
+	return out
+
+
+## R4: whatever c12 swaps with, a walk over rows of n and m slots pulses n + m times, and
+## both cursors end at their row's size. Each answer scores five times: a twice and b, or
+## b and c12 once each (C23).
+func test_a_walk_pulses_each_slot_once() -> void:
+	for answer: int in [0, 2]:
+		var state: MatchState = _swap_state()
+		var sizes: Array[int] = [state.seats[0].board.size(), state.seats[1].board.size()]
+		var recorder: Recorder = Recorder.new()
+		var pulses: int = _walk_answering(state, answer, recorder)
+		var where: String = "answer %d" % answer
+		assert_int(pulses).override_failure_message(where).is_equal(sizes[0] + sizes[1])
+		assert_array(state.walk.cursor).override_failure_message(where).is_equal(sizes)
+		var scored: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.CARD_SCORED)
+		assert_int(scored.size()).override_failure_message(where).is_equal(5)
+		assert_bool(state.walk.active).is_false()
+	# Rows of 3 and 1 with no effect: 4 pulses.
+	var plain: MatchState = _state(_vanilla_cards(0, 3), _vanilla_cards(1, 1), 1)
+	assert_int(_walk_answering(plain, 0, Recorder.new())).is_equal(4)
+
+
+## C23, C25 (R5, R7, R9, R11; spec scenario 1): c12 at slot 1 swaps with a, already scored
+## at slot 0. a, now on the pulsed slot 1, scores again in this pulse (`again`); c12, on the
+## passed slot 0, does not score this walk; the cursor pulses b at slot 2 next.
+func test_a_swap_behind_scores_the_card_now_on_the_slot_again() -> void:
+	var theirs: Array[int] = _vanilla_cards(1, 2)
+	var state: MatchState = _swap_state()
+	var recorder: Recorder = Recorder.new()
+	_walk_answering(state, 0, recorder)
+	assert_array(state.seats[0].board).is_equal(_typed([C12_SWAP, C04, C08]))
+	var expected: Array[int] = [C04, theirs[0], C04, theirs[1], C08]
+	assert_array(_cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)).is_equal(expected)
+	var want_again: Array[bool] = [false, false, true, false, false]
+	assert_array(_again_flags(recorder.events)).is_equal(want_again)
+	var a_scores: Array[MatchEvent] = _scores_of(recorder.events, C04)
+	assert_int(_payload_int(a_scores[0], "slot")).is_equal(0)
+	assert_int(_payload_int(a_scores[1], "slot")).is_equal(1)
+	assert_int(_payload_int(a_scores[1], "added")).is_equal(3)
+	# c12 revealed and swapped, and never scored this walk.
+	assert_array(_scores_of(recorder.events, C12_SWAP)).is_empty()
+	assert_bool(state.walk.scored.has(C12_SWAP)).is_false()
+	var revealed: Array[int] = _cards_of(recorder.events, MatchEvent.Kind.CARD_REVEALED)
+	assert_array(revealed).is_equal(_typed([theirs[0], C12_SWAP, theirs[1], C08]))
+	# c04 3 twice + c08 4.
+	assert_int(state.scores[0]).is_equal(10)
+
+
+## C23, C24 (R5, R6, R11; spec scenario 2): c12 at slot 1 swaps with b, face down at slot 2.
+## b, now on the pulsed slot 1, reveals in full after the move and scores in this pulse; c12
+## scores once, when the cursor reaches slot 2 (`again` false).
+func test_a_swap_ahead_reveals_the_card_now_on_the_slot_and_scores_the_mover_later() -> void:
+	var theirs: Array[int] = _vanilla_cards(1, 2)
+	var state: MatchState = _swap_state()
+	var recorder: Recorder = Recorder.new()
+	_walk_answering(state, 2, recorder)
+	assert_array(state.seats[0].board).is_equal(_typed([C04, C08, C12_SWAP]))
+	var expected: Array[int] = [C04, theirs[0], C08, theirs[1], C12_SWAP]
+	assert_array(_cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)).is_equal(expected)
+	var want_again: Array[bool] = [false, false, false, false, false]
+	assert_array(_again_flags(recorder.events)).is_equal(want_again)
+	var b_scores: Array[MatchEvent] = _scores_of(recorder.events, C08)
+	assert_int(_payload_int(b_scores[0], "slot")).is_equal(1)
+	var c12_scores: Array[MatchEvent] = _scores_of(recorder.events, C12_SWAP)
+	assert_int(c12_scores.size()).is_equal(1)
+	assert_int(_payload_int(c12_scores[0], "slot")).is_equal(2)
+	assert_int(_payload_int(c12_scores[0], "added")).is_equal(4)
+	# b's reveal follows the move, at slot 1, and precedes its score; c12 reveals once.
+	var revealed: Array[int] = _cards_of(recorder.events, MatchEvent.Kind.CARD_REVEALED)
+	assert_array(revealed).is_equal(_typed([theirs[0], C12_SWAP, C08, theirs[1]]))
+	var moved_at: int = -1
+	var b_revealed_at: int = -1
+	var b_scored_at: int = -1
+	for i: int in range(recorder.events.size()):
+		var event: MatchEvent = recorder.events[i]
+		if event.kind == MatchEvent.Kind.CARD_MOVED:
+			moved_at = i
+		elif event.kind == MatchEvent.Kind.CARD_REVEALED:
+			if _payload_int(event, "card") == C08:
+				b_revealed_at = i
+				assert_int(_payload_int(event, "slot")).is_equal(1)
+		elif event.kind == MatchEvent.Kind.CARD_SCORED:
+			if _payload_int(event, "card") == C08:
+				b_scored_at = i
+	assert_int(b_revealed_at).is_greater(moved_at)
+	assert_int(b_scored_at).is_greater(b_revealed_at)
+	# c04 3 + c08 4 + c12 4.
+	assert_int(state.scores[0]).is_equal(11)
+	assert_bool(state.walk.scored.has(C12_SWAP)).is_true()
+	assert_bool(state.walk.scored.has(C08)).is_true()
+
+
+## C5, R8: a face-down card moved behind the cursor (here by a row edit between steps:
+## c12's swap now reveals the card it puts on the pulsed slot, C24) stays face down for the
+## rest of the walk with no reveal event, and the next walk reveals it in slot order and
+## scores it.
+func test_a_face_down_card_swapped_behind_reveals_in_the_next_walk() -> void:
+	var row: Array[int] = _vanilla_cards(0, 3)
+	var none: Array[int] = []
+	var state: MatchState = _state(row, none, 0)
+	var first: Recorder = Recorder.new()
+	ScoreWalk.begin(state)
+	ScoreWalk.step(state, _db(), null, first.record, null)
+	# row[0] scored at slot 0; it swaps with row[2], face down at slot 2.
+	state.seats[0].board.assign([row[2], row[1], row[0]])
+	var guard: int = 0
+	while state.walk.active and guard < 10:
+		ScoreWalk.step(state, _db(), null, first.record, null)
+		guard += 1
+	assert_bool(_cards_of(first.events, MatchEvent.Kind.CARD_REVEALED).has(row[2])).is_false()
+	assert_bool(state.seats[0].is_revealed(row[2])).is_false()
+	var first_scored: Array[int] = _cards_of(first.events, MatchEvent.Kind.CARD_SCORED)
+	assert_array(first_scored).is_equal(_typed([row[0], row[1], row[0]]))
+	var second: Recorder = Recorder.new()
+	_walk(state, second)
+	# The others are face up now: row[2] reveals once, at slot 0, and scores.
+	var revealed: Array[MatchEvent] = _of_kind(second.events, MatchEvent.Kind.CARD_REVEALED)
+	assert_int(revealed.size()).is_equal(1)
+	assert_int(_payload_int(revealed[0], "card")).is_equal(row[2])
+	assert_int(_payload_int(revealed[0], "slot")).is_equal(0)
+	var second_scored: Array[int] = _cards_of(second.events, MatchEvent.Kind.CARD_SCORED)
+	assert_array(second_scored).is_equal(_typed([row[2], row[1], row[0]]))
+	assert_bool(state.seats[0].is_revealed(row[2])).is_true()
+
+
+## C4, R9: c06 (on-score flat-up, printed flat 1) scored at slot 0, then moved ahead of the
+## cursor by a scripted swap: its second pulse scores the flat it gained (base + 1) and
+## fires its on-score effect again, leaving it at base + 2.
+func test_an_on_score_card_scored_twice_gains_twice() -> void:
+	var card: int = C06_FLAT_UP
+	var other: int = _vanilla_cards(0, 1)[0]
+	var none: Array[int] = []
+	var state: MatchState = _state(_typed([card, other]), none, 0)
+	var recorder: Recorder = Recorder.new()
+	ScoreWalk.begin(state)
+	ScoreWalk.step(state, _db(), null, recorder.record, null)
+	# Swap c06 (slot 0, passed) with the card at slot 1 (ahead).
+	state.seats[0].board.assign([other, card])
+	var guard: int = 0
+	while state.walk.active and guard < 10:
+		ScoreWalk.step(state, _db(), null, recorder.record, null)
+		guard += 1
+	assert_array(_cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)).is_equal(
+		_typed([card, card])
+	)
+	var scores: Array[MatchEvent] = _scores_of(recorder.events, card)
+	assert_int(_payload_int(scores[0], "flat")).is_equal(1)
+	assert_int(_payload_int(scores[1], "flat")).is_equal(2)
+	var want_again: Array[bool] = [false, true]
+	assert_array(_again_flags(recorder.events)).is_equal(want_again)
+	assert_int(_of_kind(recorder.events, MatchEvent.Kind.STATS_CHANGED).size()).is_equal(2)
+	assert_int(state.card_state(card).flat_delta).is_equal(2)
+	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(3, 0))
 
 
 # --- P4: effective stats from CardState -----------------------------------------------
@@ -469,6 +694,7 @@ func test_a_switch_after_two_flat_ups_swaps_the_raised_flat() -> void:
 		"flat_delta": 0,
 		"bonus_zero": false,
 		"return_marked": false,
+		"destroyed": false,
 	}
 	assert_dict(held.to_dict()).is_equal(expected)
 
@@ -573,6 +799,7 @@ func test_card_states_are_in_the_full_state_and_cleared_at_round_start() -> void
 		"flat_delta": 2,
 		"bonus_zero": false,
 		"return_marked": false,
+		"destroyed": false,
 	}
 	assert_dict(entry).is_equal(expected)
 	assert_bool(plain.has("walk")).is_true()
@@ -803,7 +1030,8 @@ func test_reveal_puts_cards_on_boards_and_scores_in_state() -> void:
 ## turns with a choice (DC-05 T05): a swap reorders the row, a switch changes cards already
 ## scored, a return takes a scored card off the row at turn end. A turn's events are
 ## gathered across every action of its walk, since a prompt splits the walk over two or
-## more applies; every such live walk is also checked to pulse each card once (R16).
+## more applies; every such live walk is also checked for its `again` flags and for no
+## unmoved card left unscored (DC-06 R4, P3).
 func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 	var engine: MatchEngine = MatchEngine.create(SEED, _db())
 	assert_bool(engine.start().ok).is_true()
@@ -825,7 +1053,7 @@ func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 			continue
 		var walk_events: Array[MatchEvent] = _this_walk(turn_events)
 		turn_events.clear()
-		var scored: Dictionary = _assert_each_card_scored_once(walk_events)
+		var scored: Dictionary = _assert_again_flags(walk_events)
 		if not _of_kind(result.events, MatchEvent.Kind.ROUND_STARTED).is_empty():
 			continue
 		if engine.is_over():
@@ -862,22 +1090,32 @@ func _this_walk(events: Array[MatchEvent]) -> Array[MatchEvent]:
 	return out
 
 
-## R16 on the live walk, prompts included: no card scores twice in one walk. Returns the
-## scored cards as a set.
-func _assert_each_card_scored_once(walk_events: Array[MatchEvent]) -> Dictionary:
+## DC-06 P3 on the live walk, prompts included: a card scores twice in one walk only when
+## a swap moved it ahead of the cursor or onto the slot being pulsed (C25), and every
+## CARD_SCORED's `again` says whether the card had already scored in this walk. A card no
+## CARD_MOVED names scores at most once.
+## Returns the scored cards as a set.
+func _assert_again_flags(walk_events: Array[MatchEvent]) -> Dictionary:
+	var moved: Array[int] = _cards_of(walk_events, MatchEvent.Kind.CARD_MOVED)
 	var seen: Dictionary = {}
 	for event: MatchEvent in _of_kind(walk_events, MatchEvent.Kind.CARD_SCORED):
 		var card: int = _payload_int(event, "card")
-		assert_bool(seen.has(card)).override_failure_message("card %d twice" % card).is_false()
+		var again: bool = event.payload["again"]
+		var message: String = "card %d again=%s" % [card, again]
+		assert_bool(again).override_failure_message(message).is_equal(seen.has(card))
+		if again:
+			assert_bool(moved.has(card)).override_failure_message(message).is_true()
 		seen[card] = true
 	return seen
 
 
-## No pulse lost (R16): every card still on a row after the turn, and every card a return
-## took off at turn end, was scored in the walk.
+## No pulse lost (R4): every card still on a row after the turn, and every card a return
+## took off at turn end, was scored in the walk, except a card a swap moved (it may have
+## landed on a slot the cursor had passed, DC-06 R7, R11).
 func _assert_no_card_skipped(
 	engine: MatchEngine, walk_events: Array[MatchEvent], seen: Dictionary
 ) -> void:
+	var moved: Array[int] = _cards_of(walk_events, MatchEvent.Kind.CARD_MOVED)
 	var expected: Array[int] = []
 	for seat: int in range(MatchEngine.SEATS):
 		expected.append_array(_board(engine, seat))
@@ -886,6 +1124,8 @@ func _assert_no_card_skipped(
 		if not event.is_private():
 			expected.append(_payload_int(event, "card"))
 	for card: int in expected:
+		if moved.has(card):
+			continue
 		assert_bool(seen.has(card)).override_failure_message("card %d not scored" % card).is_true()
 
 
@@ -921,7 +1161,8 @@ func test_duplicate_is_deep() -> void:
 	copy.card_state_for(row[0]).flat_delta = 9
 	copy.energy.carry[1] = 0
 	copy.walk.mult[0] = 7
-	copy.walk.pulsed.clear()
+	copy.walk.cursor[0] = 9
+	copy.walk.scored.clear()
 	copy.scores[0] = 99
 	copy.result["winner"] = 1
 	assert_dict(state.to_dict()).is_equal(before)

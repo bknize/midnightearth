@@ -156,15 +156,27 @@ func clear_card_state(card: int) -> bool:
 	return card_states.erase(card)
 
 
-## Takes `card` off `seat`'s row (a destroy, R23; a return, R24): it leaves the row and
-## the revealed set, and its modifiers go (R21). Returns whether the card had been
-## revealed; false, changing nothing, when it was not on that row. Read the card's slot
-## before calling. Where the card goes next is the caller's call.
+## Whether `card` is destroyed (DC-06 R12, P4): still on its row, scoring and firing
+## nothing, until turn end clears it (EffectResolver.clear_destroyed).
+func is_destroyed(card: int) -> bool:
+	var held: CardState = card_state(card)
+	return held != null and held.destroyed
+
+
+## Takes `card` off `seat`'s row (a return at turn end, R24; the turn-end clear of a
+## destroyed card, DC-06 R18): it leaves the row and the revealed set, and its modifiers go
+## (R21), the destroyed mark with them (R22). Returns whether the card had been revealed;
+## false, changing nothing, when it was not on that row. Read the card's slot before
+## calling. Where the card goes next is the caller's call. The live engine calls it only
+## once a walk is over, so the walk's slot cursor never follows a row that shrinks (DC-06
+## P1); the preview's MatchEngine._hide_opponent marks hidden cards destroyed in place
+## instead of taking them (DC-06 P7), so no caller shrinks a row mid-walk.
 func take_from_row(seat: int, card: int) -> bool:
 	var piles: SeatPiles = seats[seat]
-	if not piles.board.has(card):
+	var slot: int = piles.board.find(card)
+	if slot < 0:
 		return false
-	piles.board.erase(card)
+	piles.board.remove_at(slot)
 	if clear_card_state(card):
 		pass  # Its modifiers leave the board with it; nothing else to do.
 	return piles.revealed.erase(card)
@@ -253,33 +265,41 @@ class EnergyState:
 		}
 
 
-## The score walk's progress (plan P3, P5), written only by ScoreWalk. `active` holds from
-## ScoreWalk.begin() until a step finds no card left to pulse. `next_seat` is the seat whose
-## row is tried first on the next pulse; `pulsed` holds every card pulsed in this walk, so
-## nothing is pulsed twice whatever moves; `mult` is each seat's running multiplier.
-## `paused_card` is the card whose pulse a prompt interrupted (-1 when none), with the
-## ScoreWalk.Stage to resume at and, for the WATCHERS stage, the pulse's watcher snapshot
-## (the on-opponent-reveal cards in row order when the stage first ran; empty when it has
-## not run yet) and the snapshot index it goes on from (DC-05 T05, T13).
+## The score walk's progress (plan P3, P5; DC-06 P1, P3), written only by ScoreWalk.
+## `active` holds from ScoreWalk.begin() until a step finds no slot left to pulse.
+## `next_seat` is the seat whose row is tried first on the next pulse; `cursor` is, per
+## seat, the number of that row's slots the walk has passed (R1), so the next slot of a row
+## is its cursor; `scored` holds every card scored at least once in this walk (a card moved
+## in front of the cursor scores again, CARD_SCORED `again`); `mult` is each seat's
+## running multiplier.
+## `paused_card` is the card whose stage a prompt interrupted (-1 when none): the card
+## revealing or scoring in the pulse, which may not be the card the pulse started on (DC-06
+## C23). `paused_slot` is the slot of the pulse's row it was pulsing (-1 when none), so a
+## resume scores whatever card holds that slot. With them, the ScoreWalk.Stage to resume at
+## and, for the WATCHERS stage, the watcher snapshot (the on-opponent-reveal cards in row
+## order when the stage first ran; empty when it has not run yet) and the snapshot index it
+## goes on from (DC-05 T05, T13).
 class WalkState:
 	extends RefCounted
 
 	var active: bool = false
 	var next_seat: int = 0
-	var pulsed: Dictionary[int, bool] = {}
+	var cursor: Array[int] = [0, 0]
+	var scored: Dictionary[int, bool] = {}
 	var mult: Array[int] = [1, 1]
 	## Cards revealed so far in this walk: the CARD_REVEALED `order` the board still reads
 	## (kept until the board moves to the walk's events, DC-05 T08 and T11).
 	var reveals: int = 0
 	var paused_card: int = -1
+	var paused_slot: int = -1
 	var paused_stage: int = 0
 	var paused_watchers: Array[int] = []
 	var paused_watcher_at: int = 0
 
-	## The pulsed card ids, ascending.
-	func pulsed_ids() -> Array[int]:
+	## The ids of the cards scored in this walk, ascending.
+	func scored_ids() -> Array[int]:
 		var out: Array[int] = []
-		out.assign(pulsed.keys())
+		out.assign(scored.keys())
 		out.sort()
 		return out
 
@@ -287,10 +307,12 @@ class WalkState:
 		var out: WalkState = WalkState.new()
 		out.active = active
 		out.next_seat = next_seat
-		out.pulsed.assign(pulsed)
+		out.cursor.assign(cursor)
+		out.scored.assign(scored)
 		out.mult.assign(mult)
 		out.reveals = reveals
 		out.paused_card = paused_card
+		out.paused_slot = paused_slot
 		out.paused_stage = paused_stage
 		out.paused_watchers.assign(paused_watchers)
 		out.paused_watcher_at = paused_watcher_at
@@ -300,10 +322,12 @@ class WalkState:
 		return {
 			"active": active,
 			"next_seat": next_seat,
-			"pulsed": MatchState.plain(pulsed_ids()),
+			"cursor": MatchState.plain(cursor),
+			"scored": MatchState.plain(scored_ids()),
 			"mult": MatchState.plain(mult),
 			"reveals": reveals,
 			"paused_card": paused_card,
+			"paused_slot": paused_slot,
 			"paused_stage": paused_stage,
 			"paused_watchers": MatchState.plain(paused_watchers),
 			"paused_watcher_at": paused_watcher_at,

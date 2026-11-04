@@ -36,20 +36,33 @@ var _last_move: Vector3i = NO_MOVE
 # --- The walk ---------------------------------------------------------------------------
 
 
-## A pulse (R51): the card lifts and settles; a first reveal also flips it face up.
+## The card a pulse step is about, once pulse() has run (the chips go above it), or null.
+func card_for(step: BoardStep) -> BoardCard:
+	if step.seat == 0:
+		return _player_card(step.card)
+	return _find_in_row(step.seat, step.card, step.slot)
+
+
+## A pulse (R51): the card lifts and settles; a first reveal also flips it face up. A
+## destroyed reveal only flips (no lift, R28); an `again` pulse is the short revealed pulse.
 func pulse(step: BoardStep) -> void:
 	if step.revealed:
 		var seen: BoardCard = _find_in_row(step.seat, step.card, step.slot)
 		if seen != null:
 			_lift_and_settle(seen, step.duration)
 		return
+	var lift: bool = not step.destroyed
+	# The flip keeps the reveal's own time; a scoring reveal's step is longer only so its
+	# chips can follow the flip (chip_delay, R31).
+	var flip_time: float = step.chip_delay if step.chip_delay > 0.0 else step.duration
 	if step.seat == 0:
 		var own: BoardCard = _player_card(step.card)
 		if own == null:
 			return
-		_lift_and_settle(own, step.duration)
+		if lift:
+			_lift_and_settle(own, step.duration)
 		if face_down_ids.erase(step.card):
-			_flip_up(own, step.duration)
+			_flip_up(own, flip_time)
 		return
 	var card: BoardCard = _opponent_card_at(step.slot)
 	if card == null:
@@ -57,8 +70,9 @@ func pulse(step: BoardStep) -> void:
 		return
 	card.instance_id = step.card
 	show(card, step)
-	_lift_and_settle(card, step.duration)
-	_flip_up(card, step.duration)
+	if lift:
+		_lift_and_settle(card, step.duration)
+	_flip_up(card, flip_time)
 
 
 # --- Effect steps (P18, R53) ---------------------------------------------------------------
@@ -85,11 +99,21 @@ func stats(step: BoardStep) -> void:
 		card.show_stats(step.flat, step.bonus)
 
 
-## The card sweeps off its row and leaves the row collection.
+## The card is marked in place (R26): dim, tilt and crack fade in; it stays on its row,
+## face up or down.
 func destroy(step: BoardStep) -> void:
 	var card: BoardCard = _find_in_row(step.seat, step.card, step.slot)
 	if card == null:
 		push_warning("Board: a destroy found no card on seat %d's row" % step.seat)
+		return
+	card.set_destroyed(true, _row_of(step.seat).cards.find(card), step.duration)
+
+
+## At turn end the destroyed card sweeps off its row and leaves the collection (R29).
+func clear_destroyed(step: BoardStep) -> void:
+	var card: BoardCard = _find_in_row(step.seat, step.card, step.slot)
+	if card == null:
+		push_warning("Board: a clear found no card on seat %d's row" % step.seat)
 		return
 	_sweep_off_row(step.seat, card, step.duration)
 
