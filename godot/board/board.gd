@@ -74,6 +74,7 @@ var _scores: Array[int] = [0, 0]
 var _seed_fixed: bool = false
 var _paused: bool = false
 var _turn_energy: int = 0
+var _free_first: bool = false
 ## Seat 0's instance ids already committed this round; they stay on the row, unmovable.
 var _committed_ids: Dictionary[int, bool] = {}
 ## The drag in progress: the card, where it started, and whether the pointer was over the
@@ -191,7 +192,8 @@ func may_act() -> bool:
 ## A turn starts (R15, R16): staging is emptied for the turn's energy and Commit waits for
 ## the player to be awaited.
 func _on_turn_started(step: BoardStep) -> void:
-	_turn_energy = step.energy
+	_turn_energy = step.budget
+	_free_first = step.free_first
 	_unstage_all()
 
 
@@ -351,7 +353,7 @@ func _apply(step: BoardStep) -> void:
 			_burn(step)
 		BoardStep.Kind.TURN_START:
 			hud.set_round_turn(step.round_number, step.turn, step.round_number > MatchRules.ROUNDS)
-			hud.set_energy(step.energy, step.energy)
+			hud.set_energy(step.budget, step.budget)
 			_on_turn_started(step)
 		BoardStep.Kind.BOT_WAIT:
 			pass
@@ -359,8 +361,8 @@ func _apply(step: BoardStep) -> void:
 			_opponent_commit(step)
 		BoardStep.Kind.PLAYER_COMMIT:
 			_player_commit(step)
-		BoardStep.Kind.REVEAL:
-			_reveal(step)
+		BoardStep.Kind.PULSE:
+			_pulse(step)
 		BoardStep.Kind.TURN_END:
 			_scores.assign(step.scores)
 			hud.set_scores(_scores)
@@ -368,6 +370,15 @@ func _apply(step: BoardStep) -> void:
 			hud.set_wins(step.wins)
 		BoardStep.Kind.MATCH_END:
 			_match_end(step)
+		BoardStep.Kind.WALK_START, BoardStep.Kind.EFFECT, BoardStep.Kind.FIZZLE, \
+		BoardStep.Kind.CHOICE_SHOW, BoardStep.Kind.STATS, BoardStep.Kind.DESTROY, \
+		BoardStep.Kind.MOVE, BoardStep.Kind.RETURN, BoardStep.Kind.DISCARD:
+			# T11 animates these; until then the runner only waits out their duration.
+			pass
+		BoardStep.Kind.PROMPT:
+			# Untimed and a no-op until T12 opens the prompt: nothing here may block the
+			# runner, or the walk would deadlock.
+			pass
 
 
 func _deal(step: BoardStep) -> void:
@@ -418,21 +429,26 @@ func _player_commit(step: BoardStep) -> void:
 		_move_card(card, player_hand, player_row, PLAYER_COMMIT_TIME / speed)
 
 
-func _reveal(step: BoardStep) -> void:
-	if step.seat == 0:
-		var own: BoardCard = _player_card(step.card)
-		if own != null:
-			_lift_and_settle(own, step.duration)
-	else:
-		var card: BoardCard = _next_unrevealed()
-		if card == null:
-			push_warning("Board: a reveal found no face-down card on the opponent's row")
+## A pulse plays the way a reveal did: a first reveal flips the card face up; an already
+## revealed card has no motion until T11's lift-and-settle. The seat's displayed score gains
+## what the pulse added (the flat alone when the engine sent no score for it); TURN_END then
+## sets the exact totals.
+func _pulse(step: BoardStep) -> void:
+	if not step.revealed:
+		if step.seat == 0:
+			var own: BoardCard = _player_card(step.card)
+			if own != null:
+				_lift_and_settle(own, step.duration)
 		else:
-			card.instance_id = step.card
-			_show(card, step)
-			_flip_up(card, step.duration)
+			var card: BoardCard = _next_unrevealed()
+			if card == null:
+				push_warning("Board: a reveal found no face-down card on the opponent's row")
+			else:
+				card.instance_id = step.card
+				_show(card, step)
+				_flip_up(card, step.duration)
 	if step.seat >= 0 and step.seat < _scores.size():
-		_scores[step.seat] += step.flat
+		_scores[step.seat] += step.added if step.score >= 0 else step.flat
 	hud.set_scores(_scores)
 
 
@@ -667,10 +683,14 @@ func _normalize_row() -> void:
 			player_row.move_card(wanted[i], i)
 
 
+## How many played (committed) cards sit on the player's row: the first staged slot.
+func _played_count() -> int:
+	return player_row.cards.size() - _staged_cards().size()
+
+
 ## Row index of a staged card among the staged cards only.
 func _staged_index(card: Card3D) -> int:
-	var committed: int = player_row.cards.size() - _staged_cards().size()
-	return maxi(player_row.cards.find(card) - committed, 0)
+	return maxi(player_row.cards.find(card) - _played_count(), 0)
 
 
 ## Rebuilds staging from the row if it ever differs from it; any staged card that no longer
@@ -680,7 +700,7 @@ func _resync_staging() -> void:
 	for card: BoardCard in _staged_cards():
 		expected.append(card.instance_id)
 	if expected != staging.cards():
-		staging.reset(_turn_energy)
+		staging.reset(_turn_energy, _played_count(), _free_first)
 		var rejected: Array[BoardCard] = []
 		for card: BoardCard in _staged_cards():
 			var at_end: int = staging.cards().size()
@@ -695,7 +715,7 @@ func _resync_staging() -> void:
 func _unstage_all() -> void:
 	for card: BoardCard in _staged_cards():
 		_move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
-	staging.reset(_turn_energy)
+	staging.reset(_turn_energy, _played_count(), _free_first)
 	_refresh_staging_ui()
 
 

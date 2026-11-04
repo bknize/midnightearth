@@ -52,6 +52,15 @@ func _count_kind(steps: Array[BoardStep], kind: int) -> int:
 	return total
 
 
+## PULSE steps that flip their card (first reveals).
+func _count_flips(steps: Array[BoardStep]) -> int:
+	var total: int = 0
+	for step: BoardStep in steps:
+		if step.kind == BoardStep.Kind.PULSE and not step.revealed:
+			total += 1
+	return total
+
+
 func _count_events(events: Array[MatchEvent], kind: int) -> int:
 	var total: int = 0
 	for event: MatchEvent in events:
@@ -87,9 +96,7 @@ func test_step_order_follows_event_order() -> void:
 	assert_int(_count_kind(steps, BoardStep.Kind.TURN_START)).is_equal(
 		_count_events(events, MatchEvent.Kind.TURN_STARTED)
 	)
-	assert_int(_count_kind(steps, BoardStep.Kind.REVEAL)).is_equal(
-		_count_events(events, MatchEvent.Kind.CARD_REVEALED)
-	)
+	assert_int(_count_flips(steps)).is_equal(_count_events(events, MatchEvent.Kind.CARD_REVEALED))
 	assert_int(_count_kind(steps, BoardStep.Kind.ROUND_END)).is_equal(
 		_count_events(events, MatchEvent.Kind.ROUND_ENDED)
 	)
@@ -123,7 +130,7 @@ func test_reveal_steps_carry_engine_order_and_flat() -> void:
 	for step: BoardStep in _steps(1.0):
 		if step.kind == BoardStep.Kind.TURN_START:
 			next_order = 0
-		if step.kind != BoardStep.Kind.REVEAL:
+		if step.kind != BoardStep.Kind.PULSE or step.revealed:
 			continue
 		reveals += 1
 		var payload: Dictionary = step.source.payload
@@ -141,7 +148,7 @@ func test_reveal_steps_carry_engine_order_and_flat() -> void:
 	assert_int(reveals).is_greater(0)
 
 
-## Until DC-05 T03 adds the walk, a turn's score is the summed flat of its reveals.
+## A turn's score is what its pulses added (the flat alone when a pulse has no score yet).
 func test_summed_reveal_flat_equals_the_turn_end_scores() -> void:
 	var turn_totals: Array[int] = [0, 0]
 	var previous: Array[int] = [0, 0]
@@ -151,8 +158,8 @@ func test_summed_reveal_flat_equals_the_turn_end_scores() -> void:
 			turn_totals = [0, 0]
 			if step.turn == 1:
 				previous = [0, 0]
-		elif step.kind == BoardStep.Kind.REVEAL:
-			turn_totals[step.seat] += step.flat
+		elif step.kind == BoardStep.Kind.PULSE:
+			turn_totals[step.seat] += step.added if step.score >= 0 else step.flat
 		elif step.kind == BoardStep.Kind.TURN_END:
 			turn_ends += 1
 			assert_int(step.scores.size()).is_equal(2)
@@ -256,7 +263,7 @@ func test_an_opponent_commit_yields_the_bot_wait() -> void:
 		elif step.kind == BoardStep.Kind.PLAYER_COMMIT:
 			own += 1
 			assert_int(step.seat).is_equal(0)
-			assert_float(step.duration).is_equal_approx(0.0, EPSILON)
+			assert_float(step.duration).is_equal_approx(0.30, EPSILON)
 	assert_int(waits).is_greater(0)
 	assert_int(slides).is_equal(waits)
 	assert_int(own).is_greater(0)
@@ -292,3 +299,223 @@ func test_every_duration_at_speed_four_is_a_quarter() -> void:
 		if slow[i].duration > 0.0:
 			timed += 1
 	assert_int(timed).is_greater(0)
+
+
+# --- Walk and effect steps (P17, P18) ---------------------------------------------------
+
+
+func _reveal_event(card: int, seat: int = 0) -> MatchEvent:
+	return _event(
+		MatchEvent.Kind.CARD_REVEALED,
+		{"seat": seat, "card": card, "def_id": "c01", "slot": 1, "flat": 2, "bonus": 1, "order": 0}
+	)
+
+
+func _scored_event(card: int, seat: int = 0) -> MatchEvent:
+	return _event(
+		MatchEvent.Kind.CARD_SCORED,
+		{
+			"seat": seat,
+			"card": card,
+			"slot": 1,
+			"flat": 2,
+			"bonus": 1,
+			"mult": 3,
+			"added": 9,
+			"score": 12,
+		}
+	)
+
+
+func _one(event: MatchEvent, speed: float = 1.0, viewer: int = 0) -> BoardStep:
+	var events: Array[MatchEvent] = [event]
+	var steps: Array[BoardStep] = BoardSteps.from_events(events, speed, viewer)
+	assert_int(steps.size()).is_equal(1)
+	return steps[0]
+
+
+func test_walk_started_yields_walk_start() -> void:
+	var step: BoardStep = _one(
+		_event(MatchEvent.Kind.WALK_STARTED, {"round": 1, "turn": 2, "first_seat": 0})
+	)
+	assert_int(step.kind).is_equal(BoardStep.Kind.WALK_START)
+	assert_float(step.duration).is_equal_approx(0.0, EPSILON)
+
+
+func test_reveal_then_score_is_one_flip_pulse() -> void:
+	var events: Array[MatchEvent] = [_reveal_event(4), _scored_event(4)]
+	var steps: Array[BoardStep] = BoardSteps.from_events(events, 2.0)
+	assert_int(steps.size()).is_equal(1)
+	var pulse: BoardStep = steps[0]
+	assert_int(pulse.kind).is_equal(BoardStep.Kind.PULSE)
+	assert_bool(pulse.revealed).is_false()
+	assert_float(pulse.duration).is_equal_approx(0.35 / 2.0, EPSILON)
+	assert_float(pulse.delay).is_equal_approx(0.15 / 2.0, EPSILON)
+	assert_int(pulse.seat).is_equal(0)
+	assert_int(pulse.card).is_equal(4)
+	assert_int(pulse.slot).is_equal(1)
+	assert_int(pulse.flat).is_equal(2)
+	assert_int(pulse.bonus).is_equal(1)
+	assert_int(pulse.mult).is_equal(3)
+	assert_int(pulse.added).is_equal(9)
+	assert_int(pulse.score).is_equal(12)
+
+
+func test_a_flip_pulse_keeps_its_place_before_effects_between_reveal_and_score() -> void:
+	var fired: MatchEvent = _event(
+		MatchEvent.Kind.EFFECT_FIRED, {"seat": 0, "card": 4, "verb": "draw", "trigger": "on_reveal"}
+	)
+	var events: Array[MatchEvent] = [_reveal_event(4), fired, _scored_event(4)]
+	var steps: Array[BoardStep] = BoardSteps.from_events(events, 1.0)
+	assert_int(steps.size()).is_equal(2)
+	assert_int(steps[0].kind).is_equal(BoardStep.Kind.PULSE)
+	assert_int(steps[0].score).is_equal(12)
+	assert_int(steps[1].kind).is_equal(BoardStep.Kind.EFFECT)
+
+
+func test_a_score_with_no_reveal_is_a_revealed_pulse() -> void:
+	var step: BoardStep = _one(_scored_event(4), 4.0)
+	assert_int(step.kind).is_equal(BoardStep.Kind.PULSE)
+	assert_bool(step.revealed).is_true()
+	assert_float(step.duration).is_equal_approx(0.12 / 4.0, EPSILON)
+	assert_float(step.delay).is_equal_approx(0.0, EPSILON)
+	assert_int(step.added).is_equal(9)
+	assert_int(step.mult).is_equal(3)
+
+
+func test_effect_event_steps_and_durations() -> void:
+	var cases: Array = [
+		[
+			MatchEvent.Kind.EFFECT_FIRED,
+			{"seat": 0, "card": 3, "verb": "draw", "trigger": "on_reveal"},
+			BoardStep.Kind.EFFECT,
+			0.25,
+		],
+		[
+			MatchEvent.Kind.EFFECT_FIZZLED,
+			{"seat": 0, "card": 3, "verb": "destroy_random_opponent"},
+			BoardStep.Kind.FIZZLE,
+			0.15,
+		],
+		[
+			MatchEvent.Kind.CHOICE_MADE,
+			{"seat": 1, "card": 3, "zone": "board", "index": 0, "target": 7, "auto": false},
+			BoardStep.Kind.CHOICE_SHOW,
+			0.4,
+		],
+		[
+			MatchEvent.Kind.STATS_CHANGED,
+			{"seat": 0, "card": 3, "flat": 1, "bonus": 2, "cause": "switch"},
+			BoardStep.Kind.STATS,
+			0.2,
+		],
+		[
+			MatchEvent.Kind.CARD_DESTROYED,
+			{"seat": 1, "card": 25, "slot": 0},
+			BoardStep.Kind.DESTROY,
+			0.45,
+		],
+		[
+			MatchEvent.Kind.CARD_MOVED,
+			{"seat": 0, "card": 3, "from_slot": 0, "to_slot": 2},
+			BoardStep.Kind.MOVE,
+			0.3,
+		],
+		[
+			MatchEvent.Kind.CARD_RETURNED,
+			{"seat": 0, "card": 3, "slot": 1},
+			BoardStep.Kind.RETURN,
+			0.3,
+		],
+		[
+			MatchEvent.Kind.CARD_DISCARDED,
+			{"seat": 1, "card": -1},
+			BoardStep.Kind.DISCARD,
+			0.45,
+		],
+	]
+	for entry: Array in cases:
+		var kind: int = entry[0]
+		var payload: Dictionary = entry[1]
+		var want_kind: int = entry[2]
+		var seconds: float = entry[3]
+		var step: BoardStep = _one(_event(kind, payload), 2.0)
+		assert_int(step.kind).is_equal(want_kind)
+		assert_float(step.duration).is_equal_approx(seconds / 2.0, EPSILON)
+
+
+func test_move_and_destroy_carry_their_slots() -> void:
+	var moved: BoardStep = _one(
+		_event(MatchEvent.Kind.CARD_MOVED, {"seat": 0, "card": 3, "from_slot": 0, "to_slot": 2})
+	)
+	assert_int(moved.from_slot).is_equal(0)
+	assert_int(moved.slot).is_equal(2)
+	var destroyed: BoardStep = _one(
+		_event(MatchEvent.Kind.CARD_DESTROYED, {"seat": 1, "card": 25, "slot": 3})
+	)
+	assert_int(destroyed.slot).is_equal(3)
+
+
+func test_prompt_is_untimed_and_only_for_the_viewer() -> void:
+	var asked: Dictionary = {
+		"seat": 0,
+		"card": 8,
+		"verb": "switch_stats",
+		"text": "Pick",
+		"zone": "board",
+		"options": [1, 2],
+	}
+	var own: BoardStep = _one(_event(MatchEvent.Kind.CHOICE_REQUESTED, asked), 4.0)
+	assert_int(own.kind).is_equal(BoardStep.Kind.PROMPT)
+	assert_float(own.duration).is_equal_approx(0.0, EPSILON)
+	assert_array(own.options).is_equal([1, 2])
+	var other: Dictionary = asked.duplicate()
+	other["seat"] = 1
+	var events: Array[MatchEvent] = [_event(MatchEvent.Kind.CHOICE_REQUESTED, other)]
+	assert_array(BoardSteps.from_events(events, 1.0, 0)).is_empty()
+
+
+func test_bookkeeping_events_have_no_step() -> void:
+	var events: Array[MatchEvent] = [
+		_event(MatchEvent.Kind.BONUS_ZERO_SET, {"seat": 1}),
+		_event(MatchEvent.Kind.ENERGY_CARRIED, {"seat": 0, "amount": 2}),
+		_event(MatchEvent.Kind.FREE_FIRST_SET, {"seat": 0}),
+	]
+	assert_array(BoardSteps.from_events(events, 1.0)).is_empty()
+
+
+func test_commits_carry_slots_and_the_player_commit_takes_time() -> void:
+	var own: BoardStep = _one(
+		_event(
+			MatchEvent.Kind.COMMITTED, {"seat": 0, "count": 2, "cards": [1, 2], "slots": [0, 2]}
+		),
+		2.0
+	)
+	assert_int(own.kind).is_equal(BoardStep.Kind.PLAYER_COMMIT)
+	assert_array(own.slots).is_equal([0, 2])
+	assert_float(own.duration).is_equal_approx(0.30 / 2.0, EPSILON)
+	var events: Array[MatchEvent] = [
+		_event(MatchEvent.Kind.COMMITTED, {"seat": 1, "count": 1, "cards": [-1], "slots": [1]})
+	]
+	var steps: Array[BoardStep] = BoardSteps.from_events(events, 1.0)
+	assert_int(steps[1].kind).is_equal(BoardStep.Kind.OPPONENT_COMMIT)
+	assert_array(steps[1].slots).is_equal([1])
+
+
+func test_turn_start_carries_the_viewers_budget_and_free_first() -> void:
+	var step: BoardStep = _one(
+		_event(
+			MatchEvent.Kind.TURN_STARTED,
+			{
+				"round": 1,
+				"turn": 3,
+				"energy": 3,
+				"budgets": [5, 3],
+				"free_first": [true, false],
+				"first_seat": 0,
+			}
+		)
+	)
+	assert_int(step.energy).is_equal(3)
+	assert_int(step.budget).is_equal(5)
+	assert_bool(step.free_first).is_true()
