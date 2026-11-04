@@ -4,7 +4,7 @@ tags: [spec, cycle-4-card-effects, engine, board]
 status: approved
 related: ["[[specs/cycle-4-card-effects/plan]]", "[[specs/cycle-4-card-effects/tasks]]", "[[specs/cycle-1-match-engine/spec]]", "[[specs/cycle-2-board/spec]]", "[[specs/cycle-3-board-feedback/spec]]", "[[planning/phase-3-game-loop]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-03
-updated: 2026-11-03
+updated: 2026-11-04
 uid: 11960434-be6a-4a44-9a97-15de617a8612
 linear: https://linear.app/night-science-llc/project/cycle-4-card-effects-032a703ba2d5
 supersedes:
@@ -250,7 +250,7 @@ replays from its log.
   (log), cycle-2 R12–R13 (row order and reorder), R16 (commit shape), R35 (reveal and
   score), and cycle-3 R17–R21 (the rim), which this spec replaces.
 
-## Clarifications (Ben, 2026-11-03)
+## Clarifications (Ben, 2026-11-03; C19–C21 2026-11-04)
 
 | # | Question | Decision |
 |---|---|---|
@@ -272,6 +272,9 @@ replays from its log.
 | C16 | Pick-up during a prompt | 3a: a tap on a glowing card chooses; a tap on a non-eligible face-up card lifts it; the prompt waits |
 | C17 | Proof | 4a: three screenshots (a staged card between played cards with faces showing flat, bonus and text; a prompt mid-walk; a lifted effect card), `make check`, the re-pinned golden line, node queries for the flip, the pulse order and an answered prompt, and a 50-seed sweep replaying logs with prompts and random destroys |
 | C18 | Defaults stated in rounds 2–5, no objection | The opponent sees where face-down cards sit; nothing scores until both have committed; an ongoing effect counts from its card's reveal onward within a walk; the rim retires; swap and the free card act on the owner's board or next commit; switch and the bounce pick any revealed card on either board; random destroy hits the opponent's board; discard picks from the owner's hand and goes to the burn pile |
+| C19 | T13 review gap, Ben 2026-11-04: 3a | Round start clears every per-round mark along with the boards: carried energy, the free first card and the opponent's bonus-0 mark. A carry, free card or bonus-0 set during turn 7's walk does not reach the next round |
+| C20 | T13 review gap, Ben 2026-11-04: 3a | Switch and the bounce target a fifth zone, both boards: one list made of the prompted seat's own row in slot order, then the opponent's row in slot order. Index i below the own row's size is own slot i; otherwise it is opponent slot i minus that size. Both row sizes are public, so a face-down card is still chosen by position (R30) |
+| C21 | T13 review finding 1, Ben 2026-11-04: 1a | The switch swaps the card's stats as they stand when it fires, flat-ups and the bonus-0 mark included (a c06 at 3/0 becomes 0/3). Changes that land after the switch apply to the switched stats; a second switch swaps back what is current then |
 
 ## Scenarios
 

@@ -258,8 +258,9 @@ class EnergyState:
 ## row is tried first on the next pulse; `pulsed` holds every card pulsed in this walk, so
 ## nothing is pulsed twice whatever moves; `mult` is each seat's running multiplier.
 ## `paused_card` is the card whose pulse a prompt interrupted (-1 when none), with the
-## ScoreWalk.Stage to resume at and, for an on-opponent-reveal prompt, the watcher that
-## opened it (DC-05 T05).
+## ScoreWalk.Stage to resume at and, for the WATCHERS stage, the pulse's watcher snapshot
+## (the on-opponent-reveal cards in row order when the stage first ran; empty when it has
+## not run yet) and the snapshot index it goes on from (DC-05 T05, T13).
 class WalkState:
 	extends RefCounted
 
@@ -272,7 +273,8 @@ class WalkState:
 	var reveals: int = 0
 	var paused_card: int = -1
 	var paused_stage: int = 0
-	var paused_watcher: int = -1
+	var paused_watchers: Array[int] = []
+	var paused_watcher_at: int = 0
 
 	## The pulsed card ids, ascending.
 	func pulsed_ids() -> Array[int]:
@@ -290,7 +292,8 @@ class WalkState:
 		out.reveals = reveals
 		out.paused_card = paused_card
 		out.paused_stage = paused_stage
-		out.paused_watcher = paused_watcher
+		out.paused_watchers.assign(paused_watchers)
+		out.paused_watcher_at = paused_watcher_at
 		return out
 
 	func to_dict() -> Dictionary:
@@ -302,5 +305,6 @@ class WalkState:
 			"reveals": reveals,
 			"paused_card": paused_card,
 			"paused_stage": paused_stage,
-			"paused_watcher": paused_watcher,
+			"paused_watchers": MatchState.plain(paused_watchers),
+			"paused_watcher_at": paused_watcher_at,
 		}

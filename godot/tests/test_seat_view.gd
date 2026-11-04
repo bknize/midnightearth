@@ -157,6 +157,24 @@ func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
 
 ## The scripted commit for whoever is awaited (see the suite comment); while a prompt is
 ## open (DC-05 T05), the prompted seat's first option instead.
+## Whether `event` may name a card that was face up on the opponent's row before the step
+## and is hidden after it (DC-05 T13; the rule of test_full_match.gd): scored, revealed,
+## stats, returned and a public burn, plus the kinds the engine emits for a face-up card in
+## a walk that a round end, a destroy or a return then hides (an effect firing, a choice,
+## a public destroy or move). Never a deal, draw, discard, commit or other private kind.
+func _may_name_public_card(event: MatchEvent) -> bool:
+	match event.kind:
+		MatchEvent.Kind.CARD_SCORED, MatchEvent.Kind.CARD_REVEALED:
+			return true
+		MatchEvent.Kind.STATS_CHANGED, MatchEvent.Kind.CARD_RETURNED:
+			return true
+		MatchEvent.Kind.EFFECT_FIRED, MatchEvent.Kind.CHOICE_MADE:
+			return true
+		MatchEvent.Kind.CARD_BURNED, MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.CARD_MOVED:
+			return not event.is_private()
+	return false
+
+
 func _script_action(engine: MatchEngine, player: int) -> EngineAction:
 	var prompt: Dictionary = engine.open_prompt()
 	if not prompt.is_empty():
@@ -349,8 +367,8 @@ func _payload_keys(kind: int) -> Array:
 
 
 ## `card`'s shown stats from the full state (plan P4): its definition's flat and bonus, then
-## its entry in `card_states` (switch, flat delta, bonus 0), which effects write since
-## DC-05 T04.
+## its entry in `card_states` (the base a switch stored, flat delta, bonus 0), which
+## effects write since DC-05 T04 (the stored base since T13).
 func _shown_stats(state: Dictionary, card: int) -> Vector2i:
 	var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
 	var flat: int = def.flat
@@ -358,11 +376,10 @@ func _shown_stats(state: Dictionary, card: int) -> Vector2i:
 	var held_all: Dictionary = state["card_states"]
 	if held_all.has(card):
 		var held: Dictionary = held_all[card]
-		var switched: bool = held["switched"]
-		if switched:
-			var swapped: int = flat
-			flat = bonus
-			bonus = swapped
+		var has_base: bool = held["has_base"]
+		if has_base:
+			flat = held["base_flat"]
+			bonus = held["base_bonus"]
 		var delta: int = held["flat_delta"]
 		flat += delta
 		var zeroed: bool = held["bonus_zero"]
@@ -620,13 +637,18 @@ func test_views_and_redacted_events_never_leak() -> void:
 					# The events, against what was hidden before or after the step, less
 					# the cards this step revealed in public.
 					# Cards face up on the opponent's row before the step were public too: the
-					# walk scores them by id even when a round end then hides them again. A
-					# card still face down there (a walk paused on a prompt) was not.
+					# walk scores them by id even when a round end then hides them again, so
+					# the on-row kinds may name them (_may_name_public_card; every other kind
+					# is held to `hidden_strict`). A card still face down there (a walk paused
+					# on a prompt) was not public.
 					var public_before: Array[int] = _state_list(step.before, "revealed", opp)
+					var hidden_strict: Array[int] = []
 					var hidden_during: Array[int] = []
 					for card: int in _hidden_ids(step.before, opp) + hidden_now:
-						var shown: bool = revealed.has(card) or public_before.has(card)
-						if not shown and not hidden_during.has(card):
+						if revealed.has(card) or hidden_strict.has(card):
+							continue
+						hidden_strict.append(card)
+						if not public_before.has(card):
 							hidden_during.append(card)
 					var redacted: Array[MatchEvent] = step.result.events_for(seat)
 					assert_int(redacted.size()).is_equal(step.result.events.size())
@@ -635,7 +657,10 @@ func test_views_and_redacted_events_never_leak() -> void:
 							_sorted(_payload_keys(event.kind))
 						)
 						var at: String = "%s event %d" % [where, event.kind]
-						var event_leaks: Array[int] = _leaks(event.payload, hidden_during)
+						var held_to: Array[int] = hidden_strict
+						if _may_name_public_card(event):
+							held_to = hidden_during
+						var event_leaks: Array[int] = _leaks(event.payload, held_to)
 						assert_array(event_leaks).override_failure_message(at).is_empty()
 						var event_seeds: Array[int] = _secrets_in(event.payload, secrets)
 						assert_array(event_seeds).override_failure_message(at).is_empty()
