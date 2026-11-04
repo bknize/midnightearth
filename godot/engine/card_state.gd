@@ -15,6 +15,9 @@ extends RefCounted
 ## applies to the post-switch stats (a flat-up raises the new flat, a bonus-0 zeroes the
 ## new bonus); a second switch exchanges what is current then.
 ## `return_marked` does not change stats: the card goes back at the end of the turn (R24).
+## `destroyed` (DC-06 R12-R22, P4) does not change stats either: the card keeps its slot,
+## scores nothing and fires nothing, and leaves for the burn pile at turn end
+## (EffectResolver.clear_destroyed), which ends the mark with the rest of the entry.
 
 ## The base below is in use instead of the definition's stats (set by a switch).
 var has_base: bool = false
@@ -28,11 +31,15 @@ var flat_delta: int = 0
 var bonus_zero: bool = false
 ## The card returns to its owner's hand at the end of this turn (R24).
 var return_marked: bool = false
+## The card is destroyed (DC-06 R12): it stays in its slot until the turn ends.
+var destroyed: bool = false
 
 
 ## True when every field is at its default, so the entry changes nothing.
 func is_default() -> bool:
-	return not has_base and flat_delta == 0 and not bonus_zero and not return_marked
+	return (
+		not has_base and flat_delta == 0 and not bonus_zero and not return_marked and not destroyed
+	)
 
 
 ## The switch: `current` is the card's (flat, bonus) right now, from its CardState
@@ -55,6 +62,7 @@ func copy() -> CardState:
 	out.flat_delta = flat_delta
 	out.bonus_zero = bonus_zero
 	out.return_marked = return_marked
+	out.destroyed = destroyed
 	return out
 
 
@@ -67,4 +75,5 @@ func to_dict() -> Dictionary:
 		"flat_delta": flat_delta,
 		"bonus_zero": bonus_zero,
 		"return_marked": return_marked,
+		"destroyed": destroyed,
 	}

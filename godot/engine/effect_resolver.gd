@@ -19,9 +19,11 @@ extends RefCounted
 ## - OPPONENT_NEXT_BONUS_ZERO: sets `bonus_zero_pending[opponent]` (no stacking, R22),
 ##   BONUS_ZERO_SET {seat: the opponent}. spend_bonus_zero() spends it on that seat's next
 ##   reveal, in this walk or a later one.
-## - DESTROY_RANDOM_OPPONENT: picks one card of the opponent's row (P11, R27), takes it off
-##   the row at once (R23) into its owner's burn pile, CARD_DESTROYED {seat, card, slot}.
-##   An empty row fizzles (R26) and draws nothing from the stream.
+## - DESTROY_RANDOM_OPPONENT: picks one live (not yet destroyed) card of the opponent's row
+##   (P11, R27; DC-06 R16) and marks it destroyed in place (DC-06 R12, P4): it keeps its
+##   slot, CARD_DESTROYED {seat, card, slot}. A row with no live card fizzles (R26, DC-06
+##   R17) and draws nothing from the stream. clear_destroyed() takes it to its owner's burn
+##   pile at turn end.
 ## - FLAT_UP_ON_SCORE (amount): `flat_delta += amount`, STATS_CHANGED (cause flat_up).
 ## - CARRY_ENERGY (ongoing): `carry[owner] = budget - spent[owner]`, ENERGY_CARRIED
 ##   {seat, amount}. Only settle_energy() fires it, at turn end.
@@ -45,16 +47,19 @@ extends RefCounted
 ##     bonus-0 mark included (ScoreWalk.switch_stats; Ben's ruling 1a): STATS_CHANGED
 ##     (cause switch).
 ##   - RETURN_AT_TURN_END: sets the target's CardState.return_marked; resolve_returns()
-##     takes it back to its owner's hand at turn end, or burns it at the cap (R24, R25).
+##     takes it back to its owner's hand at turn end, or burns it at the cap (R24, R25);
+##     a marked card destroyed by then is discarded by clear_destroyed() instead (DC-06
+##     R19).
 ##   CHOICE_MADE {seat, card, zone, index, target, auto} is private to the seat holding the
 ##   target when the zone is a hand or the target is face down (R30, R34); MatchEvent
 ##   redaction then hides `target` (only) from the other seat.
 ##
-## Hidden information on destroy (orchestrator, DC-05 T04): instance ids map to card
-## definitions, so naming a face-down card would leak it. When the destroyed card is still
-## unrevealed, CARD_DESTROYED is private to the card's seat: MatchEvent redaction hides
-## `card` from the other seat while `seat` and `slot` stay visible. A revealed card's
-## destroy is public.
+## Hidden information on destroy (orchestrator, DC-05 T04; DC-06 R20, R21): instance ids
+## map to card definitions, so naming a face-down card would leak it. When the destroyed
+## card is still unrevealed, CARD_DESTROYED is private to the card's seat: MatchEvent
+## redaction hides `card` from the other seat while `seat` and `slot` stay visible. A
+## revealed card's destroy is public. The card stays face down until the cursor reaches it,
+## and DESTROYED_CLEARED follows the same rule at turn end: private while never revealed.
 ##
 ## Preview seam (orchestrator, DC-05 T04): a null `policy` is a live walk, which always picks
 ## the destroyed card with MatchRng.pick_index on the engine stream at the moment the effect
@@ -158,11 +163,11 @@ static func spend_bonus_zero(
 	return out
 
 
-## Per-seat energy at turn end (plan P7, P14): for each seat, when a revealed card with the
-## ongoing CARRY_ENERGY effect is on its row, that card fires (EFFECT_FIRED, then
+## Per-seat energy at turn end (plan P7, P14): for each seat, when a revealed, live card
+## with the ongoing CARRY_ENERGY effect is on its row, that card fires (EFFECT_FIRED, then
 ## ENERGY_CARRIED) and `carry[seat] = budget - spent[seat]`; otherwise `carry[seat] = 0`.
 ## One firing per seat however many such cards it holds (the leftmost fires). A destroyed
-## or returned carry card is gone from the row by now, so it carries nothing.
+## or returned carry card is gone from the row by now, so it carries nothing (DC-06 R15).
 static func settle_energy(state: MatchState, cards: CardDb) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	for seat: int in range(state.seats.size()):
@@ -224,12 +229,13 @@ static func apply_choice(
 	return out
 
 
-## Turn end's return marks (R24, R25, plan P14), before energy settles: for each seat in
-## turn, each marked card on its row in slot order leaves the row (its modifiers go) for
-## its owner's hand, CARD_RETURNED {seat, card, slot}, public since the card was revealed.
-## When that hand already holds HAND_CAP cards the card is burned instead: CARD_BURNED
-## {seat, card}, the draw's burn event, made public for the same reason (both boards need
-## to see the card leave its row).
+## Turn end's return marks (R24, R25, plan P14), before the destroyed cards clear and
+## energy settles (DC-06 P6): for each seat in turn, each marked card on its row in slot
+## order leaves the row (its modifiers go) for its owner's hand, CARD_RETURNED {seat, card,
+## slot}, public since the card was revealed. When that hand already holds HAND_CAP cards
+## the card is burned instead: CARD_BURNED {seat, card}, the draw's burn event, made public
+## for the same reason (both boards need to see the card leave its row). A marked card that
+## is destroyed is skipped: clear_destroyed() discards it (DC-06 R19).
 static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	for seat: int in range(state.seats.size()):
@@ -238,7 +244,7 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 		row.assign(piles.board)
 		for card: int in row:
 			var held: CardState = state.card_state(card)
-			if held == null or not held.return_marked:
+			if held == null or not held.return_marked or held.destroyed:
 				continue
 			var slot: int = piles.board.find(card)
 			if state.take_from_row(seat, card):
@@ -251,6 +257,30 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 			piles.hand.append(card)
 			var returned: Dictionary = {"seat": seat, "card": card, "slot": slot}
 			out.append(MatchEvent.new(MatchEvent.Kind.CARD_RETURNED, returned))
+	return out
+
+
+## Turn end's clear of destroyed cards (DC-06 R18, R19, R21, P6), after the return marks
+## resolve and before energy settles: for each seat in turn, each destroyed card on its row
+## in slot order leaves the row (its modifiers and the mark go) for its owner's burn pile,
+## DESTROYED_CLEARED {seat, card, slot}, `slot` the card's slot as it leaves. The event is
+## public when the card was revealed and private to its seat when it never was, so the
+## other seat sees the slot and not the card.
+static func clear_destroyed(state: MatchState) -> Array[MatchEvent]:
+	var out: Array[MatchEvent] = []
+	for seat: int in range(state.seats.size()):
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		var row: Array[int] = []
+		row.assign(piles.board)
+		for card: int in row:
+			if not state.is_destroyed(card):
+				continue
+			var slot: int = piles.board.find(card)
+			var was_revealed: bool = state.take_from_row(seat, card)
+			piles.burned.append(card)
+			var cleared: Dictionary = {"seat": seat, "card": card, "slot": slot}
+			var owner: int = PUBLIC if was_revealed else seat
+			out.append(MatchEvent.new(MatchEvent.Kind.DESTROYED_CLEARED, cleared, owner))
 	return out
 
 
@@ -287,20 +317,25 @@ static func _destroy_random(
 ) -> void:
 	var opponent: int = 1 - seat
 	var piles: MatchState.SeatPiles = state.seats[opponent]
-	if piles.board.is_empty():
+	# Only live cards may be picked (DC-06 R16, R17), in row order as the row stands when
+	# the effect fires.
+	var live: Array[int] = []
+	for held: int in piles.board:
+		if not state.is_destroyed(held):
+			live.append(held)
+	if live.is_empty():
 		_fizzle(seat, card, CardEffect.Verb.DESTROY_RANDOM_OPPONENT, outcome)
 		return
-	# The slot in the row as it stands when the effect fires.
-	var slot: int = 0
+	var pick: int = 0
 	if policy == null and rng != null:
-		slot = rng.pick_index(piles.board.size())
+		pick = rng.pick_index(live.size())
 	else:
-		slot = PreviewPolicy.destroy_slot(state, cards, piles.board)
-	var target: int = piles.board[slot]
-	var was_revealed: bool = state.take_from_row(opponent, target)
-	# Out of play for the rest of the round, so every card stays in exactly one pile.
-	piles.burned.append(target)
-	var owner: int = MatchEvent.PUBLIC if was_revealed else opponent
+		pick = PreviewPolicy.destroy_slot(state, cards, live)
+	var target: int = live[pick]
+	# Marked in place (DC-06 R12): it keeps its slot and stays face up or face down.
+	state.card_state_for(target).destroyed = true
+	var slot: int = piles.board.find(target)
+	var owner: int = MatchEvent.PUBLIC if piles.is_revealed(target) else opponent
 	outcome.add(
 		MatchEvent.Kind.CARD_DESTROYED, {"seat": opponent, "card": target, "slot": slot}, owner
 	)
@@ -422,11 +457,12 @@ static func _stats_changed(
 	)
 
 
-## The leftmost revealed card on `seat`'s row with the ongoing CARRY_ENERGY effect, or -1.
+## The leftmost revealed, live (not destroyed, DC-06 R15) card on `seat`'s row with the
+## ongoing CARRY_ENERGY effect, or -1.
 static func _carrier(state: MatchState, cards: CardDb, seat: int) -> int:
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	for card: int in piles.board:
-		if not piles.is_revealed(card):
+		if not piles.is_revealed(card) or state.is_destroyed(card):
 			continue
 		var effect: CardEffect = effect_of(card, cards)
 		if effect == null:

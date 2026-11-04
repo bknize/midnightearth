@@ -660,6 +660,7 @@ func test_a_switch_after_two_flat_ups_swaps_the_raised_flat() -> void:
 		"flat_delta": 0,
 		"bonus_zero": false,
 		"return_marked": false,
+		"destroyed": false,
 	}
 	assert_dict(held.to_dict()).is_equal(expected)
 
@@ -764,6 +765,7 @@ func test_card_states_are_in_the_full_state_and_cleared_at_round_start() -> void
 		"flat_delta": 2,
 		"bonus_zero": false,
 		"return_marked": false,
+		"destroyed": false,
 	}
 	assert_dict(entry).is_equal(expected)
 	assert_bool(plain.has("walk")).is_true()

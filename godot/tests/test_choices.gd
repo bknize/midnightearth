@@ -279,6 +279,37 @@ func test_eligibility_per_verb() -> void:
 	assert_bool(Choice.needs_choice(CardEffect.Verb.DRAW)).is_false()
 
 
+## DC-06 R16: the swap may target a destroyed card; the switch and the return may not.
+## Seat 0's row: a revealed card, the source, a face-down card and a destroyed revealed
+## card; seat 1's: a destroyed revealed card and a live one.
+func test_destroyed_cards_are_swap_targets_only() -> void:
+	var source: int = _id(0, C12_SWAP)
+	var shown: int = _id(0, C04)
+	var hidden: int = _id(0, C08)
+	var wreck: int = _id(0, C07)
+	var their_wreck: int = _id(1, C07)
+	var theirs: int = _id(1, C11)
+	var own_row: Array[int] = [shown, source, hidden, wreck]
+	var state: MatchState = _state(own_row, _typed([their_wreck, theirs]), 0)
+	_reveal(state, 0, _typed([shown, source, wreck]))
+	_reveal(state, 1, _typed([their_wreck, theirs]))
+	state.card_state_for(wreck).destroyed = true
+	state.card_state_for(their_wreck).destroyed = true
+	var cases: Dictionary = {
+		CardEffect.Verb.SWAP_PLACES: [Choice.Zone.OWN_BOARD, [0, 2, 3]],
+		CardEffect.Verb.SWITCH_STATS: [Choice.Zone.BOTH_BOARDS, [0, 1, 5]],
+		CardEffect.Verb.RETURN_AT_TURN_END: [Choice.Zone.BOTH_BOARDS, [0, 5]],
+	}
+	for verb: int in cases:
+		var expected: Array = cases[verb]
+		var found: Dictionary = Choice.eligible(state, 0, verb, source)
+		var zone: int = found["zone"]
+		var options: Array = found["options"]
+		var where: String = CardEffect.verb_name(verb)
+		assert_int(zone).override_failure_message(where).is_equal(expected[0])
+		assert_array(options).override_failure_message(where).is_equal(expected[1])
+
+
 func _dict_int(d: Dictionary, key: String) -> int:
 	var value: int = d[key]
 	return value

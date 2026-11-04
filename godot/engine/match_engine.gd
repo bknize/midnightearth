@@ -8,7 +8,7 @@ extends RefCounted
 ## commit (second) -> _resolve() (both commits merge into their rows, then the walk starts)
 ## -> _run_walk() (ScoreWalk pulses every card on both rows; an effect with two or more
 ## targets pauses it on a prompt, phase AWAIT_CHOICE, until apply(CHOOSE) from the prompted
-## seat resumes it, DC-05 T05) -> _end_turn() (return marks, energy) -> next
+## seat resumes it, DC-05 T05) -> _end_turn() (return marks, destroyed cards, energy) -> next
 ## _begin_turn(), or after turn 7 _end_round() ->
 ## _after_round(), which either ends the match (R20-R22) or begins the next round.
 ## Concede goes straight to _end_match().
@@ -557,12 +557,15 @@ func _prompt_seat() -> int:
 
 ## Turn end (R17, R24, plan P14), only once the walk is complete: the return marks resolve
 ## first (EffectResolver.resolve_returns: each marked card goes back to its owner's hand,
-## or burns at the cap), then per-seat energy is settled (EffectResolver.settle_energy: a
-## revealed carry card on the row carries `budget - spent`, else the carry is 0, so a
-## returned carry card carries nothing); then the scores are the walk totals and the higher
-## one wins the turn, as cycle 1 R16 did from power.
+## or burns at the cap; a destroyed card is skipped), then the destroyed cards leave their
+## rows for the burn pile (EffectResolver.clear_destroyed, DC-06 R18, P6), then per-seat
+## energy is settled (EffectResolver.settle_energy: a revealed carry card on the row
+## carries `budget - spent`, else the carry is 0, so a returned or destroyed carry card
+## carries nothing); then the scores are the walk totals and the higher one wins the turn,
+## as cycle 1 R16 did from power. Rows shrink only here.
 func _end_turn() -> void:
 	_events.append_array(EffectResolver.resolve_returns(_state))
+	_events.append_array(EffectResolver.clear_destroyed(_state))
 	_events.append_array(EffectResolver.settle_energy(_state, _cards))
 	var winner: int = _leader()
 	_state.last_turn_winner = winner

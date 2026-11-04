@@ -332,6 +332,9 @@ func _may_name_public_card(event: MatchEvent) -> bool:
 			return true
 		MatchEvent.Kind.CARD_BURNED, MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.CARD_MOVED:
 			return not event.is_private()
+		MatchEvent.Kind.DESTROYED_CLEARED:
+			# DC-06: the turn-end clear of a destroyed card is public once it was revealed.
+			return not event.is_private()
 	return false
 
 
