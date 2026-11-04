@@ -20,6 +20,9 @@ var _energy_tween: Tween
 
 var _score_labels: Array[Label] = []
 var _pip_rows: Array[HBoxContainer] = []
+## The number each score label is heading for (what it shows once any count ends).
+var _shown: Array[int] = [0, 0]
+var _count_tweens: Array[Tween] = [null, null]
 
 @onready var _score_label_0: Label = %ScoreLabel0
 @onready var _score_label_1: Label = %ScoreLabel1
@@ -45,19 +48,63 @@ func _ready() -> void:
 	_pip_rows.append(_pips_1)
 
 
-## The scores. While `walking`, each reads "score ×mult" (R50-R52); otherwise it is the plain
-## score (after the turn end, and in a fresh table).
-func set_scores(scores: Array[int], mults: Array[int] = [], walking: bool = false) -> void:
-	for seat: int in range(mini(scores.size(), _score_labels.size())):
-		var mult: int = mults[seat] if seat < mults.size() else 1
-		_score_labels[seat].text = score_text(scores[seat], mult, walking)
+func _show_score(seat: int, value: int) -> void:
+	_shown[seat] = value
+	_score_labels[seat].text = str(value)
 
 
-## The text of one score label.
-static func score_text(score: int, mult: int, walking: bool) -> String:
-	if walking:
-		return "%d \u00d7%d" % [score, mult]
-	return str(score)
+func _set_score_text(value: float, seat: int) -> void:
+	_score_labels[seat].text = str(roundi(value))
+
+
+func _kill_count() -> void:
+	for seat: int in range(_count_tweens.size()):
+		var tween: Tween = _count_tweens[seat]
+		if tween != null and tween.is_valid():
+			tween.kill()
+		_count_tweens[seat] = null
+
+
+## The scores: the held totals, the previous turn's (R33). Stops any count in progress.
+func set_scores(held: Array[int]) -> void:
+	_kill_count()
+	for seat: int in range(mini(held.size(), _score_labels.size())):
+		_show_score(seat, held[seat])
+
+
+## Steps `seat`'s score from the total on show to `total` over `seconds` (R34).
+func count_to(seat: int, total: int, seconds: float) -> void:
+	if seat < 0 or seat >= _score_labels.size():
+		return
+	if _count_tweens[seat] != null and _count_tweens[seat].is_valid():
+		_count_tweens[seat].kill()
+	var from: int = _shown[seat]
+	_shown[seat] = total
+	if seconds <= 0.0 or from == total:
+		_score_labels[seat].text = str(total)
+		return
+	var tween: Tween = create_tween()
+	var step: MethodTweener = tween.tween_method(
+		_set_score_text.bind(seat), float(from), float(total), seconds
+	)
+	step = step.set_ease(Tween.EASE_OUT)
+	_count_tweens[seat] = tween
+
+
+## The screen position of `seat`'s score label (its centre), for the tally's fly-in.
+func score_anchor(seat: int) -> Vector2:
+	var label: Label = _score_labels[clampi(seat, 0, _score_labels.size() - 1)]
+	return label.get_global_rect().get_center()
+
+
+## The number on show for `seat`.
+func shown_score(seat: int) -> int:
+	return _shown[seat]
+
+
+## The text of `seat`'s score label.
+func score_label_text(seat: int) -> String:
+	return _score_labels[seat].text
 
 
 func set_wins(wins: Array[int]) -> void:

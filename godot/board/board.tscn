@@ -1,4 +1,4 @@
-[gd_scene load_steps=20 format=3]
+[gd_scene load_steps=22 format=3]
 
 [ext_resource type="Script" path="res://board/board.gd" id="1_board"]
 [ext_resource type="PackedScene" path="res://addons/card_3d/scenes/card_collection_3d.tscn" id="2_collection"]
@@ -8,6 +8,8 @@
 [ext_resource type="Script" path="res://input/pointer_shim.gd" id="5_pointer"]
 [ext_resource type="PackedScene" path="res://board/board_hud.tscn" id="6_hud"]
 [ext_resource type="Script" path="res://board/card_lift.gd" id="8_lift"]
+[ext_resource type="PackedScene" path="res://board/score_chips.tscn" id="9_chips"]
+[ext_resource type="PackedScene" path="res://board/row_tally.tscn" id="10_tally"]
 
 [sub_resource type="Resource" id="Resource_player_fan"]
 script = ExtResource("3_fan")
@@ -116,6 +118,10 @@ card_layout_strategy = SubResource("Resource_opponent_fan")
 
 [node name="DropZone" parent="DragController/OpponentHand" index="0"]
 input_ray_pickable = false
+
+[node name="ScoreChips" parent="." instance=ExtResource("9_chips")]
+
+[node name="RowTally" parent="." instance=ExtResource("10_tally")]
 
 [node name="EntryMarker" type="Marker3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -36, 0, 0)
