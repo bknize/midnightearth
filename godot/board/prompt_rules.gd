@@ -13,7 +13,6 @@ enum Tap { NOTHING, CHOOSE, LIFT, LIFT_ELIGIBLE, SWAP_LIFT, PUT_DOWN }
 const ACTION_LABELS: Dictionary[String, String] = {
 	"swap_places": "Swap",
 	"draw_then_discard": "Discard",
-	"switch_stats": "Switch",
 	"return_at_turn_end": "Return",
 }
 

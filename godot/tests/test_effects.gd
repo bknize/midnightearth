@@ -33,7 +33,7 @@ const C09_DRAW_DISCARD: int = 8
 const C10_FREE_FIRST: int = 9
 const C11: int = 10
 const C12_SWAP: int = 11
-const C13_SWITCH: int = 12
+const C13: int = 12
 const C15_BONUS_ZERO: int = 14
 const C17_RETURN: int = 16
 const C19_DESTROY: int = 18
@@ -276,8 +276,7 @@ func test_fixture_cards_are_the_plan_table() -> void:
 		C09_DRAW_DISCARD: "draw_then_discard",
 		C10_FREE_FIRST: "free_first_next_turn",
 		C12_SWAP: "swap_places",
-		C13_SWITCH: "switch_stats",
-		C15_BONUS_ZERO: "opponent_next_bonus_zero",
+		C15_BONUS_ZERO: "opponent_next_no_bonus",
 		C17_RETURN: "return_at_turn_end",
 		C19_DESTROY: "destroy_random_opponent",
 	}
@@ -286,7 +285,8 @@ func test_fixture_cards_are_the_plan_table() -> void:
 		var effect: CardEffect = _db().card_at(index).effect
 		assert_object(effect).is_not_null()
 		assert_str(CardEffect.verb_name(effect.verb)).is_equal(verb)
-	for index: int in [C02, C03, C04, C07, C08, C11]:
+	# c13 is vanilla since its switch retired (DC-07 T01, C20).
+	for index: int in [C02, C03, C04, C07, C08, C11, C13]:
 		assert_object(_db().card_at(index).effect).is_null()
 	assert_bool(_watcher_db().is_valid()).is_true()
 	var watcher: CardEffect = _watcher_db().card_at(C02).effect
@@ -413,7 +413,7 @@ func test_an_unused_free_first_card_is_lost() -> void:
 	assert_dict(engine.full_state()).is_equal(before)
 
 
-# --- OPPONENT_NEXT_BONUS_ZERO (R20, R22) ----------------------------------------------
+# --- OPPONENT_NEXT_NO_BONUS (R20, R22) ------------------------------------------------
 
 
 func test_bonus_zero_is_spent_on_the_opponents_next_reveal() -> void:
@@ -429,7 +429,7 @@ func test_bonus_zero_is_spent_on_the_opponents_next_reveal() -> void:
 	]
 	assert_array(_kinds(events)).is_equal(expected)
 	_assert_event(
-		events[1], FIRED, _fired(0, source, "opponent_next_bonus_zero", "on_reveal"), PUBLIC
+		events[1], FIRED, _fired(0, source, "opponent_next_no_bonus", "on_reveal"), PUBLIC
 	)
 	_assert_event(events[2], ZERO_SET, {"seat": 1}, PUBLIC)
 	_assert_event(

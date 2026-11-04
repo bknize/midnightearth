@@ -58,7 +58,7 @@ var _base_face: Color = Color.WHITE
 func show_def(def: CardDef) -> void:
 	_name_label.text = def.name
 	_cost_label.text = str(def.cost)
-	_set_numbers(def.flat, def.bonus)
+	_set_numbers(def.flat, def.legacy_bonus())
 	if def.effect != null:
 		_text_label.text = def.effect.text
 	else:

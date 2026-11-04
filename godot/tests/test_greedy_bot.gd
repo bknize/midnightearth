@@ -46,7 +46,7 @@ const C03: int = 2
 const C04: int = 3
 const C08: int = 7
 const C12_SWAP: int = 11
-const C13_SWITCH: int = 12
+const C13: int = 12
 const C14: int = 13
 const C18: int = 17
 const C19_DESTROY: int = 18
@@ -444,7 +444,7 @@ func test_destroys_when_the_preview_says_so() -> void:
 
 func test_commits_nothing_when_nothing_fits() -> void:
 	# c13 costs 4 and c20 costs 7; energy 1 affords neither.
-	var hand: Array[int] = [_id(0, C13_SWITCH), _id(0, C20)]
+	var hand: Array[int] = [_id(0, C13), _id(0, C20)]
 	var engine: MatchEngine = _position(0, 1, hand, _none(), _none(), _none())
 	var action: EngineAction = _bot(1).choose(engine.view_for(0), engine)
 	assert_array(action.cards).is_empty()
@@ -538,40 +538,41 @@ func test_a_null_engine_still_gives_a_legal_commit() -> void:
 # --- R37: prompts ---------------------------------------------------------------------
 
 
-## c13 (switch a revealed card's flat and bonus) pulses first on [c13, c04] against [c08]:
-## switching c13 changes nothing (15 - 4), switching c04 zeroes its flat (6 - 4), switching
-## c08 zeroes the opponent's (15 - 0), so the bot picks c08, position 2 of BOTH_BOARDS. A
-## face-down c14 committed by seat 1 changes no preview.
+## c12 (swap places with a card on its row) pulses first on [c12, c04, c03] against [c08]
+## (the switch this case used retired at DC-07 T01): swapping c04 forward scores c04 3,
+## c12 4 and c03 1 x 2 (9 - 4); swapping c03 forward scores it 1 x 2, then c04 3 x 2 and
+## c12 4 x 2 (16 - 4), so the bot picks c03, position 2 of OWN_BOARD. A face-down c14
+## committed by seat 1 changes no preview.
 func test_answers_a_prompt_with_the_best_option() -> void:
 	for hide: bool in [false, true]:
 		for bot_seed: int in range(1, 9):
-			var engine: MatchEngine = _switch_prompt(hide)
+			var engine: MatchEngine = _swap_prompt(hide)
 			assert_int(engine.awaited_seat()).is_equal(0)
 			var view: SeatView = engine.view_for(0)
-			assert_array(Choice.options_of(view.prompt)).is_equal(_typed([0, 1, 2]))
-			assert_array(engine.preview_choice(0, 0)).is_equal(_typed([15, 4]))
-			assert_array(engine.preview_choice(0, 1)).is_equal(_typed([6, 4]))
-			assert_array(engine.preview_choice(0, 2)).is_equal(_typed([15, 0]))
+			assert_array(Choice.options_of(view.prompt)).is_equal(_typed([1, 2]))
+			assert_array(engine.preview_choice(0, 1)).is_equal(_typed([9, 4]))
+			assert_array(engine.preview_choice(0, 2)).is_equal(_typed([16, 4]))
 			assert_array(engine.preview_choice(1, 2)).is_empty()
-			assert_array(engine.preview_choice(0, 3)).is_empty()
+			assert_array(engine.preview_choice(0, 0)).is_empty()
 			var before: Dictionary = _snapshot(engine)
 			var action: EngineAction = _bot(bot_seed).choose(view, engine)
 			assert_dict(_snapshot(engine)).is_equal(before)
 			assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
-			assert_int(action.zone).is_equal(Choice.Zone.BOTH_BOARDS)
+			assert_int(action.zone).is_equal(Choice.Zone.OWN_BOARD)
 			assert_int(action.index).is_equal(2)
 			assert_bool(engine.apply(action).ok).is_true()
 
 
-## Seat 0 commits c13 to the left of its revealed c04; seat 1 (with c08 on its row) passes,
-## or with `hide` commits c14 face down to the right of c08. The walk pauses on c13's prompt.
-func _switch_prompt(hide: bool) -> MatchEngine:
-	var switcher: int = _id(0, C13_SWITCH)
-	var row_0: Array[int] = [_id(0, C04)]
+## Seat 0 commits c12 to the left of its revealed [c04, c03]; seat 1 (with c08 on its row)
+## passes, or with `hide` commits c14 face down to the right of c08. The walk pauses on
+## c12's prompt.
+func _swap_prompt(hide: bool) -> MatchEngine:
+	var swapper: int = _id(0, C12_SWAP)
+	var row_0: Array[int] = [_id(0, C04), _id(0, C03)]
 	var row_1: Array[int] = [_id(1, C08)]
 	var hand_1: Array[int] = [_id(1, C14)]
-	var engine: MatchEngine = _position(0, 4, _typed([switcher]), hand_1, row_0, row_1)
-	assert_bool(engine.apply(EngineAction.commit(0, _typed([switcher]), _typed([0]))).ok).is_true()
+	var engine: MatchEngine = _position(0, 4, _typed([swapper]), hand_1, row_0, row_1)
+	assert_bool(engine.apply(EngineAction.commit(0, _typed([swapper]), _typed([0]))).ok).is_true()
 	var second: EngineAction = EngineAction.commit(1, _none())
 	if hide:
 		second = EngineAction.commit(1, hand_1, _typed([1]))

@@ -1,30 +1,59 @@
 class_name CardEffect
 extends RefCounted
-## The one effect a card may carry (R1, plan P8): a trigger, a verb, an amount and the
+## The one effect a card may carry (R1, plan P1, P8): a trigger, a verb, an amount and the
 ## rules text. Immutable by convention. Vanilla cards have no CardEffect (null).
 ##
-## JSON form, as in engine/data/cards.json format 2:
+## JSON form, as in a pool file, format 3:
 ## {"trigger": "on_reveal", "verb": "draw", "amount": 1, "text": "Draw a card."}
 ## Trigger and verb names are the snake_case names in TRIGGER_NAMES and VERB_NAMES,
 ## indexed by the enum values; verbs that take no amount carry 0.
+##
+## DC-07 (plan P8): `switch_stats` is retired (C20) and `opponent_next_bonus_zero` is now
+## `opponent_next_no_bonus` (R14). The triggers ON_OPPONENT_SCORE and ON_MOVED and the
+## eighteen Ruin and Drift verbs after CARRY_ENERGY are known names, so the loader accepts
+## them; their behaviour lands with DC-07 T05-T07.
 
-enum Trigger { ON_REVEAL, ON_OPPONENT_REVEAL, ON_SCORE, ONGOING }
+enum Trigger { ON_REVEAL, ON_OPPONENT_REVEAL, ON_SCORE, ONGOING, ON_OPPONENT_SCORE, ON_MOVED }
 
 enum Verb {
 	DRAW,
 	DRAW_THEN_DISCARD,
 	FREE_FIRST_NEXT_TURN,
 	SWAP_PLACES,
-	SWITCH_STATS,
-	OPPONENT_NEXT_BONUS_ZERO,
+	OPPONENT_NEXT_NO_BONUS,
 	RETURN_AT_TURN_END,
 	DESTROY_RANDOM_OPPONENT,
 	FLAT_UP_ON_SCORE,
 	CARRY_ENERGY,
+	DISCARD_OWN,
+	DESTROY_LEFTMOST_OWN,
+	DESTROY_OWN_THEN_DRAW,
+	DESTROY_OWN_THEN_FLAT_UP,
+	SACRIFICE_DESTROY,
+	BURST,
+	UNREVEAL_INSTEAD,
+	RECOVER_DESTROYED,
+	MOVE_SELF_LEFT,
+	MOVE_SELF_RIGHT,
+	COPY_STATS,
+	NEIGHBOUR_TIMES,
+	EDGE_LEFT_TIMES,
+	MOVE_OPPONENT_LEFT,
+	SHIFT_OWN_LEFT,
+	REVERSE_OPPONENT_ROW,
+	SWAP_OPPONENT_RIGHT,
+	PLUS_ON_MOVED,
 }
 
 ## JSON names of Trigger, indexed by the enum value.
-const TRIGGER_NAMES: Array[String] = ["on_reveal", "on_opponent_reveal", "on_score", "ongoing"]
+const TRIGGER_NAMES: Array[String] = [
+	"on_reveal",
+	"on_opponent_reveal",
+	"on_score",
+	"ongoing",
+	"on_opponent_score",
+	"on_moved",
+]
 ## JSON names of Verb, indexed by the enum value. FLAT_UP_ON_SCORE is "flat_up", as in
 ## the plan's card table (its trigger is already on_score).
 const VERB_NAMES: Array[String] = [
@@ -32,12 +61,29 @@ const VERB_NAMES: Array[String] = [
 	"draw_then_discard",
 	"free_first_next_turn",
 	"swap_places",
-	"switch_stats",
-	"opponent_next_bonus_zero",
+	"opponent_next_no_bonus",
 	"return_at_turn_end",
 	"destroy_random_opponent",
 	"flat_up",
 	"carry_energy",
+	"discard_own",
+	"destroy_leftmost_own",
+	"destroy_own_then_draw",
+	"destroy_own_then_flat_up",
+	"sacrifice_destroy",
+	"burst",
+	"unreveal_instead",
+	"recover_destroyed",
+	"move_self_left",
+	"move_self_right",
+	"copy_stats",
+	"neighbour_times",
+	"edge_left_times",
+	"move_opponent_left",
+	"shift_own_left",
+	"reverse_opponent_row",
+	"swap_opponent_right",
+	"plus_on_moved",
 ]
 
 const KEY_TRIGGER: String = "trigger"

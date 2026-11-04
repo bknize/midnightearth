@@ -246,7 +246,7 @@ func stats_of(instance_id: int) -> Vector2i:
 	var def: CardDef = _cards.card_at(instance_id % MatchRules.DECK_SIZE)
 	if def == null:
 		return Vector2i.ZERO
-	return Vector2i(def.flat, def.bonus)
+	return Vector2i(def.flat, def.legacy_bonus())
 
 
 ## Bonus-first order: higher bonus, then higher flat, then lower instance id.
