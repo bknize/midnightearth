@@ -4,7 +4,7 @@ tags: [moc]
 status: evergreen
 related: []
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-03
 uid: d15b230e-03a9-44e1-9f25-3878c1851546
 linear:
 supersedes:
@@ -19,3 +19,4 @@ Entry point. Everything in this vault is plain Markdown with wikilinks; the sche
 - [[specs/specs-moc|Specs]] — one folder per feature: spec, plan, tasks
 - [[decisions/decisions-moc|Decisions]] — ADRs
 - [[systems/systems-moc|Systems]] — game-design notes per system (from cycle 1)
+- [[art/art-direction|Art direction]] — the look of the cards, the prompt skeleton and the `generate` model
