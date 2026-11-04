@@ -14,7 +14,9 @@ R1–R9). This file is the short version every agent must obey.
 | `godot/engine/` | Pure match engine (from cycle 1) | Typed GDScript, deterministic, seeded RNG, serializable action log (D4) |
 | `godot/addons/` | Vendored third-party code | Never edit except through a patch recorded in `addons/THIRD_PARTY_LICENSES.md` |
 | `godot/tests/` | gdUnit4 suites | One suite per engine module |
-| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees) | Bash, `set -uo pipefail` |
+| `godot/art/` | Approved art (`/art approve`) | Git LFS; every image has an entry in `art/manifest.json` (ADR 0003) |
+| `art/` | `manifest.json` (tracked); `candidates/` and `ledger.jsonl` (gitignored) | Written only by the artist and `scripts/art-*` |
+| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees), `art-fetch.sh` / `art-approve.sh` / `art-sheet.py` (art pipeline), `replicate-mcp.sh` (starts the Replicate MCP with the `.env` token) | Bash, `set -uo pipefail`; `art-sheet.py` is Python (Pillow) |
 | `.claude/` | Agents, skills, hook settings | The orchestrator pattern lives here |
 
 ## The build gate: `make check`
@@ -43,9 +45,14 @@ warnings to errors, so every project `.gd` is fully typed; test suites are exemp
   `make check`.** Its only feedback is the PostToolUse hook (gdlint + parse). It reports
   what it changed and what it could not verify.
 - **Reviewer** (`reviewer.md`, Sonnet 5.5) — read-only findings.
+- **Artist** (`artist.md`, Fable 5.1) — dispatched by `/art`; interviews Ben on art
+  direction (relayed like the interrogator), generates candidates through the Replicate
+  MCP within the image cap in its brief, and shows contact sheets. Never edits code or
+  imports art; the orchestrator approves picks with `scripts/art-approve.sh`.
 
 Cycle verbs: `/spec <slug>` → `/exercise <slug>` → `/cycle plan DC-NN` → `/cycle run
-DC-NN` → `/cycle test DC-NN`.
+DC-NN` → `/cycle test DC-NN`. Art verbs, outside the cycle: `/art direction | explore |
+generate | approve`.
 
 ## Notes (P5)
 
@@ -81,7 +88,8 @@ commit time) and named for the set. **A dev cycle is one changeset from spec to 
 `cycle-N-<theme>`, cut at `/spec`, and carries the spec, the `/exercise` write-back, one
 commit per task, review fixes and the verification outcome. It merges into `master` only
 at `/cycle test`, when the cycle is complete. A cycle with no spec of its own cuts
-`cycle-N-<theme>` at `/cycle plan`, with the next unused N. Anything else is
+`cycle-N-<theme>` at `/cycle plan`, with the next unused N. Approved art lands
+on `art-<batch>` (or the cycle branch it belongs to). Anything else is
 `tooling-<topic>` or `docs-<topic>`. Nothing is committed directly on `master`: it only
 takes `--no-ff` merges of those branches, made when Ben asks or a verb's steps say so
 (`/cycle test`). Commit only when Ben asks or the task list says so. Commit messages end

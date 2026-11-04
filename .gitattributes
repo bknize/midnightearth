@@ -1,0 +1,5 @@
+# Approved art is stored with Git LFS (ADR 0003). Candidates under art/candidates/ are
+# gitignored and never reach LFS.
+godot/art/**/*.png filter=lfs diff=lfs merge=lfs -text
+godot/art/**/*.webp filter=lfs diff=lfs merge=lfs -text
+godot/art/**/*.jpg filter=lfs diff=lfs merge=lfs -text
