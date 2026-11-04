@@ -17,6 +17,9 @@ var hud: BoardHud = null
 ## The board's zone-glow material, copied per card by BoardCard.set_glow.
 var glow_material: Material = null
 
+## The lifted eligible card's option (a zone index); -1 when none is lifted (R47).
+var lifted_option: int = -1
+
 var _prompt: Dictionary = {}
 var _lit: Array[BoardCard] = []
 
@@ -48,12 +51,16 @@ func open(prompt: Dictionary, text: String, own_size: int) -> void:
 ## Forgets the prompt without touching any node, for the board leaving the tree.
 func drop() -> void:
 	_prompt = {}
+	lifted_option = -1
 	_lit.clear()
 
 
 ## Clears the banner, the glows and the dim (R57).
 func close() -> void:
 	_prompt = {}
+	lifted_option = -1
+	if hud != null:
+		hud.hide_action()
 	for card: BoardCard in _lit:
 		if is_instance_valid(card):
 			card.clear_glow()
@@ -87,8 +94,51 @@ func spot_of(card: BoardCard) -> CardSpot:
 ## What a tap on `card` does while the prompt is open. `own_size` is seat 0's row size.
 func tap(card: BoardCard, own_size: int) -> PromptTap:
 	if card == null:
-		return PromptTap.new()
-	return PromptRules.on_tap(spot_of(card), not card.face_down, _prompt, own_size)
+		var table: CardSpot = CardSpot.new()
+		return PromptRules.on_tap(table, false, _prompt, own_size, lifted_option)
+	var spot: CardSpot = spot_of(card)
+	return PromptRules.on_tap(spot, not card.face_down, _prompt, own_size, lifted_option)
+
+
+## Acts on a routed tap (R40-R44): lifts the card with the button, lifts it to read, or puts
+## the lift down. Awaitable; a put-down finishes first when one card replaces another.
+func apply_tap(tap: PromptTap, card: BoardCard) -> void:
+	match tap.kind:
+		PromptRules.Tap.PUT_DOWN:
+			await put_down()
+		PromptRules.Tap.LIFT_ELIGIBLE, PromptRules.Tap.SWAP_LIFT:
+			await put_down()
+			_lift(card, tap.index)
+		PromptRules.Tap.LIFT:
+			await put_down()
+			_lift(card, -1)
+
+
+## Sets the lift down with the prompt still waiting: the button goes, the option is forgotten.
+func put_down() -> void:
+	lifted_option = -1
+	if hud != null:
+		hud.hide_action()
+	if card_lift != null and card_lift.is_holding():
+		await card_lift.put_down()
+
+
+## Forgets the lifted option after the lift ended by any route (R43, R47).
+func lift_ended() -> void:
+	lifted_option = -1
+	if hud != null:
+		hud.hide_action()
+
+
+func _lift(card: BoardCard, option: int) -> void:
+	if card_lift.is_holding() or not is_open():
+		return
+	# Your own face-down card shows its face in the lift; an opponent's stays a back (R45, R46).
+	card_lift.lift(card, card.face_down and spot_of(card).seat == 0)
+	if option >= 0 and card_lift.is_holding():
+		lifted_option = option
+		var verb: String = _prompt.get("verb", "")
+		hud.show_action(PromptRules.action_label(verb))
 
 
 func _collection_of(seat: int, in_hand: bool) -> CardCollection3D:
