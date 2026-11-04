@@ -10,6 +10,8 @@ extends GdUnitTestSuite
 ## other seat always passes, so the player wins turns and commits first (a face-down
 ## commit to hide) and the passer reaches the hand cap and burns (a burn pile to hide).
 ## Each run is played once with each seat as the player.
+## DC-05 R7: while awaited second, a seat sees the first committer's slots but not its
+## cards. Both seats' budgets are in every view.
 
 const SEED: int = 1
 const SEARCH_SEEDS: int = 100
@@ -30,12 +32,14 @@ const VIEW_KEYS: Array[String] = [
 	"opponent_board",
 	"opponent_hand_count",
 	"opponent_pending_count",
+	"opponent_pending_slots",
 	"deck_counts",
 	"scores",
 	"wins",
 	"round",
 	"turn",
 	"energy",
+	"budgets",
 	"phase",
 	"awaited_seat",
 	"first_seat",
@@ -254,11 +258,12 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.CARD_DEALT, MatchEvent.Kind.CARD_DRAWN, MatchEvent.Kind.CARD_BURNED:
 			keys = ["seat", "card"]
 		MatchEvent.Kind.TURN_STARTED:
-			keys = ["round", "turn", "energy", "first_seat"]
+			keys = ["round", "turn", "energy", "budgets", "free_first", "first_seat"]
 		MatchEvent.Kind.COMMITTED:
-			keys = ["seat", "count", "cards"]
+			keys = ["seat", "count", "cards", "slots"]
 		MatchEvent.Kind.CARD_REVEALED:
-			keys = ["seat", "card", "def_id", "flat", "order"]  # "flat" was "power" before DC-05
+			# "flat" was "power" before DC-05; "slot" is new in DC-05.
+			keys = ["seat", "card", "def_id", "flat", "order", "slot"]
 		MatchEvent.Kind.TURN_ENDED:
 			keys = ["round", "turn", "scores", "winner"]
 		MatchEvent.Kind.ROUND_ENDED:
@@ -283,18 +288,22 @@ func _assert_view_matches_state(view: SeatView, step: Step, seat: int) -> void:
 	assert_array(view.board_of(opp)).is_equal(view.opponent_board)
 	assert_int(view.opponent_hand_count).is_equal(_state_list(state, "hand", opp).size())
 	var pending: Array[int] = _state_ints(state, "pending")
+	var pending_slots: Array[int] = _state_ints(state, "pending_slots")
 	var none: Array[int] = []
 	var phase: int = _state_int(state, "phase")
 	var first: int = _state_int(state, "first_seat")
 	if phase == MatchState.Phase.AWAIT_SECOND and first == seat:
 		assert_array(view.own_pending).is_equal(pending)
 		assert_int(view.opponent_pending_count).is_equal(0)
+		assert_array(view.opponent_pending_slots).is_equal(none)
 	elif phase == MatchState.Phase.AWAIT_SECOND:
 		assert_array(view.own_pending).is_equal(none)
 		assert_int(view.opponent_pending_count).is_equal(pending.size())
+		assert_array(view.opponent_pending_slots).is_equal(pending_slots)
 	else:
 		assert_array(view.own_pending).is_equal(none)
 		assert_int(view.opponent_pending_count).is_equal(0)
+		assert_array(view.opponent_pending_slots).is_equal(none)
 	var deck_counts: Array[int] = [
 		_state_list(state, "deck", 0).size(), _state_list(state, "deck", 1).size()
 	]
@@ -305,6 +314,9 @@ func _assert_view_matches_state(view: SeatView, step: Step, seat: int) -> void:
 	assert_int(view.turn).is_equal(_state_int(state, "turn"))
 	assert_int(view.energy).is_equal(step.energy)
 	assert_int(view.energy).is_equal(view.turn)
+	# No effect carries energy before DC-05 T04: both budgets are the turn.
+	assert_array(view.budgets).is_equal([view.turn, view.turn])
+	assert_int(view.budgets[seat]).is_equal(view.energy)
 	assert_int(view.phase).is_equal(phase)
 	assert_int(view.awaited_seat).is_equal(step.awaited)
 	assert_bool(view.is_awaited()).is_equal(step.awaited == seat)
@@ -373,6 +385,8 @@ func test_face_down_commit_shows_only_a_count_to_the_opponent() -> void:
 		assert_int(engine.awaited_seat()).is_equal(1)
 		var opponent_view: SeatView = engine.view_for(1)
 		assert_int(opponent_view.opponent_pending_count).is_equal(2)
+		# The slots show (R7): no slots given on the empty row, so they append at 0 and 1.
+		assert_array(opponent_view.opponent_pending_slots).is_equal([0, 1])
 		assert_bool(opponent_view.is_awaited()).is_true()
 		assert_array(_leaks(opponent_view.to_dict(), cards)).is_empty()
 		var redacted: Array[MatchEvent] = result.events_for(1)
@@ -381,6 +395,7 @@ func test_face_down_commit_shows_only_a_count_to_the_opponent() -> void:
 		assert_int(_payload_int(redacted[0], "seat")).is_equal(0)
 		assert_int(_payload_int(redacted[0], "count")).is_equal(2)
 		assert_array(_payload_ints(redacted[0], "cards")).is_equal([-1, -1])
+		assert_array(_payload_ints(redacted[0], "slots")).is_equal([0, 1])
 		var own_view: SeatView = engine.view_for(0)
 		assert_array(own_view.own_pending).is_equal(cards)
 		assert_int(own_view.opponent_pending_count).is_equal(0)
@@ -528,6 +543,8 @@ func _assert_redacted(copy: MatchEvent, original: MatchEvent) -> void:
 		for _i: int in range(count):
 			hidden.append(MatchEvent.HIDDEN_CARD)
 		assert_array(_payload_ints(copy, "cards")).is_equal(hidden)
+		# Slots are public (R7): the redacted copy keeps them.
+		assert_array(_payload_ints(copy, "slots")).is_equal(_payload_ints(original, "slots"))
 	else:
 		assert_int(_payload_int(copy, "card")).is_equal(MatchEvent.HIDDEN_CARD)
 

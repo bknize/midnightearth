@@ -3,7 +3,8 @@ extends RefCounted
 ## Legal card sets for a turn (R5, R13, R26, R36; Phase 3 R5).
 ##
 ## A card set is legal when every card is in the hand, no card appears twice, and the
-## total cost is at most the turn's energy. Costs come from CardDb by instance id:
+## total cost is at most the energy given (enumeration) or the seat's budget with the
+## free first card (validate, R9, R10). Costs come from CardDb by instance id:
 ## instance id = seat * DECK_SIZE + index, so the definition is card_at(id % DECK_SIZE).
 ##
 ## Enumeration order is deterministic and part of the contract (the bot's seeded
@@ -80,10 +81,25 @@ static func enumerate(hand: Array[int], energy: int, cards: CardDb) -> Array[Arr
 ## Checks a proposed commit; returns EngineError.Code.NONE when legal.
 ##
 ## Cards are checked in the order given: the first card already seen returns
-## DUPLICATE_CARD, the first card absent from the hand returns CARD_NOT_IN_HAND. Then a
-## card with no definition returns CARD_DATA_INVALID, and a total cost above energy
-## returns OVER_BUDGET. The empty commit is always legal.
-static func validate(proposal: Array[int], hand: Array[int], energy: int, cards: CardDb) -> int:
+## DUPLICATE_CARD, the first card absent from the hand returns CARD_NOT_IN_HAND. Then
+## the slots (R5, R6, plan P1) return BAD_SLOTS unless there is exactly one per card,
+## strictly increasing, each within 0 .. row_size + proposal.size() - 1. Then a card with
+## no definition returns CARD_DATA_INVALID, and a cost above `budget` returns OVER_BUDGET.
+## The cost is the summed cost, less the cost of the leftmost new card (the lowest slot,
+## which is proposal[0] once the slots pass) when `free_first` is true (R10). The empty
+## commit with no slots is always legal.
+##
+## `slots` here are explicit: the engine resolves the empty, append-at-the-end
+## compatibility default (EngineAction) with append_slots() before calling this.
+static func validate(
+	proposal: Array[int],
+	slots: Array[int],
+	hand: Array[int],
+	row_size: int,
+	budget: int,
+	free_first: bool,
+	cards: CardDb
+) -> int:
 	var seen: Dictionary[int, bool] = {}
 	for instance_id: int in proposal:
 		if seen.has(instance_id):
@@ -91,11 +107,45 @@ static func validate(proposal: Array[int], hand: Array[int], energy: int, cards:
 		seen[instance_id] = true
 		if not hand.has(instance_id):
 			return EngineError.Code.CARD_NOT_IN_HAND
+	if not slots_valid(slots, proposal.size(), row_size):
+		return EngineError.Code.BAD_SLOTS
 	if proposal.is_empty():
 		return EngineError.Code.NONE
-	var total: int = total_cost(proposal, cards)
+	var total: int = commit_cost(proposal, free_first, cards)
 	if total < 0:
 		return EngineError.Code.CARD_DATA_INVALID
-	if total > energy:
+	if total > budget:
 		return EngineError.Code.OVER_BUDGET
 	return EngineError.Code.NONE
+
+
+## True when `slots` holds one final-row index per committed card (`count`), strictly
+## increasing, each within 0 .. row_size + count - 1 (plan P1).
+static func slots_valid(slots: Array[int], count: int, row_size: int) -> bool:
+	if slots.size() != count:
+		return false
+	var last_slot: int = row_size + count - 1
+	var previous: int = -1
+	for slot: int in slots:
+		if slot <= previous or slot > last_slot:
+			return false
+		previous = slot
+	return true
+
+
+## The slots that append `count` cards at the right end of a row of `row_size` cards:
+## row_size .. row_size + count - 1. The engine's resolution of the empty-slots default.
+static func append_slots(row_size: int, count: int) -> Array[int]:
+	var out: Array[int] = []
+	for offset: int in range(count):
+		out.append(row_size + offset)
+	return out
+
+
+## What a commit of `proposal` (in slot order) costs: the summed cost, less the leftmost
+## card's when `free_first` is true (R10). -1 when any card maps to no definition.
+static func commit_cost(proposal: Array[int], free_first: bool, cards: CardDb) -> int:
+	var total: int = total_cost(proposal, cards)
+	if total < 0 or proposal.is_empty() or not free_first:
+		return total
+	return total - cost_of(proposal[0], cards)
