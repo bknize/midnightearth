@@ -129,6 +129,8 @@ func _ready() -> void:
 	var decks_err: int = hud.decks_pressed.connect(decks_requested.emit)
 	if lifted_err != OK or down_err != OK or action_err != OK or decks_err != OK:
 		push_warning("Board: could not connect the card lift or action signals")
+	if hud.confirm_pressed.connect(_on_confirm_pressed) != OK:
+		push_warning("Board: could not connect the confirm button")
 	_cards = CardDb.load_default()
 	_decks = DeckList.load_default()
 	if not _cards.is_valid():
@@ -181,18 +183,13 @@ func _setup_effects() -> void:
 	_fx.opponent_hand = opponent_hand
 	_fx.loose = _loose
 	_fx.exit_marker = _exit
-	_fx.cards = _cards
 	_fx.glow_material = _row_glow.material_override
 	_fx.player_cards = _player_cards
 	_fx.committed_ids = _committed_ids
 	_fx.face_down_ids = _face_down_ids
-	_prompt.player_hand = player_hand
-	_prompt.player_row = player_row
-	_prompt.opponent_row = opponent_row
-	_prompt.opponent_hand = opponent_hand
-	_prompt.card_lift = card_lift
-	_prompt.hud = hud
-	_prompt.glow_material = _row_glow.material_override
+	_prompt.wire(_collections(), card_lift, hud, _row_glow.material_override)
+	_prompt.strip_parent = self
+	_prompt.spawn = _spawn_card
 
 
 ## Starts a fresh match: new driver, empty table, the opening events as steps.
@@ -210,6 +207,8 @@ func start_match(new_seed: int, deck_ids: Array[String]) -> void:
 	_close_prompt()
 	driver = MatchDriver.create(new_seed, _cards, _decks, deck_ids, _autoplay)
 	_deck_ids = driver.deck_ids()
+	_fx.match_cards = driver.match_cards()
+	_prompt.driver = driver
 	_clear_table_now()
 	hud.show_pause(false)
 	_refresh_staging_ui()
@@ -441,6 +440,9 @@ func _apply_effect(step: BoardStep) -> void:
 			_fx.unreveal(step)
 		BoardStep.Kind.RECOVER:
 			_fx.recover(step)
+		BoardStep.Kind.STRIP_HIDE:
+			_prompt.hide_strip(step.duration)
+			_fx.strip = null
 		BoardStep.Kind.MOVE:
 			_fx.move(step)
 		BoardStep.Kind.RETURN:
@@ -572,41 +574,43 @@ func _open_prompt(step: BoardStep) -> void:
 	if open.is_empty():
 		push_warning("Board: a PROMPT step but the engine holds no prompt for seat 0")
 		return
-	_prompt.open(open, step.text, driver.view().own_board.size())
+	_prompt.open(open, step.text, driver.view())
+	_fx.strip = _prompt.strip_collection()
 	_refresh_commit_enabled()
 
 
-## Clears the banner, glows and dim, and lets a held runner continue (R57).
-func _close_prompt() -> void:
-	_prompt.close()
+## Clears the banner, glows and dim, and lets a held runner continue (R57). `keep_strip` leaves
+## the deck strip up for the recovery that flies a card out of it (STRIP_HIDE clears it).
+func _close_prompt(keep_strip: bool = false) -> void:
+	_prompt.close(keep_strip)
+	_fx.strip = _prompt.strip_collection()
 	prompt_resolved.emit()
 
 
-## Submits the tapped option. A rejection leaves the prompt up (it should not happen).
-func _choose(index: int) -> void:
-	var open: Dictionary = _prompt.current()
-	var zone: int = open.get("zone", Choice.NO_ZONE)
-	var result: ApplyResult = driver.submit_choice(zone, index)
+## Plays an accepted answer (R57, R47): its steps, then the strip's exit, and the prompt
+## closes. A rejection leaves the prompt up (it should not happen); null means nothing to do.
+func _answer(result: ApplyResult) -> void:
+	if result == null:
+		return
 	if not result.ok:
 		push_warning("Board: the engine rejected the choice (code %d)" % result.error)
 		return
+	var strip_up: bool = _prompt.strip_up()
 	_enqueue(driver.last_events())
-	_close_prompt()
+	if strip_up:
+		_queue.append(BoardSteps.strip_step(false, speed))
+	_close_prompt(strip_up)
+	_prompt.put_down(strip_up)
 
 
-## One tap while the prompt is open (R40-R44): lift, swap the lift, or put it down.
-func _tap_prompt(card: BoardCard) -> void:
-	var tap: PromptTap = _prompt.tap(card, driver.view().own_board.size())
-	await _prompt.apply_tap(tap, card)
-
-
-## The reader's button (R42): submits the lifted option, then sets the card down (R57).
+## The reader's button (R42, R48): submits the lifted option, or toggles it in a multi set.
 func _on_action_pressed() -> void:
-	var option: int = _prompt.lifted_option
-	if option < 0 or not _prompt.is_open():
-		return
-	_choose(option)
-	_prompt.put_down()
+	_answer(_prompt.press())
+
+
+## The HUD confirm (R48): submits the selected set.
+func _on_confirm_pressed() -> void:
+	_answer(_prompt.confirm())
 
 
 # --- Card helpers ------------------------------------------------------------------------
@@ -696,9 +700,9 @@ func _card_played(card: Object) -> bool:
 	return _committed_ids.has(board_card.instance_id)
 
 
-## The cost of a card instance: its definition is `id % DECK_SIZE` of the card data.
+## The cost of a card instance, from the match's own definitions (the seats' decks differ).
 func _cost_of(id: int) -> int:
-	var def: CardDef = _cards.card_at(id % MatchRules.DECK_SIZE)
+	var def: CardDef = driver.match_cards().def_of(id)
 	if def == null:
 		return 0
 	return def.cost
@@ -902,7 +906,7 @@ func _place_of(card: Card3D) -> int:
 ## it if the rules allow (R1, R2), never during a drag or a pause (R7).
 func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
 	if _prompt.is_open() and not _paused:
-		_tap_prompt(_card_from_hit(hit))
+		_prompt.handle_tap(_card_from_hit(hit))
 		return
 	if card_lift.is_holding():
 		card_lift.put_down()

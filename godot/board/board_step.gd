@@ -65,8 +65,6 @@ var kind: int = Kind.CLEAR_TABLE
 var seat: int = -1
 ## Instance id; -1 when hidden from the viewer.
 var card: int = -1
-## Index into the card database; -1 when unknown.
-var def_index: int = -1
 var flat: int = 0
 ## The bonus as a hundredths multiplier (100 = none) and whole units added (STATS, PULSE).
 var times: int = 100
