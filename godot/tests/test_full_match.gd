@@ -6,7 +6,11 @@ extends GdUnitTestSuite
 ## ends, no hand exceeds 7, no commit exceeds the seat's budget (carry and the free first
 ## card included), no view or redacted event leaks a hidden card (prompts included), every
 ## log replays to an equal state, and the sweep answers at least one prompt (DC-05 T07, R39).
-## The sweep prints "Sweep: longest=.. seed=.. slowest_decision_us=.. prompts=..".
+## DC-06 (T03, R25): the leak scan covers destroyed face-down cards (their redacted
+## CARD_DESTROYED and DESTROYED_CLEARED, and their row entries in every view), and the sweep
+## records the longest walk in pulses (the slots of both rows at walk start, DC-06 R4).
+## The sweep prints "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=..
+## slowest_decision_us=.. prompts=.. destroyed_hidden=..".
 ##
 ## Matches are played exactly as main.gd plays its smoke run: one GreedyBot per seat,
 ## seeded GreedyBot.seed_for(match_seed, seat), asked only for the awaited seat. A harness
@@ -52,6 +56,9 @@ static var longest_seed: int = 0
 static var slowest_decision_us: int = 0
 static var slowest_seed: int = 0
 static var sweep_prompts: int = 0
+## The longest single walk of the sweep in pulses, and its seed (DC-06 T03, R25, NSC-74).
+static var longest_walk: int = 0
+static var longest_walk_seed: int = 0
 
 var _cached_db: CardDb = null
 
@@ -117,7 +124,8 @@ func _free_first(state: Dictionary, seat: int) -> bool:
 
 ## Every id of `seat`'s cards its opponent may not know in `state`, as a set: its hand,
 ## deck and burn pile, its share of the face-down commit, and the cards on its row not yet
-## revealed (only while a prompt pauses a walk, DC-05 T05).
+## revealed (while a prompt pauses a walk, DC-05 T05, or left face down behind the cursor by
+## a swap, DC-06 R8), destroyed or not (DC-06 R20).
 func _hidden_set(state: Dictionary, seat: int) -> Dictionary:
 	var out: Dictionary = {}
 	for key: String in ["hand", "deck", "burned"]:
@@ -226,6 +234,9 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 			run.rejections.append("action %d rejected, code %d" % [run.actions, result.error])
 			return run
 		run.actions += 1
+		# Only the second commit starts a walk (DC-06 T03: the longest walk, R25).
+		if _has_kind(result, MatchEvent.Kind.WALK_STARTED):
+			run.longest_walk = maxi(run.longest_walk, _walk_pulses(before, action))
 		after = engine.full_state()
 		var scan: bool = scan_every_step
 		if not scan:
@@ -236,6 +247,17 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 		_check_step(run, before, after, result, scan)
 		_record_end(run, result)
 	return run
+
+
+## The pulses of the walk that `action` (the second commit) starts from `before`: one per
+## slot of both rows at walk start (DC-06 R4), so both rows as they stood, the first
+## commit held in `pending` and the second commit's cards. Rows keep their size during a
+## walk: a swap moves cards and a destroy marks one in place; only turn end shrinks them.
+func _walk_pulses(before: Dictionary, action: EngineAction) -> int:
+	var pulses: int = _state_ints(before, "pending").size() + action.cards.size()
+	for seat: int in range(MatchEngine.SEATS):
+		pulses += _state_list(before, "board", seat).size()
+	return pulses
 
 
 ## The bot's action is for the awaited seat: a commit costing no more than its budget (with
@@ -294,6 +316,7 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 				run.leaks.append(where + ": view names hidden card %d" % card)
 		if view.opponent_pending_count > 0:
 			run.face_down_seen += 1
+		_scan_destroyed_rows(run, view, where)
 		var hidden_during: Dictionary = _hidden_set(before, opp)
 		hidden_during.merge(hidden_now)
 		for card: Variant in revealed.keys():
@@ -306,6 +329,8 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 		for event: MatchEvent in result.events_for(seat):
 			if event.is_private() and event.owner_seat == opp:
 				run.redacted_seen += 1
+				if _is_destroy_kind(event.kind):
+					run.destroyed_hidden_seen += 1
 			var exempt: bool = _may_name_public_card(event)
 			for card: int in _event_card_ids(event):
 				if not hidden_during.has(card):
@@ -313,6 +338,33 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 				if exempt and public_before.has(card):
 					continue
 				run.leaks.append(where + ": event %d names hidden card %d" % [event.kind, card])
+
+
+## DC-06 R20: a destroyed card still face down on the opponent's row (a walk paused on a
+## prompt after the destroy) shows its slot as destroyed, and neither its id nor its stats.
+func _scan_destroyed_rows(run: MatchRun, view: SeatView, where: String) -> void:
+	for slot: int in range(view.opponent_row.size()):
+		var entry: Dictionary = view.opponent_row[slot]
+		var destroyed: bool = entry.get("destroyed", false)
+		var revealed: bool = entry.get("revealed", false)
+		if not destroyed or revealed:
+			continue
+		run.destroyed_hidden_seen += 1
+		var card: int = entry.get(MatchEvent.KEY_CARD, MatchEvent.HIDDEN_CARD)
+		var flat: int = entry.get("flat", 0)
+		var bonus: int = entry.get("bonus", 0)
+		if card != MatchEvent.HIDDEN_CARD or flat != 0 or bonus != 0:
+			run.leaks.append(where + ": destroyed face-down slot %d shows its card" % slot)
+		var on_board: int = MatchEvent.HIDDEN_CARD
+		if slot < view.opponent_board.size():
+			on_board = view.opponent_board[slot]
+		if on_board != MatchEvent.HIDDEN_CARD:
+			run.leaks.append(where + ": opponent_board names destroyed face-down slot %d" % slot)
+
+
+## The destroy kinds (DC-06): the destroy itself and its turn-end clear.
+func _is_destroy_kind(kind: int) -> bool:
+	return kind == MatchEvent.Kind.CARD_DESTROYED or kind == MatchEvent.Kind.DESTROYED_CLEARED
 
 
 ## Whether `event` may name a card that was face up on the opponent's row before the step
@@ -477,6 +529,9 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	slowest_decision_us = 0
 	slowest_seed = 0
 	sweep_prompts = 0
+	longest_walk = 0
+	longest_walk_seed = 0
+	var destroyed_hidden: int = 0
 	var face_down_seen: int = 0
 	var redacted_seen: int = 0
 	var choices: int = 0
@@ -487,6 +542,10 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 		face_down_seen += run.face_down_seen
 		redacted_seen += run.redacted_seen
 		choices += run.choices
+		destroyed_hidden += run.destroyed_hidden_seen
+		if run.longest_walk > longest_walk:
+			longest_walk = run.longest_walk
+			longest_walk_seed = match_seed
 		if run.engine.is_over():
 			ended += 1
 		if run.actions > longest_actions:
@@ -496,11 +555,22 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 			slowest_decision_us = run.slowest_decision_us
 			slowest_seed = match_seed
 	sweep_prompts = choices
-	# One line for the orchestrator to read at DC-05 T14.
+	# One line for the orchestrator to read at verification (DC-05 T14, DC-06 T09).
 	print(
 		(
-			"Sweep: longest=%d seed=%d slowest_decision_us=%d prompts=%d"
-			% [longest_actions, longest_seed, slowest_decision_us, sweep_prompts]
+			(
+				"Sweep: longest=%d seed=%d longest_walk=%d walk_seed=%d"
+				+ " slowest_decision_us=%d prompts=%d destroyed_hidden=%d"
+			)
+			% [
+				longest_actions,
+				longest_seed,
+				longest_walk,
+				longest_walk_seed,
+				slowest_decision_us,
+				sweep_prompts,
+				destroyed_hidden,
+			]
 		)
 	)
 	assert_int(ended).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
@@ -508,6 +578,11 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	assert_int(redacted_seen).is_greater(0)
 	# The sweep really answered prompts, so their leak scan and replay ran (DC-05 T05).
 	assert_int(choices).override_failure_message("no prompt in the sweep").is_greater(0)
+	# A destroyed face-down card was really scanned (DC-06 R20, R21): a redacted destroy or
+	# clear, or a destroyed face-down slot in a view.
+	var no_hidden_destroy: String = "no destroyed face-down card in the sweep"
+	assert_int(destroyed_hidden).override_failure_message(no_hidden_destroy).is_greater(0)
+	assert_int(longest_walk).override_failure_message("no walk in the sweep").is_greater(0)
 	# The longest match, readable from the static and from this message.
 	var longest: String = (
 		"longest match: seed %d, %d actions (cap %d)" % [longest_seed, longest_actions, MAX_ACTIONS]
@@ -535,6 +610,11 @@ class MatchRun:
 	var choices: int = 0
 	## The slowest GreedyBot.choose() call, in microseconds (DC-05 T07).
 	var slowest_decision_us: int = 0
+	## The longest walk of the match in pulses (DC-06 T03).
+	var longest_walk: int = 0
+	## Destroyed face-down cards the leak scan saw: redacted CARD_DESTROYED and
+	## DESTROYED_CLEARED events, and destroyed face-down row entries in views (DC-06 T03).
+	var destroyed_hidden_seen: int = 0
 	var rejections: Array[String] = []
 	var hand_violations: Array[String] = []
 	var energy_violations: Array[String] = []

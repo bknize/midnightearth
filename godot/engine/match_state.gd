@@ -169,7 +169,8 @@ func is_destroyed(card: int) -> bool:
 ## false, changing nothing, when it was not on that row. Read the card's slot before
 ## calling. Where the card goes next is the caller's call. The live engine calls it only
 ## once a walk is over, so the walk's slot cursor never follows a row that shrinks (DC-06
-## P1); the preview's MatchEngine._hide_opponent still drops cards mid-walk on its clone.
+## P1); the preview's MatchEngine._hide_opponent marks hidden cards destroyed in place
+## instead of taking them (DC-06 P7), so no caller shrinks a row mid-walk.
 func take_from_row(seat: int, card: int) -> bool:
 	var piles: SeatPiles = seats[seat]
 	var slot: int = piles.board.find(card)
