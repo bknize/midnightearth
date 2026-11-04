@@ -15,6 +15,8 @@ signal player_turn_started
 signal wait_finished
 ## Internal: emitted when the open prompt is answered, or cut short by a restart or exit.
 signal prompt_resolved
+## Emitted when a pause or result "Decks" button is pressed; main frees the board.
+signal decks_requested
 
 ## The drop-zone glow looks (R12-R14).
 enum GlowLook { IDLE, HOVER, REFUSE }
@@ -22,7 +24,6 @@ enum GlowLook { IDLE, HOVER, REFUSE }
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
 const NORMAL_SPEED: float = 1.0
-const SEED_ARG: String = "--seed="
 const AUTOPLAY_ARG: String = "--autoplay"
 const GLOW_GOLD: Color = Color(1.0, 0.85, 0.45)
 const GLOW_RED: Color = Color(0.95, 0.25, 0.2)
@@ -30,7 +31,6 @@ const GLOW_IDLE_ALPHA: float = 0.18
 const GLOW_HOVER_ALPHA: float = 0.35
 ## Seconds at 1x for a player commit to slide onto the row when it is not already there.
 const PLAYER_COMMIT_TIME: float = 0.25
-const SEED_MASK: int = 0x7FFFFFFF
 ## Where a row's tally rests: past the right end of the row, and toward the camera.
 const TALLY_OFFSET: Vector3 = Vector3(14.5, 0.0, 1.0)
 ## Seconds at 1x for an unstaged card to slide back to the hand.
@@ -39,6 +39,8 @@ const UNSTAGE_TIME: float = 0.2
 ## 0 means "ask the command line, then the clock".
 @export var fixed_seed: int = 0
 @export var autoplay: bool = false
+## True for stand-alone verify scenes: start the seeded pairing in _ready. Main starts it.
+@export var auto_start: bool = false
 
 ## The current match, for T08 and tests.
 var driver: MatchDriver = null
@@ -55,6 +57,9 @@ var speed: float = NORMAL_SPEED
 var staging: Staging = Staging.new()
 
 var _cards: CardDb = null
+var _decks: DeckList = null
+## The ids of the running match ("" = the seeded pick); a rematch keeps them.
+var _deck_ids: Array[String] = ["", ""]
 var _autoplay: bool = false
 var _input_locked: bool = true
 ## Whether seat 0 is awaited; refreshed once per step in _advance(), false while steps run.
@@ -121,9 +126,13 @@ func _ready() -> void:
 	var lifted_err: int = card_lift.lifted.connect(_on_card_lifted)
 	var down_err: int = card_lift.put_down_finished.connect(_on_card_put_down)
 	var action_err: int = hud.action_pressed.connect(_on_action_pressed)
-	if lifted_err != OK or down_err != OK or action_err != OK:
+	var decks_err: int = hud.decks_pressed.connect(decks_requested.emit)
+	if lifted_err != OK or down_err != OK or action_err != OK or decks_err != OK:
 		push_warning("Board: could not connect the card lift or action signals")
+	if hud.confirm_pressed.connect(_on_confirm_pressed) != OK:
+		push_warning("Board: could not connect the confirm button")
 	_cards = CardDb.load_default()
+	_decks = DeckList.load_default()
 	if not _cards.is_valid():
 		push_error("Card data failed to load: %s" % _cards.load_error())
 		return
@@ -131,7 +140,9 @@ func _ready() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	_autoplay = autoplay or args.has(AUTOPLAY_ARG)
 	speed = AUTOPLAY_SPEED if _autoplay else NORMAL_SPEED
-	start_match(_resolve_seed(args))
+	var first_seed: int = _resolve_seed(args)
+	if auto_start:
+		start_match(first_seed, _deck_ids)
 
 
 func _process(delta: float) -> void:
@@ -172,22 +183,18 @@ func _setup_effects() -> void:
 	_fx.opponent_hand = opponent_hand
 	_fx.loose = _loose
 	_fx.exit_marker = _exit
-	_fx.cards = _cards
 	_fx.glow_material = _row_glow.material_override
 	_fx.player_cards = _player_cards
 	_fx.committed_ids = _committed_ids
 	_fx.face_down_ids = _face_down_ids
-	_prompt.player_hand = player_hand
-	_prompt.player_row = player_row
-	_prompt.opponent_row = opponent_row
-	_prompt.opponent_hand = opponent_hand
-	_prompt.card_lift = card_lift
-	_prompt.hud = hud
-	_prompt.glow_material = _row_glow.material_override
+	_prompt.wire(_collections(), card_lift, hud, _row_glow.material_override)
+	_prompt.strip_parent = self
+	_prompt.spawn = _spawn_card
 
 
 ## Starts a fresh match: new driver, empty table, the opening events as steps.
-func start_match(new_seed: int) -> void:
+## `deck_ids` are the two seats' deck ids; "" takes the seeded pick for that seat.
+func start_match(new_seed: int, deck_ids: Array[String]) -> void:
 	_serial += 1
 	_end_wait()
 	card_lift.drop_now()
@@ -198,7 +205,10 @@ func start_match(new_seed: int) -> void:
 	_paused = false
 	_queue.clear()
 	_close_prompt()
-	driver = MatchDriver.create(new_seed, _cards, _autoplay)
+	driver = MatchDriver.create(new_seed, _cards, _decks, deck_ids, _autoplay)
+	_deck_ids = driver.deck_ids()
+	_fx.match_cards = driver.match_cards()
+	_prompt.driver = driver
 	_clear_table_now()
 	hud.show_pause(false)
 	_refresh_staging_ui()
@@ -259,32 +269,16 @@ func _submit(action: EngineAction) -> bool:
 
 ## The seed for a first match: fixed, then --seed=N, then the clock.
 func _resolve_seed(args: PackedStringArray) -> int:
-	if fixed_seed != 0:
-		_seed_fixed = true
-		return fixed_seed
-	for arg: String in args:
-		if arg.begins_with(SEED_ARG):
-			var text: String = arg.substr(SEED_ARG.length())
-			if text.is_valid_int():
-				_seed_fixed = true
-				return text.to_int()
-	return _clock_seed()
-
-
-## The only clock read: a fresh seed for a first match with no fixed seed, or a rematch.
-func _clock_seed() -> int:
-	var ticks: int = Time.get_ticks_usec()
-	var unix_usec: int = int(Time.get_unix_time_from_system() * 1000000.0)
-	var mixed: int = (ticks ^ (unix_usec << 7) ^ (unix_usec >> 11)) & SEED_MASK
-	return mixed if mixed != 0 else 1
+	var flagged: int = fixed_seed if fixed_seed != 0 else BoardSeeds.from_args(args)
+	_seed_fixed = flagged != 0
+	return flagged if flagged != 0 else BoardSeeds.clock_seed()
 
 
 ## The rematch seed (R43): seed + 1 when the first seed was fixed, else a fresh clock seed.
 func _next_seed() -> int:
 	if _seed_fixed and driver != null:
-		var bumped: int = (driver.match_seed + 1) & SEED_MASK
-		return bumped if bumped != 0 else 1
-	return _clock_seed()
+		return BoardSeeds.bumped(driver.match_seed)
+	return BoardSeeds.clock_seed()
 
 
 # --- The queue ---------------------------------------------------------------------------
@@ -393,7 +387,9 @@ func _end_wait() -> void:
 
 
 func _apply(step: BoardStep) -> void:
+	_fx.note_step(step)
 	_tracker.apply(step)
+	hud.set_destroyed(_tracker.destroyed)
 	match step.kind:
 		BoardStep.Kind.CLEAR_TABLE:
 			_clear_table(step)
@@ -441,6 +437,13 @@ func _apply_effect(step: BoardStep) -> void:
 			_fx.destroy(step)
 		BoardStep.Kind.CLEAR_DESTROYED:
 			_fx.clear_destroyed(step)
+		BoardStep.Kind.UNREVEAL:
+			_fx.unreveal(step)
+		BoardStep.Kind.RECOVER:
+			_fx.recover(step)
+		BoardStep.Kind.STRIP_HIDE:
+			_prompt.hide_strip(step.duration)
+			_fx.strip = null
 		BoardStep.Kind.MOVE:
 			_fx.move(step)
 		BoardStep.Kind.RETURN:
@@ -539,9 +542,6 @@ func _clear_table(step: BoardStep) -> void:
 			_loose.add_child(removed[i])
 			removed[i].global_transform = transforms[i]
 			_fx.fly_out(removed[i], step.duration)
-	_player_cards.clear()
-	_committed_ids.clear()
-	_face_down_ids.clear()
 	_fx.reset()
 	_tally.hide_all()
 	_chips.clear()
@@ -575,41 +575,43 @@ func _open_prompt(step: BoardStep) -> void:
 	if open.is_empty():
 		push_warning("Board: a PROMPT step but the engine holds no prompt for seat 0")
 		return
-	_prompt.open(open, step.text, driver.view().own_board.size())
+	_prompt.open(open, step.text, driver.view())
+	_fx.strip = _prompt.strip_collection()
 	_refresh_commit_enabled()
 
 
-## Clears the banner, glows and dim, and lets a held runner continue (R57).
-func _close_prompt() -> void:
-	_prompt.close()
+## Clears the banner, glows and dim, and lets a held runner continue (R57). `keep_strip` leaves
+## the deck strip up for the recovery that flies a card out of it (STRIP_HIDE clears it).
+func _close_prompt(keep_strip: bool = false) -> void:
+	_prompt.close(keep_strip)
+	_fx.strip = _prompt.strip_collection()
 	prompt_resolved.emit()
 
 
-## Submits the tapped option. A rejection leaves the prompt up (it should not happen).
-func _choose(index: int) -> void:
-	var open: Dictionary = _prompt.current()
-	var zone: int = open.get("zone", Choice.NO_ZONE)
-	var result: ApplyResult = driver.submit_choice(zone, index)
+## Plays an accepted answer (R57, R47): its steps, then the strip's exit, and the prompt
+## closes. A rejection leaves the prompt up (it should not happen); null means nothing to do.
+func _answer(result: ApplyResult) -> void:
+	if result == null:
+		return
 	if not result.ok:
 		push_warning("Board: the engine rejected the choice (code %d)" % result.error)
 		return
+	var strip_up: bool = _prompt.strip_up()
 	_enqueue(driver.last_events())
-	_close_prompt()
+	if strip_up:
+		_queue.append(BoardSteps.strip_step(false, speed))
+	_close_prompt(strip_up)
+	_prompt.put_down(strip_up)
 
 
-## One tap while the prompt is open (R40-R44): lift, swap the lift, or put it down.
-func _tap_prompt(card: BoardCard) -> void:
-	var tap: PromptTap = _prompt.tap(card, driver.view().own_board.size())
-	await _prompt.apply_tap(tap, card)
-
-
-## The reader's button (R42): submits the lifted option, then sets the card down (R57).
+## The reader's button (R42, R48): submits the lifted option, or toggles it in a multi set.
 func _on_action_pressed() -> void:
-	var option: int = _prompt.lifted_option
-	if option < 0 or not _prompt.is_open():
-		return
-	_choose(option)
-	_prompt.put_down()
+	_answer(_prompt.press())
+
+
+## The HUD confirm (R48): submits the selected set.
+func _on_confirm_pressed() -> void:
+	_answer(_prompt.confirm())
 
 
 # --- Card helpers ------------------------------------------------------------------------
@@ -640,9 +642,6 @@ func _clear_table_now() -> void:
 			card.queue_free()
 	for child: Node in _loose.get_children():
 		child.queue_free()
-	_player_cards.clear()
-	_committed_ids.clear()
-	_face_down_ids.clear()
 	_turn_energy = 0
 	staging.reset(0)
 	_hide_glows()
@@ -653,6 +652,7 @@ func _clear_table_now() -> void:
 	_tally.hide_all()
 	_chips.clear()
 	_fx.reset()
+	hud.set_destroyed(_tracker.destroyed)
 	_refresh_scores()
 	var zeros: Array[int] = [0, 0]
 	hud.set_wins(zeros)
@@ -701,9 +701,9 @@ func _card_played(card: Object) -> bool:
 	return _committed_ids.has(board_card.instance_id)
 
 
-## The cost of a card instance: its definition is `id % DECK_SIZE` of the card data.
+## The cost of a card instance, from the match's own definitions (the seats' decks differ).
 func _cost_of(id: int) -> int:
-	var def: CardDef = _cards.card_at(id % MatchRules.DECK_SIZE)
+	var def: CardDef = driver.match_cards().def_of(id)
 	if def == null:
 		return 0
 	return def.cost
@@ -907,7 +907,7 @@ func _place_of(card: Card3D) -> int:
 ## it if the rules allow (R1, R2), never during a drag or a pause (R7).
 func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
 	if _prompt.is_open() and not _paused:
-		_tap_prompt(_card_from_hit(hit))
+		_prompt.handle_tap(_card_from_hit(hit))
 		return
 	if card_lift.is_holding():
 		card_lift.put_down()
@@ -995,4 +995,4 @@ func _on_concede_pressed() -> void:
 
 func _on_rematch_pressed() -> void:
 	hud.hide_result()
-	start_match(_next_seed())
+	start_match(_next_seed(), _deck_ids)

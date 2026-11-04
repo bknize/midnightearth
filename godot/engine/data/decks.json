@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "decks": [
+    {
+      "id": "ruin",
+      "name": "Ruin",
+      "theme": "Burn your own cards for bodies above the curve and random enemy destroys.",
+      "cards": ["r01", "r02", "r03", "r04", "r05", "r06", "r07", "r08", "r09", "r10", "r11", "r12", "r13", "r14", "r15", "r16", "r17", "r18", "r19", "r20"]
+    },
+    {
+      "id": "drift",
+      "name": "Drift",
+      "theme": "Positional bonuses and moving cards on both rows.",
+      "cards": ["d01", "d02", "d03", "d04", "d05", "d06", "d07", "d08", "d09", "d10", "d11", "d12", "d13", "d14", "d15", "d16", "d17", "d18", "d19", "d20"]
+    }
+  ]
+}

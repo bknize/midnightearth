@@ -29,7 +29,24 @@ extends RefCounted
 ##
 ## Prompts (R37): each option of the view's prompt is scored by
 ## MatchEngine.preview_choice() the same way; a tie is broken with the seed derived from
-## [round, turn, PROMPT_TAG, the prompt's source card], distinct from the commit's.
+## [round, turn, PROMPT_TAG, the prompt's source card], distinct from the commit's. A
+## multi-select prompt (DC-07 P7, P13) has n + 1 candidate sets for its n options: for each
+## k from 0 to n, the k options with the lowest effective flat (ties by lower position),
+## listed in ascending position (set_candidates). Each is scored by
+## MatchEngine.preview_set() and the best wins, ties by the same prompt seed. No other set
+## is previewed, so a sacrifice prompt costs at most n + 1 previews.
+##
+## Hand and pile prompts (NSC-97): a single-target prompt whose verb is RECOVER_DESTROYED or
+## DISCARD_OWN is answered by rule, with no preview (ranked_option). Either verb only moves
+## a card between a hand, a burn pile and a destroyed pile, and a card there never scores,
+## so every option would preview to the same scores. A recovery takes the option with the
+## highest definition flat, a discard the one with the lowest, ties by the lower position.
+## The flat is what the view shows: a destroyed-pile entry whose identity is hidden
+## (MatchEvent.HIDDEN_CARD) counts as flat 0, so the rule reads nothing the view hides.
+##
+## Orders (DC-07 P13, R36): "bonus first" is +-part desc, then ×-part desc, then flat desc;
+## "flat first" is flat desc, then the bonus (+-part desc, then ×-part desc); both end on
+## ascending instance id. The bot ranks a card by what its definition carries (stats_of).
 ##
 ## Hidden information (R7, R38): the bot reads only its own SeatView (its hand, budget, row
 ## size, prompt, round and turn) and asks the engine only for previews of its own seat's
@@ -55,25 +72,22 @@ const PROMPT_TAG: int = 0x61736B
 var search_flat_first: bool = true
 
 var _bot_seed: int = 0
-var _cards: CardDb = null
+var _cards: MatchCards = null
 
 
-## `cards` supplies card stats and costs; null loads CardDb.load_default(). The plan's
-## signature is `_init(bot_seed)`, so the card database is an optional extra.
+## `cards` supplies card stats and costs: the MatchCards of the match the bot plays in
+## (MatchEngine.match_cards(), DC-07 P3), so a card is read through its origin's deck.
 ##
-## A card database that failed to load (CardDb.is_valid() false) is kept, not reported:
+## Null, or a MatchCards whose build failed (is_valid() false), is kept, not reported:
 ## every card then has cost -1, the only legal set is the empty one, and choose() always
 ## commits nothing, so a bot built on it passes every turn. The bot does not signal this
 ## itself, since engine code never reports errors out of band (R27). It cannot happen
-## through the engine: the engine never builds a bot, and a match cannot start without a
-## valid card database (CARD_DATA_INVALID), so callers that pass the database they started
-## the match with always give the bot valid data.
-func _init(bot_seed: int, cards: CardDb = null) -> void:
+## through the engine: the engine never builds a bot, and a match cannot start without
+## valid cards and decks (CARD_DATA_INVALID, DECK_UNKNOWN), so callers that pass the
+## match's own MatchCards always give the bot valid data.
+func _init(bot_seed: int, cards: MatchCards) -> void:
 	_bot_seed = bot_seed
-	if cards == null:
-		_cards = CardDb.load_default()
-	else:
-		_cards = cards
+	_cards = cards if cards != null else MatchCards.new()
 
 
 ## The seed a caller should give the bot playing `seat` in a match seeded `match_seed`.
@@ -119,7 +133,8 @@ func best_commit(view: SeatView, engine: MatchEngine) -> EngineAction:
 
 
 ## The answer to the prompt open for `view.seat`: the option with the best previewed score,
-## ties by the seeded pick (R37). Null when no prompt is open for that seat.
+## ties by the seeded pick (R37); a recovery or a discard by rule instead (ranked_option).
+## Null when no prompt is open for that seat.
 func answer_prompt(view: SeatView, engine: MatchEngine) -> EngineAction:
 	var open: bool = view.prompt.get("open", false)
 	var asked: int = view.prompt.get("seat", -1)
@@ -127,8 +142,13 @@ func answer_prompt(view: SeatView, engine: MatchEngine) -> EngineAction:
 		return null
 	var options: Array[int] = Choice.options_of(view.prompt)
 	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	if Choice.is_multi_prompt(view.prompt):
+		return answer_set(view, engine)
 	if options.is_empty():
 		return EngineAction.choose(view.seat, zone, -1)
+	var ranked: int = ranked_option(view)
+	if ranked >= 0:
+		return EngineAction.choose(view.seat, zone, ranked)
 	var best: Array[int] = []
 	var best_value: int = 0
 	for option: int in options:
@@ -144,10 +164,136 @@ func answer_prompt(view: SeatView, engine: MatchEngine) -> EngineAction:
 			best.append(option)
 	if best.is_empty():
 		return EngineAction.choose(view.seat, zone, options[0])
+	var rng: MatchRng = _prompt_rng(view)
+	return EngineAction.choose(view.seat, zone, best[rng.pick_index(best.size())])
+
+
+## The answer to the multi-select prompt open for `view.seat` (DC-07 P13, R37): the
+## candidate set of set_candidates() with the best previewed own-minus-opponent score, ties
+## by the prompt's seeded pick. The empty set (always a candidate, always valid) when no
+## candidate previews; with a null engine every candidate ties and the seed picks one. Null
+## when no multi-select prompt is open for that seat.
+func answer_set(view: SeatView, engine: MatchEngine) -> EngineAction:
+	var open: bool = view.prompt.get("open", false)
+	var asked: int = view.prompt.get("seat", -1)
+	if not open or asked != view.seat or not Choice.is_multi_prompt(view.prompt):
+		return null
+	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	var best: Array[Array] = []
+	var best_value: int = 0
+	for listed: Array in set_candidates(view):
+		var candidate: Array[int] = []
+		candidate.assign(listed)
+		var scores: Array[int] = _preview_set(engine, view.seat, candidate)
+		if scores.size() != 2:
+			continue
+		var value: int = scores[view.seat] - scores[1 - view.seat]
+		if best.is_empty() or value > best_value:
+			best.clear()
+			best_value = value
+			best.append(candidate)
+		elif value == best_value:
+			best.append(candidate)
+	var chosen: Array[int] = []
+	if not best.is_empty():
+		var rng: MatchRng = _prompt_rng(view)
+		chosen.assign(best[rng.pick_index(best.size())])
+	return EngineAction.choose_set(view.seat, zone, chosen)
+
+
+## The candidate sets for the open multi-select prompt of `view` (DC-07 P13, R37): with n
+## options, n + 1 sets, the k-th holding the k options with the lowest effective flat as the
+## view shows it (ties by lower position), itself in ascending position. Set 0 is the empty
+## set (the decline). Every index is one of the prompt's options, and none repeats. Empty
+## when the view has no multi-select prompt for its seat. Each set is an Array[int].
+func set_candidates(view: SeatView) -> Array[Array]:
+	var out: Array[Array] = []
+	var asked: int = view.prompt.get("seat", -1)
+	if asked != view.seat or not Choice.is_multi_prompt(view.prompt):
+		return out
+	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	var options: Array[int] = Choice.options_of(view.prompt)
+	var flats: Dictionary[int, int] = {}
+	for option: int in options:
+		flats[option] = _option_flat(view, zone, option)
+	var lowest_first: Array[int] = []
+	lowest_first.assign(options)
+	lowest_first.sort_custom(
+		func(a: int, b: int) -> bool: return flats[a] < flats[b] or (flats[a] == flats[b] and a < b)
+	)
+	for count: int in range(lowest_first.size() + 1):
+		var picked: Array[int] = []
+		picked.assign(lowest_first.slice(0, count))
+		picked.sort()
+		out.append(picked)
+	return out
+
+
+## The option the rule picks for the single-target prompt open for `view.seat` when its
+## verb is RECOVER_DESTROYED (the highest definition flat) or DISCARD_OWN (the lowest), ties by
+## the lower position (see the class comment), with no preview; -1 for any other prompt, a
+## multi-select one, or one with no option.
+func ranked_option(view: SeatView) -> int:
+	var asked: int = view.prompt.get("seat", -1)
+	if asked != view.seat or Choice.is_multi_prompt(view.prompt):
+		return -1
+	var verb: int = view.prompt.get("verb", -1)
+	var highest: bool = verb == CardEffect.Verb.RECOVER_DESTROYED
+	if not highest and verb != CardEffect.Verb.DISCARD_OWN:
+		return -1
+	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	var picked: int = -1
+	var picked_flat: int = 0
+	for option: int in Choice.options_of(view.prompt):
+		var flat: int = _option_flat(view, zone, option)
+		var better: bool = flat > picked_flat if highest else flat < picked_flat
+		var tied: bool = flat == picked_flat and option < picked
+		if picked < 0 or better or tied:
+			picked = option
+			picked_flat = flat
+	return picked
+
+
+## The effective flat the view shows for position `index` of `zone`: a row card's shown
+## flat (SeatView.own_row, opponent_row), a hand card's definition flat, a destroyed-pile
+## card's definition flat (own pile first, then the opponent's, as Choice orders
+## BOTH_DESTROYED; a hidden entry is flat 0); 0 for any other zone or a position out of
+## range.
+func _option_flat(view: SeatView, zone: int, index: int) -> int:
+	var row: Array[Dictionary] = []
+	if zone == Choice.Zone.OWN_BOARD:
+		row = view.own_row
+	elif zone == Choice.Zone.OPPONENT_BOARD:
+		row = view.opponent_row
+	elif zone == Choice.Zone.OWN_HAND and index >= 0 and index < view.own_hand.size():
+		return stats_of(view.own_hand[index]).x
+	elif zone == Choice.Zone.BOTH_DESTROYED:
+		return stats_of(_pile_card(view, index)).x
+	if index < 0 or index >= row.size():
+		return 0
+	var entry: Dictionary = row[index]
+	var flat: int = entry.get("flat", 0)
+	return flat
+
+
+## The card at position `index` of BOTH_DESTROYED as the view shows it (its own pile, then
+## the opponent's), MatchEvent.HIDDEN_CARD for a hidden entry, -1 out of range.
+func _pile_card(view: SeatView, index: int) -> int:
+	var own_size: int = view.own_destroyed.size()
+	if index >= 0 and index < own_size:
+		return view.own_destroyed[index]
+	var other: int = index - own_size
+	if other >= 0 and other < view.opponent_destroyed.size():
+		return view.opponent_destroyed[other]
+	return -1
+
+
+## The generator that breaks a tie between prompt answers: seeded from [round, turn,
+## PROMPT_TAG, the prompt's source card], fresh per decision.
+func _prompt_rng(view: SeatView) -> MatchRng:
 	var source: int = view.prompt.get("card", -1)
 	var parts: Array[int] = [view.round_number, view.turn, PROMPT_TAG, source]
-	var rng: MatchRng = MatchRng.new(MatchRng.derive_seed(_bot_seed, parts))
-	return EngineAction.choose(view.seat, zone, best[rng.pick_index(best.size())])
+	return MatchRng.new(MatchRng.derive_seed(_bot_seed, parts))
 
 
 ## Every candidate commit for the view (see the class comment), in search order: legal sets
@@ -238,21 +384,42 @@ func _preview_option(engine: MatchEngine, seat: int, option: int) -> Array[int]:
 	return engine.preview_choice(seat, option)
 
 
-## The definition's (flat, bonus) of a card instance (instance id % DECK_SIZE is its definition);
-## (0, 0) when it has none. A hand card carries no modifiers (they leave the board with it).
-func stats_of(instance_id: int) -> Vector2i:
+## The previewed scores of a multi-select answer, [0, 0] with no engine to ask.
+func _preview_set(engine: MatchEngine, seat: int, indices: Array[int]) -> Array[int]:
+	if engine == null:
+		var even: Array[int] = [0, 0]
+		return even
+	return engine.preview_set(seat, indices)
+
+
+## The definition's (flat, ×-part, +-part) of a card instance (MatchCards.def_of, through
+## its origin's deck; DC-07 P1): the ×-part in hundredths (MULT_ONE when the card has no
+## ×-bonus), the +-part in whole units (0 when it has no +-bonus). (0, MULT_ONE, 0) when the
+## instance has no definition. A hand card carries no modifiers (they leave the board with
+## it), so the definition is what the bot ranks by.
+func stats_of(instance_id: int) -> Vector3i:
+	var none: Vector3i = Vector3i(0, MatchRules.MULT_ONE, 0)
 	if instance_id < 0:
-		return Vector2i.ZERO
-	var def: CardDef = _cards.card_at(instance_id % MatchRules.DECK_SIZE)
+		return none
+	var def: CardDef = _cards.def_of(instance_id)
 	if def == null:
-		return Vector2i.ZERO
-	return Vector2i(def.flat, def.bonus)
+		return none
+	var times: int = MatchRules.MULT_ONE
+	var plus: int = 0
+	if def.bonus_kind == CardDef.BonusKind.TIMES:
+		times = def.bonus
+	elif def.bonus_kind == CardDef.BonusKind.PLUS:
+		plus = def.bonus
+	return Vector3i(def.flat, times, plus)
 
 
-## Bonus-first order: higher bonus, then higher flat, then lower instance id.
+## Bonus-first order (DC-07 P13, R36): higher +-part, then higher ×-part, then higher flat,
+## then lower instance id.
 func _bonus_before(a: int, b: int) -> bool:
-	var sa: Vector2i = stats_of(a)
-	var sb: Vector2i = stats_of(b)
+	var sa: Vector3i = stats_of(a)
+	var sb: Vector3i = stats_of(b)
+	if sa.z != sb.z:
+		return sa.z > sb.z
 	if sa.y != sb.y:
 		return sa.y > sb.y
 	if sa.x != sb.x:
@@ -260,12 +427,15 @@ func _bonus_before(a: int, b: int) -> bool:
 	return a < b
 
 
-## Flat-first order: higher flat, then higher bonus, then lower instance id.
+## Flat-first order: higher flat, then the higher bonus (+-part, then ×-part), then lower
+## instance id.
 func _flat_before(a: int, b: int) -> bool:
-	var sa: Vector2i = stats_of(a)
-	var sb: Vector2i = stats_of(b)
+	var sa: Vector3i = stats_of(a)
+	var sb: Vector3i = stats_of(b)
 	if sa.x != sb.x:
 		return sa.x > sb.x
+	if sa.z != sb.z:
+		return sa.z > sb.z
 	if sa.y != sb.y:
 		return sa.y > sb.y
 	return a < b

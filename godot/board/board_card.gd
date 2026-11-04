@@ -13,6 +13,8 @@ const GLOW_PRIORITY: int = 2
 ## The glow and the note sit this far in front of the face.
 const GLOW_Z: float = 0.05
 const NOTE_Z: float = 0.1
+## A selected card (multi-select prompt, R48) stands this far in front of its slot.
+const SELECT_RAISE: float = 0.03
 const NOTE_COLOR: Color = Color(0.75, 0.1, 0.1, 1.0)
 const NOTE_FONT_SIZE: int = 44
 
@@ -39,6 +41,7 @@ var _glow: MeshInstance3D = null
 var _crack: MeshInstance3D = null
 var _crack_material: StandardMaterial3D = null
 var _destroyed: bool = false
+var _selected: bool = false
 ## 0 (intact) to 1 (fully marked); the dim, tilt and crack alpha follow it.
 var _amount: float = 0.0
 var _tilt: Vector3 = Vector3.ZERO
@@ -58,19 +61,22 @@ var _base_face: Color = Color.WHITE
 func show_def(def: CardDef) -> void:
 	_name_label.text = def.name
 	_cost_label.text = str(def.cost)
-	_set_numbers(def.flat, def.bonus)
-	if def.effect != null:
-		_text_label.text = def.effect.text
-	else:
-		_text_label.text = ""
+	var times: int = ScoreTracker.MULT_ONE
+	var plus: int = 0
+	if def.bonus_kind == CardDef.BonusKind.TIMES:
+		times = def.bonus
+	elif def.bonus_kind == CardDef.BonusKind.PLUS:
+		plus = def.bonus
+	_set_numbers(def.flat, times, plus)
+	_text_label.text = rules_text(def)
 
 
 ## Updates the shown flat and bonus and pulses the label that changed (R42). The tweens are
 ## owned by the labels, so a card freed mid-pulse takes them along.
-func show_stats(flat: int, bonus: int) -> void:
+func show_stats(flat: int, times: int, plus: int) -> void:
 	var flat_changed: bool = _flat_label.text != str(flat)
-	var bonus_changed: bool = _bonus_label.text != _bonus_text(bonus)
-	_set_numbers(flat, bonus)
+	var bonus_changed: bool = _bonus_label.text != bonus_text(times, plus)
+	_set_numbers(flat, times, plus)
 	if flat_changed:
 		_flat_pulse = _pulse(_flat_label, _flat_pulse)
 	if bonus_changed:
@@ -97,6 +103,18 @@ func set_glow(source: Material, alpha: float) -> void:
 		_glow.material_override = material
 	material.albedo_color = Color(material.albedo_color, alpha)
 	_glow.visible = alpha > 0.0
+
+
+## Raises the card to show it is in the prompt's selection, or sets it back (R48).
+func set_selected(on: bool) -> void:
+	_selected = on
+	var mesh: Node3D = get_node_or_null("CardMesh") as Node3D
+	if mesh != null:
+		mesh.position.z = SELECT_RAISE if on else 0.0
+
+
+func is_selected() -> bool:
+	return _selected
 
 
 func clear_glow() -> void:
@@ -131,9 +149,7 @@ func flash_note(text: String, seconds: float) -> void:
 	note.position = Vector3(0.0, 0.0, NOTE_Z)
 	add_child(note)
 	var tween: Tween = note.create_tween()
-	var fade: PropertyTweener = tween.tween_property(
-		note, "modulate:a", 0.0, maxf(seconds, 0.01)
-	)
+	var fade: PropertyTweener = tween.tween_property(note, "modulate:a", 0.0, maxf(seconds, 0.01))
 	if fade == null:
 		note.queue_free()
 		return
@@ -146,9 +162,7 @@ func flash_note(text: String, seconds: float) -> void:
 ## card, the sign alternating with slot parity so neighbours do not match.
 static func tilt_for_slot(slot: int) -> Vector3:
 	var sign_of: float = 1.0 if slot % 2 == 0 else -1.0
-	return Vector3(
-		deg_to_rad(TILT_X_DEGREES) * -sign_of, 0.0, deg_to_rad(TILT_Z_DEGREES) * sign_of
-	)
+	return Vector3(deg_to_rad(TILT_X_DEGREES) * -sign_of, 0.0, deg_to_rad(TILT_Z_DEGREES) * sign_of)
 
 
 ## Marks or unmarks the card as destroyed (R26). The dim, tilt and crack fade in over
@@ -208,16 +222,32 @@ func _fade_glow(alpha: float, source: Material) -> void:
 	set_glow(source, alpha)
 
 
-func _set_numbers(flat: int, bonus: int) -> void:
+func _set_numbers(flat: int, times: int, plus: int) -> void:
 	_flat_label.text = str(flat)
-	_bonus_label.text = _bonus_text(bonus)
-	_bonus_label.visible = bonus != 0
+	_bonus_label.text = bonus_text(times, plus)
+	_bonus_label.visible = _bonus_label.text != ""
 
 
-func _bonus_text(bonus: int) -> String:
-	if bonus == 0:
-		return ""
-	return "+%d" % bonus
+## The rules text of a face: the effect's text, or reminder text built from the printed stats.
+static func rules_text(def: CardDef) -> String:
+	if def.effect != null:
+		return def.effect.text
+	if def.bonus_kind == CardDef.BonusKind.TIMES:
+		return "When this scores, your mult %s." % ScoreChips.mult_text(def.bonus)
+	if def.bonus_kind == CardDef.BonusKind.PLUS:
+		return "When this scores, your mult +%d." % def.bonus
+	return "Scores its flat at your mult."
+
+
+## The face's bonus text from a hundredths `times` and whole `plus`: "×1.25", "+1", "×1.25 +1"
+## when a card carries both, and "" for a vanilla card (R44).
+static func bonus_text(times: int, plus: int) -> String:
+	var parts: Array[String] = []
+	if times != ScoreTracker.MULT_ONE:
+		parts.append(ScoreChips.mult_text(times))
+	if plus != 0:
+		parts.append("+%d" % plus)
+	return " ".join(parts)
 
 
 func _pulse(label: Label3D, running: Tween) -> Tween:

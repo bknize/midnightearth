@@ -2,7 +2,8 @@ class_name TestBoardSteps
 extends GdUnitTestSuite
 ## BoardSteps (R31-R38): seat-0 events become animation steps. The events come from a real
 ## seed-1 bot-vs-bot match, played as main.gd plays its smoke run, collecting
-## result.events_for(0) after start() and after every accepted action.
+## result.events_for(0) after start() and after every accepted action, with the fixture
+## deck on both seats (DC-07 T02).
 
 const SEED: int = 1
 const MAX_ACTIONS: int = 2000
@@ -17,15 +18,15 @@ var _cached_events: Array[MatchEvent] = []
 func _match_events() -> Array[MatchEvent]:
 	if not _cached_events.is_empty():
 		return _cached_events
-	var cards: CardDb = CardDb.load_default()
-	var engine: MatchEngine = MatchEngine.create(SEED, cards)
+	var cards: CardDb = FixtureDecks.cards()
+	var engine: MatchEngine = FixtureDecks.engine(SEED, cards)
 	var collected: Array[MatchEvent] = []
 	var started: ApplyResult = engine.start()
 	assert_bool(started.ok).is_true()
 	collected.append_array(started.events_for(0))
 	var bots: Array[GreedyBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), cards))
+		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), engine.match_cards()))
 	var actions: int = 0
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var awaited: int = engine.awaited_seat()
@@ -112,11 +113,9 @@ func test_the_opponent_hand_is_hidden_in_deal_steps() -> void:
 		if step.seat == 0:
 			own_seen += 1
 			assert_int(step.card).is_greater_equal(0)
-			assert_int(step.def_index).is_equal(step.card % MatchRules.DECK_SIZE)
 		else:
 			hidden_seen += 1
 			assert_int(step.card).is_equal(-1)
-			assert_int(step.def_index).is_equal(-1)
 	assert_int(own_seen).is_greater(0)
 	assert_int(hidden_seen).is_greater(0)
 
@@ -125,7 +124,7 @@ func test_the_opponent_hand_is_hidden_in_deal_steps() -> void:
 
 
 func test_reveal_steps_carry_engine_order_and_flat() -> void:
-	var cards: CardDb = CardDb.load_default()
+	var cards: CardDb = FixtureDecks.cards()
 	var reveals: int = 0
 	var next_order: int = 0
 	for step: BoardStep in _steps(1.0):
@@ -141,8 +140,7 @@ func test_reveal_steps_carry_engine_order_and_flat() -> void:
 		assert_int(step.order).is_equal(next_order)
 		assert_int(step.flat).is_equal(flat)
 		assert_int(step.card).is_greater_equal(0)
-		assert_int(step.def_index).is_equal(step.card % MatchRules.DECK_SIZE)
-		var def: CardDef = cards.card_at(step.def_index)
+		var def: CardDef = cards.card_at(step.card % MatchRules.DECK_SIZE)
 		assert_object(def).is_not_null()
 		assert_int(def.flat).is_equal(step.flat)
 		next_order += 1
@@ -195,12 +193,10 @@ func test_burn_steps_go_entry_to_exit() -> void:
 	assert_int(steps[0].kind).is_equal(BoardStep.Kind.BURN)
 	assert_int(steps[0].seat).is_equal(0)
 	assert_int(steps[0].card).is_equal(5)
-	assert_int(steps[0].def_index).is_equal(5)
 	assert_float(steps[0].duration).is_equal_approx(0.45, EPSILON)
 	assert_int(steps[1].kind).is_equal(BoardStep.Kind.BURN)
 	assert_int(steps[1].seat).is_equal(1)
 	assert_int(steps[1].card).is_equal(-1)
-	assert_int(steps[1].def_index).is_equal(-1)
 	for step: BoardStep in _steps(1.0):
 		if step.kind == BoardStep.Kind.BURN:
 			assert_float(step.duration).is_equal_approx(0.45, EPSILON)
@@ -320,7 +316,16 @@ func test_every_duration_at_speed_four_is_a_quarter() -> void:
 func _reveal_event(card: int, seat: int = 0) -> MatchEvent:
 	return _event(
 		MatchEvent.Kind.CARD_REVEALED,
-		{"seat": seat, "card": card, "def_id": "c01", "slot": 1, "flat": 2, "bonus": 1, "order": 0}
+		{
+			"seat": seat,
+			"card": card,
+			"def_id": "c01",
+			"slot": 1,
+			"flat": 2,
+			"times": 125,
+			"plus": 0,
+			"order": 0,
+		}
 	)
 
 
@@ -332,8 +337,9 @@ func _scored_event(card: int, seat: int = 0) -> MatchEvent:
 			"card": card,
 			"slot": 1,
 			"flat": 2,
-			"bonus": 1,
-			"mult": 3,
+			"times": 150,
+			"plus": 0,
+			"mult": 150,
 			"added": 9,
 			"score": 12,
 		}
@@ -370,8 +376,9 @@ func test_reveal_then_score_is_one_flip_pulse() -> void:
 	assert_int(pulse.card).is_equal(4)
 	assert_int(pulse.slot).is_equal(1)
 	assert_int(pulse.flat).is_equal(2)
-	assert_int(pulse.bonus).is_equal(1)
-	assert_int(pulse.mult).is_equal(3)
+	assert_int(pulse.times).is_equal(150)
+	assert_int(pulse.plus).is_equal(0)
+	assert_int(pulse.mult).is_equal(150)
 	assert_int(pulse.added).is_equal(9)
 	assert_int(pulse.score).is_equal(12)
 
@@ -396,7 +403,7 @@ func test_a_score_with_no_reveal_is_a_revealed_pulse() -> void:
 	assert_float(step.chip_delay).is_equal_approx(0.0, EPSILON)
 	assert_float(step.delay).is_equal_approx(0.0, EPSILON)
 	assert_int(step.added).is_equal(9)
-	assert_int(step.mult).is_equal(3)
+	assert_int(step.mult).is_equal(150)
 
 
 func test_effect_event_steps_and_durations() -> void:
@@ -421,7 +428,7 @@ func test_effect_event_steps_and_durations() -> void:
 		],
 		[
 			MatchEvent.Kind.STATS_CHANGED,
-			{"seat": 0, "card": 3, "flat": 1, "bonus": 2, "cause": "switch"},
+			{"seat": 0, "card": 3, "flat": 1, "times": 100, "plus": 2, "cause": "flat_up"},
 			BoardStep.Kind.STATS,
 			0.2,
 		],

@@ -22,9 +22,10 @@ var _cached_db: CardDb = null
 # --- Helpers --------------------------------------------------------------------------
 
 
+## The fixture pool; every match here plays the fixture deck on both seats (DC-07 T02).
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
 
 
@@ -35,7 +36,7 @@ func _typed(values: Array) -> Array[int]:
 
 
 func _started(match_seed: int) -> MatchEngine:
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
 	return engine
 
@@ -322,15 +323,19 @@ func _solo(card: int) -> int:
 	return _walk_score(row)
 
 
-## The P4 walk total of one row, from the definitions: the multiplier starts at 1 and
-## gains each card's bonus before that card's flat is multiplied in.
+## The P4 walk total of one row, from the definitions (DC-07 P4): the multiplier starts at
+## 100 (×1.00, hundredths), is multiplied by each card's ×-part (rounded to the nearest
+## hundredth) and gains its +-part before that card's flat is multiplied in, floored.
 func _walk_score(row: Array[int]) -> int:
-	var mult: int = 1
+	var mult: int = 100
 	var total: int = 0
 	for card: int in row:
 		var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
-		mult += def.bonus
-		total += def.flat * mult
+		var times: int = def.bonus if def.bonus_kind == CardDef.BonusKind.TIMES else 100
+		var plus: int = def.bonus if def.bonus_kind == CardDef.BonusKind.PLUS else 0
+		mult = (mult * times + 50) / 100
+		mult += plus * 100
+		total += def.flat * mult / 100
 	return total
 
 
@@ -479,7 +484,7 @@ func _play_contested_round(engine: MatchEngine) -> Array[MatchEvent]:
 
 func test_wins_end_keeps_the_final_table() -> void:
 	# The fourth win's round is not cleared: seat 0's turn-7 card stays on its board.
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [0, 0, 0, 0]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	_assert_match_ended(engine, events, 0, MatchEngine.REASON_WINS, _typed([4, 0]), 4)
@@ -491,7 +496,7 @@ func test_wins_end_keeps_the_final_table() -> void:
 
 
 func test_rounds_end_keeps_the_final_table() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [TIE, TIE, TIE, TIE, TIE, TIE, 1]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	_assert_match_ended(engine, events, 1, MatchEngine.REASON_ROUNDS, _typed([0, 1]), 7)
@@ -499,7 +504,7 @@ func test_rounds_end_keeps_the_final_table() -> void:
 
 
 func test_sudden_death_end_keeps_the_final_table() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [0, 1, 0, 1, 0, 1, TIE, 0]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	_assert_match_ended(engine, events, 0, MatchEngine.REASON_SUDDEN_DEATH, _typed([4, 3]), 8)
@@ -520,7 +525,7 @@ func test_contested_final_round_keeps_both_boards_on_every_end_path() -> void:
 		var outcomes: Array[int] = _typed(cases[index])
 		var checked: bool = false
 		for match_seed: int in range(1, SEARCH_SEEDS + 1):
-			var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+			var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 			var events: Array[MatchEvent] = _match_events(engine, outcomes)
 			events.append_array(_play_contested_round(engine))
 			if not engine.is_over():
@@ -596,7 +601,7 @@ func test_coin_flip_only_until_the_first_won_round() -> void:
 			rng.shuffle_in_place(deck1)
 			if round_number <= coin_rounds:
 				coins.append(rng.coin_flip())
-		var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+		var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 		var events: Array[MatchEvent] = _match_events(engine, outcomes)
 		var starts: Array[MatchEvent] = _of_kind(events, MatchEvent.Kind.ROUND_STARTED)
 		assert_int(starts.size()).is_equal(outcomes.size() + 1)
@@ -628,7 +633,7 @@ func test_turns_never_touch_the_engine_stream() -> void:
 
 
 func test_four_straight_wins_end_the_match() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [0, 0, 0, 0]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	_assert_match_ended(engine, events, 0, MatchEngine.REASON_WINS, _typed([4, 0]), 4)
@@ -643,14 +648,14 @@ func test_four_straight_wins_end_the_match() -> void:
 
 
 func test_four_wins_after_ties_end_the_match_early() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [1, TIE, 1, 0, 1, 1]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	_assert_match_ended(engine, events, 1, MatchEngine.REASON_WINS, _typed([1, 4]), 6)
 
 
 func test_fourth_win_in_round_7_is_reason_wins() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [0, 0, 0, 1, 1, 1, 0]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	_assert_match_ended(engine, events, 0, MatchEngine.REASON_WINS, _typed([4, 3]), 7)
@@ -660,7 +665,7 @@ func test_fourth_win_in_round_7_is_reason_wins() -> void:
 
 
 func test_more_wins_after_round_7_take_the_match() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [0, TIE, TIE, 1, 0, TIE, TIE]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	_assert_match_ended(engine, events, 0, MatchEngine.REASON_ROUNDS, _typed([2, 1]), 7)
@@ -670,7 +675,7 @@ func test_more_wins_after_round_7_take_the_match() -> void:
 
 
 func test_single_win_in_round_7_takes_the_match() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [TIE, TIE, TIE, TIE, TIE, TIE, 1]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	_assert_match_ended(engine, events, 1, MatchEngine.REASON_ROUNDS, _typed([0, 1]), 7)
@@ -682,7 +687,7 @@ func test_single_win_in_round_7_takes_the_match() -> void:
 func test_three_all_after_round_7_goes_to_sudden_death() -> void:
 	# Spec scenario: wins 3-3 after round 7; round 8 is sudden death and its first won
 	# round ends the match with reason sudden_death (here, seat 0's fourth win).
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [0, 1, 0, 1, 0, 1, TIE]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	assert_bool(engine.is_over()).is_false()
@@ -706,7 +711,7 @@ func test_three_all_after_round_7_goes_to_sudden_death() -> void:
 
 
 func test_tied_sudden_death_starts_another() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [0, 1, 0, 1, 0, 1, TIE, TIE]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	assert_bool(engine.is_over()).is_false()
@@ -724,7 +729,7 @@ func test_tied_sudden_death_starts_another() -> void:
 func test_sudden_death_after_no_wins_flips_coins_until_a_win() -> void:
 	# Seven tied rounds: 0-0, so sudden death. No round has been won, so each sudden-death
 	# round still flips the coin (C9) until round 9 is won.
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [TIE, TIE, TIE, TIE, TIE, TIE, TIE, TIE, 1]
 	var events: Array[MatchEvent] = _match_events(engine, outcomes)
 	_assert_match_ended(engine, events, 1, MatchEngine.REASON_SUDDEN_DEATH, _typed([0, 1]), 9)
@@ -794,7 +799,7 @@ func test_concede_by_the_awaited_seat_ends_the_match() -> void:
 
 
 func test_concede_in_sudden_death() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var outcomes: Array[int] = [0, 1, 0, 1, 0, 1, TIE]
 	_match_events(engine, outcomes)
 	var result: ApplyResult = engine.apply(EngineAction.concede(1))
@@ -871,7 +876,7 @@ func test_rounds_played_counts_round_ends() -> void:
 		[0, 1, 0, 1, 0, 1, TIE, TIE, 0],
 	]
 	for outcomes_raw: Array in cases:
-		var engine: MatchEngine = MatchEngine.create(SEED, _db())
+		var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 		var events: Array[MatchEvent] = _match_events(engine, _typed(outcomes_raw))
 		assert_bool(engine.is_over()).is_true()
 		var ended: MatchEvent = _last(events, MatchEvent.Kind.MATCH_ENDED)

@@ -5,7 +5,8 @@ extends RefCounted
 ##
 ## Derived, not stored: the budget (= turn + energy.carry[seat], MatchEngine.budget_for)
 ## and the awaited seat (from phase and first_seat).
-## Card instance ids are seat * DECK_SIZE + definition index (R9, C5).
+## Card instance ids are origin seat * DECK_SIZE + index into that seat's deck list (R9,
+## C5; DC-07 P3, MatchCards); `deck_ids` names each seat's deck.
 
 ## NOT_STARTED holds until start() succeeds; the plan's three phases follow it. AWAIT_CHOICE
 ## (DC-05 T05, appended so earlier ordinals hold) is a walk paused on an open `prompt`.
@@ -13,6 +14,9 @@ extends RefCounted
 enum Phase { NOT_STARTED, AWAIT_FIRST, AWAIT_SECOND, OVER, AWAIT_CHOICE }
 
 var match_seed: int = 0
+## The deck id each seat plays, indexed by seat (DC-07 R5, P2): resolved at create(), a
+## seeded pick already applied, so never "" in a started match.
+var deck_ids: Array[String] = ["", ""]
 ## Mirror of the engine stream's state, refreshed by the engine after every change.
 var rng_state: int = 0
 ## Counts past MatchRules.ROUNDS in sudden death.
@@ -22,7 +26,8 @@ var sudden_death: bool = false
 var phase: int = Phase.NOT_STARTED
 ## This turn's first committer.
 var first_seat: int = 0
-## Per seat, indexed by seat number.
+## Per seat, indexed by seat number. A seat's piles hold the cards it controls
+## (controller_of), whatever their origin.
 var seats: Array[SeatPiles] = []
 ## The first committer's face-down cards, in commit order (= slot order).
 var pending: Array[int] = []
@@ -47,13 +52,15 @@ var actions_applied: int = 0
 var card_states: Dictionary[int, CardState] = {}
 ## The score walk's resumable progress (plan P3), driven by ScoreWalk.
 var walk: WalkState = WalkState.new()
-## Per seat that will suffer it: the bonus-0 mark (R22). Set by the opponent's
-## OPPONENT_NEXT_BONUS_ZERO effect, spent by this seat's next reveal; a bool, so setting it
-## again before it is spent does not stack. Cleared at round start (MatchEngine).
+## Per seat that will suffer it: the no-bonus mark (R22; DC-07 R14, CardState.no_bonus).
+## Set by the opponent's OPPONENT_NEXT_NO_BONUS effect, spent by this seat's next reveal;
+## a bool, so setting it again before it is spent does not stack. Cleared at round start
+## (MatchEngine).
 var bonus_zero_pending: Array[bool] = [false, false]
-## The open prompt (plan P9): {seat, card, verb, zone, options}, with `verb` a
-## CardEffect.Verb, `zone` a Choice.Zone and `options` a plain Array of positions in that
-## zone (Choice). Empty when no prompt is open.
+## The open prompt (plan P9): {seat, card, verb, zone, options, multi}, with `verb` a
+## CardEffect.Verb, `zone` a Choice.Zone, `options` a plain Array of positions in that
+## zone (Choice) and `multi` true when it takes a set (EngineAction.CHOOSE_SET, DC-07 P7)
+## rather than one position. Empty when no prompt is open.
 var prompt: Dictionary = {}
 
 
@@ -71,14 +78,19 @@ func to_dict() -> Dictionary:
 	var boards: Array = []
 	var burns: Array = []
 	var revealed: Array = []
+	var wrecks: Array = []
+	var known: Array = []
 	for piles: SeatPiles in seats:
 		decks.append(plain(piles.deck))
 		hands.append(plain(piles.hand))
 		boards.append(plain(piles.board))
 		burns.append(plain(piles.burned))
 		revealed.append(plain(piles.revealed_ids()))
+		wrecks.append(plain(piles.destroyed))
+		known.append(plain(piles.destroyed_known_ids()))
 	return {
 		"seed": match_seed,
+		"deck_ids": _plain_strings(deck_ids),
 		"rng_state": rng_state,
 		"round": round_number,
 		"turn": turn,
@@ -90,6 +102,8 @@ func to_dict() -> Dictionary:
 		"board": boards,
 		"revealed": revealed,
 		"burned": burns,
+		"destroyed": wrecks,
+		"destroyed_known": known,
 		"pending": plain(pending),
 		"pending_slots": plain(pending_slots),
 		"energy": energy.to_dict(),
@@ -110,6 +124,7 @@ func to_dict() -> Dictionary:
 ## the preview's clone). The copy's to_dict() equals this one's.
 func duplicate() -> MatchState:
 	var out: MatchState = MatchState.new(match_seed)
+	out.deck_ids.assign(deck_ids)
 	out.rng_state = rng_state
 	out.round_number = round_number
 	out.turn = turn
@@ -163,6 +178,29 @@ func is_destroyed(card: int) -> bool:
 	return held != null and held.destroyed
 
 
+## The seat whose piles hold `card` (DC-07 P3, R8, C12): its deck, hand, row, burn or
+## destroyed pile, or the face-down commit (the first committer's). A card keeps its origin
+## (MatchCards.origin_of) and gains a controller: a card recovered from the other seat's
+## pile sits in the recovering seat's hand, so it commits, sits and scores for that seat
+## until round start rebuilds every deck from its origin's ids. -1 when no pile holds it.
+func controller_of(card: int) -> int:
+	if pending.has(card):
+		return first_seat
+	for seat: int in range(seats.size()):
+		if seats[seat].holds(card):
+			return seat
+	return -1
+
+
+## Round end (DC-07 R17, P6): each seat's destroyed pile empties into its burn pile, in
+## pile order, and its identities stop being public. No event: the round's end is.
+func burn_destroyed_piles() -> void:
+	for piles: SeatPiles in seats:
+		piles.burned.append_array(piles.destroyed)
+		piles.destroyed.clear()
+		piles.destroyed_known.clear()
+
+
 ## Takes `card` off `seat`'s row (a return at turn end, R24; the turn-end clear of a
 ## destroyed card, DC-06 R18): it leaves the row and the revealed set, and its modifiers go
 ## (R21), the destroyed mark with them (R22). Returns whether the card had been revealed;
@@ -191,6 +229,13 @@ func _card_states_dict() -> Dictionary:
 	return out
 
 
+## An untyped copy of the deck ids, for to_dict().
+static func _plain_strings(values: Array[String]) -> Array:
+	var out: Array = []
+	out.assign(values)
+	return out
+
+
 ## An untyped copy of a seat-indexed flag pair, for to_dict().
 static func _plain_flags(values: Array[bool]) -> Array:
 	var out: Array = []
@@ -216,6 +261,12 @@ class SeatPiles:
 	var burned: Array[int] = []
 	## Cards on the row that have been revealed (plan, MatchState additions).
 	var revealed: Dictionary[int, bool] = {}
+	## The destroyed pile (DC-07 R16, P6): cards cleared from this seat's row at turn end,
+	## in arrival order, until round end burns them or a recovery takes one.
+	var destroyed: Array[int] = []
+	## The pile's cards whose identity is public (R18): those revealed when they left the
+	## row. A card destroyed face down is known only to this seat.
+	var destroyed_known: Dictionary[int, bool] = {}
 
 	## The revealed card ids, ascending.
 	func revealed_ids() -> Array[int]:
@@ -228,6 +279,27 @@ class SeatPiles:
 	func is_revealed(card: int) -> bool:
 		return revealed.has(card) and revealed[card]
 
+	## The ids in the destroyed pile whose identity is public, ascending.
+	func destroyed_known_ids() -> Array[int]:
+		var out: Array[int] = []
+		out.assign(destroyed_known.keys())
+		out.sort()
+		return out
+
+	## Whether `card` is in the destroyed pile with its identity public (R18).
+	func is_destroyed_known(card: int) -> bool:
+		return destroyed_known.has(card) and destroyed_known[card]
+
+	## Whether any of these piles holds `card`.
+	func holds(card: int) -> bool:
+		return (
+			deck.has(card)
+			or hand.has(card)
+			or board.has(card)
+			or burned.has(card)
+			or destroyed.has(card)
+		)
+
 	func copy() -> SeatPiles:
 		var out: SeatPiles = SeatPiles.new()
 		out.deck.assign(deck)
@@ -235,6 +307,8 @@ class SeatPiles:
 		out.board.assign(board)
 		out.burned.assign(burned)
 		out.revealed.assign(revealed)
+		out.destroyed.assign(destroyed)
+		out.destroyed_known.assign(destroyed_known)
 		return out
 
 
@@ -271,7 +345,7 @@ class EnergyState:
 ## seat, the number of that row's slots the walk has passed (R1), so the next slot of a row
 ## is its cursor; `scored` holds every card scored at least once in this walk (a card moved
 ## in front of the cursor scores again, CARD_SCORED `again`); `mult` is each seat's
-## running multiplier.
+## running multiplier in hundredths, MatchRules.MULT_ONE (×1.00) at walk start (DC-07 P4).
 ## `paused_card` is the card whose stage a prompt interrupted (-1 when none): the card
 ## revealing or scoring in the pulse, which may not be the card the pulse started on (DC-06
 ## C23). `paused_slot` is the slot of the pulse's row it was pulsing (-1 when none), so a
@@ -286,7 +360,7 @@ class WalkState:
 	var next_seat: int = 0
 	var cursor: Array[int] = [0, 0]
 	var scored: Dictionary[int, bool] = {}
-	var mult: Array[int] = [1, 1]
+	var mult: Array[int] = [MatchRules.MULT_ONE, MatchRules.MULT_ONE]
 	## Cards revealed so far in this walk: the CARD_REVEALED `order` the board still reads
 	## (kept until the board moves to the walk's events, DC-05 T08 and T11).
 	var reveals: int = 0

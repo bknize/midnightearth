@@ -4,7 +4,10 @@ extends GdUnitTestSuite
 ## smoke match and prints the board's result line, seat 0 never sees a seat-1 card id, a
 ## seat-0 concede ends the match with reason "concede", and bot turns are due exactly when
 ## the human is not awaited. DC-05 T07: play_bot() answers a bot's prompt, and seat 0's
-## prompt is read with open_prompt() and answered with submit_choice().
+## prompt is read with open_prompt() and answered with submit_choice(). DC-07 T02 (P14):
+## the driver takes the pool, the deck list and a deck id per seat (the fixture deck on
+## both seats here), resolves an empty id to the seed's pick, and the result line names
+## both decks right after the seed.
 
 const SEED: int = 1
 const MAX_ACTIONS: int = 2000
@@ -14,15 +17,18 @@ const PROMPT_SEEDS: int = 10
 const NOT_AN_OPTION: int = 99
 ## Sentinel line meaning "not pinned yet".
 const LINE_UNPINNED: String = ""
-## Seed 1's pinned board result line, re-pinned at DC-06 T09 for rules version 3 (the DC-05
-## line was "Board: match ended seed=1 winner=0 wins=4-2 rounds=6 end=wins actions=114").
+## Seed 1's pinned board result line, re-pinned at DC-07 T13 with `decks=<a>/<b>` after
+## the seed (P14), from the shipped pool and deck list under seed 1's own pairing, as the
+## board plays it (headless `--fixed-fps 60 --autoplay` prints the same line);
+## the DC-06 T09 line (rules version 3) was "Board: match ended seed=1 winner=0 wins=4-3
+## rounds=7 end=wins actions=120", the DC-05 line "... wins=4-2 rounds=6 ... actions=114".
 ## While it is LINE_UNPINNED the pinned-line test is skipped with LINE_SKIP_NOTE; the
 ## autoplay test still compares against a direct bot-vs-bot engine run.
 const EXPECTED_LINE: String = (
-	"Board: match ended seed=1 winner=0 wins=4-3" + " rounds=7 end=wins actions=120"
+	"Board: match ended seed=1 decks=ruin/ruin winner=1 wins=1-4 rounds=5 end=wins actions=88"
 )
 const LINE_SKIP_NOTE: String = (
-	"re-pinned at DC-06 T09 (rules version 3): pin EXPECTED_LINE from seed 1's"
+	"unpinned at DC-07 T01 (card data format 3): pin EXPECTED_LINE from seed 1's"
 	+ " 'Board: match ended' line"
 )
 ## Event kinds whose card ids are private to their owner.
@@ -34,14 +40,27 @@ const PRIVATE_KINDS: Array[int] = [
 ]
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for the MatchCards APIs.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
+
+
+## A driver for `match_seed` with the fixture deck on both seats.
+func _driver(match_seed: int, autoplay: bool) -> MatchDriver:
+	return MatchDriver.create(match_seed, _db(), FixtureDecks.decks(), FixtureDecks.ids(), autoplay)
 
 
 ## Every int under an event payload's `card` or `cards` key.
@@ -78,12 +97,12 @@ func _opponent_leaks(events: Array[MatchEvent]) -> Array[String]:
 ## Seed 1 played bot-vs-bot straight through MatchEngine, as main.gd's smoke run plays it,
 ## written as the board's result line; a message naming the problem when it fails.
 func _smoke_line() -> String:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	if not engine.start().ok:
 		return "smoke match did not start"
 	var bots: Array[GreedyBot] = [
-		GreedyBot.new(GreedyBot.seed_for(SEED, 0), _db()),
-		GreedyBot.new(GreedyBot.seed_for(SEED, 1), _db()),
+		GreedyBot.new(GreedyBot.seed_for(SEED, 0), _defs()),
+		GreedyBot.new(GreedyBot.seed_for(SEED, 1), _defs()),
 	]
 	var ended: Dictionary = {}
 	var actions: int = 0
@@ -105,9 +124,10 @@ func _smoke_line() -> String:
 	var raw_wins: Array = ended["wins"]
 	var wins: Array[int] = []
 	wins.assign(raw_wins)
+	var decks: Array[String] = engine.deck_ids()
 	return (
-		"Board: match ended seed=%d winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
-		% [SEED, winner, wins[0], wins[1], rounds, reason, actions]
+		"Board: match ended seed=%d decks=%s/%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
+		% [SEED, decks[0], decks[1], winner, wins[0], wins[1], rounds, reason, actions]
 	)
 
 
@@ -132,9 +152,9 @@ func _prompted_seat(driver: MatchDriver) -> int:
 ## (or the match ends, or the cap): seat 1 by play_bot(), seat 0 by submit_player() with
 ## the commit a GreedyBot of its own would choose. Null when a step was rejected.
 func _drive_to_player_prompt(match_seed: int) -> MatchDriver:
-	var driver: MatchDriver = MatchDriver.create(match_seed, _db(), false)
+	var driver: MatchDriver = _driver(match_seed, false)
 	driver.start()
-	var bot: GreedyBot = GreedyBot.new(GreedyBot.seed_for(match_seed, 0), _db())
+	var bot: GreedyBot = GreedyBot.new(GreedyBot.seed_for(match_seed, 0), _defs())
 	var steps: int = 0
 	while not driver.is_over() and steps < MAX_ACTIONS:
 		if not driver.open_prompt().is_empty():
@@ -154,7 +174,7 @@ func _drive_to_player_prompt(match_seed: int) -> MatchDriver:
 
 
 func test_seed_1_autoplay_equals_the_smoke_match() -> void:
-	var driver: MatchDriver = MatchDriver.create(SEED, _db(), true)
+	var driver: MatchDriver = _driver(SEED, true)
 	assert_bool(driver.autoplay).is_true()
 	assert_int(driver.match_seed).is_equal(SEED)
 	assert_str(driver.result_line()).is_empty()
@@ -180,7 +200,11 @@ func test_seed_1_autoplay_equals_the_smoke_match() -> void:
 func test_seed_1_autoplay_prints_the_pinned_line(
 	_do_skip: bool = EXPECTED_LINE == LINE_UNPINNED, _skip_reason: String = LINE_SKIP_NOTE
 ) -> void:
-	var driver: MatchDriver = MatchDriver.create(SEED, _db(), true)
+	# The board's own match: the shipped pool and list, seed 1's seeded pairing.
+	var seeded: Array[String] = ["", ""]
+	var driver: MatchDriver = MatchDriver.create(
+		SEED, CardDb.load_default(), DeckList.load_default(), seeded, true
+	)
 	driver.start()
 	var steps: int = 0
 	while driver.bot_turn_due() and steps < MAX_ACTIONS:
@@ -190,8 +214,30 @@ func test_seed_1_autoplay_prints_the_pinned_line(
 	assert_str(driver.result_line()).is_equal(EXPECTED_LINE)
 
 
+## DC-07 P14: the result line carries both deck ids right after the seed, and deck_ids()
+## gives the ids the engine resolved: the named ones, or the seed's own pick for an empty
+## id.
+func test_result_line_names_both_decks_after_the_seed() -> void:
+	var driver: MatchDriver = _driver(SEED, false)
+	assert_array(driver.deck_ids()).is_equal(FixtureDecks.ids())
+	driver.start()
+	assert_bool(driver.submit_player(EngineAction.concede(0)).ok).is_true()
+	var line: String = driver.result_line()
+	var head: String = "Board: match ended seed=%d decks=fixture/fixture winner=" % SEED
+	assert_bool(line.begins_with(head)).override_failure_message(line).is_true()
+	var seeded: Array[String] = ["", ""]
+	var decks: DeckList = FixtureDecks.decks()
+	var picked: MatchDriver = MatchDriver.create(7, _db(), decks, seeded, true)
+	var expected: Array[String] = [decks.seeded_pick(7, 0), decks.seeded_pick(7, 1)]
+	assert_array(picked.deck_ids()).is_equal(expected)
+	assert_bool(picked.start().is_empty()).is_false()
+	var unknown: Array[String] = ["fixture", "nope"]
+	var refused: MatchDriver = MatchDriver.create(SEED, _db(), decks, unknown, true)
+	assert_array(refused.start()).is_empty()
+
+
 func test_seat_0_concede_ends_the_match_with_concede() -> void:
-	var driver: MatchDriver = MatchDriver.create(SEED, _db(), false)
+	var driver: MatchDriver = _driver(SEED, false)
 	var started: Array[MatchEvent] = driver.start()
 	assert_bool(started.is_empty()).is_false()
 	assert_str(driver.result_line()).is_empty()
@@ -205,7 +251,7 @@ func test_seat_0_concede_ends_the_match_with_concede() -> void:
 
 
 func test_bot_turn_is_due_exactly_when_seat_0_is_not_awaited() -> void:
-	var driver: MatchDriver = MatchDriver.create(SEED, _db(), false)
+	var driver: MatchDriver = _driver(SEED, false)
 	assert_bool(driver.autoplay).is_false()
 	driver.start()
 	var passes: int = 0
@@ -231,7 +277,7 @@ func test_bot_turn_is_due_exactly_when_seat_0_is_not_awaited() -> void:
 
 
 func test_play_bot_refuses_when_the_human_is_awaited() -> void:
-	var driver: MatchDriver = MatchDriver.create(SEED, _db(), false)
+	var driver: MatchDriver = _driver(SEED, false)
 	driver.start()
 	# Play bot turns until seat 0 is awaited, then ask for a bot action anyway.
 	var steps: int = 0
@@ -250,7 +296,7 @@ func test_play_bot_refuses_when_the_human_is_awaited() -> void:
 func test_play_bot_answers_a_bot_prompt() -> void:
 	var answered: int = 0
 	for match_seed: int in range(1, PROMPT_SEEDS + 1):
-		var driver: MatchDriver = MatchDriver.create(match_seed, _db(), true)
+		var driver: MatchDriver = _driver(match_seed, true)
 		driver.start()
 		var steps: int = 0
 		while driver.bot_turn_due() and steps < MAX_ACTIONS:
@@ -280,7 +326,7 @@ func test_play_bot_answers_a_bot_prompt() -> void:
 ## once one opens, open_prompt() gives its zone and options, an option it does not offer
 ## fails with NOT_ELIGIBLE and changes nothing, and an offered option is accepted.
 func test_submit_choice_answers_the_open_player_prompt() -> void:
-	var idle: MatchDriver = MatchDriver.create(SEED, _db(), false)
+	var idle: MatchDriver = _driver(SEED, false)
 	idle.start()
 	assert_dict(idle.open_prompt()).is_empty()
 	var early: ApplyResult = idle.submit_choice(Choice.Zone.OWN_HAND, 0)
@@ -317,3 +363,32 @@ func test_submit_choice_answers_the_open_player_prompt() -> void:
 	assert_int(driver.action_count()).is_equal(count + 1)
 	var made: bool = _has_kind(driver.last_events(), MatchEvent.Kind.CHOICE_MADE)
 	assert_bool(made).override_failure_message("no CHOICE_MADE for seat 0").is_true()
+
+
+## DC-07 T05 (P7): submit_set() reaches the engine. With c02 given sacrifice_destroy and
+## seat 0's row [c04, c08, c02] set by hand, open_prompt() says `multi`, a set naming the
+## source fails with BAD_SET, and a valid set is accepted with CHOICE_MADE `indices`.
+func test_submit_set_answers_the_open_multi_prompt() -> void:
+	var driver: MatchDriver = MatchDriver.create(
+		SEED, FixtureDecks.sacrifice_cards(), FixtureDecks.decks(), FixtureDecks.ids(), false
+	)
+	driver.start()
+	var own: Array[int] = [3, 7, FixtureDecks.C02_SACRIFICE]
+	var none: Array[int] = []
+	assert_bool(FixtureDecks.play_table(driver._engine, own, none)).is_true()
+	var prompt: Dictionary = driver.open_prompt()
+	var multi: bool = prompt.get(Choice.KEY_MULTI, false)
+	assert_bool(multi).is_true()
+	var count: int = driver.action_count()
+	var bad: Array[int] = [2]
+	var refused: ApplyResult = driver.submit_set(Choice.Zone.OWN_BOARD, bad)
+	assert_int(refused.error).is_equal(EngineError.Code.BAD_SET)
+	var chosen: Array[int] = [1]
+	var result: ApplyResult = driver.submit_set(Choice.Zone.OWN_BOARD, chosen)
+	assert_bool(result.ok).is_true()
+	assert_int(driver.action_count()).is_equal(count + 1)
+	var indices: Array = []
+	for event: MatchEvent in driver.last_events():
+		if event.kind == MatchEvent.Kind.CHOICE_MADE:
+			indices = event.payload["indices"]
+	assert_array(indices).is_equal([1])

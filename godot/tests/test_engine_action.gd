@@ -3,8 +3,9 @@ extends GdUnitTestSuite
 ## EngineAction: the action kinds (R5; DC-05 adds CHOOSE), copies, and the dictionary
 ## form the action log stores (R31; format 2 keys, plan "Interfaces and contracts"):
 ## {"k":"commit","s":0,"c":[3,7],"p":[0,2]}, {"k":"choose","s":1,"z":1,"i":0},
-## {"k":"concede","s":1}. Moved out of test_turn.gd when DC-05 T02 grew that suite past
-## the file-length limit.
+## {"k":"concede","s":1}, and DC-07's set choice {"k":"choose_set","s":0,"z":1,"i":[0,2]}
+## (P7). Moved out of test_turn.gd when DC-05 T02 grew that suite past the file-length
+## limit.
 
 
 func _typed(values: Array) -> Array[int]:
@@ -13,8 +14,8 @@ func _typed(values: Array) -> Array[int]:
 	return out
 
 
-func test_exactly_three_action_kinds() -> void:
-	assert_int(EngineAction.Kind.size()).is_equal(3)
+func test_exactly_four_action_kinds() -> void:
+	assert_int(EngineAction.Kind.size()).is_equal(4)
 	var cards: Array[int] = [3, 7]
 	var slots: Array[int] = [0, 2]
 	var commit: EngineAction = EngineAction.commit(0, cards, slots)
@@ -166,3 +167,63 @@ func test_in_range_float_numbers_still_parse() -> void:
 	if parsed != null:
 		assert_int(parsed.seat).is_equal(0)
 		assert_array(parsed.cards).is_equal(_typed([3, 9007199254740992, -9007199254740992]))
+
+
+## DC-07 P7: the set choice, its copy and its dictionary form round-trip; the decline (the
+## empty set) too, and JSON-style floats parse.
+func test_choose_set_round_trips() -> void:
+	var indices: Array[int] = [0, 2]
+	var chosen: EngineAction = EngineAction.choose_set(0, 1, indices)
+	indices.append(5)
+	assert_int(chosen.kind).is_equal(EngineAction.Kind.CHOOSE_SET)
+	assert_int(chosen.seat).is_equal(0)
+	assert_int(chosen.zone).is_equal(1)
+	assert_array(chosen.indices).is_equal(_typed([0, 2]))
+	assert_array(chosen.cards).is_empty()
+	assert_array(chosen.slots).is_empty()
+	var expected: Dictionary = {"k": "choose_set", "s": 0, "z": 1, "i": [0, 2]}
+	assert_dict(chosen.to_dict()).is_equal(expected)
+	var back: EngineAction = EngineAction.from_dict(chosen.to_dict())
+	assert_object(back).is_not_null()
+	if back == null:
+		return
+	assert_int(back.kind).is_equal(EngineAction.Kind.CHOOSE_SET)
+	assert_int(back.seat).is_equal(0)
+	assert_int(back.zone).is_equal(1)
+	assert_array(back.indices).is_equal(_typed([0, 2]))
+	assert_dict(back.to_dict()).is_equal(expected)
+	var copied: EngineAction = chosen.copy()
+	chosen.indices.append(3)
+	assert_array(copied.indices).is_equal(_typed([0, 2]))
+	var declined: EngineAction = EngineAction.choose_set(1, 1, _typed([]))
+	var expected_decline: Dictionary = {"k": "choose_set", "s": 1, "z": 1, "i": []}
+	assert_dict(declined.to_dict()).is_equal(expected_decline)
+	var declined_back: EngineAction = EngineAction.from_dict(expected_decline)
+	assert_object(declined_back).is_not_null()
+	if declined_back != null:
+		assert_array(declined_back.indices).is_empty()
+	var floats: EngineAction = EngineAction.from_dict(
+		{"k": "choose_set", "s": 1.0, "z": 1.0, "i": [2.0, 0.0]}
+	)
+	assert_object(floats).is_not_null()
+	if floats != null:
+		assert_array(floats.indices).is_equal(_typed([2, 0]))
+	# The other kinds carry no set.
+	assert_array(EngineAction.choose(0, 1, 2).indices).is_empty()
+
+
+func test_malformed_choose_set_dicts_give_null() -> void:
+	var bad: Array[Dictionary] = [
+		{"k": "choose_set", "s": 0},
+		{"k": "choose_set", "s": 0, "z": 1},
+		{"k": "choose_set", "s": 0, "i": [0]},
+		{"k": "choose_set", "s": 0, "z": 1, "i": 0},
+		{"k": "choose_set", "s": 0, "z": 1, "i": [0.5]},
+		{"k": "choose_set", "s": 0, "z": "1", "i": [0]},
+		{"k": "choose_set", "s": 0, "z": 1, "i": ["0"]},
+		{"k": "choose_set", "s": 0, "z": 1, "i": [0], "c": []},
+		{"k": "choose_set", "s": 0, "z": 1, "i": [0], "p": []},
+		{"k": "choose_set", "s": 2, "z": 1, "i": [0]},
+	]
+	for d: Dictionary in bad:
+		assert_object(EngineAction.from_dict(d)).override_failure_message(str(d)).is_null()

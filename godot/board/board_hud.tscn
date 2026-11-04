@@ -72,6 +72,11 @@ layout_mode = 2
 mouse_filter = 2
 color = Color(0.2, 0.22, 0.3, 1)
 
+[node name="DestroyedLabel0" type="Label" parent="Root/SeatPanel0/Box"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Destroyed 0"
+
 [node name="SeatPanel1" type="PanelContainer" parent="Root"]
 layout_mode = 1
 anchors_preset = 6
@@ -130,6 +135,11 @@ custom_minimum_size = Vector2(18, 18)
 layout_mode = 2
 mouse_filter = 2
 color = Color(0.2, 0.22, 0.3, 1)
+
+[node name="DestroyedLabel1" type="Label" parent="Root/SeatPanel1/Box"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Destroyed 0"
 
 [node name="TopInfo" type="PanelContainer" parent="Root"]
 layout_mode = 1
@@ -256,6 +266,10 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Concede"
 
+[node name="DecksButton" type="Button" parent="Root/PauseMenu/Center/Panel/Box"]
+layout_mode = 2
+text = "Decks"
+
 [node name="ResultPanel" type="Control" parent="Root"]
 unique_name_in_owner = true
 visible = false
@@ -309,8 +323,14 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Rematch"
 
+[node name="ResultDecksButton" type="Button" parent="Root/ResultPanel/Center/Panel/Box"]
+layout_mode = 2
+text = "Decks"
+
 [connection signal="pressed" from="Root/CommitButton" to="." method="_on_commit_button_pressed"]
 [connection signal="pressed" from="Root/PauseButton" to="." method="_on_pause_button_pressed"]
 [connection signal="pressed" from="Root/PauseMenu/Center/Panel/Box/ResumeButton" to="." method="_on_resume_button_pressed"]
 [connection signal="pressed" from="Root/PauseMenu/Center/Panel/Box/ConcedeButton" to="." method="_on_concede_button_pressed"]
 [connection signal="pressed" from="Root/ResultPanel/Center/Panel/Box/RematchButton" to="." method="_on_rematch_button_pressed"]
+[connection signal="pressed" from="Root/PauseMenu/Center/Panel/Box/DecksButton" to="." method="_on_decks_button_pressed"]
+[connection signal="pressed" from="Root/ResultPanel/Center/Panel/Box/ResultDecksButton" to="." method="_on_decks_button_pressed"]

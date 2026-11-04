@@ -1,30 +1,31 @@
 class_name CardDb
 extends RefCounted
-## Loads and validates the 20-card list, format 2 (R1, R2, R3, C14).
+## Loads and validates a card pool, format 3 (R1, R3, plan P1).
+##
+## {"version": 3, "cards": [{"id", "name", "cost", "flat", "bonus", "effect"}]}, where
+## `bonus` is null, {"x": hundredths} or {"plus": units} and `effect` is null or a
+## CardEffect object. The checks (R3, C13): unique ids, cost 1..7, flat
+## 0..cost + MatchRules.MAX_FLAT_OVER_COST, a bonus in MatchRules.TIMES_VALUES or
+## MatchRules.PLUS_VALUES, a known trigger and verb. A pool has no card count and no cost
+## mix (C3): decks are checked by DeckList.validate().
 ##
 ## Loading never prints, asserts or pushes an error: every failure is reported through
 ## load_error(), and a failed database holds no cards, so the engine refuses to start.
 
 const DEFAULT_PATH: String = "res://engine/data/cards.json"
-const FORMAT_VERSION: int = 2
-const CARD_COUNT: int = 20
+const FORMAT_VERSION: int = 3
 const MIN_COST: int = 1
 const MAX_COST: int = 7
-## Cards required per cost, indexed by cost (index 0 unused): 4x1, 4x2, 3x3, 3x4, 2x5, 2x6, 2x7.
-const COST_MIX: Array[int] = [0, 4, 4, 3, 3, 2, 2, 2]
-## Flat must lie within 0..cost + MAX_FLAT_OVER_COST.
-const MAX_FLAT_OVER_COST: int = 2
 
 # Error prefixes, stable so tests and callers can match on them.
 const ERR_FILE: String = "card data file"
 const ERR_JSON: String = "bad JSON"
 const ERR_SHAPE: String = "bad shape"
 const ERR_VERSION: String = "unsupported version"
-const ERR_COUNT: String = "wrong count"
 const ERR_DUPLICATE: String = "duplicate id"
+const ERR_COST: String = "cost out of range"
 const ERR_FLAT: String = "flat out of range"
 const ERR_BONUS: String = "bonus out of range"
-const ERR_COST_MIX: String = "wrong cost mix"
 const ERR_TRIGGER: String = "unknown trigger"
 const ERR_VERB: String = "unknown verb"
 
@@ -50,7 +51,7 @@ static func load_from_path(path: String) -> CardDb:
 	return from_json(text)
 
 
-## Loads a card list from JSON text (used by tests with in-memory data).
+## Loads a card pool from JSON text (used by tests with in-memory data).
 static func from_json(text: String) -> CardDb:
 	# JSON.new().parse() reports through its return code and get_error_message();
 	# unlike JSON.parse_string() it does not log an error on malformed input.
@@ -127,6 +128,11 @@ func index_of(card_id: String) -> int:
 	return _index_by_id[card_id]
 
 
+## Whether the pool holds a card with this id.
+func has_id(card_id: String) -> bool:
+	return _index_by_id.has(card_id)
+
+
 ## A copy of every definition in file order.
 func cards() -> Array[CardDef]:
 	var out: Array[CardDef] = []
@@ -140,29 +146,93 @@ static func _failed(message: String) -> CardDb:
 	return db
 
 
-## An error message for one card entry, or "" when its shape, effect names included,
-## is right. Ranges are checked later by _validate().
+## An error message for one card entry, or "" when its shape, bonus value and effect
+## names included, is right. Cost and flat ranges are checked later by _validate().
 static func _entry_problem(entry: Variant, i: int) -> String:
 	var shape_error: String = (
-		"%s: card %d needs a non-empty string id and name, integer cost, flat and bonus, %s"
-		% [ERR_SHAPE, i, "and an effect object or null"]
+		"%s: card %d needs a non-empty string id and name, integer cost and flat, %s"
+		% [ERR_SHAPE, i, "a bonus object or null and an effect object or null"]
 	)
 	if not entry is Dictionary:
 		return shape_error
 	var d: Dictionary = entry
+	if not _has_card_fields(d):
+		return shape_error
+	var bonus_problem: String = _bonus_problem(d["bonus"], i)
+	if bonus_problem != "":
+		return bonus_problem
+	return _effect_problem(d["effect"], i)
+
+
+## Whether `d` has every card key, a non-empty string id and name and whole cost and flat.
+static func _has_card_fields(d: Dictionary) -> bool:
 	for key: String in ["id", "name", "cost", "flat", "bonus", "effect"]:
 		if not d.has(key):
-			return shape_error
+			return false
 	if not (d["id"] is String and d["name"] is String):
-		return shape_error
+		return false
 	var card_id: String = d["id"]
 	var card_name: String = d["name"]
 	if card_id == "" or card_name == "":
+		return false
+	return _is_whole_number(d["cost"]) and _is_whole_number(d["flat"])
+
+
+## An error message for one entry's bonus, or "" when it is null or one key, "x" or
+## "plus", holding a whole number from MatchRules.TIMES_VALUES or PLUS_VALUES.
+static func _bonus_problem(value: Variant, i: int) -> String:
+	if value == null:
+		return ""
+	var shape_error: String = (
+		'%s: card %d bonus needs null, {"x": hundredths} or {"plus": units}' % [ERR_SHAPE, i]
+	)
+	if not value is Dictionary:
 		return shape_error
-	for key: String in ["cost", "flat", "bonus"]:
-		if not _is_whole_number(d[key]):
-			return shape_error
-	return _effect_problem(d["effect"], i)
+	var d: Dictionary = value
+	if d.size() != 1:
+		return shape_error
+	var kind: CardDef.BonusKind = _bonus_kind_of(d)
+	if kind == CardDef.BonusKind.NONE:
+		return shape_error
+	var amount: int = _bonus_amount_of(d, kind)
+	var allowed: Array[int] = _allowed_bonuses(kind)
+	if not allowed.has(amount):
+		return "%s: card %d has bonus %s (allowed %s)" % [ERR_BONUS, i, JSON.stringify(d), allowed]
+	return ""
+
+
+## The kind of a one-key bonus object whose value is a whole number, or NONE when its key
+## is neither "x" nor "plus" or its value is not whole.
+static func _bonus_kind_of(d: Dictionary) -> CardDef.BonusKind:
+	var kind: CardDef.BonusKind = CardDef.BonusKind.NONE
+	var key: String = CardDef.KEY_TIMES
+	if d.has(CardDef.KEY_TIMES):
+		kind = CardDef.BonusKind.TIMES
+	elif d.has(CardDef.KEY_PLUS):
+		kind = CardDef.BonusKind.PLUS
+		key = CardDef.KEY_PLUS
+	if kind == CardDef.BonusKind.NONE or not _is_whole_number(d[key]):
+		return CardDef.BonusKind.NONE
+	return kind
+
+
+## The whole-number amount of a bonus object of `kind` (already checked by _bonus_kind_of).
+static func _bonus_amount_of(d: Dictionary, kind: CardDef.BonusKind) -> int:
+	if kind == CardDef.BonusKind.TIMES:
+		return _as_int(d[CardDef.KEY_TIMES])
+	if kind == CardDef.BonusKind.PLUS:
+		return _as_int(d[CardDef.KEY_PLUS])
+	return 0
+
+
+## The legal amounts of a bonus kind (none for NONE).
+static func _allowed_bonuses(kind: CardDef.BonusKind) -> Array[int]:
+	var out: Array[int] = []
+	if kind == CardDef.BonusKind.TIMES:
+		out.assign(MatchRules.TIMES_VALUES)
+	elif kind == CardDef.BonusKind.PLUS:
+		out.assign(MatchRules.PLUS_VALUES)
+	return out
 
 
 ## An error message for one entry's effect, or "" when it is null or well formed with a
@@ -198,8 +268,15 @@ static func _build_entry(entry: Variant) -> CardDef:
 	if raw_effect is Dictionary:
 		var effect_dict: Dictionary = raw_effect
 		effect = CardEffect.from_dict(effect_dict)
+	var kind: CardDef.BonusKind = CardDef.BonusKind.NONE
+	var amount: int = 0
+	var raw_bonus: Variant = d["bonus"]
+	if raw_bonus is Dictionary:
+		var bonus_dict: Dictionary = raw_bonus
+		kind = _bonus_kind_of(bonus_dict)
+		amount = _bonus_amount_of(bonus_dict, kind)
 	return CardDef.new(
-		card_id, card_name, _as_int(d["cost"]), _as_int(d["flat"]), _as_int(d["bonus"]), effect
+		card_id, card_name, _as_int(d["cost"]), _as_int(d["flat"]), kind, amount, effect
 	)
 
 
@@ -222,52 +299,29 @@ static func _is_whole_number(value: Variant) -> bool:
 	return false
 
 
-## Returns an error message, or "" when the list satisfies R2.
+## Returns an error message, or "" when the pool satisfies R3: unique ids, then each
+## card's cost and flat in range.
 static func _validate(defs: Array[CardDef]) -> String:
-	if defs.size() != CARD_COUNT:
-		return "%s: %d cards (expected %d)" % [ERR_COUNT, defs.size(), CARD_COUNT]
-
 	var seen: Dictionary[String, bool] = {}
 	for def: CardDef in defs:
 		if seen.has(def.id):
 			return "%s: %s" % [ERR_DUPLICATE, def.id]
 		seen[def.id] = true
+	return _range_problem(defs)
 
-	var range_problem: String = _range_problem(defs)
-	if range_problem != "":
-		return range_problem
 
-	var counts: Array[int] = []
-	for _slot: int in range(MAX_COST + 1):
-		counts.append(0)
+## The first card whose cost or flat is out of range, as an error message, or "".
+static func _range_problem(defs: Array[CardDef]) -> String:
 	for def: CardDef in defs:
 		if def.cost < MIN_COST or def.cost > MAX_COST:
 			return (
-				"%s: %s has cost %d outside %d..%d"
-				% [ERR_COST_MIX, def.id, def.cost, MIN_COST, MAX_COST]
+				"%s: %s has cost %d (allowed %d..%d)"
+				% [ERR_COST, def.id, def.cost, MIN_COST, MAX_COST]
 			)
-		counts[def.cost] += 1
-	for cost: int in range(MIN_COST, MAX_COST + 1):
-		if counts[cost] != COST_MIX[cost]:
-			return (
-				"%s: %d cards at cost %d (expected %d)"
-				% [ERR_COST_MIX, counts[cost], cost, COST_MIX[cost]]
-			)
-	return ""
-
-
-## The first card whose flat or bonus is out of range, as an error message, or "".
-static func _range_problem(defs: Array[CardDef]) -> String:
-	for def: CardDef in defs:
-		var max_flat: int = def.cost + MAX_FLAT_OVER_COST
+		var max_flat: int = def.cost + MatchRules.MAX_FLAT_OVER_COST
 		if def.flat < 0 or def.flat > max_flat:
 			return (
 				"%s: %s has cost %d and flat %d (allowed 0..%d)"
 				% [ERR_FLAT, def.id, def.cost, def.flat, max_flat]
-			)
-		if def.bonus < 0 or def.bonus > MatchRules.MAX_BONUS:
-			return (
-				"%s: %s has bonus %d (allowed 0..%d)"
-				% [ERR_BONUS, def.id, def.bonus, MatchRules.MAX_BONUS]
 			)
 	return ""

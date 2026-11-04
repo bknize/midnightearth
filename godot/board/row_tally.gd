@@ -35,9 +35,9 @@ func _ready() -> void:
 		_tweens.append(null)
 
 
-## The text of one tally.
+## The text of one tally; `mult` is in hundredths.
 static func tally_text(score: int, mult: int) -> String:
-	return "%d ×%d" % [score, mult]
+	return "%d %s" % [score, ScoreChips.mult_text(mult)]
 
 
 ## Puts `seat`'s tally at a world position (the row's right end).

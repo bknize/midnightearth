@@ -7,12 +7,15 @@ extends RefCounted
 ## directly follows another deal, draw 0.30, burn 0.45, bot wait 0.6, opponent commit
 ## 0.25 per card, player commit 0.30, round end 0.30, pulse 0.12 for a revealed card or
 ## 0.35 preceded by a 0.15 `delay` (the gap sits before the flip) for a first reveal, effect
-## 0.25, fizzle 0.15, choice shown 0.4, stats 0.2, move 0.3, return 0.3,
-## discard 0.45, destroy mark 0.35, destroyed fly-out 0.45, turn end 0.6 (the tally fly-in and
-## the count). Turn start, walk start, prompt and match end are instant (a prompt
+## 0.25, fizzle 0.15, choice shown 0.4, stats 0.2, move 0.3 (a run of CARD_MOVED events is
+## one step), return 0.3,
+## discard 0.45, unreveal 0.35, recover 0.3, strip show / hide 0.25 (made by the board's
+## prompt code through strip_step(), no event maps to them), destroy mark 0.35, destroyed
+## fly-out 0.45, turn end 0.6 (the tally fly-in and the count). Turn start, walk start,
+## prompt and match end are instant (a prompt
 ## waits on the player, not on a clock). BONUS_ZERO_SET, ENERGY_CARRIED and FREE_FIRST_SET
 ## have no step: the next TURN_STARTED carries their result (budgets, free_first), and
-## CARD_REVEALED / STATS_CHANGED carry the zeroed bonus.
+## CARD_REVEALED / STATS_CHANGED carry the cleared bonus (times 100, plus 0).
 
 const CLEAR_TIME: float = 0.40
 const DEAL_TIME: float = 0.30
@@ -36,6 +39,9 @@ const MOVE_TIME: float = 0.3
 const RETURN_TIME: float = 0.3
 const DISCARD_TIME: float = 0.45
 const ROUND_END_TIME: float = 0.30
+const UNREVEAL_TIME: float = 0.35
+const RECOVER_TIME: float = 0.3
+const STRIP_TIME: float = 0.25
 
 
 ## Steps for `events` (as `viewer` may see them) in event order. `speed` is 1 normally and
@@ -64,6 +70,12 @@ static func from_events(
 			made.append(_pulse(event, scored))
 		elif event.kind == MatchEvent.Kind.CARD_SCORED:
 			made.append(_pulse(null, event))
+		elif event.kind == MatchEvent.Kind.CARD_MOVED:
+			made.append(_move_run(events, at, folded))
+		elif event.kind == MatchEvent.Kind.CARD_UNREVEALED:
+			made.append(_unreveal(event))
+		elif event.kind == MatchEvent.Kind.CARD_RECOVERED:
+			made.append(_recover(event))
 		else:
 			made = _steps_for(event, viewer, after_deal)
 		for step: BoardStep in made:
@@ -74,6 +86,56 @@ static func from_events(
 		if not made.is_empty():
 			previous_kind = made[made.size() - 1].kind
 	return steps
+
+
+## One MOVE step for the run of consecutive CARD_MOVED events of one seat from `at` on, every
+## card in it moving in a single re-layout. Later events of the run are marked in `folded`.
+static func _move_run(events: Array[MatchEvent], at: int, folded: Dictionary) -> BoardStep:
+	var first: MatchEvent = events[at]
+	var step: BoardStep = _card_step(BoardStep.Kind.MOVE, first)
+	var seat: int = first.payload["seat"]
+	step.duration = MOVE_TIME
+	var i: int = at
+	while i < events.size() and events[i].kind == MatchEvent.Kind.CARD_MOVED:
+		var next: Dictionary = events[i].payload
+		var next_seat: int = next["seat"]
+		if next_seat != seat:
+			break
+		var id: int = next.get("card", -1)
+		var from_slot: int = next.get("from_slot", -1)
+		var to_slot: int = next.get("to_slot", -1)
+		step.cards.append(id)
+		step.from_slots.append(from_slot)
+		step.slots_to.append(to_slot)
+		if i > at:
+			folded[i] = true
+		i += 1
+	step.from_slot = step.from_slots[0]
+	step.slot = step.slots_to[0]
+	return step
+
+
+static func _unreveal(event: MatchEvent) -> BoardStep:
+	var step: BoardStep = _card_step(BoardStep.Kind.UNREVEAL, event)
+	step.slot = event.payload.get("slot", -1)
+	step.duration = UNREVEAL_TIME
+	return step
+
+
+static func _recover(event: MatchEvent) -> BoardStep:
+	var step: BoardStep = _card_step(BoardStep.Kind.RECOVER, event)
+	step.from_seat = event.payload.get("from_seat", -1)
+	step.slot = event.payload.get("position", -1)
+	step.duration = RECOVER_TIME
+	return step
+
+
+## A STRIP_SHOW or STRIP_HIDE step for the deck strip (T10): no engine event maps to it.
+static func strip_step(show: bool, speed: float) -> BoardStep:
+	var step: BoardStep = BoardStep.new()
+	step.kind = BoardStep.Kind.STRIP_SHOW if show else BoardStep.Kind.STRIP_HIDE
+	step.duration = STRIP_TIME / (speed if speed > 0.0 else 1.0)
+	return step
 
 
 ## Index of the CARD_SCORED that answers the CARD_REVEALED at `at` (same card, before the
@@ -110,7 +172,8 @@ static func _pulse(reveal: MatchEvent, scored: MatchEvent) -> BoardStep:
 	step.slot = payload.get("slot", -1)
 	step.destroyed = payload.get("destroyed", false)
 	step.flat = payload.get("flat", 0)
-	step.bonus = payload.get("bonus", 0)
+	step.times = payload.get("times", 100)
+	step.plus = payload.get("plus", 0)
 	if reveal != null and step.destroyed:
 		# A destroyed reveal only flips: nothing scores, so nothing folds in.
 		step.revealed = false
@@ -128,8 +191,9 @@ static func _pulse(reveal: MatchEvent, scored: MatchEvent) -> BoardStep:
 	if scored != null:
 		var values: Dictionary = scored.payload
 		step.flat = values.get("flat", step.flat)
-		step.bonus = values.get("bonus", step.bonus)
-		step.mult = values.get("mult", 1)
+		step.times = values.get("times", step.times)
+		step.plus = values.get("plus", step.plus)
+		step.mult = values.get("mult", ScoreTracker.MULT_ONE)
 		step.added = values.get("added", 0)
 		step.score = values.get("score", -1)
 		step.again = values.get("again", false)
@@ -217,7 +281,8 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 		MatchEvent.Kind.STATS_CHANGED:
 			var stats: BoardStep = _card_step(BoardStep.Kind.STATS, event)
 			stats.flat = payload.get("flat", 0)
-			stats.bonus = payload.get("bonus", 0)
+			stats.times = payload.get("times", ScoreTracker.MULT_ONE)
+			stats.plus = payload.get("plus", 0)
 			stats.cause = payload.get("cause", "")
 			stats.duration = STATS_TIME
 			out.append(stats)
@@ -229,14 +294,9 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 		MatchEvent.Kind.DESTROYED_CLEARED:
 			var cleared: BoardStep = _card_step(BoardStep.Kind.CLEAR_DESTROYED, event)
 			cleared.slot = payload.get("slot", -1)
+			cleared.pile = payload.get("pile", false)
 			cleared.duration = CLEAR_DESTROYED_TIME
 			out.append(cleared)
-		MatchEvent.Kind.CARD_MOVED:
-			var moved: BoardStep = _card_step(BoardStep.Kind.MOVE, event)
-			moved.from_slot = payload.get("from_slot", -1)
-			moved.slot = payload.get("to_slot", -1)
-			moved.duration = MOVE_TIME
-			out.append(moved)
 		MatchEvent.Kind.CARD_RETURNED:
 			var returned: BoardStep = _card_step(BoardStep.Kind.RETURN, event)
 			returned.slot = payload.get("slot", -1)
@@ -320,6 +380,4 @@ static func _card_step(kind: int, event: MatchEvent) -> BoardStep:
 	var card: int = event.payload["card"]
 	step.seat = seat
 	step.card = card
-	if card >= 0:
-		step.def_index = card % MatchRules.DECK_SIZE
 	return step

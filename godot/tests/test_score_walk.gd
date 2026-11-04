@@ -1,7 +1,8 @@
 # gdlint: disable=max-public-methods,max-file-lines
 class_name TestScoreWalk
 extends GdUnitTestSuite
-## ScoreWalk (R11-R18, plan P3-P5) and CardState: the walk's math (C2), its cursor (C4),
+## ScoreWalk (R11-R18, plan P3-P5) and CardState: the walk's math (C2; the hundredths mult
+## of DC-07 P4, whose own cases live in test_score_walk_mult.gd), its cursor (C4),
 ## recomputation every turn (C3), the per-walk multiplier, effective stats from CardState,
 ## and a walk on a MatchState.duplicate() giving the live engine's scores (the preview's
 ## basis, P12). DC-06 T01 (R1-R11): the slot cursor, one pulse per slot (n + m pulses),
@@ -16,23 +17,30 @@ extends GdUnitTestSuite
 const SEED: int = 1
 const SEARCH_SEEDS: int = 100
 const MAX_ACTIONS: int = 2000
-# Definition indices (= seat-0 instance ids) of the switch cases' cards.
+# Definition indices (= seat-0 instance ids) of the cards the cases name.
 const C04: int = 3
 const C06_FLAT_UP: int = 5
 const C08: int = 7
-const C11: int = 10
 const C12_SWAP: int = 11
-const C13_SWITCH: int = 12
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for ScoreWalk,
+## EffectResolver and GreedyBot.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
 
 
 func _typed(values: Array) -> Array[int]:
@@ -50,13 +58,37 @@ func _vanilla() -> Array[int]:
 	return out
 
 
-## `seat`'s instance of the first effect-free card with this flat and bonus; -1 if none.
-func _card_with(seat: int, flat: int, bonus: int) -> int:
+## `seat`'s instance of the first effect-free card with this flat and ×-part (hundredths,
+## 100 for none; the fixture has no +bonus); -1 if none.
+func _card_with(seat: int, flat: int, times: int) -> int:
 	for index: int in _vanilla():
 		var def: CardDef = _db().card_at(index)
-		if def.flat == flat and def.bonus == bonus:
+		if def.flat == flat and _times_of(def) == times:
 			return seat * MatchRules.DECK_SIZE + index
 	return -1
+
+
+## A definition's printed ×-part in hundredths: its ×-bonus, or 100 (×1.00) without one.
+func _times_of(def: CardDef) -> int:
+	if def.bonus_kind == CardDef.BonusKind.TIMES:
+		return def.bonus
+	return MatchRules.MULT_ONE
+
+
+## A definition's printed +-part in whole units: its +bonus, or 0 without one.
+func _plus_of(def: CardDef) -> int:
+	if def.bonus_kind == CardDef.BonusKind.PLUS:
+		return def.bonus
+	return 0
+
+
+## Effective stats as plain data, for comparisons.
+func _eff(card: int, state: MatchState) -> Dictionary:
+	return ScoreWalk.effective(card, state, _defs()).to_dict()
+
+
+func _stats(flat: int, times: int, plus: int) -> Dictionary:
+	return {"flat": flat, "times": times, "plus": plus}
 
 
 ## `seat`'s instances of the first `count` effect-free cards.
@@ -77,15 +109,18 @@ func _state(row_0: Array[int], row_1: Array[int], first: int) -> MatchState:
 	return state
 
 
-## The P4 math on one row, from the definitions alone (no CardState): the multiplier
-## starts at 1 and gains each card's bonus before that card's flat is multiplied in.
+## The P4 math on one row, from the definitions alone (no CardState; DC-07 P4): the
+## multiplier starts at 100 (×1.00, in hundredths), is multiplied by each card's ×-part
+## (rounded to the nearest hundredth) and gains its +-part before that card's flat is
+## multiplied in, floored.
 func _walk_score(row: Array[int]) -> int:
-	var mult: int = 1
+	var mult: int = 100
 	var total: int = 0
 	for card: int in row:
 		var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
-		mult += def.bonus
-		total += def.flat * mult
+		mult = (mult * _times_of(def) + 50) / 100
+		mult += _plus_of(def) * 100
+		total += def.flat * mult / 100
 	return total
 
 
@@ -94,7 +129,7 @@ func _walk(state: MatchState, recorder: Recorder) -> void:
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < 100:
-		var paused: bool = ScoreWalk.step(state, _db(), null, recorder.record, null)
+		var paused: bool = ScoreWalk.step(state, _defs(), null, recorder.record, null)
 		assert_bool(paused).is_false()
 		guard += 1
 
@@ -140,22 +175,26 @@ func _state_ints(state: Dictionary, key: String) -> Array[int]:
 # --- C2, R14: the math ----------------------------------------------------------------
 
 
-## Spec scenario: [flat 3, bonus 1] then [flat 4, bonus 0] scores 14; reversed, 10.
-func test_bonus_card_left_of_the_flat_card_scores_14_and_reversed_10() -> void:
-	var bonus_card: int = _card_with(0, 3, 1)
-	var flat_card: int = _card_with(0, 4, 0)
+## [flat 3 ×1.25] then [flat 4] scores floor(3 × 1.25) + floor(4 × 1.25) = 3 + 5 = 8;
+## reversed, 4 + 3 = 7 (DC-07 P4; the DC-05 integer mult gave 14 and 10).
+func test_bonus_card_left_of_the_flat_card_scores_8_and_reversed_7() -> void:
+	var bonus_card: int = _card_with(0, 3, 125)
+	var flat_card: int = _card_with(0, 4, 100)
 	assert_int(bonus_card).is_greater_equal(0)
 	assert_int(flat_card).is_greater_equal(0)
 	var none: Array[int] = []
 	var left: MatchState = _state(_typed([bonus_card, flat_card]), none, 0)
 	var recorder: Recorder = Recorder.new()
 	_walk(left, recorder)
-	assert_array(left.scores).is_equal(_typed([14, 0]))
+	assert_array(left.scores).is_equal(_typed([8, 0]))
 	assert_bool(left.walk.active).is_false()
 	# Each CARD_SCORED carries the amounts and the running score (R14).
 	var scored: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.CARD_SCORED)
 	assert_int(scored.size()).is_equal(2)
-	var expected: Array[Array] = [[bonus_card, 0, 3, 1, 2, 6, 6], [flat_card, 1, 4, 0, 2, 8, 14]]
+	# [card, slot, flat, times, plus, mult, added, score]
+	var expected: Array[Array] = [
+		[bonus_card, 0, 3, 125, 0, 125, 3, 3], [flat_card, 1, 4, 100, 0, 125, 5, 8]
+	]
 	for i: int in range(2):
 		var row: Array = expected[i]
 		var want: Array[int] = _typed(row)
@@ -163,24 +202,26 @@ func test_bonus_card_left_of_the_flat_card_scores_14_and_reversed_10() -> void:
 		assert_int(_payload_int(scored[i], "card")).is_equal(want[0])
 		assert_int(_payload_int(scored[i], "slot")).is_equal(want[1])
 		assert_int(_payload_int(scored[i], "flat")).is_equal(want[2])
-		assert_int(_payload_int(scored[i], "bonus")).is_equal(want[3])
-		assert_int(_payload_int(scored[i], "mult")).is_equal(want[4])
-		assert_int(_payload_int(scored[i], "added")).is_equal(want[5])
-		assert_int(_payload_int(scored[i], "score")).is_equal(want[6])
+		assert_int(_payload_int(scored[i], "times")).is_equal(want[3])
+		assert_int(_payload_int(scored[i], "plus")).is_equal(want[4])
+		assert_int(_payload_int(scored[i], "mult")).is_equal(want[5])
+		assert_int(_payload_int(scored[i], "added")).is_equal(want[6])
+		assert_int(_payload_int(scored[i], "score")).is_equal(want[7])
+		assert_bool(scored[i].payload.has("bonus")).is_false()
 		assert_int(scored[i].owner_seat).is_equal(MatchEvent.PUBLIC)
 	var right: MatchState = _state(_typed([flat_card, bonus_card]), none, 0)
 	_walk(right, Recorder.new())
-	assert_array(right.scores).is_equal(_typed([10, 0]))
+	assert_array(right.scores).is_equal(_typed([7, 0]))
 
 
 func test_each_seat_has_its_own_multiplier() -> void:
-	var bonus_card: int = _card_with(0, 3, 1)
-	var flat_card: int = _card_with(1, 4, 0)
+	var bonus_card: int = _card_with(0, 3, 125)
+	var flat_card: int = _card_with(1, 4, 100)
 	# Seat 0's bonus must not multiply seat 1's card, even though seat 1 pulses after it.
 	var state: MatchState = _state(_typed([bonus_card]), _typed([flat_card]), 0)
 	_walk(state, Recorder.new())
-	assert_array(state.scores).is_equal(_typed([6, 4]))
-	assert_array(state.walk.mult).is_equal(_typed([2, 1]))
+	assert_array(state.scores).is_equal(_typed([3, 4]))
+	assert_array(state.walk.mult).is_equal(_typed([125, 100]))
 
 
 # --- C4, R12: the cursor --------------------------------------------------------------
@@ -201,7 +242,7 @@ func test_three_against_one_alternates_then_finishes_the_longer_row() -> void:
 		var order: Array[int] = []
 		while state.walk.active:
 			var next: int = ScoreWalk.next_card(state)
-			ScoreWalk.step(state, _db(), null, recorder.record, null)
+			ScoreWalk.step(state, _defs(), null, recorder.record, null)
 			if next >= 0:
 				order.append(next)
 		var expected: Array[int] = [long_row[0], short_row[0], long_row[1], long_row[2]]
@@ -232,7 +273,7 @@ func test_an_empty_walk_ends_on_its_first_step() -> void:
 	assert_int(state.walk.next_seat).is_equal(1)
 	assert_int(ScoreWalk.next_card(state)).is_equal(-1)
 	var recorder: Recorder = Recorder.new()
-	assert_bool(ScoreWalk.step(state, _db(), null, recorder.record, null)).is_false()
+	assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record, null)).is_false()
 	assert_bool(state.walk.active).is_false()
 	assert_array(recorder.events).is_empty()
 	assert_array(state.scores).is_equal(_typed([0, 0]))
@@ -263,7 +304,8 @@ func test_an_unrevealed_card_is_revealed_then_scored_and_a_revealed_one_only_sco
 	assert_str(def_id).is_equal(def.id)
 	assert_int(_payload_int(reveal, "slot")).is_equal(1)
 	assert_int(_payload_int(reveal, "flat")).is_equal(def.flat)
-	assert_int(_payload_int(reveal, "bonus")).is_equal(def.bonus)
+	assert_int(_payload_int(reveal, "times")).is_equal(_times_of(def))
+	assert_int(_payload_int(reveal, "plus")).is_equal(_plus_of(def))
 	assert_int(_payload_int(reveal, "order")).is_equal(0)
 	assert_bool(state.seats[0].is_revealed(row[1])).is_true()
 
@@ -277,7 +319,7 @@ func test_an_unrevealed_card_is_revealed_then_scored_and_a_revealed_one_only_sco
 func test_the_score_is_recomputed_across_two_turns() -> void:
 	var checked: bool = false
 	for match_seed: int in range(1, SEARCH_SEEDS + 1):
-		var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+		var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 		engine.start()
 		_pass_until_turn(engine, 3)
 		var first_turn: ApplyResult = _both_play_one(engine)
@@ -359,13 +401,13 @@ func _first_vanilla_affordable(hand: Array[int], budget: int) -> int:
 
 
 func test_the_multiplier_resets_per_walk() -> void:
-	var row: Array[int] = [_card_with(0, 3, 1), _card_with(0, 4, 0)]
-	var other: Array[int] = [_card_with(1, 1, 1)]
+	var row: Array[int] = [_card_with(0, 3, 125), _card_with(0, 4, 100)]
+	var other: Array[int] = [_card_with(1, 1, 125)]
 	var state: MatchState = _state(row, other, 0)
 	_walk(state, Recorder.new())
 	var first_scores: Array[int] = []
 	first_scores.assign(state.scores)
-	assert_array(state.walk.mult).is_equal(_typed([2, 2]))
+	assert_array(state.walk.mult).is_equal(_typed([125, 125]))
 	# Each cursor passed its whole row; every card scored once (DC-06 P1, P3).
 	var all_cards: Array[int] = []
 	all_cards.append_array(row)
@@ -377,7 +419,7 @@ func test_the_multiplier_resets_per_walk() -> void:
 	assert_array(_state_ints(walk_dict, "scored")).is_equal(_sorted(all_cards))
 	assert_bool(walk_dict.has("pulsed")).is_false()
 	ScoreWalk.begin(state)
-	assert_array(state.walk.mult).is_equal(_typed([1, 1]))
+	assert_array(state.walk.mult).is_equal(_typed([100, 100]))
 	assert_array(state.scores).is_equal(_typed([0, 0]))
 	assert_array(state.walk.cursor).is_equal(_typed([0, 0]))
 	assert_array(state.walk.scored_ids()).is_empty()
@@ -387,7 +429,7 @@ func test_the_multiplier_resets_per_walk() -> void:
 	assert_array(state.scores).is_equal(first_scores)
 	assert_array(state.scores).is_equal(_typed([_walk_score(row), _walk_score(other)]))
 	var first_scored: MatchEvent = _of_kind(recorder.events, MatchEvent.Kind.CARD_SCORED)[0]
-	assert_int(_payload_int(first_scored, "mult")).is_equal(2)
+	assert_int(_payload_int(first_scored, "mult")).is_equal(125)
 	# Every card was revealed by the first walk: the second reveals nothing.
 	assert_array(_of_kind(recorder.events, MatchEvent.Kind.CARD_REVEALED)).is_empty()
 
@@ -415,7 +457,7 @@ func test_row_edits_between_steps_follow_the_slot_cursor() -> void:
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
 	assert_vector(ScoreWalk.next_slot(state)).is_equal(Vector2i(0, 0))
-	ScoreWalk.step(state, _db(), null, recorder.record, null)
+	ScoreWalk.step(state, _defs(), null, recorder.record, null)
 	assert_array(state.walk.cursor).is_equal(_typed([1, 0]))
 	assert_vector(ScoreWalk.next_slot(state)).is_equal(Vector2i(1, 0))
 	# Swap the scored slot-0 card with the slot-2 card: own[0] lands ahead of the cursor,
@@ -424,8 +466,8 @@ func test_row_edits_between_steps_follow_the_slot_cursor() -> void:
 	var held: int = row[0]
 	row[0] = row[2]
 	row[2] = held
-	ScoreWalk.step(state, _db(), null, recorder.record, null)
-	ScoreWalk.step(state, _db(), null, recorder.record, null)
+	ScoreWalk.step(state, _defs(), null, recorder.record, null)
+	ScoreWalk.step(state, _defs(), null, recorder.record, null)
 	# Take seat 1's slot-1 card off its row before the cursor reaches it.
 	var doomed: int = theirs[1]
 	state.seats[1].board.erase(doomed)
@@ -438,7 +480,7 @@ func test_row_edits_between_steps_follow_the_slot_cursor() -> void:
 	ahead[d_at] = own[1]
 	var guard: int = 0
 	while state.walk.active and guard < 20:
-		ScoreWalk.step(state, _db(), null, recorder.record, null)
+		ScoreWalk.step(state, _defs(), null, recorder.record, null)
 		guard += 1
 	var scored: Array[int] = _cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)
 	var expected: Array[int] = [own[0], theirs[0], own[1], own[0], own[1]]
@@ -475,8 +517,8 @@ func _walk_answering(state: MatchState, answer: int, recorder: Recorder) -> int:
 		guard += 1
 		if state.walk.paused_card < 0 and ScoreWalk.next_slot(state).x >= 0:
 			pulses += 1
-		if ScoreWalk.step(state, _db(), null, recorder.record, null):
-			recorder.events.append_array(EffectResolver.answer(state, _db(), answer))
+		if ScoreWalk.step(state, _defs(), null, recorder.record, null):
+			recorder.events.append_array(EffectResolver.answer(state, _defs(), answer))
 	return pulses
 
 
@@ -589,12 +631,12 @@ func test_a_face_down_card_swapped_behind_reveals_in_the_next_walk() -> void:
 	var state: MatchState = _state(row, none, 0)
 	var first: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
-	ScoreWalk.step(state, _db(), null, first.record, null)
+	ScoreWalk.step(state, _defs(), null, first.record, null)
 	# row[0] scored at slot 0; it swaps with row[2], face down at slot 2.
 	state.seats[0].board.assign([row[2], row[1], row[0]])
 	var guard: int = 0
 	while state.walk.active and guard < 10:
-		ScoreWalk.step(state, _db(), null, first.record, null)
+		ScoreWalk.step(state, _defs(), null, first.record, null)
 		guard += 1
 	assert_bool(_cards_of(first.events, MatchEvent.Kind.CARD_REVEALED).has(row[2])).is_false()
 	assert_bool(state.seats[0].is_revealed(row[2])).is_false()
@@ -622,12 +664,12 @@ func test_an_on_score_card_scored_twice_gains_twice() -> void:
 	var state: MatchState = _state(_typed([card, other]), none, 0)
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
-	ScoreWalk.step(state, _db(), null, recorder.record, null)
+	ScoreWalk.step(state, _defs(), null, recorder.record, null)
 	# Swap c06 (slot 0, passed) with the card at slot 1 (ahead).
 	state.seats[0].board.assign([other, card])
 	var guard: int = 0
 	while state.walk.active and guard < 10:
-		ScoreWalk.step(state, _db(), null, recorder.record, null)
+		ScoreWalk.step(state, _defs(), null, recorder.record, null)
 		guard += 1
 	assert_array(_cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)).is_equal(
 		_typed([card, card])
@@ -639,152 +681,88 @@ func test_an_on_score_card_scored_twice_gains_twice() -> void:
 	assert_array(_again_flags(recorder.events)).is_equal(want_again)
 	assert_int(_of_kind(recorder.events, MatchEvent.Kind.STATS_CHANGED).size()).is_equal(2)
 	assert_int(state.card_state(card).flat_delta).is_equal(2)
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(3, 0))
+	assert_dict(_eff(card, state)).is_equal(_stats(3, 100, 0))
 
 
 # --- P4: effective stats from CardState -----------------------------------------------
 
 
-func test_effective_reads_the_base_then_flat_delta_then_bonus_zero() -> void:
-	var card: int = _card_with(0, 3, 1)
+## DC-07 P5: the base (printed, or `base_*` once a copy stored one, both bonus parts at once
+## since C22), then `flat_delta` and `temp_plus`, then `no_bonus` clearing both bonus parts.
+## The switch retired (C20).
+func test_effective_reads_the_base_then_flat_delta_temp_plus_and_no_bonus() -> void:
+	var card: int = _card_with(0, 3, 125)
 	var none: Array[int] = []
 	var state: MatchState = _state(_typed([card]), none, 0)
 	assert_object(state.card_state(card)).is_null()
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(3, 1))
+	assert_dict(_eff(card, state)).is_equal(_stats(3, 125, 0))
 	var held: CardState = state.card_state_for(card)
 	assert_bool(held.is_default()).is_true()
-	ScoreWalk.switch_stats(card, state, _db())
-	assert_bool(held.has_base).is_true()
+	# A stored base (a copy, DC-07 T07) replaces the printed stats, both bonus parts
+	# included (R34, C22): ×1.50 and +2 at once, then a +-part only.
+	held.has_base = true
+	held.base_flat = 1
+	held.base_times = 150
+	held.base_plus = 2
 	assert_bool(held.is_default()).is_false()
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(1, 3))
+	assert_dict(_eff(card, state)).is_equal(_stats(1, 150, 2))
+	held.base_times = MatchRules.MULT_ONE
+	assert_dict(_eff(card, state)).is_equal(_stats(1, 100, 2))
 	held.flat_delta = 2
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(3, 3))
-	held.bonus_zero = true
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(3, 0))
+	assert_dict(_eff(card, state)).is_equal(_stats(3, 100, 2))
+	held.temp_plus = 1
+	assert_dict(_eff(card, state)).is_equal(_stats(3, 100, 3))
+	held.no_bonus = true
+	assert_dict(_eff(card, state)).is_equal(_stats(3, 100, 0))
 	held.return_marked = true
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(3, 0))
-	assert_bool(state.clear_card_state(card)).is_true()
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(3, 1))
-
-
-# --- The switch swaps the stats as they stand (R20, R21; DC-05 T13, Ben's ruling 1a) ----
-
-
-## A state with `card` alone on seat 0's row.
-func _alone(card: int) -> MatchState:
-	var none: Array[int] = []
-	return _state(_typed([card]), none, 0)
-
-
-func test_a_switch_after_two_flat_ups_swaps_the_raised_flat() -> void:
-	# c06 is printed (1, 0); two walks flat it up twice to (3, 0).
-	var card: int = C06_FLAT_UP
-	assert_vector(Vector2i(_flat(card), _bonus(card))).is_equal(Vector2i(1, 0))
-	var state: MatchState = _alone(card)
-	_walk(state, Recorder.new())
-	_walk(state, Recorder.new())
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(3, 0))
-	ScoreWalk.switch_stats(card, state, _db())
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(0, 3))
-	var held: CardState = state.card_state(card)
-	var expected: Dictionary = {
-		"has_base": true,
-		"base_flat": 0,
-		"base_bonus": 3,
-		"flat_delta": 0,
-		"bonus_zero": false,
-		"return_marked": false,
-		"destroyed": false,
-	}
-	assert_dict(held.to_dict()).is_equal(expected)
-
-
-func test_a_switch_after_bonus_zero_swaps_the_zeroed_bonus() -> void:
-	# c13 is printed (2, 2); the bonus-0 mark spent on it leaves (2, 0).
-	var card: int = C13_SWITCH
-	assert_vector(Vector2i(_flat(card), _bonus(card))).is_equal(Vector2i(2, 2))
-	var state: MatchState = _alone(card)
-	state.bonus_zero_pending[0] = true
-	EffectResolver.spend_bonus_zero(state, _db(), 0, card)
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(2, 0))
-	ScoreWalk.switch_stats(card, state, _db())
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(0, 2))
-	# The mark is folded into the base, not kept: the new bonus stands.
-	assert_bool(state.card_state(card).bonus_zero).is_false()
-
-
-func test_modifiers_after_a_switch_apply_to_the_switched_stats() -> void:
-	# c06 (1, 0) switched to (0, 1): its walk scores 0 x (1 + 1), then the flat-up raises
-	# the new flat: (1, 1).
-	var card: int = C06_FLAT_UP
-	var state: MatchState = _alone(card)
-	ScoreWalk.switch_stats(card, state, _db())
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(0, 1))
-	var recorder: Recorder = Recorder.new()
-	_walk(state, recorder)
-	var scored: MatchEvent = _of_kind(recorder.events, MatchEvent.Kind.CARD_SCORED)[0]
-	assert_int(_payload_int(scored, "flat")).is_equal(0)
-	assert_int(_payload_int(scored, "bonus")).is_equal(1)
-	assert_int(_payload_int(scored, "added")).is_equal(0)
-	var changed: MatchEvent = _of_kind(recorder.events, MatchEvent.Kind.STATS_CHANGED)[0]
-	assert_int(_payload_int(changed, "flat")).is_equal(1)
-	assert_int(_payload_int(changed, "bonus")).is_equal(1)
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(1, 1))
-	# A bonus-0 after a switch zeroes the new bonus: c11 (3, 1) switched to (1, 3), then 0.
-	var marked: MatchState = _alone(C11)
-	ScoreWalk.switch_stats(C11, marked, _db())
-	assert_vector(ScoreWalk.effective(C11, marked, _db())).is_equal(Vector2i(1, 3))
-	marked.bonus_zero_pending[0] = true
-	EffectResolver.spend_bonus_zero(marked, _db(), 0, C11)
-	assert_vector(ScoreWalk.effective(C11, marked, _db())).is_equal(Vector2i(1, 0))
-
-
-func test_a_second_switch_swaps_what_is_current_then() -> void:
-	# c06: two flat-ups (3, 0), switch (0, 3), a walk's flat-up (1, 3), switch (3, 1).
-	var card: int = C06_FLAT_UP
-	var state: MatchState = _alone(card)
-	_walk(state, Recorder.new())
-	_walk(state, Recorder.new())
-	ScoreWalk.switch_stats(card, state, _db())
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(0, 3))
-	_walk(state, Recorder.new())
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(1, 3))
-	ScoreWalk.switch_stats(card, state, _db())
-	assert_vector(ScoreWalk.effective(card, state, _db())).is_equal(Vector2i(3, 1))
-	# With no modifier in between, two switches give the printed stats back.
-	var plain: MatchState = _alone(C11)
-	ScoreWalk.switch_stats(C11, plain, _db())
-	ScoreWalk.switch_stats(C11, plain, _db())
-	assert_vector(ScoreWalk.effective(C11, plain, _db())).is_equal(Vector2i(3, 1))
-	# The copy a preview walks on carries the stored base.
+	assert_dict(_eff(card, state)).is_equal(_stats(3, 100, 0))
+	# The copy a preview walks on carries every field.
 	var copy: MatchState = state.duplicate()
 	assert_dict(copy.to_dict()).is_equal(state.to_dict())
-	assert_vector(ScoreWalk.effective(card, copy, _db())).is_equal(Vector2i(3, 1))
+	assert_dict(_eff(card, copy)).is_equal(_stats(3, 100, 0))
+	assert_bool(state.clear_card_state(card)).is_true()
+	assert_dict(_eff(card, state)).is_equal(_stats(3, 125, 0))
+
+
+## A card with no definition shows flat 0 and no bonus.
+func test_effective_of_an_unknown_card_is_flat_0_and_no_bonus() -> void:
+	var none: Array[int] = []
+	var state: MatchState = _state(none, none, 0)
+	assert_dict(_eff(-1, state)).is_equal(_stats(0, 100, 0))
+	assert_dict(_eff(999, state)).is_equal(_stats(0, 100, 0))
 
 
 func test_the_walk_scores_effective_stats() -> void:
-	var bonus_card: int = _card_with(0, 3, 1)
-	var flat_card: int = _card_with(0, 4, 0)
+	var bonus_card: int = _card_with(0, 3, 125)
+	var flat_card: int = _card_with(0, 4, 100)
 	var none: Array[int] = []
 	var state: MatchState = _state(_typed([bonus_card, flat_card]), none, 0)
-	# Switched to (1, 3): mult 4, then 1 * 4; the flat card +1: 5 * 4. Total 24.
-	ScoreWalk.switch_stats(bonus_card, state, _db())
+	# A stored base of (1, +2): mult 100 + 200 = 300, then 1 * 3; the flat card +1: 5 * 3.
+	# Total 3 + 15 = 18.
+	var held: CardState = state.card_state_for(bonus_card)
+	held.has_base = true
+	held.base_flat = 1
+	held.base_times = MatchRules.MULT_ONE
+	held.base_plus = 2
 	state.card_state_for(flat_card).flat_delta = 1
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
-	assert_array(state.scores).is_equal(_typed([24, 0]))
+	assert_array(state.scores).is_equal(_typed([18, 0]))
+	assert_array(state.walk.mult).is_equal(_typed([300, 100]))
 	var reveals: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.CARD_REVEALED)
 	assert_int(_payload_int(reveals[0], "flat")).is_equal(1)
-	assert_int(_payload_int(reveals[0], "bonus")).is_equal(3)
-	# Bonus zero on the bonus card: (3, 0) then (4, 0), no multiplier.
+	assert_int(_payload_int(reveals[0], "times")).is_equal(100)
+	assert_int(_payload_int(reveals[0], "plus")).is_equal(2)
+	# No bonus on the bonus card: 3 then 4, the multiplier stays ×1.00.
 	var plain: MatchState = _state(_typed([bonus_card, flat_card]), none, 0)
-	plain.card_state_for(bonus_card).bonus_zero = true
+	plain.card_state_for(bonus_card).no_bonus = true
 	_walk(plain, Recorder.new())
 	assert_array(plain.scores).is_equal(_typed([7, 0]))
+	assert_array(plain.walk.mult).is_equal(_typed([100, 100]))
 
 
 func test_card_states_are_in_the_full_state_and_cleared_at_round_start() -> void:
-	var card: int = _card_with(0, 3, 1)
+	var card: int = _card_with(0, 3, 125)
 	var none: Array[int] = []
 	var state: MatchState = _state(_typed([card]), none, 0)
 	state.card_state_for(card).flat_delta = 2
@@ -795,9 +773,11 @@ func test_card_states_are_in_the_full_state_and_cleared_at_round_start() -> void
 	var expected: Dictionary = {
 		"has_base": false,
 		"base_flat": 0,
-		"base_bonus": 0,
+		"base_times": MatchRules.MULT_ONE,
+		"base_plus": 0,
 		"flat_delta": 2,
-		"bonus_zero": false,
+		"no_bonus": false,
+		"temp_plus": 0,
 		"return_marked": false,
 		"destroyed": false,
 	}
@@ -805,9 +785,9 @@ func test_card_states_are_in_the_full_state_and_cleared_at_round_start() -> void
 	assert_bool(plain.has("walk")).is_true()
 	# A modifier is written into the engine's state directly (both seats only pass here);
 	# the next round start clears it.
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	engine.start()
-	engine._state.card_state_for(card).bonus_zero = true
+	engine._state.card_state_for(card).no_bonus = true
 	var marked: Dictionary = engine.full_state()
 	var marked_states: Dictionary = marked["card_states"]
 	assert_int(marked_states.size()).is_equal(1)
@@ -836,7 +816,7 @@ func _state_int(state: Dictionary, key: String) -> int:
 
 
 func _started(match_seed: int) -> MatchEngine:
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
 	return engine
 
@@ -845,7 +825,7 @@ func _started(match_seed: int) -> MatchEngine:
 ## exists. Effect-free since DC-05 T04: an effect (a destroy, a bonus-0 mark, a flat-up)
 ## would change the reveals and scores these cases predict from the definitions.
 func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
-	for s: Array in LegalPlays.enumerate(hand, energy, _db()):
+	for s: Array in LegalPlays.enumerate(hand, energy, _defs()):
 		if s.size() == size and _all_vanilla(_typed(s)):
 			return _typed(s)
 	var none: Array[int] = []
@@ -863,8 +843,12 @@ func _flat(card: int) -> int:
 	return _db().card_at(card % MatchRules.DECK_SIZE).flat
 
 
-func _bonus(card: int) -> int:
-	return _db().card_at(card % MatchRules.DECK_SIZE).bonus
+func _times(card: int) -> int:
+	return _times_of(_db().card_at(card % MatchRules.DECK_SIZE))
+
+
+func _plus(card: int) -> int:
+	return _plus_of(_db().card_at(card % MatchRules.DECK_SIZE))
 
 
 func _pending(engine: MatchEngine) -> Array[int]:
@@ -923,7 +907,8 @@ func test_reveal_three_against_one() -> void:
 		assert_int(_payload_int(reveals[i], "seat")).is_equal(expected_seats[i])
 		assert_int(_payload_int(reveals[i], "order")).is_equal(i)
 		assert_int(_payload_int(reveals[i], "flat")).is_equal(_flat(expected_cards[i]))
-		assert_int(_payload_int(reveals[i], "bonus")).is_equal(_bonus(expected_cards[i]))
+		assert_int(_payload_int(reveals[i], "times")).is_equal(_times(expected_cards[i]))
+		assert_int(_payload_int(reveals[i], "plus")).is_equal(_plus(expected_cards[i]))
 		assert_int(_payload_int(reveals[i], "slot")).is_equal(expected_slots[i])
 		assert_int(reveals[i].owner_seat).is_equal(MatchEvent.PUBLIC)
 	# Each reveal is followed by its card's score, in the same order.
@@ -1005,17 +990,20 @@ func test_reveal_puts_cards_on_boards_and_scores_in_state() -> void:
 		var entry: Dictionary = view.own_row[0]
 		var card: int = entry["card"]
 		var flat: int = entry["flat"]
-		var bonus: int = entry["bonus"]
+		var times: int = entry["times"]
+		var plus: int = entry["plus"]
 		var revealed: bool = entry["revealed"]
 		assert_int(card).is_equal(row[0])
 		assert_int(flat).is_equal(_flat(row[0]))
-		assert_int(bonus).is_equal(_bonus(row[0]))
+		assert_int(times).is_equal(_times(row[0]))
+		assert_int(plus).is_equal(_plus(row[0]))
 		assert_bool(revealed).is_true()
 		assert_int(view.opponent_row.size()).is_equal(_board(engine, 1 - seat).size())
-		# One card per row: each multiplier ends at 1 plus that card's bonus.
-		var mults: Array[int] = [1, 1]
-		mults[first] += _bonus(a[0])
-		mults[second] += _bonus(b[0])
+		# One card per row: each multiplier ends at ×1.00 times that card's ×-part, plus
+		# its +-part (hundredths).
+		var mults: Array[int] = [100, 100]
+		mults[first] = _times(a[0]) + _plus(a[0]) * 100
+		mults[second] = _times(b[0]) + _plus(b[0]) * 100
 		assert_array(view.mults).is_equal(mults)
 
 
@@ -1027,17 +1015,17 @@ func test_reveal_puts_cards_on_boards_and_scores_in_state() -> void:
 ## stream) gives the live TURN_ENDED scores, emits nothing and leaves the engine alone.
 ## Turns whose walk changed a scored card after it scored (a flat-up, a destroy) are
 ## skipped (DC-05 T04): re-walking the turn's end state is then a different walk. So are
-## turns with a choice (DC-05 T05): a swap reorders the row, a switch changes cards already
-## scored, a return takes a scored card off the row at turn end. A turn's events are
+## turns with a choice (DC-05 T05): a swap reorders the row, a return takes a scored card
+## off the row at turn end. A turn's events are
 ## gathered across every action of its walk, since a prompt splits the walk over two or
 ## more applies; every such live walk is also checked for its `again` flags and for no
 ## unmoved card left unscored (DC-06 R4, P3).
 func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	assert_bool(engine.start().ok).is_true()
 	var bots: Array[GreedyBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), _db()))
+		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), _defs()))
 	var compared: int = 0
 	var actions: int = 0
 	var turn_events: Array[MatchEvent] = []
@@ -1066,7 +1054,7 @@ func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 		assert_dict(copy.to_dict()).is_equal(live)
 		var recorder: Recorder = Recorder.new()
 		ScoreWalk.begin(copy)
-		var paused: bool = ScoreWalk.run(copy, _db(), null, recorder.record, PreviewPolicy.new())
+		var paused: bool = ScoreWalk.run(copy, _defs(), null, recorder.record, PreviewPolicy.new())
 		assert_bool(paused).is_false()
 		assert_array(copy.scores).is_equal(_payload_ints(ended[0], "scores"))
 		assert_array(copy.scores).is_equal(_state_ints(live, "scores"))

@@ -37,6 +37,20 @@ enum Kind {
 	FREE_FIRST_SET,
 	# DC-06 (cycle-5-walk-cursor plan, event table). Appended so earlier ordinals hold.
 	DESTROYED_CLEARED,
+	# DC-07 (cycle-6-constructed-decks plan, event table). Appended so earlier ordinals hold.
+	## The first event of start(): {decks: [seat 0's deck id, seat 1's]}. Public (R5); it
+	## carries no seed, which would predict every shuffle (R28, R29).
+	MATCH_STARTED,
+	## A card left a destroyed pile for a hand (DC-07 R19, T04): {seat: its new controller,
+	## card, from_seat: the pile's seat, position: its index in that pile}. Public when the
+	## card's identity was (it left its row revealed); else private to `seat`, so the other
+	## seat sees the pile and position but not the card. At the hand cap a CARD_BURNED with
+	## the same owner follows.
+	CARD_RECOVERED,
+	## A destroy replaced by the un-reveal (DC-07 P9, R30, T06): {seat, card, slot}. The card
+	## flips face down in its slot with printed stats and is not destroyed. Public, since the
+	## card was revealed; from then on the face-down rules hide it as any face-down card.
+	CARD_UNREVEALED,
 }
 
 ## owner_seat of an event every seat may see in full.

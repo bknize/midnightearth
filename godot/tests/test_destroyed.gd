@@ -4,9 +4,11 @@ extends GdUnitTestSuite
 ## (a CARD_REVEALED with `destroyed` and nothing after it: no effect, no watcher, no bonus-0
 ## spend, no score), the random destroy picking among live cards only and fizzling on a row
 ## of destroyed cards without touching the stream, a destroyed carry card carrying nothing,
-## the turn end (returns, then the destroyed cards to the burn pile, then energy), and the
-## hidden information of a destroyed face-down card in its events and the views (R20, R21).
-## The in-place mark itself and the clear of a revealed card are in test_effects.gd.
+## the turn end (returns, then the destroyed cards to their seat's destroyed pile since
+## DC-07 R16, then energy), and the hidden information of a destroyed face-down card in its
+## events and the views (R20, R21). The in-place mark itself and the clear of a revealed
+## card are in test_effects.gd; the piles' round-end burn and recovery (DC-07 T04) are in
+## test_destroyed_piles.gd.
 ##
 ## Walk cases build MatchStates directly; the turn-end case plays seed 1 to turn 4 and sets
 ## the rows by hand (a fixture shortcut, as test_effects.gd's _plant). Instance id = seat *
@@ -41,6 +43,7 @@ const CARRIED: int = MatchEvent.Kind.ENERGY_CARRIED
 const TURN_ENDED: int = MatchEvent.Kind.TURN_ENDED
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 var _cached_watcher_db: CardDb = null
 
 # --- Helpers --------------------------------------------------------------------------
@@ -48,16 +51,24 @@ var _cached_watcher_db: CardDb = null
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
 
 
-## The default card list with c02 given an on-opponent-reveal "draw 1" (in-memory JSON, as
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for ScoreWalk,
+## EffectResolver and SeatView.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
+
+
+## The fixture card list with c02 given an on-opponent-reveal "draw 1" (in-memory JSON, as
 ## test_effects.gd: no deck card uses the trigger).
 func _watcher_db() -> CardDb:
 	if _cached_watcher_db != null:
 		return _cached_watcher_db
-	var text: String = FileAccess.get_file_as_string(CardDb.DEFAULT_PATH)
+	var text: String = FileAccess.get_file_as_string(FixtureDecks.CARDS_PATH)
 	var parsed: Variant = JSON.parse_string(text)
 	var root: Dictionary = parsed
 	var entries: Array = root["cards"]
@@ -102,7 +113,7 @@ func _reveal(state: MatchState, seat: int, cards: Array[int]) -> void:
 
 
 ## Runs one live walk on `state` from begin() to its end, recording the events.
-func _walk(state: MatchState, cards: CardDb, rng: MatchRng, recorder: Recorder) -> void:
+func _walk(state: MatchState, cards: MatchCards, rng: MatchRng, recorder: Recorder) -> void:
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
@@ -144,6 +155,11 @@ func _assert_event(event: MatchEvent, kind: int, payload: Dictionary, owner: int
 	assert_dict(event.to_dict()).is_equal(expected)
 
 
+## A DESTROYED_CLEARED payload (DC-07 P6: the card went to the destroyed pile).
+func _cleared(seat: int, card: int, slot: int) -> Dictionary:
+	return {"seat": seat, "card": card, "slot": slot, "pile": true}
+
+
 func _fired(seat: int, card: int, verb: String, trigger: String) -> Dictionary:
 	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger}
 
@@ -176,7 +192,7 @@ func _place_row(engine: MatchEngine, seat: int, row: Array[int]) -> void:
 ## watcher does not fire, the seat's bonus-0 mark is not spent (it waits for the next live
 ## reveal) and nothing scores.
 func test_a_destroyed_card_flips_with_no_effect_no_mark_spent_and_no_score() -> void:
-	var cards: CardDb = _watcher_db()
+	var cards: MatchCards = FixtureDecks.defs(_watcher_db())
 	var wreck: int = _id(0, C01_DRAW)
 	var live: int = _id(0, C03)
 	var watcher: int = _id(1, C02)
@@ -194,14 +210,15 @@ func test_a_destroyed_card_flips_with_no_effect_no_mark_spent_and_no_score() -> 
 	# wakes the watcher and scores.
 	var expected: Array[int] = [REVEALED, SCORED, REVEALED, STATS, FIRED, DRAWN, SCORED]
 	assert_array(_kinds(events)).is_equal(expected)
-	var stats: Vector2i = ScoreWalk.effective(wreck, state, cards)
+	var stats: ScoreWalk.Effective = ScoreWalk.effective(wreck, state, cards)
 	var flipped: Dictionary = {
 		"seat": 0,
 		"card": wreck,
-		"def_id": cards.card_at(C01_DRAW).id,
+		"def_id": cards.def_of(wreck).id,
 		"slot": 0,
-		"flat": stats.x,
-		"bonus": stats.y,
+		"flat": stats.flat,
+		"times": stats.times,
+		"plus": stats.plus,
 		"order": 0,
 		"destroyed": true,
 	}
@@ -210,14 +227,14 @@ func test_a_destroyed_card_flips_with_no_effect_no_mark_spent_and_no_score() -> 
 	assert_bool(live_flag).is_false()
 	# The mark went to the live card, not the wreck.
 	assert_int(_payload_int(events[3], "card")).is_equal(live)
-	assert_bool(state.card_state(live).bonus_zero).is_true()
-	assert_bool(state.card_state(wreck).bonus_zero).is_false()
+	assert_bool(state.card_state(live).no_bonus).is_true()
+	assert_bool(state.card_state(wreck).no_bonus).is_false()
 	assert_array(state.bonus_zero_pending).is_equal([false, false])
 	# The watcher fired once, for the live card only; the wreck's own draw never fired.
 	assert_array(_cards_of(events, FIRED)).is_equal(_typed([watcher]))
 	assert_array(state.seats[0].hand).is_empty()
 	assert_array(state.seats[0].deck).is_equal(own_deck)
-	# No score for the wreck: seat 0 scores only c03 (1, 0 after the mark).
+	# No score for the wreck: seat 0 scores only c03 (flat 1, no bonus after the mark).
 	assert_array(_cards_of(events, SCORED)).is_equal(_typed([watcher, live]))
 	assert_int(state.scores[0]).is_equal(1)
 	assert_bool(state.seats[0].is_revealed(wreck)).is_true()
@@ -243,7 +260,7 @@ func test_destroy_with_only_destroyed_cards_opposite_fizzles() -> void:
 	var rng: MatchRng = MatchRng.new(SEED)
 	var stream: int = rng.state
 	var recorder: Recorder = Recorder.new()
-	_walk(state, _db(), rng, recorder)
+	_walk(state, _defs(), rng, recorder)
 	var events: Array[MatchEvent] = recorder.events
 	var expected: Array[int] = [REVEALED, FIRED, FIZZLED, SCORED, REVEALED, REVEALED]
 	assert_array(_kinds(events)).is_equal(expected)
@@ -265,7 +282,7 @@ func test_destroy_skips_a_card_already_destroyed() -> void:
 		var state: MatchState = _state(_typed([source]), _typed([wreck, target]), 0)
 		state.card_state_for(wreck).destroyed = true
 		var recorder: Recorder = Recorder.new()
-		_walk(state, _db(), MatchRng.new(match_seed), recorder)
+		_walk(state, _defs(), MatchRng.new(match_seed), recorder)
 		var destroyed: Array[MatchEvent] = _of_kind(recorder.events, DESTROYED)
 		assert_int(destroyed.size()).is_equal(1)
 		_assert_event(destroyed[0], DESTROYED, {"seat": 1, "card": target, "slot": 1}, 1)
@@ -283,11 +300,11 @@ func test_a_destroyed_carry_card_carries_nothing() -> void:
 	state.turn = 4
 	state.energy.carry[0] = 3
 	state.card_state_for(carrier).destroyed = true
-	assert_array(EffectResolver.settle_energy(state, _db())).is_empty()
+	assert_array(EffectResolver.settle_energy(state, _defs())).is_empty()
 	assert_array(state.energy.carry).is_equal(_typed([0, 0]))
 	# The same card live carries: budget 4 + 0 less 0 spent.
 	state.card_state_for(carrier).destroyed = false
-	var events: Array[MatchEvent] = EffectResolver.settle_energy(state, _db())
+	var events: Array[MatchEvent] = EffectResolver.settle_energy(state, _defs())
 	assert_array(_kinds(events)).is_equal(_typed([FIRED, CARRIED]))
 	assert_array(state.energy.carry).is_equal(_typed([4, 0]))
 
@@ -295,11 +312,12 @@ func test_a_destroyed_carry_card_carries_nothing() -> void:
 # --- Turn end (R18, R19, R21, P6) -----------------------------------------------------
 
 
-## P6: turn end resolves the returns, then clears the destroyed cards to their burn piles
-## in row order per seat, then settles energy, then TURN_ENDED. A return-marked destroyed
-## card is discarded, not returned (R19), and a destroyed carry card carries nothing (R15).
+## P6: turn end resolves the returns, then clears the destroyed cards to their destroyed
+## piles (DC-07 R16) in row order per seat, then settles energy, then TURN_ENDED. A
+## return-marked destroyed card is discarded, not returned (R19), and a destroyed carry card
+## carries nothing (R15).
 func test_turn_end_clears_destroyed_cards_after_returns_and_before_energy() -> void:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	assert_bool(engine.start().ok).is_true()
 	while engine.energy() < 4:
 		assert_bool(_pass(engine).ok).is_true()
@@ -335,20 +353,22 @@ func test_turn_end_clears_destroyed_cards_after_returns_and_before_energy() -> v
 	var order: Array[int] = [RETURNED, CLEARED, CLEARED, CLEARED, FIRED, CARRIED, TURN_ENDED]
 	assert_array(kinds.slice(at, at + order.size())).is_equal(order)
 	_assert_event(events[at], RETURNED, {"seat": 0, "card": returned, "slot": 0}, PUBLIC)
-	_assert_event(events[at + 1], CLEARED, {"seat": 0, "card": lost, "slot": 0}, PUBLIC)
-	_assert_event(events[at + 2], CLEARED, {"seat": 0, "card": hidden, "slot": 0}, PUBLIC)
-	_assert_event(events[at + 3], CLEARED, {"seat": 1, "card": gone, "slot": 0}, PUBLIC)
+	_assert_event(events[at + 1], CLEARED, _cleared(0, lost, 0), PUBLIC)
+	_assert_event(events[at + 2], CLEARED, _cleared(0, hidden, 0), PUBLIC)
+	_assert_event(events[at + 3], CLEARED, _cleared(1, gone, 0), PUBLIC)
 	_assert_event(events[at + 4], FIRED, _fired(0, carrier, "carry_energy", "ongoing"), PUBLIC)
 	assert_int(_payload_int(events[at + 5], "seat")).is_equal(0)
 	assert_array(_of_kind(events, CARRIED).slice(1)).is_empty()
-	# Where everything went: the return to the hand, the wrecks to the burn piles.
+	# Where everything went: the return to the hand, the wrecks to their seats' destroyed
+	# piles in row order (DC-07 R16), not the burn piles.
 	var own: MatchState.SeatPiles = state.seats[0]
 	var other: MatchState.SeatPiles = state.seats[1]
 	assert_bool(own.hand.has(returned)).is_true()
 	assert_bool(own.hand.has(lost)).is_false()
-	assert_bool(own.burned.has(lost)).is_true()
-	assert_bool(own.burned.has(hidden)).is_true()
-	assert_bool(other.burned.has(gone)).is_true()
+	assert_array(own.destroyed).is_equal(_typed([lost, hidden]))
+	assert_array(other.destroyed).is_equal(_typed([gone]))
+	assert_bool(own.burned.has(lost)).is_false()
+	assert_bool(other.burned.has(gone)).is_false()
 	assert_array(own.board).is_equal(_typed([carrier]))
 	assert_array(other.board).is_empty()
 	for card: int in [returned, lost, hidden, gone]:
@@ -367,15 +387,18 @@ func test_clearing_a_face_down_destroyed_card_is_private() -> void:
 	state.card_state_for(hidden).destroyed = true
 	var cleared: Array[MatchEvent] = EffectResolver.clear_destroyed(state)
 	assert_int(cleared.size()).is_equal(2)
-	_assert_event(cleared[0], CLEARED, {"seat": 1, "card": shown, "slot": 0}, PUBLIC)
-	_assert_event(cleared[1], CLEARED, {"seat": 1, "card": hidden, "slot": 0}, 1)
+	_assert_event(cleared[0], CLEARED, _cleared(1, shown, 0), PUBLIC)
+	_assert_event(cleared[1], CLEARED, _cleared(1, hidden, 0), 1)
 	var seen: MatchEvent = cleared[1].redacted_for(0)
 	assert_int(_payload_int(seen, "card")).is_equal(MatchEvent.HIDDEN_CARD)
 	assert_int(_payload_int(seen, "seat")).is_equal(1)
 	assert_int(_payload_int(seen, "slot")).is_equal(0)
 	assert_dict(cleared[1].redacted_for(1).to_dict()).is_equal(cleared[1].to_dict())
 	assert_array(state.seats[1].board).is_empty()
-	assert_array(state.seats[1].burned).is_equal(_typed([shown, hidden]))
+	# Both in the pile, in row order; only the revealed one's identity is public (R18).
+	assert_array(state.seats[1].destroyed).is_equal(_typed([shown, hidden]))
+	assert_array(state.seats[1].destroyed_known_ids()).is_equal(_typed([shown]))
+	assert_array(state.seats[1].burned).is_empty()
 
 
 # --- Hidden information (R20, R21) ----------------------------------------------------
@@ -393,7 +416,7 @@ func test_a_destroyed_face_down_card_stays_hidden_from_the_opponent() -> void:
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
 	# One pulse: c19 flips and destroys; seat 1's cards are still face down.
-	var paused: bool = ScoreWalk.step(state, _db(), MatchRng.new(SEED), recorder.record, null)
+	var paused: bool = ScoreWalk.step(state, _defs(), MatchRng.new(SEED), recorder.record, null)
 	assert_bool(paused).is_false()
 	var slot: int = MatchRng.new(SEED).pick_index(row.size())
 	var target: int = row[slot]
@@ -407,7 +430,7 @@ func test_a_destroyed_face_down_card_stays_hidden_from_the_opponent() -> void:
 	assert_int(_payload_int(destroyed.redacted_for(1), "card")).is_equal(target)
 	# The row entries: the opponent sees the slot destroyed and no id; the owner sees both.
 	var budgets: Array[int] = [1, 1]
-	var theirs: SeatView = SeatView.build(state, 0, -1, budgets, _db())
+	var theirs: SeatView = SeatView.build(state, 0, -1, budgets, _defs())
 	var entry: Dictionary = theirs.opponent_row[slot]
 	var flag: bool = entry["destroyed"]
 	var shown: int = entry["card"]
@@ -420,7 +443,7 @@ func test_a_destroyed_face_down_card_stays_hidden_from_the_opponent() -> void:
 	var other_entry: Dictionary = theirs.opponent_row[1 - slot]
 	var other_flag: bool = other_entry["destroyed"]
 	assert_bool(other_flag).is_false()
-	var own: SeatView = SeatView.build(state, 1, -1, budgets, _db())
+	var own: SeatView = SeatView.build(state, 1, -1, budgets, _defs())
 	var own_entry: Dictionary = own.own_row[slot]
 	var own_flag: bool = own_entry["destroyed"]
 	var own_card: int = own_entry["card"]

@@ -1,3 +1,4 @@
+# gdlint: disable=max-file-lines
 class_name TestSeatView
 extends GdUnitTestSuite
 ## Hidden information (C4): R28 (a redacted view per seat holding the listed fields), R29
@@ -23,17 +24,28 @@ const LEAK_SEEDS: Array[int] = [9_000_000_001, 123_456_789_012, 4_611_686_018_42
 const SCRIPT_COMMITS: int = 2 * 7 + 2
 ## Keys whose int values are card instance ids, in views and event payloads.
 const CARD_KEYS: Array[String] = [
-	"card", "cards", "target", "own_hand", "own_pending", "own_board", "opponent_board"
+	"card",
+	"cards",
+	"target",
+	"own_hand",
+	"own_pending",
+	"own_board",
+	"opponent_board",
+	"own_destroyed",
+	"opponent_destroyed",
 ]
 const VIEW_KEYS: Array[String] = [
 	"seat",
 	"opponent",
+	"deck_ids",
 	"own_hand",
 	"own_pending",
 	"own_board",
 	"opponent_board",
 	"own_row",
 	"opponent_row",
+	"own_destroyed",
+	"opponent_destroyed",
 	"opponent_hand_count",
 	"opponent_pending_count",
 	"opponent_pending_slots",
@@ -69,6 +81,7 @@ const SPLIT_KINDS: Array[int] = [
 	MatchEvent.Kind.CARD_MOVED,
 	MatchEvent.Kind.CHOICE_MADE,
 	MatchEvent.Kind.CARD_BURNED,
+	MatchEvent.Kind.CARD_RECOVERED,
 ]
 ## Kinds that may name a card in a hand, so the R34 case checks them.
 const PROMPT_KINDS: Array[int] = [
@@ -80,14 +93,22 @@ const PROMPT_KINDS: Array[int] = [
 const C09_DRAW_DISCARD: int = 8
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for LegalPlays.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
 
 
 func _typed(values: Array) -> Array[int]:
@@ -97,7 +118,7 @@ func _typed(values: Array) -> Array[int]:
 
 
 func _started(match_seed: int) -> MatchEngine:
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
 	return engine
 
@@ -136,11 +157,6 @@ func _cost(card: int) -> int:
 	return _db().card_at(card % MatchRules.DECK_SIZE).cost
 
 
-## The seat a card instance belongs to (instance id = seat * DECK_SIZE + index).
-func _owner(card: int) -> int:
-	return 1 if card >= MatchRules.DECK_SIZE else 0
-
-
 func _pass_until_turn(engine: MatchEngine, turn: int) -> void:
 	var none: Array[int] = []
 	while engine.energy() < turn:
@@ -150,7 +166,7 @@ func _pass_until_turn(engine: MatchEngine, turn: int) -> void:
 
 ## The first legal set of exactly `size` cards, or an empty list when none exists.
 func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
-	for s: Array in LegalPlays.enumerate(hand, energy, _db()):
+	for s: Array in LegalPlays.enumerate(hand, energy, _defs()):
 		if s.size() == size:
 			return _typed(s)
 	var none: Array[int] = []
@@ -212,7 +228,7 @@ func _capture(engine: MatchEngine, before: Dictionary, result: ApplyResult, labe
 ## start() and SCRIPT_COMMITS scripted commits from `match_seed`, every step captured.
 func _scripted_steps(match_seed: int, player: int) -> Array[Step]:
 	var steps: Array[Step] = []
-	var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	var before: Dictionary = engine.full_state()
 	var label: String = "seed %d player %d" % [match_seed, player]
 	steps.append(_capture(engine, before, engine.start(), label + " start"))
@@ -224,19 +240,34 @@ func _scripted_steps(match_seed: int, player: int) -> Array[Step]:
 
 
 ## Every id of `seat`'s cards that its opponent may not know in `state`: its hand, deck
-## and burn pile, its share of the face-down commit, and its row's cards not yet revealed
-## (only while a prompt pauses a walk, DC-05 T05).
+## and burn pile, its share of the face-down commit, its row's cards not yet revealed
+## (only while a prompt pauses a walk, DC-05 T05) and its destroyed pile's entries whose
+## identity is not public (DC-07 R18). The face-down commit is the first committer's,
+## whatever the cards' origin (a recovered card, DC-07 C12).
 func _hidden_ids(state: Dictionary, seat: int) -> Array[int]:
 	var out: Array[int] = []
 	for key: String in ["hand", "deck", "burned"]:
 		out.append_array(_state_list(state, key, seat))
-	for card: int in _state_ints(state, "pending"):
-		if _owner(card) == seat:
+	if _state_int(state, "first_seat") == seat:
+		out.append_array(_state_ints(state, "pending"))
+	var known: Array[int] = _state_list(state, "destroyed_known", seat)
+	for card: int in _state_list(state, "destroyed", seat):
+		if not known.has(card):
 			out.append(card)
 	var revealed: Array[int] = _state_list(state, "revealed", seat)
 	for card: int in _state_list(state, "board", seat):
 		if not revealed.has(card):
 			out.append(card)
+	return out
+
+
+## `pile_seat`'s destroyed pile as the other seat sees it (DC-07 R18): an entry whose
+## identity is not public is HIDDEN_CARD.
+func _shown_pile(state: Dictionary, pile_seat: int) -> Array[int]:
+	var known: Array[int] = _state_list(state, "destroyed_known", pile_seat)
+	var out: Array[int] = []
+	for card: int in _state_list(state, "destroyed", pile_seat):
+		out.append(card if known.has(card) else MatchEvent.HIDDEN_CARD)
 	return out
 
 
@@ -331,14 +362,25 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.COMMITTED:
 			keys = ["seat", "count", "cards", "slots"]
 		MatchEvent.Kind.CARD_REVEALED:
-			# "flat" was "power" before DC-05; "slot" and "bonus" are new in DC-05. "order"
-			# stays for the board until it reads the walk's events (DC-05 T08, T11).
-			# "destroyed" is new in DC-06 (R14).
-			keys = ["seat", "card", "def_id", "flat", "bonus", "order", "slot", "destroyed"]
+			# "flat" was "power" before DC-05; "slot" is new in DC-05. "order" stays for the
+			# board until it reads the walk's events (DC-05 T08, T11). "destroyed" is new in
+			# DC-06 (R14). DC-07 T03 (P4, P5): "times" and "plus" replace "bonus".
+			keys = ["seat", "card", "def_id", "flat", "times", "plus", "order", "slot", "destroyed"]
 		MatchEvent.Kind.WALK_STARTED:
 			keys = ["round", "turn", "first_seat"]
 		MatchEvent.Kind.CARD_SCORED:
-			keys = ["seat", "card", "slot", "flat", "bonus", "mult", "added", "score", "again"]
+			keys = [
+				"seat",
+				"card",
+				"slot",
+				"flat",
+				"times",
+				"plus",
+				"mult",
+				"added",
+				"score",
+				"again",
+			]
 		MatchEvent.Kind.TURN_ENDED:
 			keys = ["round", "turn", "scores", "winner"]
 		MatchEvent.Kind.ROUND_ENDED:
@@ -352,15 +394,21 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.EFFECT_FIZZLED:
 			keys = ["seat", "card", "verb"]
 		MatchEvent.Kind.STATS_CHANGED:
-			keys = ["seat", "card", "flat", "bonus", "cause"]
-		MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.DESTROYED_CLEARED:
+			keys = ["seat", "card", "flat", "times", "plus", "cause"]
+		MatchEvent.Kind.CARD_DESTROYED:
 			keys = ["seat", "card", "slot"]
+		MatchEvent.Kind.DESTROYED_CLEARED:
+			# DC-07 P6: the card went to its seat's destroyed pile.
+			keys = ["seat", "card", "slot", "pile"]
+		MatchEvent.Kind.CARD_RECOVERED:
+			keys = ["seat", "card", "from_seat", "position"]
 		MatchEvent.Kind.BONUS_ZERO_SET, MatchEvent.Kind.FREE_FIRST_SET:
 			keys = ["seat"]
 		MatchEvent.Kind.ENERGY_CARRIED:
 			keys = ["seat", "amount"]
 		MatchEvent.Kind.CHOICE_REQUESTED:
-			keys = ["seat", "card", "verb", "text", "zone", "options"]
+			# DC-07 P7: "multi" says whether the prompt takes a set.
+			keys = ["seat", "card", "verb", "text", "zone", "options", "multi"]
 		MatchEvent.Kind.CHOICE_MADE:
 			keys = ["seat", "card", "zone", "index", "target", "auto"]
 		MatchEvent.Kind.CARD_MOVED:
@@ -369,29 +417,41 @@ func _payload_keys(kind: int) -> Array:
 			keys = ["seat", "card", "slot"]
 		MatchEvent.Kind.CARD_DISCARDED:
 			keys = ["seat", "card"]
+		MatchEvent.Kind.MATCH_STARTED:
+			# DC-07: the deck ids only; the seed would predict every shuffle.
+			keys = ["decks"]
 	return keys
 
 
-## `card`'s shown stats from the full state (plan P4): its definition's flat and bonus, then
-## its entry in `card_states` (the base a switch stored, flat delta, bonus 0), which
-## effects write since DC-05 T04 (the stored base since T13).
-func _shown_stats(state: Dictionary, card: int) -> Vector2i:
+## `card`'s shown stats from the full state (DC-07 P5) as [flat, times, plus]: its
+## definition's flat and bonus (or the base a copy stored, both parts), then its entry in
+## `card_states` (flat delta, temp plus, no bonus), which effects write since DC-05 T04.
+func _shown_stats(state: Dictionary, card: int) -> Array[int]:
 	var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
 	var flat: int = def.flat
-	var bonus: int = def.bonus
+	var times: int = def.bonus if def.bonus_kind == CardDef.BonusKind.TIMES else MatchRules.MULT_ONE
+	var plus: int = def.bonus if def.bonus_kind == CardDef.BonusKind.PLUS else 0
 	var held_all: Dictionary = state["card_states"]
+	var held: Dictionary = {}
 	if held_all.has(card):
-		var held: Dictionary = held_all[card]
+		held = held_all[card]
 		var has_base: bool = held["has_base"]
 		if has_base:
+			# A copy stores both bonus parts (DC-07 R34, C22).
 			flat = held["base_flat"]
-			bonus = held["base_bonus"]
+			times = held["base_times"]
+			plus = held["base_plus"]
+	if not held.is_empty():
 		var delta: int = held["flat_delta"]
+		var temp: int = held["temp_plus"]
 		flat += delta
-		var zeroed: bool = held["bonus_zero"]
-		if zeroed:
-			bonus = 0
-	return Vector2i(flat, bonus)
+		plus += temp
+		var cleared: bool = held["no_bonus"]
+		if cleared:
+			times = MatchRules.MULT_ONE
+			plus = 0
+	var out: Array[int] = [flat, times, plus]
+	return out
 
 
 ## Whether `card` carries the destroyed mark in the full state's `card_states` (DC-06 R22).
@@ -406,19 +466,20 @@ func _is_destroyed(state: Dictionary, card: int) -> bool:
 
 ## A view row (own_row or opponent_row) against `row_seat`'s board in `state`: one entry
 ## per card in slot order with its revealed flag and its shown stats. A shown card shows
-## its effective flat and bonus (_shown_stats); an opponent card not yet revealed shows 0
-## and 0.
+## its effective flat, ×-part and +-part (_shown_stats; DC-07 P5); an opponent card not yet
+## revealed shows flat 0 and no bonus (times 100, plus 0).
 func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: bool) -> void:
 	var board: Array[int] = _state_list(state, "board", row_seat)
 	var revealed: Array[int] = _state_list(state, "revealed", row_seat)
 	assert_int(row.size()).is_equal(board.size())
 	for slot: int in range(mini(row.size(), board.size())):
 		var entry: Dictionary = row[slot]
-		var keys: Array = ["card", "flat", "bonus", "revealed", "destroyed"]
+		var keys: Array = ["card", "flat", "times", "plus", "revealed", "destroyed"]
 		assert_array(_sorted_keys(entry)).is_equal(_sorted(keys))
 		var card: int = entry["card"]
 		var flat: int = entry["flat"]
-		var bonus: int = entry["bonus"]
+		var times: int = entry["times"]
+		var plus: int = entry["plus"]
 		var shown: bool = entry["revealed"]
 		assert_bool(shown).is_equal(revealed.has(board[slot]))
 		# The destroyed flag is public for every card (DC-06 R20).
@@ -430,12 +491,14 @@ func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: 
 			# Face down on the opponent's row (a walk paused on a prompt): no id (R29).
 			assert_int(card).is_equal(MatchEvent.HIDDEN_CARD)
 		if own or shown:
-			var stats: Vector2i = _shown_stats(state, card)
-			assert_int(flat).is_equal(stats.x)
-			assert_int(bonus).is_equal(stats.y)
+			var stats: Array[int] = _shown_stats(state, card)
+			assert_int(flat).is_equal(stats[0])
+			assert_int(times).is_equal(stats[1])
+			assert_int(plus).is_equal(stats[2])
 		else:
 			assert_int(flat).is_equal(0)
-			assert_int(bonus).is_equal(0)
+			assert_int(times).is_equal(MatchRules.MULT_ONE)
+			assert_int(plus).is_equal(0)
 
 
 ## The view agrees with the full state on every R28 field.
@@ -449,6 +512,8 @@ func _assert_view_matches_state(view: SeatView, step: Step, seat: int) -> void:
 	assert_array(view.opponent_board).is_equal(_shown_board(state, opp, seat))
 	assert_array(view.board_of(seat)).is_equal(view.own_board)
 	assert_array(view.board_of(opp)).is_equal(view.opponent_board)
+	assert_array(view.own_destroyed).is_equal(_state_list(state, "destroyed", seat))
+	assert_array(view.opponent_destroyed).is_equal(_shown_pile(state, opp))
 	assert_int(view.opponent_hand_count).is_equal(_state_list(state, "hand", opp).size())
 	var pending: Array[int] = _state_ints(state, "pending")
 	var pending_slots: Array[int] = _state_ints(state, "pending_slots")
@@ -760,7 +825,7 @@ func _assert_redacted(copy: MatchEvent, original: MatchEvent) -> void:
 
 
 func test_a_seat_outside_the_match_sees_no_private_card() -> void:
-	var result: ApplyResult = MatchEngine.create(SEED, _db()).start()
+	var result: ApplyResult = FixtureDecks.engine(SEED, _db()).start()
 	for event: MatchEvent in result.events:
 		var copy: MatchEvent = event.redacted_for(MatchEvent.PUBLIC)
 		if event.is_private():
@@ -929,6 +994,68 @@ func test_choice_requested_names_positions_not_hand_ids() -> void:
 	fail("no seed gives c09 by turn 3")
 
 
+# --- DC-07 T02: deck ids ----------------------------------------------------------------
+
+
+## Both seats see both deck ids (public, DC-07 R5), as the engine resolved them, from
+## before start() to the end; the full state holds the same pair.
+func test_views_carry_both_deck_ids() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	for seat: int in range(2):
+		assert_array(engine.view_for(seat).deck_ids).is_equal(FixtureDecks.ids())
+	engine.start()
+	for seat: int in range(2):
+		var view: SeatView = engine.view_for(seat)
+		assert_array(view.deck_ids).is_equal(engine.deck_ids())
+		var shown: Array = view.to_dict()["deck_ids"]
+		assert_array(shown).is_equal(["fixture", "fixture"])
+	var state: Dictionary = engine.full_state()
+	var held: Array = state["deck_ids"]
+	assert_array(held).is_equal(["fixture", "fixture"])
+
+
+# --- DC-07 T03: row stats as {flat, times, plus} ----------------------------------------
+
+
+## Each row entry carries the effective flat, ×-part (hundredths) and +-part (DC-07 P5),
+## and `mults` is in hundredths, ×1.00 before any walk. An opponent card still face down
+## shows flat 0 and no bonus.
+func test_row_entries_carry_times_and_plus() -> void:
+	# Seat 0: c11 (flat 3, ×1.25) and c08 (flat 4) with a stored base of (2, +1). Seat 1:
+	# c04 (flat 3) revealed, then c11 face down.
+	var c04_1: int = MatchRules.DECK_SIZE + 3
+	var c11_1: int = MatchRules.DECK_SIZE + 10
+	var state: MatchState = MatchState.new(SEED)
+	state.seats[0].board.assign([10, 7])
+	state.seats[1].board.assign([c04_1, c11_1])
+	state.seats[1].revealed[c04_1] = true
+	var held: CardState = state.card_state_for(7)
+	held.has_base = true
+	held.base_flat = 2
+	held.base_times = MatchRules.MULT_ONE
+	held.base_plus = 1
+	var budgets: Array[int] = [1, 1]
+	var view: SeatView = SeatView.build(state, 0, 0, budgets, _defs())
+	assert_array(view.mults).is_equal([100, 100])
+	var own: Array[Dictionary] = [
+		{"card": 10, "flat": 3, "times": 125, "plus": 0, "revealed": false, "destroyed": false},
+		{"card": 7, "flat": 2, "times": 100, "plus": 1, "revealed": false, "destroyed": false},
+	]
+	var hidden: int = MatchEvent.HIDDEN_CARD
+	var theirs: Array[Dictionary] = [
+		{"card": c04_1, "flat": 3, "times": 100, "plus": 0, "revealed": true, "destroyed": false},
+		{"card": hidden, "flat": 0, "times": 100, "plus": 0, "revealed": false, "destroyed": false},
+	]
+	assert_int(view.own_row.size()).is_equal(own.size())
+	assert_int(view.opponent_row.size()).is_equal(theirs.size())
+	for i: int in range(own.size()):
+		assert_dict(view.own_row[i]).is_equal(own[i])
+		assert_dict(view.opponent_row[i]).is_equal(theirs[i])
+	var plain: Array = view.to_dict()["own_row"]
+	var first: Dictionary = plain[0]
+	assert_dict(first).is_equal(own[0])
+
+
 # --- R30: the full-state read ---------------------------------------------------------
 
 
@@ -945,7 +1072,7 @@ func test_full_state_includes_everything_the_views_omit() -> void:
 			seed_checked = true
 			var all_ids: Array[int] = []
 			for seat: int in range(2):
-				for key: String in ["deck", "hand", "board", "burned"]:
+				for key: String in ["deck", "hand", "board", "burned", "destroyed"]:
 					all_ids.append_array(_state_list(state, key, seat))
 			all_ids.append_array(_state_ints(state, "pending"))
 			all_ids.sort()

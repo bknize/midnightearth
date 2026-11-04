@@ -1,6 +1,7 @@
 class_name MatchEngine
 extends RefCounted
-## The match entry point (R3, C1): create from a seed and the card data, start() once,
+## The match entry point (R3, C1): create from a seed, the card pool, the deck list and a
+## deck id per seat (DC-07 P2, P3; every definition then comes from MatchCards), start() once,
 ## then apply() actions. Each accepted call runs the match to the next point that needs a
 ## seat's decision and returns every event on the way, in order (R4).
 ##
@@ -8,8 +9,9 @@ extends RefCounted
 ## commit (second) -> _resolve() (both commits merge into their rows, then the walk starts)
 ## -> _run_walk() (ScoreWalk pulses every card on both rows; an effect with two or more
 ## targets pauses it on a prompt, phase AWAIT_CHOICE, until apply(CHOOSE) from the prompted
-## seat resumes it, DC-05 T05) -> _end_turn() (return marks, destroyed cards, energy) -> next
-## _begin_turn(), or after turn 7 _end_round() ->
+## seat resumes it, DC-05 T05; a multi-select prompt, DC-07 P7, opens even for one target
+## and is answered by apply(CHOOSE_SET) instead) -> _end_turn() (return marks, destroyed
+## cards, energy) -> next _begin_turn(), or after turn 7 _end_round() ->
 ## _after_round(), which either ends the match (R20-R22) or begins the next round.
 ## Concede goes straight to _end_match().
 ##
@@ -42,7 +44,11 @@ const REASON_ROUNDS: String = "rounds"
 const REASON_SUDDEN_DEATH: String = "sudden_death"
 const REASON_CONCEDE: String = "concede"
 
-var _cards: CardDb = null
+## The match's 40 definitions by instance id (DC-07 P3); built by create() only when the
+## pool, the list and both deck ids are good, else an empty MatchCards.
+var _cards: MatchCards = MatchCards.new()
+## Why start() must fail (EngineError.Code), decided by create(); NONE when it may start.
+var _setup_error: int = EngineError.Code.NONE
 var _rng: MatchRng = null
 var _state: MatchState = null
 ## Every accepted action in order, copied; T07's ActionLog is built from this.
@@ -53,24 +59,42 @@ var _events: Array[MatchEvent] = []
 var _policy: PreviewPolicy = PreviewPolicy.new()
 
 
-static func create(match_seed: int, cards: CardDb) -> MatchEngine:
+## A match on `match_seed` where seat s plays the deck `deck_ids[s]` of `decks`, its cards
+## from the pool `cards` (DC-07 R5, P2, P3). An empty id resolves to
+## DeckList.seeded_pick(match_seed, seat) (R6, P14), so deck_ids() and the log hold the
+## resolved ids. Never fails here: a bad pool or list makes start() fail with
+## CARD_DATA_INVALID, and an id the list does not hold (or a `deck_ids` other than one id
+## per seat) with DECK_UNKNOWN.
+static func create(
+	match_seed: int, cards: CardDb, decks: DeckList, ids: Array[String]
+) -> MatchEngine:
 	var engine: MatchEngine = MatchEngine.new()
-	engine._cards = cards
 	engine._rng = MatchRng.new(match_seed)
 	engine._state = MatchState.new(match_seed)
 	engine._state.rng_state = engine._rng.state
+	var resolved: Array[String] = _resolved_deck_ids(match_seed, decks, ids)
+	engine._state.deck_ids.assign(resolved)
+	engine._setup_error = _deck_problem(cards, decks, ids.size(), resolved)
+	if engine._setup_error == EngineError.Code.NONE:
+		engine._cards = MatchCards.build(cards, decks, resolved)
+		if not engine._cards.is_valid():
+			engine._setup_error = EngineError.Code.CARD_DATA_INVALID
 	return engine
 
 
 ## Deals round 1 and runs to the first decision point. Not logged: it is fully determined
-## by the seed. Fails with CARD_DATA_INVALID on failed card data (R8) and MALFORMED when
-## the match has already started; either way nothing changes.
+## by the seed and the deck ids. Its first event is MATCH_STARTED {decks} (DC-07). Fails
+## with CARD_DATA_INVALID on a failed pool or deck list (R8, R3), DECK_UNKNOWN on a deck id
+## the list does not hold (DC-07 P2), and MALFORMED when the match has already started;
+## either way nothing changes.
 func start() -> ApplyResult:
-	if _cards == null or not _cards.is_valid():
-		return ApplyResult.failure(EngineError.Code.CARD_DATA_INVALID)
+	if _setup_error != EngineError.Code.NONE:
+		return ApplyResult.failure(_setup_error)
 	if _state.phase != MatchState.Phase.NOT_STARTED:
 		return ApplyResult.failure(EngineError.Code.MALFORMED)
 	_events.clear()
+	# The seed stays out of every event: it would predict each shuffle (R28, R29).
+	_emit(MatchEvent.Kind.MATCH_STARTED, {"decks": _plain_strings(_state.deck_ids)})
 	_begin_round()
 	_begin_turn()
 	_state.rng_state = _rng.state
@@ -91,6 +115,8 @@ func apply(action: EngineAction) -> ApplyResult:
 		_concede(accepted.seat)
 	elif accepted.kind == EngineAction.Kind.CHOOSE:
 		_choose(accepted.index)
+	elif accepted.kind == EngineAction.Kind.CHOOSE_SET:
+		_choose_set(accepted.indices)
 	else:
 		_commit(accepted.seat, accepted.cards, accepted.slots)
 	_state.rng_state = _rng.state
@@ -109,9 +135,9 @@ func awaited_seat() -> int:
 	return -1
 
 
-## A copy of the open prompt (plan P9, P12: {seat, card, verb, zone, options}), or {} when
-## none is open. It names no hidden card: options are positions (Choice) and the source is
-## revealed.
+## A copy of the open prompt (plan P9, P12: {seat, card, verb, zone, options, multi}; DC-07
+## P7), or {} when none is open. It names no hidden card: options are positions (Choice)
+## and the source is revealed.
 func open_prompt() -> Dictionary:
 	return _state.prompt.duplicate(true)
 
@@ -160,23 +186,56 @@ func preview(seat: int, action: EngineAction) -> Array[int]:
 
 ## The scores pair the walk would end on if `seat` answered the open prompt with position
 ## `index` of its zone (plan P12, R37), or [] when no prompt is open for `seat` or `index`
-## is not one of its options. Pure, like preview(): the clone applies the answer
-## (EffectResolver.answer), marks the opponent's unrevealed row cards inert in their slots
-## (_hide_opponent) and finishes the paused walk under the PreviewPolicy from the live
-## cursor. The answer is applied before the marking, so `index` means what it means to the
-## live engine; the options never name an unrevealed card of the opponent (Choice), and only
-## the scores come back.
+## is not one of its options, or the prompt is a multi-select (see preview_set). Pure, like
+## preview(): the clone applies the answer (EffectResolver.answer), marks the opponent's
+## unrevealed row cards inert in their slots (_hide_opponent) and finishes the paused walk
+## under the PreviewPolicy from the live cursor. The answer is applied before the marking,
+## so `index` means what it means to the live engine. The options name an unrevealed card of
+## the opponent only by position (DC-07 T07: Hook's and Maelstrom's moves); such a move only
+## reorders slots, and the card is then marked inert like any other hidden card, so its
+## identity never reaches the scores. The answer runs under the policy (no stream, no
+## events built), and only the scores come back.
 func preview_choice(seat: int, index: int) -> Array[int]:
 	var none: Array[int] = []
 	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _prompt_seat() != seat:
+		return none
+	if Choice.is_multi_prompt(_state.prompt):
 		return none
 	var zone: int = _state.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
 	if not Choice.is_offered(_state.prompt, zone, index):
 		return none
 	var clone: MatchState = _state.duplicate()
-	var answered: Array[MatchEvent] = EffectResolver.answer(clone, _cards, index)
+	var answered: Array[MatchEvent] = EffectResolver.answer(clone, _cards, index, null, _policy)
 	answered.clear()  # A preview reports no events.
 	_hide_opponent(clone, seat)
+	clone.phase = MatchState.Phase.AWAIT_SECOND
+	return _finish_preview(clone)
+
+
+## The scores pair the walk would end on if `seat` answered the open multi-select prompt
+## with the set `indices` of its zone (DC-07 P7, P13, R37), or [] when no multi-select prompt
+## is open for `seat` or the engine would reject the set (Choice.is_valid_set). Mirrors
+## preview_choice(), with one difference in order: the opponent's unrevealed row cards are
+## marked inert (_hide_opponent) before the set applies, since the set's random opponent
+## destroys then take the policy's pick (PreviewPolicy.destroy_slot, the lowest effective
+## flat) and must read revealed cards' stats only. The set names positions on the seat's own
+## row, which the marking does not touch, so `indices` means what it means to the live
+## engine. Draws nothing from the stream; only the scores come back.
+func preview_set(seat: int, indices: Array[int]) -> Array[int]:
+	var none: Array[int] = []
+	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _prompt_seat() != seat:
+		return none
+	if not Choice.is_multi_prompt(_state.prompt):
+		return none
+	var zone: int = _state.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	if not Choice.is_valid_set(_state.prompt, zone, indices):
+		return none
+	var clone: MatchState = _state.duplicate()
+	_hide_opponent(clone, seat)
+	var answered: Array[MatchEvent] = EffectResolver.answer_set(
+		clone, _cards, null, _policy, indices
+	)
+	answered.clear()  # A preview reports no events.
 	clone.phase = MatchState.Phase.AWAIT_SECOND
 	return _finish_preview(clone)
 
@@ -219,9 +278,25 @@ func full_state() -> Dictionary:
 	return _state.to_dict()
 
 
-## The replayable log (R31): this match's seed and copies of its accepted actions only.
+## The replayable log (R31, DC-07 R7): this match's seed, its resolved deck ids and copies
+## of its accepted actions only.
 func action_log() -> ActionLog:
-	return ActionLog.create(_state.match_seed, _accepted)
+	return ActionLog.create(_state.match_seed, _state.deck_ids, _accepted)
+
+
+## The deck id each seat plays, indexed by seat, as resolved by create() (an empty id
+## already replaced by its seeded pick; DC-07 P2, P14). A copy.
+func deck_ids() -> Array[String]:
+	var out: Array[String] = []
+	out.assign(_state.deck_ids)
+	return out
+
+
+## The match's definitions by instance id (DC-07 P3), for the bot and the board; an empty
+## MatchCards when start() would fail. Names no hidden card: both deck lists are public and
+## an instance id indexes its origin's list, not the shuffled deck.
+func match_cards() -> MatchCards:
+	return _cards
 
 
 func accepted_action_count() -> int:
@@ -249,24 +324,50 @@ func _check(action: EngineAction) -> int:
 		return EngineError.Code.MATCH_OVER
 	if not _is_well_formed(action):
 		return EngineError.Code.MALFORMED
-	if action.kind == EngineAction.Kind.CONCEDE:
-		# Either seat may concede at any time (R23).
-		return EngineError.Code.NONE
-	if action.kind == EngineAction.Kind.CHOOSE:
-		return _check_choice(action)
+	return _check_kind(action)
+
+
+## The per-kind check of a well-formed action in a running match.
+func _check_kind(action: EngineAction) -> int:
+	match action.kind:
+		EngineAction.Kind.CONCEDE:
+			# Either seat may concede at any time (R23).
+			return EngineError.Code.NONE
+		EngineAction.Kind.CHOOSE:
+			return _check_choice(action)
+		EngineAction.Kind.CHOOSE_SET:
+			return _check_set(action)
 	return _check_commit(action)
 
 
 ## A well-formed choice (R31): a prompt is open (NO_PROMPT), the action is the prompted
-## seat's (WRONG_SEAT) and its zone and index are one of the prompt's options
-## (NOT_ELIGIBLE).
+## seat's (WRONG_SEAT), and its zone and index are one of the options of a single-target
+## prompt (NOT_ELIGIBLE, which a CHOOSE on a multi-select prompt also returns; DC-07 P7).
 func _check_choice(action: EngineAction) -> int:
 	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _state.prompt.is_empty():
 		return EngineError.Code.NO_PROMPT
 	if action.seat != _prompt_seat():
 		return EngineError.Code.WRONG_SEAT
+	if Choice.is_multi_prompt(_state.prompt):
+		return EngineError.Code.NOT_ELIGIBLE
 	if not Choice.is_offered(_state.prompt, action.zone, action.index):
 		return EngineError.Code.NOT_ELIGIBLE
+	return EngineError.Code.NONE
+
+
+## A well-formed set choice (DC-07 P7, R23): a prompt is open (NO_PROMPT), the action is
+## the prompted seat's (WRONG_SEAT), the prompt is a multi-select (a single-target prompt
+## rejects a set: NOT_ELIGIBLE), and the set is in the prompt's zone, every index one of its
+## options and none repeated (BAD_SET). The empty set passes: it declines (R24).
+func _check_set(action: EngineAction) -> int:
+	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _state.prompt.is_empty():
+		return EngineError.Code.NO_PROMPT
+	if action.seat != _prompt_seat():
+		return EngineError.Code.WRONG_SEAT
+	if not Choice.is_multi_prompt(_state.prompt):
+		return EngineError.Code.NOT_ELIGIBLE
+	if not Choice.is_valid_set(_state.prompt, action.zone, action.indices):
+		return EngineError.Code.BAD_SET
 	return EngineError.Code.NONE
 
 
@@ -298,10 +399,14 @@ func _resolved_slots(action: EngineAction) -> Array[int]:
 	return LegalPlays.append_slots(piles.board.size(), action.cards.size())
 
 
-## Not null, a known kind, a seat of 0 or 1, and no cards or slots on a concede or a
-## choice.
+## Not null, a known kind, a seat of 0 or 1, no cards or slots on a concede or a (set)
+## choice, and no set on anything but a set choice.
 func _is_well_formed(action: EngineAction) -> bool:
 	if action == null or action.seat < 0 or action.seat >= SEATS:
+		return false
+	if action.kind == EngineAction.Kind.CHOOSE_SET:
+		return action.cards.is_empty() and action.slots.is_empty()
+	if not action.indices.is_empty():
 		return false
 	if action.kind == EngineAction.Kind.CONCEDE or action.kind == EngineAction.Kind.CHOOSE:
 		return action.cards.is_empty() and action.slots.is_empty()
@@ -312,7 +417,9 @@ func _is_well_formed(action: EngineAction) -> bool:
 
 
 ## Round start (R11): refill and shuffle both decks (seat 0 first), pick turn 1's first
-## committer, clear both boards, deal the opening hands.
+## committer, clear both boards, deal the opening hands. Each deck is rebuilt from its
+## origin's 20 instance ids, so a card another seat recovered last round is back in its
+## origin's deck (DC-07 P3, R9, C12).
 func _begin_round() -> void:
 	_state.round_number += 1
 	_state.sudden_death = _state.round_number > MatchRules.ROUNDS
@@ -339,6 +446,8 @@ func _begin_round() -> void:
 		piles.board.clear()
 		piles.revealed.clear()
 		piles.burned.clear()
+		piles.destroyed.clear()
+		piles.destroyed_known.clear()
 		_rng.shuffle_in_place(piles.deck)
 	var by_coin: bool = _state.last_round_winner < 0
 	_state.first_seat = _round_first_seat()
@@ -366,11 +475,15 @@ func _round_first_seat() -> int:
 	return _rng.coin_flip()
 
 
-## Round end (R19, R24): the higher board wins the round; equal boards award no win. The
+## Round end (R19, R24): each destroyed pile empties into its burn pile first (DC-07 R17),
+## then the higher board wins the round; equal boards award no win. The
 ## event carries the turn-7 scores. The table is not cleared here (C15): when the match
 ## goes on, the next _begin_round() resets scores, pending, hands, boards, burns and decks;
 ## when this round ends the match, its boards, hands and scores stay as the final table.
 func _end_round() -> void:
+	# Each destroyed pile empties into its burn pile (DC-07 R17, P6), after the last turn's
+	# clear has filled it.
+	_state.burn_destroyed_piles()
 	var winner: int = _leader()
 	if winner >= 0:
 		_state.wins[winner] += 1
@@ -545,7 +658,16 @@ func _run_walk() -> void:
 ## walk runs in (AWAIT_SECOND) until the walk pauses again or the turn ends.
 func _choose(index: int) -> void:
 	_state.phase = MatchState.Phase.AWAIT_SECOND
-	_events.append_array(EffectResolver.answer(_state, _cards, index))
+	_events.append_array(EffectResolver.answer(_state, _cards, index, _rng, null))
+	_run_walk()
+
+
+## An accepted set choice (DC-07 P7, R24), as _choose(): the prompt closes, the set applies
+## (CHOICE_MADE with `indices`, then the verb's events, or EFFECT_FIZZLED for the empty set)
+## with the engine stream for its random destroys (R35), and the walk resumes.
+func _choose_set(indices: Array[int]) -> void:
+	_state.phase = MatchState.Phase.AWAIT_SECOND
+	_events.append_array(EffectResolver.answer_set(_state, _cards, _rng, null, indices))
 	_run_walk()
 
 
@@ -560,7 +682,8 @@ func _prompt_seat() -> int:
 ## Turn end (R17, R24, plan P14), only once the walk is complete: the return marks resolve
 ## first (EffectResolver.resolve_returns: each marked card goes back to its owner's hand,
 ## or burns at the cap; a destroyed card is skipped), then the destroyed cards leave their
-## rows for the burn pile (EffectResolver.clear_destroyed, DC-06 R18, P6), then per-seat
+## rows for their seat's destroyed pile (EffectResolver.clear_destroyed, DC-06 R18, P6;
+## DC-07 R16), then per-seat
 ## energy is settled (EffectResolver.settle_energy: a revealed carry card on the row
 ## carries `budget - spent`, else the carry is 0, so a returned or destroyed carry card
 ## carries nothing); then the scores are the walk totals and the higher one wins the turn,
@@ -697,6 +820,48 @@ func _wins_leader() -> int:
 
 func _pair(values: Array[int]) -> Array:
 	return [values[0], values[1]]
+
+
+static func _plain_strings(values: Array[String]) -> Array:
+	var out: Array = []
+	out.assign(values)
+	return out
+
+
+# --- Decks ----------------------------------------------------------------------------
+
+
+## `deck_ids` with each empty id replaced by the seat's seeded pick (DC-07 R6, P14), when
+## `decks` loaded; otherwise unchanged. Seats beyond SEATS are not looked at.
+static func _resolved_deck_ids(
+	match_seed: int, decks: DeckList, ids: Array[String]
+) -> Array[String]:
+	var out: Array[String] = []
+	for seat: int in range(mini(ids.size(), SEATS)):
+		var deck_id: String = ids[seat]
+		if deck_id == "" and decks != null and decks.is_valid():
+			deck_id = decks.seeded_pick(match_seed, seat)
+		out.append(deck_id)
+	return out
+
+
+## Why a match on these inputs cannot start (an EngineError.Code), or NONE: a failed or
+## missing pool, or a deck list that failed to load or to validate against it, is
+## CARD_DATA_INVALID (R3, R8); a `deck_ids` that does not name one deck per seat, or
+## names one the list does not hold, is DECK_UNKNOWN (DC-07 P2).
+static func _deck_problem(
+	cards: CardDb, decks: DeckList, requested: int, resolved: Array[String]
+) -> int:
+	if cards == null or not cards.is_valid() or decks == null:
+		return EngineError.Code.CARD_DATA_INVALID
+	if decks.validate(cards) != "":
+		return EngineError.Code.CARD_DATA_INVALID
+	if requested != SEATS:
+		return EngineError.Code.DECK_UNKNOWN
+	for deck_id: String in resolved:
+		if not decks.has_deck(deck_id):
+			return EngineError.Code.DECK_UNKNOWN
+	return EngineError.Code.NONE
 
 
 func _emit(kind: int, payload: Dictionary, owner: int = MatchEvent.PUBLIC) -> void:

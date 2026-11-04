@@ -7,13 +7,18 @@ extends GdUnitTestSuite
 ## best own-minus-opponent commit over legal sets x two orders x two row ends, ties by the
 ## seed), R37 (a prompt is answered with its best-previewed option) and R38 (never
 ## rejected; the action depends only on the seed and the view). Cycle 1's "highest total
-## flat" cases are rewritten to the preview rule.
+## flat" cases are rewritten to the preview rule. DC-07 T02: the bot reads MatchCards and
+## every match here plays the fixture deck on both seats. DC-07 T08 (P13, R36-R38): the
+## bonus-first order is +-part, then ×-part, then flat; a multi-select prompt is answered
+## from n + 1 previewed sets; a Ruin bot and a Drift bot (the shipped decks) play seed 1 out.
 ##
 ## Hand-built positions start a real engine and then set its state (`_position`): instance
-## id = seat * 20 + index, so id 2 is c03 (cost 1, flat 1, bonus 1), id 3 is c04 (1, 3, 0),
-## and so on (data/cards.json). A walk adds `bonus` to the seat's multiplier (from 1), then
-## `flat * multiplier` to its score. Every loop that drives the engine shares a cap of
-## MAX_ACTIONS per test, so a bug fails the test instead of hanging the suite.
+## id = seat * 20 + index, so id 2 is c03 (cost 1, flat 1, ×1.25), id 3 is c04 (1, 3, no
+## bonus), and so on (tests/fixtures/dc05_cards.json). A walk multiplies the seat's
+## multiplier (from ×1.00, in hundredths) by a card's ×-part, rounded to the nearest
+## hundredth, then adds floor(flat × multiplier) to its score (DC-07 P4). Every loop that
+## drives the engine shares a cap of MAX_ACTIONS per test, so a bug fails the test instead
+## of hanging the suite.
 
 const SEED: int = 1
 const MAX_ACTIONS: int = 2000
@@ -44,23 +49,32 @@ const FORBIDDEN_TOKENS: Array[String] = [
 const C02: int = 1
 const C03: int = 2
 const C04: int = 3
+const C07: int = 6
 const C08: int = 7
 const C12_SWAP: int = 11
-const C13_SWITCH: int = 12
+const C13: int = 12
 const C14: int = 13
 const C18: int = 17
 const C19_DESTROY: int = 18
 const C20: int = 19
 
 var _cached_db: CardDb = null
+var _cached_defs: MatchCards = null
 
 # --- Helpers --------------------------------------------------------------------------
 
 
 func _db() -> CardDb:
 	if _cached_db == null:
-		_cached_db = CardDb.load_default()
+		_cached_db = FixtureDecks.cards()
 	return _cached_db
+
+
+## The fixture-vs-fixture definitions over _db() (DC-07 T02), for the MatchCards APIs.
+func _defs() -> MatchCards:
+	if _cached_defs == null:
+		_cached_defs = FixtureDecks.defs(_db())
+	return _cached_defs
 
 
 func _typed(values: Array) -> Array[int]:
@@ -79,7 +93,7 @@ func _none() -> Array[int]:
 
 
 func _bot(bot_seed: int) -> GreedyBot:
-	return GreedyBot.new(bot_seed, _db())
+	return GreedyBot.new(bot_seed, _defs())
 
 
 ## A started engine set to round 1, turn `turn` (so each budget is `turn`), `first`
@@ -93,7 +107,7 @@ func _position(
 	row_0: Array[int],
 	row_1: Array[int]
 ) -> MatchEngine:
-	var engine: MatchEngine = MatchEngine.create(SEED, _db())
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	engine.start()
 	var state: MatchState = engine._state
 	state.round_number = 1
@@ -156,15 +170,15 @@ func _scores(engine: MatchEngine) -> Array[int]:
 ## A preview scores a commit as the live walk then does, refuses an illegal one, and
 ## changes nothing.
 func test_preview_scores_a_commit_as_the_live_walk_does() -> void:
-	var hand: Array[int] = [_id(0, C03), _id(0, C04)]
-	var engine: MatchEngine = _position(0, 2, hand, _none(), _none(), _none())
+	var hand: Array[int] = [_id(0, C03), _id(0, C08)]
+	var engine: MatchEngine = _position(0, 3, hand, _none(), _none(), _none())
 	var before: Dictionary = _snapshot(engine)
 	var bonus_first: EngineAction = EngineAction.commit(0, hand, _typed([0, 1]))
 	var flat_first: EngineAction = EngineAction.commit(
 		0, _typed([hand[1], hand[0]]), _typed([0, 1])
 	)
-	# c03 then c04: mult 2, 1*2 + 3*2 = 8. c04 then c03: 3*1 + 1*2 = 5.
-	assert_array(engine.preview(0, bonus_first)).is_equal(_typed([8, 0]))
+	# c03 then c08: mult ×1.25, 1 + floor(4 × 1.25) = 6. c08 then c03: 4 + 1 = 5.
+	assert_array(engine.preview(0, bonus_first)).is_equal(_typed([6, 0]))
 	assert_array(engine.preview(0, flat_first)).is_equal(_typed([5, 0]))
 	# Not this seat's turn, not its card, over budget, not a commit: no scores.
 	assert_array(engine.preview(1, EngineAction.commit(1, _none()))).is_empty()
@@ -174,7 +188,7 @@ func test_preview_scores_a_commit_as_the_live_walk_does() -> void:
 	assert_dict(_snapshot(engine)).is_equal(before)
 	assert_bool(engine.apply(bonus_first).ok).is_true()
 	assert_bool(engine.apply(EngineAction.commit(1, _none())).ok).is_true()
-	assert_array(_scores(engine)).is_equal(_typed([8, 0]))
+	assert_array(_scores(engine)).is_equal(_typed([6, 0]))
 
 
 ## While seat 0 commits second, seat 1's face-down commit counts as absent: the previews
@@ -209,7 +223,7 @@ func test_preview_treats_the_opponents_face_down_commit_as_absent() -> void:
 func test_preview_changes_nothing() -> void:
 	var actions: int = 0
 	for match_seed: int in PURITY_SEEDS:
-		var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+		var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 		assert_bool(engine.start().ok).is_true()
 		var bots: Array[GreedyBot] = [
 			_bot(GreedyBot.seed_for(match_seed, 0)), _bot(GreedyBot.seed_for(match_seed, 1))
@@ -262,15 +276,15 @@ func _destroy_then_swap(stop_before_walk: bool) -> MatchEngine:
 ## destroy and a forward swap. The score stage belongs to the slot (C23-C25): c12's slot 1
 ## scores the card the swap puts there. At the commit, preview() runs the destroy itself
 ## and takes c12's first option (c19, backward): c19 scores again on slot 1 and c12 never
-## scores, 7 + 7 + 1*2 + 3*2 = 22. On the paused walk, each option's preview_choice()
-## equals the live walk answered the same way: option 2 puts c03 on slot 1, where it
-## reveals and doubles the multiplier before c12 scores at slot 2 (7 + 1*2 + 4*2 + 3*2 =
-## 23); option 3 puts c04 on slot 1 and c12 on slot 3, after c03 (7 + 3 + 1*2 + 4*2 = 20).
-## c14, destroyed, scores nothing throughout.
+## scores, 7 + 7 + 1 + floor(3 × 1.25) = 18. On the paused walk, each option's
+## preview_choice() equals the live walk answered the same way: option 2 puts c03 on slot 1,
+## where it reveals and sets the multiplier to ×1.25 before c12 scores at slot 2 (7 + 1 +
+## 5 + 3 = 16); option 3 puts c04 on slot 1 and c12 on slot 3, after c03 (7 + 3 + 1 + 5 =
+## 16). c14, destroyed, scores nothing throughout.
 func test_preview_equals_live_with_a_forward_swap_and_a_destroy() -> void:
 	var fresh: MatchEngine = _destroy_then_swap(true)
-	assert_array(fresh.preview(0, EngineAction.commit(0, _none()))).is_equal(_typed([22, 0]))
-	var expected: Dictionary = {0: _typed([22, 0]), 2: _typed([23, 0]), 3: _typed([20, 0])}
+	assert_array(fresh.preview(0, EngineAction.commit(0, _none()))).is_equal(_typed([18, 0]))
+	var expected: Dictionary = {0: _typed([18, 0]), 2: _typed([16, 0]), 3: _typed([16, 0])}
 	for option: int in [0, 2, 3]:
 		var engine: MatchEngine = _destroy_then_swap(false)
 		assert_int(engine.awaited_seat()).is_equal(0)
@@ -301,12 +315,12 @@ func _hidden_slot_zero() -> MatchEngine:
 ## DC-06 R23 (spec scenario): mid-walk, the opponent's face-down c02 at slot 0 stays a slot
 ## that scores nothing, so the preview pulses seat 1's slots in the live order. c12's
 ## slot 0 scores the card the swap puts there (C23, C24). Option 2 (c12 onto c03's slot)
-## reveals c03 on slot 0 (1*2) and leaves c19 at slot 1: it pulses after c02's slot and
-## before c14's, destroys c14 (the only live card the preview knows) and the preview reads
-## 2 + 7*2 + 4*2 = 24 to 0. Dropping c02 instead would shift c14 to slot 0, score it before
-## the destroy and read 24 to 6. Option 1 (c12 onto c19's slot) reveals c19 on slot 0,
-## which destroys c14 before its slot: 7 + 4 + 1*2 = 13 to 0. The live walk then gives
-## seat 0 the same 24.
+## reveals c03 on slot 0 (1, mult ×1.25) and leaves c19 at slot 1: it pulses after c02's
+## slot and before c14's, destroys c14 (the only live card the preview knows) and the
+## preview reads 1 + floor(7 × 1.25) + floor(4 × 1.25) = 1 + 8 + 5 = 14 to 0. Dropping c02
+## instead would shift c14 to slot 0, score it before the destroy and read 14 to 6. Option
+## 1 (c12 onto c19's slot) reveals c19 on slot 0, which destroys c14 before its slot:
+## 7 + 4 + 1 = 12 to 0. The live walk then gives seat 0 the same 14.
 func test_preview_mid_walk_keeps_the_live_slot_order() -> void:
 	var engine: MatchEngine = _hidden_slot_zero()
 	var hidden: int = _id(1, C02)
@@ -325,17 +339,17 @@ func test_preview_mid_walk_keeps_the_live_slot_order() -> void:
 	assert_int(ScoreWalk.next_card(live)).is_equal(hidden)
 	assert_bool(clone.is_destroyed(hidden)).is_true()
 	assert_bool(live.is_destroyed(hidden)).is_false()
-	assert_array(engine.preview_choice(0, 1)).is_equal(_typed([13, 0]))
-	assert_array(engine.preview_choice(0, 2)).is_equal(_typed([24, 0]))
+	assert_array(engine.preview_choice(0, 1)).is_equal(_typed([12, 0]))
+	assert_array(engine.preview_choice(0, 2)).is_equal(_typed([14, 0]))
 	assert_bool(engine.apply(EngineAction.choose(0, Choice.Zone.OWN_BOARD, 2)).ok).is_true()
-	assert_int(_scores(engine)[0]).is_equal(24)
+	assert_int(_scores(engine)[0]).is_equal(14)
 
 
 ## A preview leaves its source alone (R35, DC-06 R23): the inert marking of the opponent's
 ## face-down cards lives only on the clone, whether mid-walk (preview_choice) or at a commit
 ## with a face-down opponent card already on the row (one a swap left behind a cursor,
-## DC-06 R8). At that commit, c02's slot scores nothing: c03 then c04 make 1*2 + 3*2 = 8,
-## and c14 makes 6.
+## DC-06 R8). At that commit, c02's slot scores nothing: c03 then c04 make
+## 1 + floor(3 × 1.25) = 4, and c14 makes 6.
 func test_preview_with_hidden_opponent_cards_changes_nothing() -> void:
 	var paused: MatchEngine = _hidden_slot_zero()
 	var hidden: int = _id(1, C02)
@@ -350,7 +364,7 @@ func test_preview_with_hidden_opponent_cards_changes_nothing() -> void:
 	_face_down(engine, 1, _typed([hidden]))
 	var at_commit: Dictionary = _snapshot(engine)
 	var action: EngineAction = EngineAction.commit(0, hand, _typed([0, 1]))
-	assert_array(engine.preview(0, action)).is_equal(_typed([8, 6]))
+	assert_array(engine.preview(0, action)).is_equal(_typed([4, 6]))
 	assert_dict(_snapshot(engine)).is_equal(at_commit)
 	assert_object(engine._state.card_state(hidden)).is_null()
 	assert_bool(engine._state.seats[1].is_revealed(hidden)).is_false()
@@ -381,6 +395,7 @@ func test_source_reads_only_its_view_and_its_own_previews() -> void:
 			fail("greedy_bot.gd contains %s" % token)
 	assert_str(text).contains("preview(")
 	assert_str(text).contains("preview_choice(")
+	assert_str(text).contains("preview_set(")
 
 
 func test_choose_leaves_the_view_and_the_engine_unchanged() -> void:
@@ -394,33 +409,34 @@ func test_choose_leaves_the_view_and_the_engine_unchanged() -> void:
 	assert_dict(_snapshot(engine)).is_equal(before)
 
 
-## Both fit (energy 2): c03 (bonus 1) left of c04 (flat 3) scores 8, the other order 5.
-## On an empty row both ends are the same slots.
+## Both fit (energy 3): c03 (×1.25) left of c08 (flat 4) scores 1 + 5 = 6, the other
+## order 4 + 1 = 5 (c04's flat 3 would tie: floor(3 × 1.25) = 3). On an empty row both ends
+## are the same slots.
 func test_puts_a_bonus_card_left_of_a_flat_card() -> void:
 	var bonus: int = _id(0, C03)
-	var flat: int = _id(0, C04)
+	var flat: int = _id(0, C08)
 	var hand: Array[int] = [flat, bonus]
 	for bot_seed: int in range(1, 9):
-		var engine: MatchEngine = _position(0, 2, hand, _none(), _none(), _none())
+		var engine: MatchEngine = _position(0, 3, hand, _none(), _none(), _none())
 		var action: EngineAction = _bot(bot_seed).choose(engine.view_for(0), engine)
 		assert_array(action.cards).is_equal(_typed([bonus, flat]))
 		assert_array(action.slots).is_equal(_typed([0, 1]))
 		assert_bool(engine.apply(action).ok).is_true()
 
 
-## With c08 (flat 4) already on the row, the left end wins: c03, c04, c08 scores
-## 2 + 6 + 8 = 16, against 12 at the right end and 13 or 9 flat-first.
+## With c14 (flat 6) already on the row and energy 3, the left end wins: c03, c08, c14
+## scores 1 + 5 + 7 = 13, against 12 at the right end (6 + 1 + 5) and 12 or 11 flat-first.
 func test_picks_the_row_end_the_preview_prefers() -> void:
 	var bonus: int = _id(0, C03)
-	var flat: int = _id(0, C04)
-	var row: Array[int] = [_id(0, C08)]
+	var flat: int = _id(0, C08)
+	var row: Array[int] = [_id(0, C14)]
 	var hand: Array[int] = [flat, bonus]
 	for bot_seed: int in range(1, 9):
-		var engine: MatchEngine = _position(0, 2, hand, _none(), row, _none())
+		var engine: MatchEngine = _position(0, 3, hand, _none(), row, _none())
 		var action: EngineAction = _bot(bot_seed).choose(engine.view_for(0), engine)
 		assert_array(action.cards).is_equal(_typed([bonus, flat]))
 		assert_array(action.slots).is_equal(_typed([0, 1]))
-		assert_array(engine.preview(0, action)).is_equal(_typed([16, 0]))
+		assert_array(engine.preview(0, action)).is_equal(_typed([13, 0]))
 
 
 ## Energy 7 affords c18 (flat 8) or c19 (flat 7, destroys the opponent's lowest-flat
@@ -444,7 +460,7 @@ func test_destroys_when_the_preview_says_so() -> void:
 
 func test_commits_nothing_when_nothing_fits() -> void:
 	# c13 costs 4 and c20 costs 7; energy 1 affords neither.
-	var hand: Array[int] = [_id(0, C13_SWITCH), _id(0, C20)]
+	var hand: Array[int] = [_id(0, C13), _id(0, C20)]
 	var engine: MatchEngine = _position(0, 1, hand, _none(), _none(), _none())
 	var action: EngineAction = _bot(1).choose(engine.view_for(0), engine)
 	assert_array(action.cards).is_empty()
@@ -456,7 +472,7 @@ func test_commits_nothing_when_nothing_fits() -> void:
 func test_failed_card_data_makes_the_bot_pass() -> void:
 	# The documented fallback: with no valid card data no card is priced, so the only
 	# candidate is the empty set and the bot commits nothing for its own seat.
-	var broken: CardDb = CardDb.from_json("{}")
+	var broken: MatchCards = FixtureDecks.defs(CardDb.from_json("{}"))
 	assert_bool(broken.is_valid()).is_false()
 	var hand: Array[int] = [_id(1, C02), _id(1, C03), _id(1, C04), _id(1, C08)]
 	var engine: MatchEngine = _position(1, 4, _none(), hand, _none(), _none())
@@ -464,6 +480,9 @@ func test_failed_card_data_makes_the_bot_pass() -> void:
 	assert_int(action.kind).is_equal(EngineAction.Kind.COMMIT)
 	assert_int(action.seat).is_equal(1)
 	assert_array(action.cards).is_empty()
+	# A null MatchCards is the same fallback (DC-07 T02: the bot no longer loads a default).
+	var bare: EngineAction = GreedyBot.new(1, null).choose(engine.view_for(1), engine)
+	assert_array(bare.cards).is_empty()
 
 
 ## Each set is listed in bonus-first then flat-first order (when they differ), each at the
@@ -492,11 +511,11 @@ func test_candidates_cover_both_orders_and_both_ends() -> void:
 	assert_int(_bot(1).candidates(empty_row.view_for(0)).size()).is_equal(5)
 
 
-## The free first card (R10, DC-05 T07): at energy 1, c03 alone (cost 1) scores 2, the
+## The free first card (R10, DC-05 T07): at energy 1, c03 alone (cost 1) scores 1, the
 ## best the bot can afford without the grant. With it, c14 (cost 4, flat 6) leftmost is free
-## and c03 after it costs 1: 6 + 1 * 2 = 8. The bonus-first order (c03 first) would cost 4,
-## so the set needs c14 leftmost, which the flat-first order and, without it, the
-## costliest-first order list.
+## and c03 after it costs 1: 6 + floor(1 × 1.25) = 7. The bonus-first order (c03 first)
+## would cost 4, so the set needs c14 leftmost, which the flat-first order and, without
+## it, the costliest-first order list.
 func test_the_free_first_card_affords_a_set_the_budget_alone_does_not() -> void:
 	var cheap: int = _id(0, C03)
 	var big: int = _id(0, C14)
@@ -522,7 +541,7 @@ func test_the_free_first_card_affords_a_set_the_budget_alone_does_not() -> void:
 			var action: EngineAction = bot.choose(view, engine)
 			assert_array(action.cards).is_equal(_typed([big, cheap]))
 			assert_array(action.slots).is_equal(_typed([0, 1]))
-			assert_array(engine.preview(0, action)).is_equal(_typed([8, 0]))
+			assert_array(engine.preview(0, action)).is_equal(_typed([7, 0]))
 			assert_bool(engine.apply(action).ok).is_true()
 
 
@@ -538,40 +557,41 @@ func test_a_null_engine_still_gives_a_legal_commit() -> void:
 # --- R37: prompts ---------------------------------------------------------------------
 
 
-## c13 (switch a revealed card's flat and bonus) pulses first on [c13, c04] against [c08]:
-## switching c13 changes nothing (15 - 4), switching c04 zeroes its flat (6 - 4), switching
-## c08 zeroes the opponent's (15 - 0), so the bot picks c08, position 2 of BOTH_BOARDS. A
-## face-down c14 committed by seat 1 changes no preview.
+## c12 (swap places with a card on its row) pulses first on [c12, c04, c03] against [c08]
+## (the switch this case used retired at DC-07 T01): swapping c04 forward scores c04 3,
+## c12 4 and c03 floor(1 × 1.25) = 1 (8 - 4); swapping c03 forward scores it 1 at ×1.25,
+## then c04 floor(3 × 1.25) = 3 and c12 floor(4 × 1.25) = 5 (9 - 4), so the bot picks c03,
+## position 2 of OWN_BOARD. A face-down c14 committed by seat 1 changes no preview.
 func test_answers_a_prompt_with_the_best_option() -> void:
 	for hide: bool in [false, true]:
 		for bot_seed: int in range(1, 9):
-			var engine: MatchEngine = _switch_prompt(hide)
+			var engine: MatchEngine = _swap_prompt(hide)
 			assert_int(engine.awaited_seat()).is_equal(0)
 			var view: SeatView = engine.view_for(0)
-			assert_array(Choice.options_of(view.prompt)).is_equal(_typed([0, 1, 2]))
-			assert_array(engine.preview_choice(0, 0)).is_equal(_typed([15, 4]))
-			assert_array(engine.preview_choice(0, 1)).is_equal(_typed([6, 4]))
-			assert_array(engine.preview_choice(0, 2)).is_equal(_typed([15, 0]))
+			assert_array(Choice.options_of(view.prompt)).is_equal(_typed([1, 2]))
+			assert_array(engine.preview_choice(0, 1)).is_equal(_typed([8, 4]))
+			assert_array(engine.preview_choice(0, 2)).is_equal(_typed([9, 4]))
 			assert_array(engine.preview_choice(1, 2)).is_empty()
-			assert_array(engine.preview_choice(0, 3)).is_empty()
+			assert_array(engine.preview_choice(0, 0)).is_empty()
 			var before: Dictionary = _snapshot(engine)
 			var action: EngineAction = _bot(bot_seed).choose(view, engine)
 			assert_dict(_snapshot(engine)).is_equal(before)
 			assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
-			assert_int(action.zone).is_equal(Choice.Zone.BOTH_BOARDS)
+			assert_int(action.zone).is_equal(Choice.Zone.OWN_BOARD)
 			assert_int(action.index).is_equal(2)
 			assert_bool(engine.apply(action).ok).is_true()
 
 
-## Seat 0 commits c13 to the left of its revealed c04; seat 1 (with c08 on its row) passes,
-## or with `hide` commits c14 face down to the right of c08. The walk pauses on c13's prompt.
-func _switch_prompt(hide: bool) -> MatchEngine:
-	var switcher: int = _id(0, C13_SWITCH)
-	var row_0: Array[int] = [_id(0, C04)]
+## Seat 0 commits c12 to the left of its revealed [c04, c03]; seat 1 (with c08 on its row)
+## passes, or with `hide` commits c14 face down to the right of c08. The walk pauses on
+## c12's prompt.
+func _swap_prompt(hide: bool) -> MatchEngine:
+	var swapper: int = _id(0, C12_SWAP)
+	var row_0: Array[int] = [_id(0, C04), _id(0, C03)]
 	var row_1: Array[int] = [_id(1, C08)]
 	var hand_1: Array[int] = [_id(1, C14)]
-	var engine: MatchEngine = _position(0, 4, _typed([switcher]), hand_1, row_0, row_1)
-	assert_bool(engine.apply(EngineAction.commit(0, _typed([switcher]), _typed([0]))).ok).is_true()
+	var engine: MatchEngine = _position(0, 4, _typed([swapper]), hand_1, row_0, row_1)
+	assert_bool(engine.apply(EngineAction.commit(0, _typed([swapper]), _typed([0]))).ok).is_true()
 	var second: EngineAction = EngineAction.commit(1, _none())
 	if hide:
 		second = EngineAction.commit(1, hand_1, _typed([1]))
@@ -582,10 +602,11 @@ func _switch_prompt(hide: bool) -> MatchEngine:
 # --- R38: seeded, stable, never rejected ----------------------------------------------
 
 
-## c02 (flat 2) and c03 (flat 1, bonus 1) each score 2 alone; energy 1 affords one.
+## c02 (cost 1, flat 2) and c07 (cost 2, flat 2, ×1.25) each score 2 alone (floor(2 ×
+## 1.25) = 2); energy 2 affords one, not both.
 func _tie() -> MatchEngine:
-	var hand: Array[int] = [_id(0, C02), _id(0, C03)]
-	return _position(0, 1, hand, _none(), _none(), _none())
+	var hand: Array[int] = [_id(0, C02), _id(0, C07)]
+	return _position(0, 2, hand, _none(), _none(), _none())
 
 
 func test_the_same_seed_and_view_give_the_same_action() -> void:
@@ -604,19 +625,19 @@ func test_different_seeds_can_pick_differently_among_ties() -> void:
 	var engine: MatchEngine = _tie()
 	var view: SeatView = engine.view_for(0)
 	var c02: int = _id(0, C02)
-	var c03: int = _id(0, C03)
+	var c07: int = _id(0, C07)
 	var picked_c02: int = 0
-	var picked_c03: int = 0
+	var picked_c07: int = 0
 	for bot_seed: int in range(1, 201):
 		var cards: Array[int] = _bot(bot_seed).choose(view, engine).cards
 		assert_int(cards.size()).is_equal(1)
 		if cards[0] == c02:
 			picked_c02 += 1
-		elif cards[0] == c03:
-			picked_c03 += 1
-	assert_int(picked_c02 + picked_c03).is_equal(200)
+		elif cards[0] == c07:
+			picked_c07 += 1
+	assert_int(picked_c02 + picked_c07).is_equal(200)
 	assert_int(picked_c02).is_between(60, 140)
-	assert_int(picked_c03).is_between(60, 140)
+	assert_int(picked_c07).is_between(60, 140)
 
 
 func test_tie_break_varies_with_round_and_turn() -> void:
@@ -631,12 +652,14 @@ func test_tie_break_varies_with_round_and_turn() -> void:
 	assert_int(seen.size()).is_equal(2)
 
 
-func test_default_card_db_matches_an_explicit_one() -> void:
+## DC-07 T02: the engine's own MatchCards (what the board and the smoke give the bot) and
+## a fresh build over the same pool and decks choose alike.
+func test_engine_match_cards_match_an_explicit_build() -> void:
 	var hand: Array[int] = [_id(0, 5), _id(0, 6), _id(0, 0), _id(0, 8)]
 	var engine: MatchEngine = _position(0, 3, hand, _none(), _none(), _none())
 	var view: SeatView = engine.view_for(0)
 	for bot_seed: int in range(1, 9):
-		var a: EngineAction = GreedyBot.new(bot_seed).choose(view, engine)
+		var a: EngineAction = GreedyBot.new(bot_seed, engine.match_cards()).choose(view, engine)
 		var b: EngineAction = _bot(bot_seed).choose(view, engine)
 		assert_dict(a.to_dict()).is_equal(b.to_dict())
 
@@ -656,7 +679,7 @@ func test_engine_never_rejects_the_bot_over_full_matches() -> void:
 	var prompts: int = 0
 	var matches_finished: int = 0
 	for match_seed: int in MATCH_SEEDS:
-		var engine: MatchEngine = MatchEngine.create(match_seed, _db())
+		var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 		assert_bool(engine.start().ok).is_true()
 		var bots: Array[GreedyBot] = [
 			_bot(GreedyBot.seed_for(match_seed, 0)), _bot(GreedyBot.seed_for(match_seed, 1))
@@ -719,8 +742,8 @@ func _assert_best_option(engine: MatchEngine, view: SeatView, action: EngineActi
 func test_bot_choices_replay_identically_for_a_fixed_match_seed() -> void:
 	# R38 end to end: two engines on one seed with freshly built bots stay in lockstep.
 	var match_seed: int = 11
-	var a: MatchEngine = MatchEngine.create(match_seed, _db())
-	var b: MatchEngine = MatchEngine.create(match_seed, _db())
+	var a: MatchEngine = FixtureDecks.engine(match_seed, _db())
+	var b: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	a.start()
 	b.start()
 	var bots_a: Array[GreedyBot] = [
@@ -741,3 +764,199 @@ func test_bot_choices_replay_identically_for_a_fixed_match_seed() -> void:
 		actions += 1
 	assert_bool(a.is_over()).is_true()
 	assert_dict(a.full_state()).is_equal(b.full_state())
+
+
+# --- DC-07 T08: the bonus order, the set answer, the shipped decks ----------------------
+
+
+## The shipped pool and list with Ruin on seat 0 and Drift on seat 1 (instance id = seat
+## * 20 + the FixtureDecks R*/D* index).
+func _ruin_drift_defs() -> MatchCards:
+	var pair: Array[String] = [FixtureDecks.RUIN_DECK_ID, FixtureDecks.DRIFT_DECK_ID]
+	return MatchCards.build(CardDb.load_default(), DeckList.load_default(), pair)
+
+
+## P13, R36: bonus first is +-part desc, then ×-part desc, then flat desc. Vane (+1, flat
+## 3) orders before Horizon (×2, flat 7), which orders before Cinder (flat 7, no bonus);
+## flat first puts the two 7s first, Horizon ahead on its ×-part, then Vane. The search
+## lists the three-card set in those two orders.
+func test_a_plus_card_orders_before_a_times_card_before_a_flat_card() -> void:
+	var defs: MatchCards = _ruin_drift_defs()
+	assert_bool(defs.is_valid()).override_failure_message(defs.build_error()).is_true()
+	var cinder: int = _id(0, FixtureDecks.R11_CINDER)
+	var horizon: int = _id(1, FixtureDecks.D20_HORIZON)
+	var vane: int = _id(1, FixtureDecks.D18_VANE)
+	var bot: GreedyBot = GreedyBot.new(1, defs)
+	assert_that(bot.stats_of(vane)).is_equal(Vector3i(3, MatchRules.MULT_ONE, 1))
+	assert_that(bot.stats_of(horizon)).is_equal(Vector3i(7, 200, 0))
+	assert_that(bot.stats_of(cinder)).is_equal(Vector3i(7, MatchRules.MULT_ONE, 0))
+	var bonus_first: Array[int] = [cinder, horizon, vane]
+	bonus_first.sort_custom(bot._bonus_before)
+	assert_array(bonus_first).is_equal(_typed([vane, horizon, cinder]))
+	var flat_first: Array[int] = [vane, cinder, horizon]
+	flat_first.sort_custom(bot._flat_before)
+	assert_array(flat_first).is_equal(_typed([horizon, cinder, vane]))
+	var view: SeatView = SeatView.new()
+	view.own_hand.assign([cinder, horizon, vane])
+	view.energy = 20
+	var orders: Array[Array] = []
+	for action: EngineAction in bot.candidates(view):
+		if action.cards.size() == 3:
+			orders.append(action.cards)
+	assert_int(orders.size()).is_equal(2)
+	if orders.size() == 2:
+		assert_array(orders[0]).is_equal(_typed([vane, horizon, cinder]))
+		assert_array(orders[1]).is_equal(_typed([horizon, cinder, vane]))
+
+
+## Seat 0's table [c04, c08, c03, c02] (c02 carries sacrifice_destroy) against [c14, c07],
+## all face down; both pass and the walk pauses on c02's multi-select prompt over own row
+## positions 0, 1 and 2 (shown flats 3, 4 and 1).
+func _sacrifice_prompt() -> MatchEngine:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, FixtureDecks.sacrifice_cards())
+	assert_bool(engine.start().ok).is_true()
+	var own: Array[int] = [
+		_id(0, C04), _id(0, C08), _id(0, C03), _id(0, FixtureDecks.C02_SACRIFICE)
+	]
+	var theirs: Array[int] = [_id(1, C14), _id(1, C07)]
+	assert_bool(FixtureDecks.play_table(engine, own, theirs)).is_true()
+	return engine
+
+
+## P13, R37: n options give n + 1 candidate sets, the k lowest shown flats each (ties by
+## position), every index offered and none repeated; each previews, the answer is one of
+## them with the best previewed value, and the engine accepts it. Choosing changes nothing.
+func test_the_set_answer_previews_n_plus_one_candidates() -> void:
+	for bot_seed: int in range(1, 9):
+		var engine: MatchEngine = _sacrifice_prompt()
+		assert_int(engine.awaited_seat()).is_equal(0)
+		var view: SeatView = engine.view_for(0)
+		assert_bool(Choice.is_multi_prompt(view.prompt)).is_true()
+		var options: Array[int] = Choice.options_of(view.prompt)
+		assert_array(options).is_equal(_typed([0, 1, 2]))
+		var bot: GreedyBot = GreedyBot.new(bot_seed, engine.match_cards())
+		var sets: Array[Array] = bot.set_candidates(view)
+		assert_int(sets.size()).is_equal(options.size() + 1)
+		# Shown flats 3, 4, 1: the lowest is position 2, then 0, then 1.
+		var expected: Array[String] = ["[]", "[2]", "[0, 2]", "[0, 1, 2]"]
+		var shown: Array[String] = []
+		for listed: Array in sets:
+			shown.append(str(listed))
+		assert_array(shown).is_equal(expected)
+		var best: int = -1000000
+		for listed: Array in sets:
+			var indices: Array[int] = _typed(listed)
+			var label: String = str(indices)
+			var seen: Dictionary[int, bool] = {}
+			for index: int in indices:
+				assert_bool(options.has(index)).override_failure_message(label).is_true()
+				assert_bool(seen.has(index)).override_failure_message(label).is_false()
+				seen[index] = true
+			var scores: Array[int] = engine.preview_set(0, indices)
+			assert_int(scores.size()).override_failure_message(label).is_equal(2)
+			best = maxi(best, _value(scores, 0))
+		var before: Dictionary = _snapshot(engine)
+		var action: EngineAction = bot.choose(view, engine)
+		assert_dict(_snapshot(engine)).is_equal(before)
+		assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE_SET)
+		assert_int(action.zone).is_equal(Choice.Zone.OWN_BOARD)
+		var answer: String = str(action.indices)
+		assert_bool(sets.has(action.indices)).override_failure_message(answer).is_true()
+		assert_int(_value(engine.preview_set(0, action.indices), 0)).is_equal(best)
+		assert_bool(engine.apply(action).ok).is_true()
+
+
+## R38 on the shipped decks: a Ruin bot (seat 0) against a Drift bot (seat 1) plays seed 1
+## to the end, and the engine accepts every action, set answers included.
+func test_a_ruin_bot_and_a_drift_bot_play_seed_1_out() -> void:
+	var pair: Array[String] = [FixtureDecks.RUIN_DECK_ID, FixtureDecks.DRIFT_DECK_ID]
+	var engine: MatchEngine = MatchEngine.create(
+		SEED, CardDb.load_default(), DeckList.load_default(), pair
+	)
+	assert_bool(engine.start().ok).is_true()
+	var bots: Array[GreedyBot] = []
+	for seat: int in range(MatchEngine.SEATS):
+		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), engine.match_cards()))
+	var actions: int = 0
+	while not engine.is_over() and actions < MAX_ACTIONS:
+		var seat: int = engine.awaited_seat()
+		var action: EngineAction = bots[seat].choose(engine.view_for(seat), engine)
+		var result: ApplyResult = engine.apply(action)
+		if not result.ok:
+			fail("action %d %s rejected with error %d" % [actions, action.to_dict(), result.error])
+			return
+		actions += 1
+	assert_bool(engine.is_over()).override_failure_message("not over").is_true()
+	assert_array(engine.deck_ids()).is_equal(pair)
+
+
+# --- NSC-97: recovery and discard prompts by rule ---------------------------------------
+
+
+## The prompt `verb` of a seat-0 source would open over `zone` with `options`, as the view
+## shows it to seat 0 (single target).
+func _rule_prompt(verb: int, zone: int, options: Array[int]) -> Dictionary:
+	return {
+		"open": true,
+		"seat": 0,
+		"card": _id(0, C20),
+		"verb": verb,
+		"zone": zone,
+		"options": MatchState.plain(options),
+		"multi": false,
+	}
+
+
+## The bot's answer to the open prompt of `view` with no engine (no preview possible), for
+## seeds 1..8; each must be a CHOOSE in `zone` at `index`.
+func _assert_rule_answer(view: SeatView, zone: int, index: int) -> void:
+	for bot_seed: int in range(1, 9):
+		var bot: GreedyBot = _bot(bot_seed)
+		assert_int(bot.ranked_option(view)).is_equal(index)
+		var action: EngineAction = bot.choose(view, null)
+		assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
+		assert_int(action.zone).is_equal(zone)
+		assert_int(action.index).is_equal(index)
+
+
+## DISCARD_OWN is answered by rule, no preview (a hand card never scores, so every option
+## previews alike): the lowest printed flat among the offered hand positions, ties by the
+## lower position. Hand [c04 3, c02 2, c07 2, c08 4]: positions 1 and 2 tie on 2, so 1;
+## with position 1 not offered, 2.
+func test_a_discard_prompt_takes_the_lowest_flat_by_rule() -> void:
+	var hand: Array[int] = [_id(0, C04), _id(0, C02), _id(0, C07), _id(0, C08)]
+	var flats: Array[int] = []
+	for card: int in hand:
+		flats.append(_bot(1).stats_of(card).x)
+	assert_array(flats).is_equal(_typed([3, 2, 2, 4]))
+	var view: SeatView = SeatView.new()
+	view.own_hand.assign(hand)
+	var hand_zone: int = Choice.Zone.OWN_HAND
+	view.prompt = _rule_prompt(CardEffect.Verb.DISCARD_OWN, hand_zone, _typed([0, 1, 2, 3]))
+	_assert_rule_answer(view, hand_zone, 1)
+	view.prompt = _rule_prompt(CardEffect.Verb.DISCARD_OWN, hand_zone, _typed([0, 2, 3]))
+	_assert_rule_answer(view, hand_zone, 2)
+	# Any other single-target verb is still previewed (R37): no rule answer.
+	view.prompt = _rule_prompt(CardEffect.Verb.DRAW_THEN_DISCARD, hand_zone, _typed([0, 1]))
+	assert_int(_bot(1).ranked_option(view)).is_equal(-1)
+
+
+## RECOVER_DESTROYED is answered by rule, no preview (the card goes to a hand): the highest
+## printed flat over BOTH_DESTROYED (own pile, then the opponent's), ties by the lower
+## position. Own pile [c02 2, c08 4], the opponent's [hidden, c08 4, c03 1]: positions 1
+## and 3 tie on 4, so 1; without 1, 3. A hidden entry counts as flat 0, so the rule reads
+## nothing the view hides: it loses to own c02 (2) and to the opponent's c03 (1).
+func test_a_recovery_prompt_takes_the_highest_flat_by_rule() -> void:
+	var view: SeatView = SeatView.new()
+	view.own_destroyed.assign([_id(0, C02), _id(0, C08)])
+	view.opponent_destroyed.assign([MatchEvent.HIDDEN_CARD, _id(1, C08), _id(1, C03)])
+	var piles: int = Choice.Zone.BOTH_DESTROYED
+	var verb: int = CardEffect.Verb.RECOVER_DESTROYED
+	view.prompt = _rule_prompt(verb, piles, _typed([0, 1, 2, 3, 4]))
+	_assert_rule_answer(view, piles, 1)
+	view.prompt = _rule_prompt(verb, piles, _typed([0, 2, 3, 4]))
+	_assert_rule_answer(view, piles, 3)
+	view.prompt = _rule_prompt(verb, piles, _typed([0, 2]))
+	_assert_rule_answer(view, piles, 0)
+	view.prompt = _rule_prompt(verb, piles, _typed([2, 4]))
+	_assert_rule_answer(view, piles, 4)

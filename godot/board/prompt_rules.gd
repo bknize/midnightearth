@@ -7,15 +7,26 @@ extends RefCounted
 
 ## What a tap does while a prompt is open.
 ## CHOOSE is the button path (the lifted option submitted); the others route a tap (R40-R44).
-enum Tap { NOTHING, CHOOSE, LIFT, LIFT_ELIGIBLE, SWAP_LIFT, PUT_DOWN }
+## TOGGLE_SELECT is the button path of a multi prompt: the lifted option joins or leaves the
+## selection (R48).
+enum Tap { NOTHING, CHOOSE, LIFT, LIFT_ELIGIBLE, SWAP_LIFT, PUT_DOWN, TOGGLE_SELECT }
 
-## The action button's text for each prompt verb (R41).
+## The action button's text for each prompt verb (R41, R49), by the verb's JSON name.
 const ACTION_LABELS: Dictionary[String, String] = {
 	"swap_places": "Swap",
 	"draw_then_discard": "Discard",
-	"switch_stats": "Switch",
 	"return_at_turn_end": "Return",
+	"discard_own": "Discard",
+	"destroy_own_then_draw": "Destroy",
+	"destroy_own_then_flat_up": "Destroy",
+	"sacrifice_destroy": "Destroy",
+	"copy_stats": "Copy",
+	"move_opponent_left": "Move",
+	"swap_opponent_right": "Swap",
+	"recover_destroyed": "Recover",
 }
+const SELECT_LABEL: String = "Select"
+const DESELECT_LABEL: String = "Deselect"
 
 
 ## The spots to glow, in option order (R55). `own_size` is the asker's row size, which splits
@@ -53,6 +64,13 @@ static func on_tap(
 ) -> PromptTap:
 	var valid: bool = hit != null and hit.is_valid()
 	var option: int = option_at(hit, prompt, own_size) if valid else -1
+	return route(valid, option, face_up, lifted_option)
+
+
+## The routing of on_tap for a tap that already knows its option (-1 when the target does not
+## glow): the deck strip's entries come in this way. A multi prompt routes the same; only its
+## button differs (action_tap).
+static func route(valid: bool, option: int, face_up: bool, lifted_option: int = -1) -> PromptTap:
 	if lifted_option >= 0:
 		if not valid or option == lifted_option:
 			return PromptTap.new(Tap.PUT_DOWN)
@@ -66,6 +84,35 @@ static func on_tap(
 	return PromptTap.new()
 
 
+## What the action button does with the lifted option: a multi prompt toggles it in the
+## selection, any other submits it (R42, R48).
+static func action_tap(prompt: Dictionary, lifted_option: int) -> PromptTap:
+	if lifted_option < 0:
+		return PromptTap.new()
+	var multi: bool = prompt.get("multi", false)
+	return PromptTap.new(Tap.TOGGLE_SELECT if multi else Tap.CHOOSE, lifted_option)
+
+
+## `selected` with `option` added, or removed when it was in (R48). Kept in ascending order.
+static func toggled(selected: Array[int], option: int) -> Array[int]:
+	var out: Array[int] = []
+	out.assign(selected)
+	var at: int = out.find(option)
+	if at >= 0:
+		out.remove_at(at)
+	else:
+		out.append(option)
+		out.sort()
+	return out
+
+
+## The HUD confirm button's text for a multi prompt with `count` cards selected (R48).
+static func confirm_text(prompt: Dictionary, count: int) -> String:
+	var verb: int = prompt.get("verb", -1)
+	var label: String = action_label(CardEffect.verb_name(verb))
+	return "%s %d" % [label if label != "" else "Confirm", count]
+
+
 ## The option position the card at `hit` stands for, or -1 when it does not glow.
 static func option_at(hit: CardSpot, prompt: Dictionary, own_size: int) -> int:
 	var raw: Array = prompt.get("options", [])
@@ -77,17 +124,21 @@ static func option_at(hit: CardSpot, prompt: Dictionary, own_size: int) -> int:
 	return -1
 
 
-## The action button's text for a prompt verb (R41); empty for an unknown verb.
-static func action_label(verb: String) -> String:
+## The action button's text for a prompt verb (R41, R49); empty for an unknown verb. A multi
+## prompt's button names the toggle instead: "Select", or "Deselect" once the card is in.
+static func action_label(verb: String, multi: bool = false, selected: bool = false) -> String:
+	if multi and ACTION_LABELS.has(verb):
+		return DESELECT_LABEL if selected else SELECT_LABEL
 	var label: String = ACTION_LABELS.get(verb, "")
 	return label
 
 
 ## The action button's text for an open prompt as the engine holds it
 ## (MatchEngine.open_prompt): its `verb` is the CardEffect.Verb value, not the name (R41).
-static func action_label_for(prompt: Dictionary) -> String:
+static func action_label_for(prompt: Dictionary, selected: bool = false) -> String:
 	var verb: int = prompt.get("verb", -1)
-	return action_label(CardEffect.verb_name(verb))
+	var multi: bool = prompt.get("multi", false)
+	return action_label(CardEffect.verb_name(verb), multi, selected)
 
 
 static func same_spot(a: CardSpot, b: CardSpot) -> bool:
