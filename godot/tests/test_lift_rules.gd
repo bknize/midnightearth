@@ -138,3 +138,72 @@ func test_opponent_commit_steps_never_touch() -> void:
 	assert_object(slide).is_not_null()
 	assert_bool(LiftRules.step_touches(wait, 5, LiftRules.Place.HAND, false)).is_false()
 	assert_bool(LiftRules.step_touches(slide, 5, LiftRules.Place.HAND, false)).is_false()
+
+
+# --- step_touches: the effect steps (R54) ---------------------------------------------
+
+
+func _named(kind: int, seat: int, card: int) -> BoardStep:
+	var step: BoardStep = BoardStep.new()
+	step.kind = kind
+	step.seat = seat
+	step.card = card
+	return step
+
+
+func test_stats_touch_only_the_held_card() -> void:
+	var step: BoardStep = _named(BoardStep.Kind.STATS, 0, 5)
+	assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.ROW, false)).is_true()
+	assert_bool(LiftRules.step_touches(step, 6, LiftRules.Place.ROW, false)).is_false()
+
+
+func test_destroy_touches_only_the_held_card() -> void:
+	var step: BoardStep = _named(BoardStep.Kind.DESTROY, 1, 25)
+	var place: LiftRules.Place = LiftRules.Place.OPPONENT_ROW
+	assert_bool(LiftRules.step_touches(step, 25, place, false)).is_true()
+	assert_bool(LiftRules.step_touches(step, 26, place, false)).is_false()
+
+
+func test_hidden_destroy_never_touches_a_face_up_held_card() -> void:
+	var step: BoardStep = _named(BoardStep.Kind.DESTROY, 1, -1)
+	var place: LiftRules.Place = LiftRules.Place.OPPONENT_ROW
+	assert_bool(LiftRules.step_touches(step, 25, place, false)).is_false()
+
+
+func test_return_touches_only_the_held_card() -> void:
+	var step: BoardStep = _named(BoardStep.Kind.RETURN, 0, 7)
+	assert_bool(LiftRules.step_touches(step, 7, LiftRules.Place.ROW, false)).is_true()
+	assert_bool(LiftRules.step_touches(step, 8, LiftRules.Place.ROW, false)).is_false()
+
+
+func test_discard_touches_only_the_held_card() -> void:
+	var step: BoardStep = _named(BoardStep.Kind.DISCARD, 0, 9)
+	assert_bool(LiftRules.step_touches(step, 9, LiftRules.Place.HAND, false)).is_true()
+	assert_bool(LiftRules.step_touches(step, 10, LiftRules.Place.HAND, false)).is_false()
+
+
+func test_burn_touches_a_held_row_card() -> void:
+	var step: BoardStep = _named(BoardStep.Kind.BURN, 0, 11)
+	assert_bool(LiftRules.step_touches(step, 11, LiftRules.Place.ROW, false)).is_true()
+	assert_bool(LiftRules.step_touches(step, 12, LiftRules.Place.ROW, false)).is_false()
+
+
+func test_move_touches_a_card_on_the_moved_row() -> void:
+	var own: BoardStep = _named(BoardStep.Kind.MOVE, 0, 3)
+	assert_bool(LiftRules.step_touches(own, 3, LiftRules.Place.ROW, false)).is_true()
+	# The other half of a swap names a different card but still reorders the held one's row.
+	assert_bool(LiftRules.step_touches(own, 4, LiftRules.Place.ROW, false)).is_true()
+	assert_bool(LiftRules.step_touches(own, 4, LiftRules.Place.HAND, false)).is_false()
+	assert_bool(LiftRules.step_touches(own, 4, LiftRules.Place.OPPONENT_ROW, false)).is_false()
+	var theirs: BoardStep = _named(BoardStep.Kind.MOVE, 1, -1)
+	assert_bool(LiftRules.step_touches(theirs, 4, LiftRules.Place.OPPONENT_ROW, false)).is_true()
+	assert_bool(LiftRules.step_touches(theirs, 4, LiftRules.Place.ROW, false)).is_false()
+
+
+func test_effect_fizzle_and_choice_show_never_touch() -> void:
+	var kinds: Array[int] = [
+		BoardStep.Kind.EFFECT, BoardStep.Kind.FIZZLE, BoardStep.Kind.CHOICE_SHOW
+	]
+	for kind: int in kinds:
+		var step: BoardStep = _named(kind, 0, 5)
+		assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.ROW, true)).is_false()

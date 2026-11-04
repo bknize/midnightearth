@@ -43,13 +43,19 @@ func _ready() -> void:
 	_pip_rows.append(_pips_1)
 
 
-## The scores; with `mults` (one per seat) each reads "score xmult" (R50).
-func set_scores(scores: Array[int], mults: Array[int] = []) -> void:
+## The scores. While `walking`, each reads "score ×mult" (R50-R52); otherwise it is the plain
+## score (after the turn end, and in a fresh table).
+func set_scores(scores: Array[int], mults: Array[int] = [], walking: bool = false) -> void:
 	for seat: int in range(mini(scores.size(), _score_labels.size())):
-		if seat < mults.size():
-			_score_labels[seat].text = "%d x%d" % [scores[seat], mults[seat]]
-		else:
-			_score_labels[seat].text = str(scores[seat])
+		var mult: int = mults[seat] if seat < mults.size() else 1
+		_score_labels[seat].text = score_text(scores[seat], mult, walking)
+
+
+## The text of one score label.
+static func score_text(score: int, mult: int, walking: bool) -> String:
+	if walking:
+		return "%d \u00d7%d" % [score, mult]
+	return str(score)
 
 
 func set_wins(wins: Array[int]) -> void:
