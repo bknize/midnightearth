@@ -20,7 +20,7 @@ static func step_touches(
 	match step.kind:
 		BoardStep.Kind.CLEAR_TABLE:
 			return true
-		BoardStep.Kind.REVEAL:
+		BoardStep.Kind.PULSE:
 			return step.seat == 0 and step.card == held_id
 		BoardStep.Kind.TURN_START:
 			return held_staged

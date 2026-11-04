@@ -150,3 +150,60 @@ func test_action_order_equals_row_order() -> void:
 	assert_int(action.seat).is_equal(1)
 	assert_array(action.cards).is_equal(staging.cards())
 	assert_array(action.cards).is_equal([5, 7, 6])
+
+
+func test_slots_follow_row_indices() -> void:
+	var staging: Staging = Staging.new()
+	staging.reset(10, 2)
+	_fill(staging, [1, 2])
+	assert_bool(staging.insert(3, 1, 0)).is_true()
+	assert_array(staging.cards()).is_equal([3, 1, 2])
+	assert_array(staging.slots()).is_equal([2, 3, 4])
+	var action: EngineAction = staging.to_action(SEAT)
+	assert_array(action.cards).is_equal([3, 1, 2])
+	assert_array(action.slots).is_equal([2, 3, 4])
+
+
+func test_slots_start_at_zero_with_no_played_cards() -> void:
+	var staging: Staging = _staged(10)
+	_fill(staging, [5, 6])
+	assert_array(staging.slots()).is_equal([0, 1])
+	staging.reset(10, 3)
+	assert_array(staging.slots()).is_empty()
+
+
+func test_budget_with_carry_is_the_energy_given() -> void:
+	# Turn 3 plus 2 carried: the board hands Staging the budget, 5.
+	var staging: Staging = _staged(5)
+	assert_bool(staging.insert(1, 3, 0)).is_true()
+	assert_bool(staging.insert(2, 2, 1)).is_true()
+	assert_int(staging.energy_left()).is_equal(0)
+	assert_bool(staging.insert(3, 1, 2)).is_false()
+
+
+func test_free_first_makes_the_leftmost_card_cost_nothing() -> void:
+	var staging: Staging = Staging.new()
+	staging.reset(3, 0, true)
+	assert_bool(staging.free_first()).is_true()
+	assert_bool(staging.can_afford(7)).is_true()
+	assert_bool(staging.insert(1, 7, 0)).is_true()
+	assert_int(staging.energy_left()).is_equal(3)
+	assert_int(staging.charged_cost(1)).is_equal(0)
+	assert_bool(staging.insert(2, 3, 1)).is_true()
+	assert_int(staging.energy_left()).is_equal(0)
+	assert_bool(staging.insert(3, 1, 2)).is_false()
+
+
+func test_free_first_follows_the_lowest_slot() -> void:
+	var staging: Staging = Staging.new()
+	staging.reset(4, 0, true)
+	assert_bool(staging.insert(1, 4, 0)).is_true()
+	assert_int(staging.charged_cost(1)).is_equal(0)
+	# Putting the cheap card first makes it the free one, so the 4-cost card now pays.
+	assert_bool(staging.insert(2, 1, 0)).is_true()
+	assert_int(staging.charged_cost(2)).is_equal(0)
+	assert_int(staging.charged_cost(1)).is_equal(4)
+	assert_int(staging.energy_left()).is_equal(0)
+	staging.remove(2)
+	assert_int(staging.charged_cost(1)).is_equal(0)
+	assert_int(staging.energy_left()).is_equal(4)

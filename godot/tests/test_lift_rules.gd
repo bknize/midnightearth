@@ -80,14 +80,14 @@ func test_clear_table_touches_any_held_card() -> void:
 
 
 func test_own_reveal_touches_only_the_held_card() -> void:
-	var step: BoardStep = _first(BoardStep.Kind.REVEAL, 0)
+	var step: BoardStep = _first(BoardStep.Kind.PULSE, 0)
 	assert_object(step).is_not_null()
 	assert_bool(LiftRules.step_touches(step, step.card, LiftRules.Place.ROW, false)).is_true()
 	assert_bool(LiftRules.step_touches(step, step.card + 1, LiftRules.Place.ROW, false)).is_false()
 
 
 func test_opponent_reveal_never_touches() -> void:
-	var step: BoardStep = _first(BoardStep.Kind.REVEAL, 1)
+	var step: BoardStep = _first(BoardStep.Kind.PULSE, 1)
 	assert_object(step).is_not_null()
 	var place: LiftRules.Place = LiftRules.Place.OPPONENT_ROW
 	assert_bool(LiftRules.step_touches(step, step.card, place, false)).is_false()
