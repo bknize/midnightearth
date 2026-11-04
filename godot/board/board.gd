@@ -394,6 +394,7 @@ func _end_wait() -> void:
 
 func _apply(step: BoardStep) -> void:
 	_tracker.apply(step)
+	hud.set_destroyed(_tracker.destroyed)
 	match step.kind:
 		BoardStep.Kind.CLEAR_TABLE:
 			_clear_table(step)
@@ -441,6 +442,10 @@ func _apply_effect(step: BoardStep) -> void:
 			_fx.destroy(step)
 		BoardStep.Kind.CLEAR_DESTROYED:
 			_fx.clear_destroyed(step)
+		BoardStep.Kind.UNREVEAL:
+			_fx.unreveal(step)
+		BoardStep.Kind.RECOVER:
+			_fx.recover(step)
 		BoardStep.Kind.MOVE:
 			_fx.move(step)
 		BoardStep.Kind.RETURN:
@@ -539,9 +544,6 @@ func _clear_table(step: BoardStep) -> void:
 			_loose.add_child(removed[i])
 			removed[i].global_transform = transforms[i]
 			_fx.fly_out(removed[i], step.duration)
-	_player_cards.clear()
-	_committed_ids.clear()
-	_face_down_ids.clear()
 	_fx.reset()
 	_tally.hide_all()
 	_chips.clear()
@@ -640,9 +642,6 @@ func _clear_table_now() -> void:
 			card.queue_free()
 	for child: Node in _loose.get_children():
 		child.queue_free()
-	_player_cards.clear()
-	_committed_ids.clear()
-	_face_down_ids.clear()
 	_turn_energy = 0
 	staging.reset(0)
 	_hide_glows()
@@ -653,6 +652,7 @@ func _clear_table_now() -> void:
 	_tally.hide_all()
 	_chips.clear()
 	_fx.reset()
+	hud.set_destroyed(_tracker.destroyed)
 	_refresh_scores()
 	var zeros: Array[int] = [0, 0]
 	hud.set_wins(zeros)

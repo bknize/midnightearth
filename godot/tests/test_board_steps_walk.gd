@@ -25,8 +25,9 @@ func _scored_event(card: int, seat: int = 0) -> MatchEvent:
 			"card": card,
 			"slot": 1,
 			"flat": 2,
-			"bonus": 1,
-			"mult": 3,
+			"times": 150,
+			"plus": 0,
+			"mult": 150,
 			"added": 9,
 			"score": 12,
 		}
@@ -133,21 +134,27 @@ func test_a_swap_mid_pulse_plays_the_move_before_the_score() -> void:
 	var kinds: Array[int] = []
 	for step: BoardStep in steps:
 		kinds.append(step.kind)
-	assert_array(kinds).is_equal(
-		[
-			BoardStep.Kind.PULSE,
-			BoardStep.Kind.EFFECT,
-			BoardStep.Kind.MOVE,
-			BoardStep.Kind.MOVE,
-			BoardStep.Kind.PULSE,
-		]
+	(
+		assert_array(kinds)
+		. is_equal(
+			[
+				BoardStep.Kind.PULSE,
+				BoardStep.Kind.EFFECT,
+				BoardStep.Kind.MOVE,
+				BoardStep.Kind.PULSE,
+			]
+		)
 	)
 	assert_int(steps[0].score).is_equal(-1)
 	assert_bool(ScoreChips.chip_texts(steps[0]).is_empty()).is_true()
-	assert_int(steps[4].card).is_equal(41)
-	assert_bool(steps[4].revealed).is_false()
-	assert_int(steps[4].score).is_equal(12)
-	assert_bool(ScoreChips.chip_texts(steps[4]).is_empty()).is_false()
+	# The swap's two CARD_MOVED events are one grouped step.
+	assert_array(steps[2].cards).is_equal([40, 41])
+	assert_array(steps[2].from_slots).is_equal([0, 2])
+	assert_array(steps[2].slots_to).is_equal([2, 0])
+	assert_int(steps[3].card).is_equal(41)
+	assert_bool(steps[3].revealed).is_false()
+	assert_int(steps[3].score).is_equal(12)
+	assert_bool(ScoreChips.chip_texts(steps[3]).is_empty()).is_false()
 
 
 func test_a_move_of_another_card_still_folds_the_score() -> void:
@@ -160,4 +167,3 @@ func test_a_move_of_another_card_still_folds_the_score() -> void:
 	assert_int(steps.size()).is_equal(2)
 	assert_int(steps[0].kind).is_equal(BoardStep.Kind.PULSE)
 	assert_int(steps[0].score).is_equal(12)
-

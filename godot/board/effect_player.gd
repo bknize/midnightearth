@@ -3,7 +3,7 @@ extends RefCounted
 ## Plays the walk and the effects on the table (R51, R53, plan P17, P18): the pulse lift,
 ## stats, destroy, move, return, discard, fizzle and the opponent's pick glowing. Also the card
 ## motions the board shares (flip, lift, sweep off, move between collections). It holds no
-## state of its own beyond the swap memo: the board hands in the collections and the id
+## state of its own: the board hands in the collections and the id
 ## dictionaries it owns (same objects, never reassigned).
 ##
 ## Every tween belongs to the card it moves, so a card freed mid-tween (a destroy, a new
@@ -12,8 +12,6 @@ extends RefCounted
 ## Shortest tween the collections are given, so a zero-length step never divides or stalls.
 const MIN_TWEEN_TIME: float = 0.01
 const REVEAL_LIFT: float = 0.8
-## "No previous move" for the swap memo.
-const NO_MOVE: Vector3i = Vector3i(-1, -1, -1)
 
 var player_hand: CardCollection3D = null
 var player_row: CardCollection3D = null
@@ -22,16 +20,14 @@ var opponent_hand: CardCollection3D = null
 var loose: Node3D = null
 var exit_marker: Node3D = null
 var cards: CardDb = null
+## The deck strip of a recover prompt (T10 sets it); null while there is none.
+var strip: CardCollection3D = null
 ## The board's zone-glow material, copied per card for CHOICE_SHOW (and T12's prompts).
 var glow_material: Material = null
 ## Seat 0's cards by instance id, committed ids, and ids lying face down (board-owned).
 var player_cards: Dictionary[int, BoardCard] = {}
 var committed_ids: Dictionary[int, bool] = {}
 var face_down_ids: Dictionary[int, bool] = {}
-
-## The last CARD_MOVED as (seat, from, to): the second half of a swap mirrors it.
-var _last_move: Vector3i = NO_MOVE
-
 
 # --- The walk ---------------------------------------------------------------------------
 
@@ -96,7 +92,7 @@ func fizzle(step: BoardStep) -> void:
 func stats(step: BoardStep) -> void:
 	var card: BoardCard = _find_in_row(step.seat, step.card, -1)
 	if card != null:
-		card.show_stats(step.flat, step.bonus)
+		card.show_stats(step.flat, step.times, step.plus)
 
 
 ## The card is marked in place (R26): dim, tilt and crack fade in; it stays on its row,
@@ -130,29 +126,79 @@ func burn_from_row(step: BoardStep) -> bool:
 	return true
 
 
-## The row slides to its new order. A swap is two steps: the first exchanges both cards, the
-## second (its mirror) only lifts its card.
+## The row slides to its new order in one re-layout: every card of the step goes from its row
+## index to its new one, the cards the step does not name keep their index.
 func move(step: BoardStep) -> void:
-	var mirrored: Vector3i = Vector3i(step.seat, step.slot, step.from_slot)
-	if _last_move == mirrored:
-		_last_move = NO_MOVE
-		var settled: BoardCard = _find_in_row(step.seat, step.card, step.slot)
-		if settled != null:
-			_lift_and_settle(settled, step.duration)
-		return
-	_last_move = Vector3i(step.seat, step.from_slot, step.slot)
 	var row: CardCollection3D = _row_of(step.seat)
-	var from: int = step.from_slot
-	var to: int = step.slot
-	if from == to or from < 0 or to < 0 or from >= row.cards.size() or to >= row.cards.size():
+	var order: Array[Card3D] = grouped_order(row.cards, step.from_slots, step.slots_to)
+	if order.is_empty():
 		return
-	var low: int = mini(from, to)
-	var high: int = maxi(from, to)
-	var low_card: Card3D = row.cards[low]
-	var high_card: Card3D = row.cards[high]
 	row.card_move_tween_duration = maxf(step.duration, MIN_TWEEN_TIME)
-	row.move_card(low_card, high)
-	row.move_card(high_card, low)
+	for i: int in range(order.size()):
+		if row.cards[i] != order[i]:
+			row.move_card(order[i], i)
+
+
+## The row order after a grouped move: the card at each `from` index lands at the matching `to`
+## index, the rest stay. Empty when an index is out of range or the targets collide.
+static func grouped_order(
+	current: Array[Card3D], from_slots: Array[int], to_slots: Array[int]
+) -> Array[Card3D]:
+	var order: Array[Card3D] = []
+	order.append_array(current)
+	var size: int = current.size()
+	if from_slots.size() != to_slots.size():
+		return []
+	var taken: Dictionary[int, bool] = {}
+	for i: int in range(from_slots.size()):
+		var from: int = from_slots[i]
+		var to: int = to_slots[i]
+		if from < 0 or to < 0 or from >= size or to >= size or taken.has(to):
+			return []
+		taken[to] = true
+		order[to] = current[from]
+	var seen: Dictionary[Card3D, bool] = {}
+	for card: Card3D in order:
+		seen[card] = true
+	if seen.size() != size:
+		return []
+	return order
+
+
+## A revealed card flips face down in its slot. The player keeps knowing it; the opponent's
+## becomes a plain back again.
+func unreveal(step: BoardStep) -> void:
+	var card: BoardCard = _find_in_row(step.seat, step.card, step.slot)
+	if card == null:
+		push_warning("Board: an unreveal found no card on seat %d's row" % step.seat)
+		return
+	flip_down(card, step.duration)
+	if step.seat == 0:
+		face_down_ids[step.card] = true
+		return
+	card.instance_id = -1
+	var wipe: Tween = card.create_tween()
+	var wait: IntervalTweener = wipe.tween_interval(maxf(step.duration, MIN_TWEEN_TIME))
+	var done: CallbackTweener = wipe.tween_callback(card.clear_def)
+	if wait == null or done == null:
+		card.clear_def()
+
+
+## A card leaves the deck strip for `seat`'s hand. With no strip card to fly (the strip is
+## not up, or the card is the opponent's hidden one) nothing moves here.
+func recover(step: BoardStep) -> void:
+	if strip == null:
+		return
+	var card: BoardCard = null
+	for candidate: Card3D in strip.cards:
+		var named: BoardCard = candidate as BoardCard
+		if named != null and named.instance_id == step.card:
+			card = named
+	if card == null:
+		return
+	if step.seat == 0:
+		player_cards[step.card] = card
+	move_card(card, strip, _hand_of(step.seat), step.duration, step.slot)
 
 
 ## The card flies to its owner's hand: face up for the player, face down for the opponent.
@@ -277,9 +323,12 @@ func _forget(id: int) -> void:
 	face_down_ids.erase(id)
 
 
-## Forgets the swap memo, for a new match.
+## Forgets the id books and the strip, for a new match or a table clear.
 func reset() -> void:
-	_last_move = NO_MOVE
+	player_cards.clear()
+	committed_ids.clear()
+	face_down_ids.clear()
+	strip = null
 
 
 # --- Card motions (shared with the board) --------------------------------------------------
@@ -314,11 +363,7 @@ func _sweep_off_row(seat: int, card: BoardCard, duration: float) -> void:
 ## Moves a card between collections, keeping its place on screen so the new layout tweens
 ## it over from there. `at` is the target index (a slot); negative appends.
 func move_card(
-	card: Card3D,
-	source: CardCollection3D,
-	target: CardCollection3D,
-	duration: float,
-	at: int = -1
+	card: Card3D, source: CardCollection3D, target: CardCollection3D, duration: float, at: int = -1
 ) -> void:
 	var index: int = source.cards.find(card)
 	if index < 0:

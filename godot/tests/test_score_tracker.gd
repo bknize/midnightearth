@@ -62,12 +62,12 @@ func test_held_never_changes_during_a_walk_and_the_tally_follows_pulses() -> voi
 	tracker.held.assign([5, 8])
 	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
 	assert_array(tracker.tally).is_equal([0, 0])
-	assert_array(tracker.tally_mults).is_equal([1, 1])
-	tracker.apply(_pulse(0, 3, 2))
-	tracker.apply(_pulse(1, 7, 3))
-	tracker.apply(_pulse(0, 9, 4))
+	assert_array(tracker.tally_mults).is_equal([100, 100])
+	tracker.apply(_pulse(0, 3, 200))
+	tracker.apply(_pulse(1, 7, 300))
+	tracker.apply(_pulse(0, 9, 400))
 	assert_array(tracker.tally).is_equal([9, 7])
-	assert_array(tracker.tally_mults).is_equal([4, 3])
+	assert_array(tracker.tally_mults).is_equal([400, 300])
 	assert_array(tracker.held).is_equal([5, 8])
 
 
@@ -87,7 +87,7 @@ func test_a_pulse_without_a_score_leaves_the_tally_alone() -> void:
 	# c12's reveal paused on its prompt: no CARD_SCORED yet, so the tally holds (R35).
 	var tracker: ScoreTracker = ScoreTracker.new()
 	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
-	tracker.apply(_pulse(0, 4, 2))
+	tracker.apply(_pulse(0, 4, 200))
 	var step: BoardStep = BoardStep.new()
 	step.kind = BoardStep.Kind.PULSE
 	step.seat = 0
@@ -95,25 +95,46 @@ func test_a_pulse_without_a_score_leaves_the_tally_alone() -> void:
 	step.score = -1
 	tracker.apply(step)
 	assert_array(tracker.tally).is_equal([4, 0])
-	assert_array(tracker.tally_mults).is_equal([2, 1])
+	assert_array(tracker.tally_mults).is_equal([200, 100])
 
 
 func test_turn_end_moves_the_total_into_held_and_clears_the_tally() -> void:
 	var tracker: ScoreTracker = ScoreTracker.new()
 	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
-	tracker.apply(_pulse(0, 4, 2))
+	tracker.apply(_pulse(0, 4, 200))
 	var end: BoardStep = _kind_step(BoardStep.Kind.TURN_END)
 	end.scores.assign([4, 6])
 	tracker.apply(end)
 	assert_array(tracker.held).is_equal([4, 6])
 	assert_array(tracker.tally).is_equal([0, 0])
-	assert_array(tracker.tally_mults).is_equal([1, 1])
+	assert_array(tracker.tally_mults).is_equal([100, 100])
 
 
 func test_clear_table_resets_held_and_the_tally() -> void:
 	var tracker: ScoreTracker = ScoreTracker.new()
 	tracker.held.assign([4, 6])
-	tracker.apply(_pulse(0, 4, 2))
+	tracker.apply(_pulse(0, 4, 200))
 	tracker.apply(_kind_step(BoardStep.Kind.CLEAR_TABLE))
 	assert_array(tracker.held).is_equal([0, 0])
 	assert_array(tracker.tally).is_equal([0, 0])
+
+
+func test_the_destroyed_piles_count_clears_and_recovers_and_reset_at_the_table_clear() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	var cleared: BoardStep = _kind_step(BoardStep.Kind.CLEAR_DESTROYED)
+	cleared.seat = 1
+	cleared.pile = true
+	tracker.apply(cleared)
+	tracker.apply(cleared)
+	assert_array(tracker.destroyed).is_equal([0, 2])
+	var recovered: BoardStep = _kind_step(BoardStep.Kind.RECOVER)
+	recovered.seat = 0
+	recovered.from_seat = 1
+	tracker.apply(recovered)
+	assert_array(tracker.destroyed).is_equal([0, 1])
+	var no_pile: BoardStep = _kind_step(BoardStep.Kind.CLEAR_DESTROYED)
+	no_pile.seat = 0
+	tracker.apply(no_pile)
+	assert_array(tracker.destroyed).is_equal([0, 1])
+	tracker.apply(_kind_step(BoardStep.Kind.CLEAR_TABLE))
+	assert_array(tracker.destroyed).is_equal([0, 0])

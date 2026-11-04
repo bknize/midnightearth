@@ -38,7 +38,8 @@ enum Kind {
 	DESTROY,
 	## A destroyed card flies off the exit side at turn end.
 	CLEAR_DESTROYED,
-	## A card moves between slots (`from_slot` to `slot`).
+	## One or more cards move between slots in one re-layout: `cards`, `from_slots`, `slots_to`
+	## (`card`, `from_slot` and `slot` name the first).
 	MOVE,
 	## A card returns to its owner's hand.
 	RETURN,
@@ -50,6 +51,14 @@ enum Kind {
 	ROUND_END,
 	## The match is over; `source` keeps the payload.
 	MATCH_END,
+	## A revealed card flips face down in its slot (CARD_UNREVEALED).
+	UNREVEAL,
+	## A card returns from a destroyed pile to `seat`'s hand (CARD_RECOVERED).
+	RECOVER,
+	## The deck strip of a recover prompt slides in.
+	STRIP_SHOW,
+	## The deck strip slides away.
+	STRIP_HIDE,
 }
 
 var kind: int = Kind.CLEAR_TABLE
@@ -60,14 +69,17 @@ var card: int = -1
 var def_index: int = -1
 var flat: int = 0
 var bonus: int = 0
+## The bonus as a hundredths multiplier (100 = none) and whole units added (STATS, PULSE).
+var times: int = 100
+var plus: int = 0
 ## Row index of the card (PULSE, DESTROY, RETURN, MOVE target); -1 when not named.
 var slot: int = -1
 var from_slot: int = -1
 ## PULSE: the card was already face up, so no flip. STATS and others leave it true.
 var revealed: bool = true
-## PULSE: the seat's multiplier, the points this pulse added and the seat's running score
-## (-1 when the engine sent no CARD_SCORED for the card).
-var mult: int = 1
+## PULSE: the seat's multiplier in hundredths (100 = x1.00), the points this pulse added and
+## the seat's running score (-1 when the engine sent no CARD_SCORED for the card).
+var mult: int = 100
 var added: int = 0
 var score: int = -1
 ## PULSE: the card was destroyed, so the step only flips it (no lift, no chips).
@@ -77,6 +89,14 @@ var again: bool = false
 ## PULSE: seconds after the step starts before its chips show: the flip time on a first
 ## reveal, so "×M" and "+N" rise once the card is face up; 0 for a revealed card (R31).
 var chip_delay: float = 0.0
+## MOVE: every moved card (instance id, -1 when hidden) with its row index before and after.
+var cards: Array[int] = []
+var from_slots: Array[int] = []
+var slots_to: Array[int] = []
+## CLEAR_DESTROYED: the card went into its owner's destroyed pile.
+var pile: bool = false
+## RECOVER: the seat the card came from.
+var from_seat: int = -1
 ## Cards committed (opponent and player commits).
 var count: int = 0
 ## Row slots of the committed cards (commits).

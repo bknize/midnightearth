@@ -16,13 +16,23 @@ const FONT_SIZE: int = 96
 const OUTLINE_SIZE: int = 24
 
 
+## The mult as text, two decimals, from hundredths: 156 reads "×1.56" (R45).
+static func mult_text(mult: int) -> String:
+	return "×%.2f" % (float(mult) / 100.0)
+
+
+## Whether the card's bonus changed the mult: a ×bonus other than x1.00, or a +bonus.
+static func has_bonus(step: BoardStep) -> bool:
+	return step.times != ScoreTracker.MULT_ONE or step.plus != 0
+
+
 ## The chip texts of a pulse step, in order: ["×M", "+N"], ["+N"], or [] (R31, R28).
 static func chip_texts(step: BoardStep) -> Array[String]:
 	var texts: Array[String] = []
 	if step.destroyed or step.score < 0:
 		return texts
-	if step.bonus != 0:
-		texts.append("×%d" % step.mult)
+	if has_bonus(step):
+		texts.append(mult_text(step.mult))
 	texts.append("+%d" % step.added)
 	return texts
 
@@ -42,7 +52,7 @@ func spawn(card: Node3D, step: BoardStep, speed: float) -> void:
 	var texts: Array[String] = chip_texts(step)
 	var divisor: float = speed if speed > 0.0 else 1.0
 	for i: int in range(texts.size()):
-		var is_mult: bool = step.bonus != 0 and i == 0
+		var is_mult: bool = has_bonus(step) and i == 0
 		var color: Color = MULT_COLOR if is_mult else seat_color(step.seat)
 		var delay: float = step.chip_delay + float(i) * CHIP_TIME / divisor
 		_chip(texts[i], color, card.global_position, delay, divisor)
