@@ -3,9 +3,15 @@ extends RefCounted
 ## The replayable action log (R31-R34, C3): a header with the log format, the rules
 ## version and the match seed, then every accepted action in order. Nothing derived.
 ##
-## JSON form (plan, data model):
+## JSON form (plan, action log format 2; R39):
 ## {"format": 2, "rules": 2, "seed": "9007199254740993",
-##  "actions": [{"k": "commit", "s": 0, "c": [3, 7]}, {"k": "concede", "s": 1}]}
+##  "actions": [{"k": "commit", "s": 0, "c": [3, 7], "p": [0, 1]},
+##              {"k": "choose", "s": 0, "z": 1, "i": 2}, {"k": "concede", "s": 1}]}
+##
+## Every logged commit carries explicit slots (`p`): the engine resolves the empty,
+## append-at-the-end default before it records the action. A format-1 log (commits
+## without `p`) still parses, and replay() fails it with FORMAT_MISMATCH, or with
+## RULES_MISMATCH when only its rules version is old (R40).
 ##
 ## The seed is a decimal string because JSON numbers lose precision above 2^53. Parsing
 ## accepts JSON numbers as int or as whole floats and casts them back to int. Malformed
