@@ -51,6 +51,7 @@ const FREE_SET: int = MatchEvent.Kind.FREE_FIRST_SET
 
 var _cached_db: CardDb = null
 var _cached_watcher_db: CardDb = null
+var _cached_swap_watcher_db: CardDb = null
 
 # --- Helpers --------------------------------------------------------------------------
 
@@ -79,6 +80,34 @@ func _watcher_db() -> CardDb:
 	}
 	_cached_watcher_db = CardDb.from_json(JSON.stringify(root))
 	return _cached_watcher_db
+
+
+## The default card list with two watchers (in-memory JSON, as _watcher_db): c02 swaps
+## places on an opponent's reveal (a prompt over its own row) and c03 draws 1. For the
+## watcher snapshot (DC-05 T13): a swap by one watcher reorders the row the others sit on.
+func _swap_watcher_db() -> CardDb:
+	if _cached_swap_watcher_db != null:
+		return _cached_swap_watcher_db
+	var text: String = FileAccess.get_file_as_string(CardDb.DEFAULT_PATH)
+	var parsed: Variant = JSON.parse_string(text)
+	var root: Dictionary = parsed
+	var entries: Array = root["cards"]
+	var swapper: Dictionary = entries[C02]
+	swapper["effect"] = {
+		"trigger": "on_opponent_reveal",
+		"verb": "swap_places",
+		"amount": 0,
+		"text": "When your opponent reveals a card, swap places with a card on your board.",
+	}
+	var drawer: Dictionary = entries[C03]
+	drawer["effect"] = {
+		"trigger": "on_opponent_reveal",
+		"verb": "draw",
+		"amount": 1,
+		"text": "When your opponent reveals a card, draw a card.",
+	}
+	_cached_swap_watcher_db = CardDb.from_json(JSON.stringify(root))
+	return _cached_swap_watcher_db
 
 
 func _typed(values: Array) -> Array[int]:
@@ -736,6 +765,69 @@ func test_on_opponent_reveal_needs_its_card_revealed_and_ignores_its_own_seat() 
 	assert_array(_kinds(events)).is_equal(expected)
 	assert_int(_payload_int(events[8], "card")).is_equal(theirs[2])
 	_assert_event(events[9], FIRED, _fired(0, watcher, "draw", "on_opponent_reveal"), PUBLIC)
+
+
+## Seat 0's revealed `row` of watchers and a vanilla card against one face-down seat-1
+## card, seat 1 first: its reveal fires seat 0's watchers. Walks live under
+## _swap_watcher_db, answering the swap's prompt with `answer`; returns the events.
+func _swap_watcher_walk(row: Array[int], answer: int) -> Array[MatchEvent]:
+	var cards: CardDb = _swap_watcher_db()
+	var state: MatchState = _state(row, _typed([_id(1, C08)]), 1)
+	_reveal(state, 0, row)
+	state.seats[0].deck.assign([_id(0, C11), _id(0, C07)])
+	var recorder: Recorder = Recorder.new()
+	ScoreWalk.begin(state)
+	var prompts: int = 0
+	var guard: int = 0
+	while state.walk.active and guard < MAX_STEPS:
+		if ScoreWalk.step(state, cards, null, recorder.record, null):
+			prompts += 1
+			# The snapshot and its next index wait in the walk state with the prompt.
+			assert_array(state.walk.paused_watchers).is_not_empty()
+			recorder.events.append_array(EffectResolver.answer(state, cards, answer))
+		guard += 1
+	assert_int(prompts).is_equal(1)
+	assert_array(state.walk.paused_watchers).is_empty()
+	return recorder.events
+
+
+## The watchers among `events`' EFFECT_FIRED, in firing order.
+func _fired_watchers(events: Array[MatchEvent]) -> Array[int]:
+	var out: Array[int] = []
+	for event: MatchEvent in _of_kind(events, FIRED):
+		var trigger: String = event.payload["trigger"]
+		if trigger == "on_opponent_reveal":
+			out.append(_payload_int(event, "card"))
+	return out
+
+
+## DC-05 T13: the swapper fires first and its swap moves the drawer to its left. With a
+## resume point looked up on the reordered row the drawer would be skipped; the snapshot
+## still fires it, once.
+func test_a_swap_by_a_watcher_does_not_skip_a_later_watcher() -> void:
+	var swapper: int = _id(0, C02)
+	var drawer: int = _id(0, C03)
+	var plain: int = _id(0, C04)
+	for answer: int in [1, 2]:
+		var events: Array[MatchEvent] = _swap_watcher_walk(_typed([swapper, drawer, plain]), answer)
+		var where: String = "answer %d" % answer
+		var order: Array[int] = _fired_watchers(events)
+		assert_array(order).override_failure_message(where).is_equal(_typed([swapper, drawer]))
+		assert_int(_of_kind(events, DRAWN).size()).override_failure_message(where).is_equal(1)
+
+
+## DC-05 T13: the drawer fires first, then the swapper's swap moves the drawer to its
+## right. A resume point looked up on the reordered row would fire the drawer again; the
+## snapshot is done after the swapper.
+func test_a_swap_by_a_watcher_does_not_fire_an_earlier_watcher_twice() -> void:
+	var swapper: int = _id(0, C02)
+	var drawer: int = _id(0, C03)
+	var plain: int = _id(0, C04)
+	var events: Array[MatchEvent] = _swap_watcher_walk(_typed([drawer, swapper, plain]), 0)
+	assert_array(_fired_watchers(events)).is_equal(_typed([drawer, swapper]))
+	assert_int(_of_kind(events, DRAWN).size()).is_equal(1)
+	var moved: Array[int] = _cards_of(events, MatchEvent.Kind.CARD_MOVED)
+	assert_array(moved).is_equal(_typed([swapper, drawer]))
 
 
 # --- Round boundaries (orchestrator decision) -----------------------------------------

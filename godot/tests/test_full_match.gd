@@ -298,16 +298,40 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 		for card: Variant in revealed.keys():
 			hidden_during.erase(card)
 		# Cards face up on the opponent's row before the step were public; the walk scores
-		# them by id even when a round end then shuffles them back into a hidden pile. A
-		# card still face down there (a walk paused on a prompt) stays hidden.
-		for card: int in _state_list(before, "revealed", opp):
-			hidden_during.erase(card)
+		# them by id even when a round end then shuffles them back into a hidden pile. Only
+		# the on-row kinds may name them (_may_name_public_card); a card still face down
+		# there (a walk paused on a prompt) stays hidden for every kind.
+		var public_before: Array[int] = _state_list(before, "revealed", opp)
 		for event: MatchEvent in result.events_for(seat):
 			if event.is_private() and event.owner_seat == opp:
 				run.redacted_seen += 1
+			var exempt: bool = _may_name_public_card(event)
 			for card: int in _event_card_ids(event):
-				if hidden_during.has(card):
-					run.leaks.append(where + ": event %d names hidden card %d" % [event.kind, card])
+				if not hidden_during.has(card):
+					continue
+				if exempt and public_before.has(card):
+					continue
+				run.leaks.append(where + ": event %d names hidden card %d" % [event.kind, card])
+
+
+## Whether `event` may name a card that was face up on the opponent's row before the step
+## and is hidden after it (DC-05 T13): the on-row kinds that report that card in public
+## (scored, revealed, stats, returned, a public burn), plus those the engine emits for a
+## face-up card in a walk that a round end, a destroy or a return then hides: an effect
+## firing (c06's flat-up, c05's carry), a choice (its source, or a face-up target such as
+## c17's), and a public destroy or move. Never a deal, draw, discard, commit or any other
+## private kind: those must not name a card that was public.
+func _may_name_public_card(event: MatchEvent) -> bool:
+	match event.kind:
+		MatchEvent.Kind.CARD_SCORED, MatchEvent.Kind.CARD_REVEALED:
+			return true
+		MatchEvent.Kind.STATS_CHANGED, MatchEvent.Kind.CARD_RETURNED:
+			return true
+		MatchEvent.Kind.EFFECT_FIRED, MatchEvent.Kind.CHOICE_MADE:
+			return true
+		MatchEvent.Kind.CARD_BURNED, MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.CARD_MOVED:
+			return not event.is_private()
+	return false
 
 
 func _record_end(run: MatchRun, result: ApplyResult) -> void:

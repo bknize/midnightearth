@@ -38,7 +38,9 @@ extends RefCounted
 ##   - SWAP_PLACES: the source and another card of the owner's row exchange slots: two
 ##     CARD_MOVED {seat, card, from_slot, to_slot}, the source's first. A face-down card's
 ##     move is private to its seat. The walk's `pulsed` set keeps either from pulsing twice.
-##   - SWITCH_STATS: toggles the target's CardState.switched: STATS_CHANGED (cause switch).
+##   - SWITCH_STATS: exchanges the target's current flat and bonus, flat-ups and the
+##     bonus-0 mark included (ScoreWalk.switch_stats; Ben's ruling 1a): STATS_CHANGED
+##     (cause switch).
 ##   - RETURN_AT_TURN_END: sets the target's CardState.return_marked; resolve_returns()
 ##     takes it back to its owner's hand at turn end, or burns it at the cap (R24, R25).
 ##   CHOICE_MADE {seat, card, zone, index, target, auto} is private to the seat holding the
@@ -212,8 +214,7 @@ static func apply_choice(
 		CardEffect.Verb.SWAP_PLACES:
 			out.append_array(_swap(state, holder, source, target))
 		CardEffect.Verb.SWITCH_STATS:
-			var held: CardState = state.card_state_for(target)
-			held.switched = not held.switched
+			ScoreWalk.switch_stats(target, state, cards)
 			out.append(_stats_changed(state, cards, holder, target, CAUSE_SWITCH))
 		CardEffect.Verb.RETURN_AT_TURN_END:
 			state.card_state_for(target).return_marked = true
