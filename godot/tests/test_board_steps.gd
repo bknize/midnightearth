@@ -426,6 +426,12 @@ func test_effect_event_steps_and_durations() -> void:
 			MatchEvent.Kind.CARD_DESTROYED,
 			{"seat": 1, "card": 25, "slot": 0},
 			BoardStep.Kind.DESTROY,
+			0.35,
+		],
+		[
+			MatchEvent.Kind.DESTROYED_CLEARED,
+			{"seat": 1, "card": 25, "slot": 0},
+			BoardStep.Kind.CLEAR_DESTROYED,
 			0.45,
 		],
 		[
