@@ -236,9 +236,11 @@ did not change, except R17 (spec C14).
   seed, so R12 holds bit for bit; at level 20 no push draw is taken.
 - **P17 overruns.** The greedy references are over the 10 ms budget by design (NSC-74), so
   the worker never exits 1 for an overrun: it counts `overruns_a` and `overruns_b`; a
-  gainer run fails when side a's 99th-percentile decision is 10 ms or more (C16, R41
-  amended; the overrun counts are printed, not decisive, since a parallel eval on all cores
-  overruns by OS contention); non-regression runs only report them. The binding latency check is the `make check` sweep (R17).
+  gainer run fails only on a rejected action or a replay mismatch; its `p99_us` and the
+  overrun counts are printed, not decisive, since a parallel eval on all cores overruns by OS
+  contention. The trainer judges the p99 afterwards with a quiet 50-seed sweep of the
+  candidate's weights (`SWEEP_WEIGHTS=<path> scripts/check.sh sweep`, one Godot process,
+  p99 under 10 ms; C16 follow-up, R41); non-regression runs only report overruns. The binding latency check is the `make check` sweep (R17).
 - **P19 zero variance.** Identical deterministic bots split every seat-swapped pair 1-1, so
   the sample variance is 0. After 100 such pairs the variance is floored at 1e-4; every
   sample with a variance is unchanged.

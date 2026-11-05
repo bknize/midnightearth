@@ -202,10 +202,9 @@ def eval_report(args: argparse.Namespace,
               % (agg["rejected"], agg["replay_mismatches"]), file=sys.stderr)
     reason = ""
     if args.gainer and result == "PASS":
-        # R41 as amended by C16: p99 of side a's decisions under the budget, not zero overruns
-        if agg["p99_us"] >= P99_BUDGET_US:
-            reason = " reason=p99"
-        elif agg["rejected"] > 0:
+        # R41 (C16 follow-up): p99_us is printed but not judged here; the trainer measures it
+        # in a quiet sweep of the candidate, since all-core contention inflates it.
+        if agg["rejected"] > 0:
             reason = " reason=rejected"
         elif agg["replay_mismatches"] > 0:
             reason = " reason=replay"
