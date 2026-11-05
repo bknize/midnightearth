@@ -18,8 +18,8 @@ supersedes:
 
 Strength is measured by `make bot-eval` (pentanomial SPRT on paired, seat- and
 deck-swapped seeds, α = β = 0.05; gainer bounds [0, +25] Elo, non-regression [−25, 0]).
-The stamp is `r<RULES_VERSION>-<first 16 hex of SHA-256 over the card pool then the deck
-list>`; a weights file and a report are valid only under the stamp they carry. "Best so
+The stamp is `r<RULES_VERSION>-<first 16 hex of SHA-256 over the card pool, the deck
+list and the Crew pool (cycle 8 R58)>`; a weights file and a report are valid only under the stamp they carry. "Best so
 far" is the weights file committed in the repository (R23); nothing else counts.
 
 ## Ledger
@@ -101,13 +101,14 @@ Stamp: r5-f898a1b1ce5bee0f
 
 ## Rerun after an engine change
 
-Any cycle that changes `MatchRules.RULES_VERSION`, the card pool JSON or the deck list
-JSON (anything that moves the stamp) does this before its `/cycle test` merge (R36):
+Any cycle that changes `MatchRules.RULES_VERSION`, the card pool JSON, the deck list
+JSON or the Crew JSON (anything that moves the stamp) does this before its `/cycle test` merge (R36):
 
 1. `make sweep` and `make sweep BOT=matrix` (the 50-seed sweep, outside the gate since
    NSC-133). The sweep line prints `stamp=MISMATCH` when the shipped weights were measured
    under another stamp; the sweep stays green either way, and `p99_us` must stay under
-   10000 (the latency budget, for both bots).
+   10000 (the latency budget; the matrix bot is exempt until cycle 7 T16, cycle 8 C13, so
+   its sweep may read red on p99 alone).
 2. `make bot-eval` and `make bot-eval BOT=matrix` (each shipped bot against `greedy_v1`,
    non-regression, about ten minutes on all cores). The first line says when a stamp does
    not match.

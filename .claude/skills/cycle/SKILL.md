@@ -87,7 +87,7 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
    `make sweep` (the 50-seed sweep, outside the gate since NSC-133) and paste its summary
    lines (`Sweep: ...`, the `Sweep pairing` lines, the `stamp=` and `p99_us=` fields).
 1b. Bot rerun provision (cycle 7 R36): if this cycle changed `RULES_VERSION`, the card
-   pool JSON or the deck list JSON, `make sweep` and `make sweep BOT=matrix` (the `stamp=`
+   pool JSON, the deck list JSON or the Crew JSON (anything that moves the stamp), `make sweep` and `make sweep BOT=matrix` (the `stamp=`
    and `p99_us=` fields; p99 under 10 ms), `make bot-eval` and `make bot-eval BOT=matrix`;
    on FAIL or `stamp=MISMATCH` run `make bot-train` (tuned) and `make bot-train BOT=matrix`,
    and commit the promoted weights on the cycle branch before the merge.
