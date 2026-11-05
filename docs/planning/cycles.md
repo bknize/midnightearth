@@ -2,7 +2,7 @@
 type: planning
 tags: [planning, cycles]
 status: growing
-related: ["[[planning/planning-moc]]", "[[specs/cycle-3-board-feedback/tasks]]", "[[specs/cycle-0-scaffolding/tasks]]", "[[specs/cycle-1-match-engine/tasks]]", "[[specs/cycle-1-match-engine/spec]]", "[[specs/cycle-2-board/tasks]]", "[[specs/cycle-4-card-effects/tasks]]", "[[specs/cycle-6-constructed-decks/tasks]]", "[[specs/cycle-7-bot-players/spec]]"]
+related: ["[[planning/planning-moc]]", "[[specs/cycle-3-board-feedback/tasks]]", "[[specs/cycle-0-scaffolding/tasks]]", "[[specs/cycle-1-match-engine/tasks]]", "[[specs/cycle-1-match-engine/spec]]", "[[specs/cycle-2-board/tasks]]", "[[specs/cycle-4-card-effects/tasks]]", "[[specs/cycle-6-constructed-decks/tasks]]", "[[specs/cycle-7-bot-players/spec]]", "[[planning/bot-ladder]]"]
 created: 2026-11-02
 updated: 2026-11-04
 uid: 9628b800-b6d2-4dc1-9e13-0d7d7932fe0b
@@ -13,6 +13,9 @@ supersedes:
 # Dev cycles
 
 One row per cycle. The acceptance criterion is always "buildable and testable".
+
+A cycle that changes the rules version, the card pool or the deck list also reruns the
+bot checks before its merge; the steps and every accepted bot are in [[planning/bot-ladder]].
 
 | Cycle | Theme | Branch | Issues | Started | Done | Outcome |
 |---|---|---|---|---|---|---|

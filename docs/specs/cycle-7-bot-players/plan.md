@@ -215,6 +215,30 @@ exit 0 pass | 1 fail | 2 cap or no promotion | 3 error
   promotion needs a pass against best-so-far too (R41).
 - **Golden line changes** → the orchestrator re-pins at milestone A's verification (R56).
 
+## Amendments during DC-08 (2026-11-04)
+
+Changes the run made to this plan, each recorded on its Linear issue. The requirements
+did not change.
+
+- **Waves.** Re-ordered so no task is written against a class that has not merged: W1
+  T01 + T08, W2 T02 + T03, W3 T04 + T06, W4 T05 + T07 + T09.
+- **P7.** T01 created a minimal `BotWeights` (fields and `defaults()`) so `BotPlayer`
+  compiles; T03 added `load`, `to_json`, validation and the stamp.
+- **P4 example.** Under the pulse rule [3, 2 +1, 4 ×1.25] bounds to 17, not 13 (13 only
+  comes out with the ×-part after the flat); [4 ×1.25, 2 +1, 3] is 15 as stated.
+- **P6 push.** As written, the formula lets a candidate far below the best win at level
+  0, against R14. Implemented: a candidate whose gap exceeds `push_unit` is never pushed;
+  otherwise `push = ⌊weakness·gap/128⌋ + ⌊spread·draw/128⌋`, one draw per candidate.
+- **P9 tie-breaks.** TunedBot reuses GreedyBot's own commit seed `[round, turn]` and prompt
+  seed, so R12 holds bit for bit; at level 20 no push draw is taken.
+- **P17 overruns.** The greedy references are over the 10 ms budget by design (NSC-74), so
+  the worker never exits 1 for an overrun: it counts `overruns_a` and `overruns_b`; a
+  gainer run fails when the bot under test overruns; non-regression runs only report
+  them. The binding latency check is the `make check` sweep (R17).
+- **P19 zero variance.** Identical deterministic bots split every seat-swapped pair 1-1, so
+  the sample variance is 0. After 100 such pairs the variance is floored at 1e-4; every
+  sample with a variance is unchanged.
+
 ## Open questions
 
 - None. Numbers in P6, P7, P20 and P21 are defaults the trainer and the verification may
