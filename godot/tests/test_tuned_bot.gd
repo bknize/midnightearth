@@ -167,7 +167,11 @@ func test_full_search_on_defaults_chooses_as_the_greedy_bot_on_ruin_and_drift() 
 	var pair: Array[String] = [FixtureDecks.RUIN_DECK_ID, FixtureDecks.DRIFT_DECK_ID]
 	for match_seed: int in range(1, R12_SHIPPED_SEEDS + 1):
 		var engine: MatchEngine = MatchEngine.create(
-			match_seed, CardDb.load_default(), DeckList.load_default(), pair
+			match_seed,
+			CardDb.load_default(),
+			DeckList.load_default(),
+			pair,
+			CrewPool.load_default()
 		)
 		if _compare_with_greedy(match_seed, engine).x < 0:
 			return
@@ -435,11 +439,12 @@ func test_engine_never_rejects_the_tuned_bot_over_four_decks() -> void:
 	var previews: int = 0
 	var pool: CardDb = CardDb.load_default()
 	var decks: DeckList = DeckList.load_default()
+	var crew: CrewPool = CrewPool.load_default()
 	var seeded: Array[String] = ["", ""]
 	var played: Dictionary[String, bool] = {}
 	for match_seed: int in range(1, MATCH_SEEDS + 1):
 		var engine: CountingEngine = CountingEngine.wrap(
-			MatchEngine.create(match_seed, pool, decks, seeded)
+			MatchEngine.create(match_seed, pool, decks, seeded, crew)
 		)
 		assert_bool(engine.start().ok).is_true()
 		for deck_id: String in engine.deck_ids():

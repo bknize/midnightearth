@@ -223,7 +223,11 @@ static func decks() -> DeckList:
 	var root: Dictionary = parsed
 	var listed: Array = root["decks"]
 	var echo: Dictionary = {
-		"id": DECK_ID, "name": "Echo", "theme": THEME, "cards": FixtureDecks.table_ids(TABLE)
+		"id": DECK_ID,
+		"name": "Echo",
+		"theme": THEME,
+		"cards": FixtureDecks.table_ids(TABLE),
+		"crew": ["shade", "lookout", "quartermaster"],  # The plan's Echo Crew (P12).
 	}
 	listed.append(echo)
 	return DeckList.from_json(JSON.stringify(root))
@@ -237,9 +241,9 @@ static func ids() -> Array[String]:
 
 ## The definitions of an Echo-vs-Echo match: instance id = seat * 20 + the E* index.
 static func defs() -> MatchCards:
-	return MatchCards.build(cards(), decks(), ids())
+	return MatchCards.build(cards(), decks(), ids(), FixtureDecks.crew())
 
 
 ## An Echo-vs-Echo match on `match_seed` (not started).
 static func engine(match_seed: int) -> MatchEngine:
-	return MatchEngine.create(match_seed, cards(), decks(), ids())
+	return MatchEngine.create(match_seed, cards(), decks(), ids(), FixtureDecks.crew())

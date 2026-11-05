@@ -59,7 +59,8 @@ var speed: float = NORMAL_SPEED
 var staging: Staging = Staging.new()
 
 var _cards: CardDb = null
-var _decks: DeckList = null
+var _decks: DeckList = DeckList.load_default()
+var _crew: CrewPool = CrewPool.load_default()  # Each deck's three Crew (cycle 8 R42).
 ## The ids of the running match ("" = the seeded pick); a rematch keeps them.
 var _deck_ids: Array[String] = ["", ""]
 var _autoplay: bool = false
@@ -134,7 +135,6 @@ func _ready() -> void:
 	if hud.confirm_pressed.connect(_on_confirm_pressed) != OK:
 		push_warning("Board: could not connect the confirm button")
 	_cards = CardDb.load_default()
-	_decks = DeckList.load_default()
 	if not _cards.is_valid():
 		push_error("Card data failed to load: %s" % _cards.load_error())
 		return
@@ -206,7 +206,7 @@ func start_match(new_seed: int, deck_ids: Array[String]) -> void:
 	_paused = false
 	_queue.clear()
 	_close_prompt()
-	driver = MatchDriver.create(new_seed, _cards, _decks, deck_ids, _autoplay, bot, level)
+	driver = MatchDriver.create(new_seed, _cards, _decks, deck_ids, _autoplay, bot, level, _crew)
 	if driver == null:
 		push_error("Board: cannot build bot '%s' at level %d" % [bot, level])
 		return

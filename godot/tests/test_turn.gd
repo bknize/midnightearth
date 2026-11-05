@@ -1,4 +1,4 @@
-# gdlint: disable=max-public-methods
+# gdlint: disable=max-public-methods,max-file-lines
 class_name TestTurn
 extends GdUnitTestSuite
 ## MatchEngine core flow: R3-R4 (entry point, run to the next decision), R9 (instance
@@ -524,7 +524,9 @@ func test_card_data_invalid_refuses_to_start() -> void:
 	_assert_rejected(engine, EngineAction.concede(0), EngineError.Code.NOT_STARTED)
 	var null_db: MatchEngine = FixtureDecks.engine(SEED, null)
 	assert_int(null_db.start().error).is_equal(EngineError.Code.CARD_DATA_INVALID)
-	var no_list: MatchEngine = MatchEngine.create(SEED, _db(), null, FixtureDecks.ids())
+	var no_list: MatchEngine = MatchEngine.create(
+		SEED, _db(), null, FixtureDecks.ids(), FixtureDecks.crew()
+	)
 	assert_int(no_list.start().error).is_equal(EngineError.Code.CARD_DATA_INVALID)
 
 
@@ -538,7 +540,9 @@ func test_unknown_deck_id_fails_start_with_deck_unknown() -> void:
 	for raw: Array in cases:
 		var ids: Array[String] = []
 		ids.assign(raw)
-		var engine: MatchEngine = MatchEngine.create(SEED, _db(), FixtureDecks.decks(), ids)
+		var engine: MatchEngine = MatchEngine.create(
+			SEED, _db(), FixtureDecks.decks(), ids, FixtureDecks.crew()
+		)
 		var before: Dictionary = engine.full_state()
 		var result: ApplyResult = engine.start()
 		var label: String = "ids %s" % [raw]
@@ -558,7 +562,9 @@ func test_deck_ids_resolve_and_open_the_match() -> void:
 	var decks: DeckList = FixtureDecks.decks()
 	var seeded: Array[String] = ["", ""]
 	for match_seed: int in [1, 2, 77]:
-		var engine: MatchEngine = MatchEngine.create(match_seed, _db(), decks, seeded)
+		var engine: MatchEngine = MatchEngine.create(
+			match_seed, _db(), decks, seeded, FixtureDecks.crew()
+		)
 		var expected: Array[String] = [
 			decks.seeded_pick(match_seed, 0), decks.seeded_pick(match_seed, 1)
 		]
@@ -984,3 +990,96 @@ func test_same_seed_and_actions_give_equal_states_and_events() -> void:
 
 func test_different_seeds_give_different_states() -> void:
 	assert_dict(_started(1).full_state()).is_not_equal(_started(2).full_state())
+
+
+# --- DC-11 T08: Crew (cycle 8 R42, R43, plan P12, P13) ----------------------------------
+
+
+## A Ruin-vs-Drift match over the in-memory Ruin and Drift decks (not started): seat 0 holds
+## salvager, veil, quartermaster; seat 1 navigator, veil, tallyman.
+func _crew_engine() -> MatchEngine:
+	var ids: Array[String] = [FixtureDecks.RUIN_DECK_ID, FixtureDecks.DRIFT_DECK_ID]
+	return MatchEngine.create(
+		SEED, FixtureDecks.drift_cards(), FixtureDecks.drift_decks(), ids, FixtureDecks.crew()
+	)
+
+
+func _crew_uses(engine: MatchEngine) -> Array:
+	var state: Dictionary = engine.full_state()
+	var raw: Array = state["crew_uses"]
+	return raw
+
+
+## Both seats' Crew ids of the Ruin-vs-Drift match, seat 0's first.
+func _ruin_drift_crew() -> Array:
+	return [["salvager", "veil", "quartermaster"], ["navigator", "veil", "tallyman"]]
+
+
+## MATCH_STARTED names both seats' Crew in slot order, seat 0's first, and is public.
+func test_match_started_names_both_seats_crew() -> void:
+	var engine: MatchEngine = _crew_engine()
+	var result: ApplyResult = engine.start()
+	assert_bool(result.ok).is_true()
+	if not result.ok:
+		return
+	var opened: MatchEvent = result.events[0]
+	assert_int(opened.kind).is_equal(MatchEvent.Kind.MATCH_STARTED)
+	assert_int(opened.owner_seat).is_equal(MatchEvent.PUBLIC)
+	var shown: Array = opened.payload["crew"]
+	assert_array(shown).is_equal(_ruin_drift_crew())
+	var fixture: ApplyResult = FixtureDecks.engine(SEED, _db()).start()
+	var first: MatchEvent = fixture.events[0]
+	var both: Array = first.payload["crew"]
+	var fixture_crew: Array = ["navigator", "gardener", "lookout"]
+	assert_array(both).is_equal([fixture_crew, fixture_crew])
+
+
+## A deck list checked against a missing or failed Crew pool refuses to start (R41).
+func test_no_crew_pool_refuses_to_start() -> void:
+	var engine: MatchEngine = MatchEngine.create(
+		SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), null
+	)
+	assert_int(engine.start().error).is_equal(EngineError.Code.CARD_DATA_INVALID)
+	var broken: MatchEngine = MatchEngine.create(
+		SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), CrewPool.from_json("{}")
+	)
+	assert_int(broken.start().error).is_equal(EngineError.Code.CARD_DATA_INVALID)
+
+
+## Round start gives every Crew its uses (-1 unlimited); the next round start resets a
+## per-round use and keeps a per-match one. The counts are in the full state and survive a
+## duplicate().
+func test_crew_uses_reset_per_round_and_keep_per_match() -> void:
+	var engine: MatchEngine = _crew_engine()
+	assert_bool(engine.start().ok).is_true()
+	var unlimited: int = CrewDef.UNLIMITED
+	assert_array(_crew_uses(engine)).is_equal([[1, 1, unlimited], [1, 1, unlimited]])
+	# Spend seat 0's Salvager (per round) and Veil (per match), and seat 1's Veil.
+	engine._state.crew_uses[0] = [0, 0, unlimited]
+	engine._state.crew_uses[1] = [1, 0, unlimited]
+	assert_dict(engine._state.duplicate().to_dict()).is_equal(engine.full_state())
+	for _step: int in range(2 * MatchRules.TURNS + 2):
+		if _state_int(engine, "round") > 1 or engine.is_over():
+			break
+		assert_bool(_pass(engine).ok).is_true()
+	assert_int(_state_int(engine, "round")).is_equal(2)
+	assert_array(_crew_uses(engine)).is_equal([[1, 0, unlimited], [1, 0, unlimited]])
+
+
+## Every view carries both seats' Crew and their uses, the same for either seat (public).
+func test_the_view_carries_both_seats_crew() -> void:
+	var engine: MatchEngine = _crew_engine()
+	assert_bool(engine.start().ok).is_true()
+	for seat: int in range(2):
+		var view: SeatView = engine.view_for(seat)
+		var crew: Array = []
+		crew.append_array(view.crew)
+		assert_array(crew).is_equal(_ruin_drift_crew())
+		var uses: Array = []
+		uses.append_array(view.crew_uses)
+		assert_array(uses).is_equal(_crew_uses(engine))
+		var shown: Dictionary = view.to_dict()
+		var held: Array = shown["crew"]
+		var shown_crew: Array = []
+		shown_crew.append_array(held)
+		assert_array(shown_crew).is_equal(_ruin_drift_crew())

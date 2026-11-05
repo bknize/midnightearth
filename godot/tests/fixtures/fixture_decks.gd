@@ -358,6 +358,13 @@ static func decks() -> DeckList:
 	return DeckList.load_from_path(DECKS_PATH)
 
 
+## The Crew pool the fixture decks name their Crew from (DC-11 T08, cycle 8 P12): the
+## shipped pool, the only one there is until a frozen Crew fixture lands. The fixture deck
+## lists navigator, gardener and lookout; the in-memory Ruin and Drift decks the plan's.
+static func crew() -> CrewPool:
+	return CrewPool.load_default()
+
+
 ## The fixture deck on both seats.
 static func ids() -> Array[String]:
 	var out: Array[String] = [DECK_ID, DECK_ID]
@@ -367,13 +374,13 @@ static func ids() -> Array[String]:
 ## A match on `match_seed` with the fixture deck on both seats over `pool` (the fixture
 ## pool, or a suite's edited copy of it holding the same ids).
 static func engine(match_seed: int, pool: CardDb) -> MatchEngine:
-	return MatchEngine.create(match_seed, pool, decks(), ids())
+	return MatchEngine.create(match_seed, pool, decks(), ids(), crew())
 
 
 ## The definitions of a fixture-vs-fixture match over `pool`, for the engine modules that
 ## take MatchCards (ScoreWalk, EffectResolver, LegalPlays, SeatView, GreedyBot).
 static func defs(pool: CardDb) -> MatchCards:
-	return MatchCards.build(pool, decks(), ids())
+	return MatchCards.build(pool, decks(), ids(), crew())
 
 
 ## The fixture pool with definition `index` given the effect {trigger, verb, amount 0,
@@ -458,10 +465,19 @@ static func ruin_decks() -> DeckList:
 		return null
 	var root: Dictionary = parsed
 	var listed: Array = root["decks"]
-	listed.append(
-		{"id": RUIN_DECK_ID, "name": "Ruin", "theme": RUIN_THEME, "cards": ruin_card_ids()}
-	)
+	listed.append(ruin_deck())
 	return DeckList.from_json(JSON.stringify(root))
+
+
+## The in-memory Ruin deck entry, with the plan's three Crew (cycle 8 P12).
+static func ruin_deck() -> Dictionary:
+	return {
+		"id": RUIN_DECK_ID,
+		"name": "Ruin",
+		"theme": RUIN_THEME,
+		"cards": ruin_card_ids(),
+		"crew": ["salvager", "veil", "quartermaster"],
+	}
 
 
 ## The Ruin deck on both seats.
@@ -472,12 +488,12 @@ static func ruin_ids() -> Array[String]:
 
 ## The definitions of a Ruin-vs-Ruin match: instance id = seat * 20 + the R* index.
 static func ruin_defs() -> MatchCards:
-	return MatchCards.build(ruin_cards(), ruin_decks(), ruin_ids())
+	return MatchCards.build(ruin_cards(), ruin_decks(), ruin_ids(), crew())
 
 
 ## A Ruin-vs-Ruin match on `match_seed` (not started).
 static func ruin_engine(match_seed: int) -> MatchEngine:
-	return MatchEngine.create(match_seed, ruin_cards(), ruin_decks(), ruin_ids())
+	return MatchEngine.create(match_seed, ruin_cards(), ruin_decks(), ruin_ids(), crew())
 
 
 ## Sets both rows of the started `engine` by hand (`own` for seat 0, `theirs` for seat 1;
@@ -525,11 +541,13 @@ static func drift_decks() -> DeckList:
 		return null
 	var root: Dictionary = parsed
 	var listed: Array = root["decks"]
-	listed.append(
-		{"id": RUIN_DECK_ID, "name": "Ruin", "theme": RUIN_THEME, "cards": ruin_card_ids()}
-	)
+	listed.append(ruin_deck())
 	var drift: Dictionary = {
-		"id": DRIFT_DECK_ID, "name": "Drift", "theme": DRIFT_THEME, "cards": table_ids(DRIFT_TABLE)
+		"id": DRIFT_DECK_ID,
+		"name": "Drift",
+		"theme": DRIFT_THEME,
+		"cards": table_ids(DRIFT_TABLE),
+		"crew": ["navigator", "veil", "tallyman"],
 	}
 	listed.append(drift)
 	return DeckList.from_json(JSON.stringify(root))
@@ -543,9 +561,9 @@ static func drift_ids() -> Array[String]:
 
 ## The definitions of a Drift-vs-Drift match: instance id = seat * 20 + the D* index.
 static func drift_defs() -> MatchCards:
-	return MatchCards.build(drift_cards(), drift_decks(), drift_ids())
+	return MatchCards.build(drift_cards(), drift_decks(), drift_ids(), crew())
 
 
 ## A Drift-vs-Drift match on `match_seed` (not started).
 static func drift_engine(match_seed: int) -> MatchEngine:
-	return MatchEngine.create(match_seed, drift_cards(), drift_decks(), drift_ids())
+	return MatchEngine.create(match_seed, drift_cards(), drift_decks(), drift_ids(), crew())

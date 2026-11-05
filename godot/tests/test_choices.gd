@@ -1,4 +1,4 @@
-# gdlint: disable=max-public-methods
+# gdlint: disable=max-public-methods, max-file-lines
 class_name TestChoices
 extends GdUnitTestSuite
 ## Prompts and choices (DC-05 T05; R20, R24-R26, R28-R34, R39, plan P3, P9, P10): Choice's
@@ -837,7 +837,9 @@ func _preview_is_exact(engine: MatchEngine) -> bool:
 ## when the replay or a choice fails or no turn ends.
 func _live_walk_end(logged: String, seat: int, zone: int, option: int) -> Array[int]:
 	var none: Array[int] = []
-	var replayed: ReplayResult = ActionLog.from_json(logged).replay(_db(), FixtureDecks.decks())
+	var replayed: ReplayResult = ActionLog.from_json(logged).replay(
+		_db(), FixtureDecks.decks(), FixtureDecks.crew()
+	)
 	if not replayed.ok:
 		return none
 	var live: MatchEngine = replayed.engine
@@ -872,7 +874,7 @@ func test_a_log_with_a_choice_replays_to_an_equal_state() -> void:
 		return
 	# Replay of the paused match reaches the same open prompt.
 	var paused: ReplayResult = ActionLog.from_json(engine.action_log().to_json()).replay(
-		_db(), FixtureDecks.decks()
+		_db(), FixtureDecks.decks(), FixtureDecks.crew()
 	)
 	assert_bool(paused.ok).is_true()
 	assert_dict(paused.engine.full_state()).is_equal(engine.full_state())
@@ -882,7 +884,9 @@ func test_a_log_with_a_choice_replays_to_an_equal_state() -> void:
 	var text: String = engine.action_log().to_json()
 	var entry: String = '{"k":"choose","s":%d,"z":%d,"i":3}' % [asked, Choice.Zone.OWN_HAND]
 	assert_bool(text.contains(entry)).override_failure_message(text).is_true()
-	var replayed: ReplayResult = ActionLog.from_json(text).replay(_db(), FixtureDecks.decks())
+	var replayed: ReplayResult = ActionLog.from_json(text).replay(
+		_db(), FixtureDecks.decks(), FixtureDecks.crew()
+	)
 	assert_bool(replayed.ok).is_true()
 	assert_dict(replayed.engine.full_state()).is_equal(engine.full_state())
 	assert_str(replayed.engine.action_log().to_json()).is_equal(text)

@@ -53,7 +53,9 @@ func _engine(match_seed: int) -> PairEngine:
 		_pool = CardDb.load_default()
 		_decks = DeckList.load_default()
 	var seeded: Array[String] = ["", ""]
-	var real: MatchEngine = MatchEngine.create(match_seed, _pool, _decks, seeded)
+	var real: MatchEngine = MatchEngine.create(
+		match_seed, _pool, _decks, seeded, CrewPool.load_default()  # The shipped Crew.
+	)
 	var engine: PairEngine = PairEngine.wrap(real)
 	assert_bool(engine.start().ok).is_true()
 	return engine

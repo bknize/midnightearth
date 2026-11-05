@@ -17,6 +17,7 @@ const BOT_LEVEL_ARG: String = "--bot-level="
 
 var _cards: CardDb = null
 var _decks: DeckList = null
+var _crew: CrewPool = null
 var _board_scene: PackedScene = null
 var _picker_scene: PackedScene = null
 var _board: Board = null
@@ -29,13 +30,7 @@ var _bot_level: int = BotPlayer.FULL_LEVEL
 
 
 func _ready() -> void:
-	_cards = CardDb.load_default()
-	if not _cards.is_valid():
-		push_error("Card data failed to load: %s" % _cards.load_error())
-		return
-	_decks = DeckList.load_default()
-	if not _decks.is_valid():
-		push_error("Deck list failed to load: %s" % _decks.load_error())
+	if not _load_data():
 		return
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	if not _read_bot_args(args):
@@ -77,6 +72,25 @@ func _ready() -> void:
 	else:
 		_show_picker([_decks.seeded_pick(_seed, 0), _decks.seeded_pick(_seed, 1)])
 	print("Main ready")
+
+
+## Loads the card pool, the deck list and the Crew pool and checks the decks against both
+## pools (cycle 8 R41). Returns false after a push_error that names the first failure.
+func _load_data() -> bool:
+	_cards = CardDb.load_default()
+	if not _cards.is_valid():
+		push_error("Card data failed to load: %s" % _cards.load_error())
+		return false
+	_decks = DeckList.load_default()
+	if not _decks.is_valid():
+		push_error("Deck list failed to load: %s" % _decks.load_error())
+		return false
+	_crew = CrewPool.load_default()
+	var deck_problem: String = _decks.validate(_cards, _crew)
+	if deck_problem != "":
+		push_error("Crew or deck data failed to load: %s" % deck_problem)
+		return false
+	return true
 
 
 ## Reads --bot=<name> and --bot-level=<0..20> (R4: default tuned at 20). Returns false after
@@ -156,7 +170,9 @@ func _on_decks_requested() -> void:
 ## Returns false after a push_error: a rejected action, the action cap or a start failure.
 func _run_smoke(cards: CardDb) -> bool:
 	var seeded: Array[String] = ["", ""]
-	var engine: MatchEngine = MatchEngine.create(SMOKE_SEED, cards, DeckList.load_default(), seeded)
+	var engine: MatchEngine = MatchEngine.create(
+		SMOKE_SEED, cards, DeckList.load_default(), seeded, _crew
+	)
 	var started: ApplyResult = engine.start()
 	if not started.ok:
 		push_error("Engine smoke: start rejected, code %d" % started.error)

@@ -67,6 +67,9 @@ const VIEW_KEYS: Array[String] = [
 	"first_seat",
 	"sudden_death",
 	"prompt",
+	# DC-11 T08 (cycle 8 R42, R43): both seats' Crew and their uses, public.
+	"crew",
+	"crew_uses",
 ]
 ## Full-state keys that carry what the views omit.
 const HIDDEN_STATE_KEYS: Array[String] = ["seed", "rng_state", "deck", "hand", "pending", "burned"]
@@ -437,8 +440,9 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.CARD_DISCARDED:
 			keys = ["seat", "card"]
 		MatchEvent.Kind.MATCH_STARTED:
-			# DC-07: the deck ids only; the seed would predict every shuffle.
-			keys = ["decks"]
+			# DC-07: the deck ids only; the seed would predict every shuffle. DC-11 T08
+			# (cycle 8 R42): both seats' Crew ids.
+			keys = ["decks", "crew"]
 	return keys
 
 

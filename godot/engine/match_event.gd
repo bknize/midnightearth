@@ -41,8 +41,9 @@ enum Kind {
 	# DC-06 (cycle-5-walk-cursor plan, event table). Appended so earlier ordinals hold.
 	DESTROYED_CLEARED,
 	# DC-07 (cycle-6-constructed-decks plan, event table). Appended so earlier ordinals hold.
-	## The first event of start(): {decks: [seat 0's deck id, seat 1's]}. Public (R5); it
-	## carries no seed, which would predict every shuffle (R28, R29).
+	## The first event of start(): {decks: [seat 0's deck id, seat 1's], crew: [seat 0's
+	## three Crew ids, seat 1's] (cycle 8 R42, plan P12)}. Public (R5); it carries no seed,
+	## which would predict every shuffle (R28, R29).
 	MATCH_STARTED,
 	## A card left a destroyed pile for a hand (DC-07 R19, T04): {seat: its new controller,
 	## card, from_seat: the pile's seat, position: its index in that pile}. Public when the

@@ -386,7 +386,7 @@ func _assert_deck(deck_id: String, deck_name: String, theme: String) -> void:
 func test_both_decks_load_with_twenty_distinct_ids() -> void:
 	assert_bool(_cards().is_valid()).override_failure_message(_cards().load_error()).is_true()
 	assert_bool(_decks().is_valid()).override_failure_message(_decks().load_error()).is_true()
-	assert_str(_decks().validate(_cards())).is_empty()
+	assert_str(_decks().validate(_cards(), CrewPool.load_default())).is_empty()
 	assert_array(_decks().ids()).is_equal(SHIPPED)
 	_assert_deck(RUIN, "Ruin", RUIN_THEME)
 	_assert_deck(DRIFT, "Drift", DRIFT_THEME)
@@ -411,10 +411,11 @@ func test_the_fixture_is_not_shipped() -> void:
 
 ## Every deck can be played: a match on each of the sixteen pairings starts.
 func test_every_pairing_starts() -> void:
+	var crew: CrewPool = CrewPool.load_default()
 	for first: String in SHIPPED:
 		for second: String in SHIPPED:
 			var pair: Array[String] = [first, second]
-			var engine: MatchEngine = MatchEngine.create(1, _cards(), _decks(), pair)
+			var engine: MatchEngine = MatchEngine.create(1, _cards(), _decks(), pair, crew)
 			var result: ApplyResult = engine.start()
 			assert_bool(result.ok).override_failure_message("%s/%s" % [first, second]).is_true()
 			assert_array(engine.deck_ids()).is_equal(pair)
