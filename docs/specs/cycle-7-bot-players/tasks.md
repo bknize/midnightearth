@@ -6,7 +6,7 @@ related: ["[[specs/cycle-7-bot-players/spec]]", "[[specs/cycle-7-bot-players/pla
 created: 2026-11-04
 updated: 2026-11-04
 uid: 27b7fad5-c575-47db-a846-43c4dbc1e707
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
 ---
 
@@ -100,13 +100,23 @@ Owned by the orchestrator, on `cycle-7b-bot-players`.
 - [ ] The calibration table is in the ledger (R55).
 - [ ] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new.
 
-## Linear
+## Linear (exercised 2026-11-04)
 
-Filled by `/exercise cycle-7-bot-players`. Empty until then.
+- Project: [Cycle 7 — bot players](https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83) (P-NSC-8, state Planned)
+- Milestones: created at `/cycle plan`, one per cycle: A `DC-NN bot-players` (T01–T11), B `DC-NN bot-training` (T12–T18)
+- Issue mapping: task n is issue NSC-(99 + n); all in Todo, `blockedBy` set from the Depends column
 
-- Project: <URL>
-- Milestones: A `DC-NN bot-players` (T01–T11), B `DC-NN bot-training` (T12–T18)
-- Issue mapping: task n is issue <KEY-m>
+| Task | Issue | Task | Issue |
+|---|---|---|---|
+| T01 | NSC-100 | T10 | NSC-109 |
+| T02 | NSC-101 | T11 | NSC-110 |
+| T03 | NSC-102 | T12 | NSC-111 |
+| T04 | NSC-103 | T13 | NSC-112 |
+| T05 | NSC-104 | T14 | NSC-113 |
+| T06 | NSC-105 | T15 | NSC-114 |
+| T07 | NSC-106 | T16 | NSC-115 |
+| T08 | NSC-107 | T17 | NSC-116 |
+| T09 | NSC-108 | T18 | NSC-117 |
 
 ## Commit plan
 

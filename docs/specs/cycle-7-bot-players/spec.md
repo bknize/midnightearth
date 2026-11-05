@@ -6,7 +6,7 @@ related: ["[[specs/cycle-7-bot-players/plan]]", "[[specs/cycle-7-bot-players/tas
 created: 2026-11-04
 updated: 2026-11-04
 uid: 9586d342-7d13-4094-b199-d93b9f7d6a9a
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
 ---
 
