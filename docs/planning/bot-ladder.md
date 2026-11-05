@@ -46,8 +46,8 @@ JSON (anything that moves the stamp) does this before its `/cycle test` merge (R
 4. If an engine API change forced an edit to `greedy_v1`, list the edit in its row's note.
 5. Add a row here and put the `bot-eval` line in the cycle's row of [[planning/cycles]].
 
-Milestone B (`make bot-train`, `make bot-calibrate`, the matrix bot) lands as DC-09;
-until then step 3 cannot run, and a FAIL is recorded as a follow-up issue instead.
+Milestone B (`make bot-train`, `make bot-calibrate`, the matrix bot) lands as DC-10, after cycle 8
+milestone A as DC-09 (Ben, [[specs/cycle-8-ramp-bounce-crew/spec]] C12); until then step 3 cannot run, and a FAIL is recorded as a follow-up issue instead.
 
 ## Related
 
