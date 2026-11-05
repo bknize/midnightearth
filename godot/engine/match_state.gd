@@ -50,6 +50,11 @@ var actions_applied: int = 0
 ## Per-instance modifiers of cards on the rows (plan, MatchState additions), by instance
 ## id. Cleared at round start and whenever a card leaves the board (clear_card_state).
 var card_states: Dictionary[int, CardState] = {}
+## Per-instance memory for the match (cycle 8 R2, plan P2), by instance id: what persisting
+## abilities gave a card, in every zone. Never cleared at round start or when a card leaves
+## the board; starts empty only when a match is created. Read by ScoreWalk.effective(),
+## ScoreWalk.effective_cost() and the uses check only.
+var memory: Dictionary[int, CardMemory] = {}
 ## The score walk's resumable progress (plan P3), driven by ScoreWalk.
 var walk: WalkState = WalkState.new()
 ## Per seat that will suffer it: the no-bonus mark (R22; DC-07 R14, CardState.no_bonus).
@@ -114,6 +119,7 @@ func to_dict() -> Dictionary:
 		"result": result.duplicate(true),
 		"actions_applied": actions_applied,
 		"card_states": _card_states_dict(),
+		"memory": _memory_dict(),
 		"walk": walk.to_dict(),
 		"bonus_zero_pending": _plain_flags(bonus_zero_pending),
 		"prompt": prompt.duplicate(true),
@@ -146,6 +152,9 @@ func duplicate() -> MatchState:
 	for card: int in card_states:
 		var held: CardState = card_states[card]
 		out.card_states[card] = held.copy()
+	for card: int in memory:
+		var kept: CardMemory = memory[card]
+		out.memory[card] = kept.copy()
 	out.walk = walk.copy()
 	out.bonus_zero_pending.assign(bonus_zero_pending)
 	out.prompt = prompt.duplicate(true)
@@ -164,6 +173,21 @@ func card_state_for(card: int) -> CardState:
 	if not card_states.has(card):
 		card_states[card] = CardState.new()
 	return card_states[card]
+
+
+## `card`'s memory (cycle 8 P2), or null when no ability has given it one. Readers use this,
+## so reading never creates an entry.
+func memory_of(card: int) -> CardMemory:
+	if memory.has(card):
+		return memory[card]
+	return null
+
+
+## `card`'s memory, created at its defaults when it has none: the writers' call (P2).
+func memory_for(card: int) -> CardMemory:
+	if not memory.has(card):
+		memory[card] = CardMemory.new()
+	return memory[card]
 
 
 ## Drops `card`'s modifiers: call whenever the card leaves the board. True when it had any.
@@ -226,6 +250,15 @@ func _card_states_dict() -> Dictionary:
 	for card: int in card_states:
 		var held: CardState = card_states[card]
 		out[card] = held.to_dict()
+	return out
+
+
+## The memory as plain data, keyed by instance id (cycle 8 P2: `"memory": {id: {...}}`).
+func _memory_dict() -> Dictionary:
+	var out: Dictionary = {}
+	for card: int in memory:
+		var kept: CardMemory = memory[card]
+		out[card] = kept.to_dict()
 	return out
 
 
@@ -352,7 +385,8 @@ class EnergyState:
 ## resume scores whatever card holds that slot. With them, the ScoreWalk.Stage to resume at
 ## and, for the WATCHERS stage, the watcher snapshot (the on-opponent-reveal cards in row
 ## order when the stage first ran; empty when it has not run yet) and the snapshot index it
-## goes on from (DC-05 T05, T13).
+## goes on from (DC-05 T05, T13); for the ALLY_WATCHERS stage the same two fields hold that
+## stage's snapshot (the revealing seat's other on-ally-reveal cards) and index (cycle 8 P5).
 class WalkState:
 	extends RefCounted
 

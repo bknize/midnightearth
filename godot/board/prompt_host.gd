@@ -272,8 +272,26 @@ func _open_strip(view: SeatView) -> void:
 	if driver != null:
 		def_of = driver.match_cards().def_of
 	strip.show(
-		strip_parent, entries, options, spawn, def_of, glow_material, _on_strip_choice, 0.25, piles
+		strip_parent,
+		entries,
+		options,
+		spawn,
+		def_of,
+		glow_material,
+		_on_strip_choice,
+		0.25,
+		piles,
+		_pile_entry.bind(view)
 	)
+
+
+## The view's entry of a pile card (cost, stats, grown), or an empty dictionary.
+static func _pile_entry(id: int, view: SeatView) -> Dictionary:
+	var found: Variant = view.pile_entries.get(id, {})
+	if found is Dictionary:
+		var entry: Dictionary = found
+		return entry
+	return {}
 
 
 func _on_strip_choice(index: int) -> void:

@@ -212,6 +212,7 @@ func start_match(new_seed: int, deck_ids: Array[String]) -> void:
 		return
 	_deck_ids = driver.deck_ids()
 	_fx.match_cards = driver.match_cards()
+	_fx.view_source = driver.view
 	_prompt.driver = driver
 	_clear_table_now()
 	hud.show_pause(false)
@@ -390,6 +391,7 @@ func _end_wait() -> void:
 
 func _apply(step: BoardStep) -> void:
 	_fx.note_step(step)
+	staging.clear_view_costs()
 	_tracker.apply(step)
 	hud.set_destroyed(_tracker.destroyed)
 	match step.kind:
@@ -706,9 +708,7 @@ func _card_played(card: Object) -> bool:
 ## The cost of a card instance, from the match's own definitions (the seats' decks differ).
 func _cost_of(id: int) -> int:
 	var def: CardDef = driver.match_cards().def_of(id)
-	if def == null:
-		return 0
-	return def.cost
+	return staging.cached_cost(id, driver.view, 0 if def == null else def.cost)
 
 
 ## Commit is on only while the player may act (R18); the label follows the staging (R16).

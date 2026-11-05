@@ -11,7 +11,7 @@ extends RefCounted
 ## targets pauses it on a prompt, phase AWAIT_CHOICE, until apply(CHOOSE) from the prompted
 ## seat resumes it, DC-05 T05; a multi-select prompt, DC-07 P7, opens even for one target
 ## and is answered by apply(CHOOSE_SET) instead) -> _end_turn() (return marks, destroyed
-## cards, energy) -> next _begin_turn(), or after turn 7 _end_round() ->
+## cards, the echo flip, energy) -> next _begin_turn(), or after turn 7 _end_round() ->
 ## _after_round(), which either ends the match (R20-R22) or begins the next round.
 ## Concede goes straight to _end_match().
 ##
@@ -174,7 +174,8 @@ func preview(seat: int, action: EngineAction) -> Array[int]:
 	var piles: MatchState.SeatPiles = clone.seats[seat]
 	for card: int in cards:
 		piles.hand.erase(card)
-	var cost: int = LegalPlays.commit_cost(cards, clone.energy.free_first[seat], _cards)
+	var costs: Array[int] = ScoreWalk.effective_costs(cards, clone, _cards)
+	var cost: int = LegalPlays.commit_cost_with(cards, costs, clone.energy.free_first[seat])
 	clone.energy.spent[seat] = maxi(cost, 0)
 	clone.energy.free_first[seat] = false
 	_hide_opponent(clone, seat)
@@ -371,20 +372,21 @@ func _check_set(action: EngineAction) -> int:
 	return EngineError.Code.NONE
 
 
-## A well-formed commit: the awaited seat, then LegalPlays.validate. While a prompt is
-## open the engine awaits a choice, so every commit fails with WRONG_SEAT.
+## A well-formed commit: the awaited seat, then LegalPlays.validate_with over the hand's
+## effective costs (cycle 8 R4, P3). While a prompt is open the engine awaits a choice, so
+## every commit fails with WRONG_SEAT.
 func _check_commit(action: EngineAction) -> int:
 	if _state.phase == MatchState.Phase.AWAIT_CHOICE or action.seat != awaited_seat():
 		return EngineError.Code.WRONG_SEAT
 	var piles: MatchState.SeatPiles = _state.seats[action.seat]
-	return LegalPlays.validate(
+	return LegalPlays.validate_with(
 		action.cards,
 		_resolved_slots(action),
 		piles.hand,
+		ScoreWalk.effective_costs(piles.hand, _state, _cards),
 		piles.board.size(),
 		budget_for(action.seat),
-		_state.energy.free_first[action.seat],
-		_cards
+		_state.energy.free_first[action.seat]
 	)
 
 
@@ -431,6 +433,7 @@ func _begin_round() -> void:
 	_state.pending_slots.clear()
 	# The boards clear, so every card leaves them: their modifiers go too (plan, card_states).
 	_state.card_states.clear()
+	# Card memory is for the match (cycle 8 R2, P2): `_state.memory` is kept.
 	_state.walk = MatchState.WalkState.new()
 	_state.prompt = {}
 	# Effects do not reach across rounds (see the class comment).
@@ -569,7 +572,10 @@ func _commit(seat: int, cards: Array[int], slots: Array[int]) -> void:
 	var piles: MatchState.SeatPiles = _state.seats[seat]
 	for card: int in committed:
 		piles.hand.erase(card)
-	var cost: int = LegalPlays.commit_cost(committed, _state.energy.free_first[seat], _cards)
+	# Effective costs (cycle 8 R4, P3): memory follows the card, so leaving the hand first
+	# changes nothing.
+	var costs: Array[int] = ScoreWalk.effective_costs(committed, _state, _cards)
+	var cost: int = LegalPlays.commit_cost_with(committed, costs, _state.energy.free_first[seat])
 	_state.energy.spent[seat] = maxi(cost, 0)
 	_state.energy.free_first[seat] = false
 	_emit(
@@ -683,7 +689,8 @@ func _prompt_seat() -> int:
 ## first (EffectResolver.resolve_returns: each marked card goes back to its owner's hand,
 ## or burns at the cap; a destroyed card is skipped), then the destroyed cards leave their
 ## rows for their seat's destroyed pile (EffectResolver.clear_destroyed, DC-06 R18, P6;
-## DC-07 R16), then per-seat
+## DC-07 R16), then every revealed live card carrying the ongoing turn-end flip turns face
+## down in its slot (EffectResolver.flip_echoes, cycle 8 R18, P6), then per-seat
 ## energy is settled (EffectResolver.settle_energy: a revealed carry card on the row
 ## carries `budget - spent`, else the carry is 0, so a returned or destroyed carry card
 ## carries nothing); then the scores are the walk totals and the higher one wins the turn,
@@ -691,6 +698,7 @@ func _prompt_seat() -> int:
 func _end_turn() -> void:
 	_events.append_array(EffectResolver.resolve_returns(_state))
 	_events.append_array(EffectResolver.clear_destroyed(_state))
+	_events.append_array(EffectResolver.flip_echoes(_state, _cards))
 	_events.append_array(EffectResolver.settle_energy(_state, _cards))
 	var winner: int = _leader()
 	_state.last_turn_winner = winner

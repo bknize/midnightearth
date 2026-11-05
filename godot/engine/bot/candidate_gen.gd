@@ -19,14 +19,24 @@ extends RefCounted
 
 
 ## Every candidate commit for `seat` holding `hand` with `budget`, a row of `row_size` cards
-## and the free first card when `free_first` (see the class comment), over `cards`.
+## and the free first card when `free_first` (see the class comment), over `cards`. `costs`
+## (cycle 8 R21, P3, P15), parallel to `hand`, are the effective costs the engine checks
+## (the view's `own_hand_costs`); empty means the printed costs, as before cycle 8.
 static func all(
-	hand: Array[int], budget: int, row_size: int, free_first: bool, seat: int, cards: MatchCards
+	hand: Array[int],
+	budget: int,
+	row_size: int,
+	free_first: bool,
+	seat: int,
+	cards: MatchCards,
+	costs: Array[int] = []
 ) -> Array[EngineAction]:
 	var view: SeatView = SeatView.new()
 	view.seat = seat
 	view.opponent = 1 - seat
 	view.own_hand.assign(hand)
+	if not costs.is_empty():
+		view.own_hand_costs.assign(costs)
 	for _slot: int in range(maxi(row_size, 0)):
 		view.own_board.append(-1)
 	view.energy = budget

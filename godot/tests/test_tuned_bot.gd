@@ -6,6 +6,9 @@ extends GdUnitTestSuite
 ## repeats itself, and level 3 strays from the best but never past push_unit (R13, R14); a
 ## set prompt costs n + 1 previews; the engine accepts every action over 50 seeds (R3); and
 ## the bot asks the engine for nothing but preview(), preview_choice() and preview_set() (R2).
+## Cycle 8 (DC-09 T04; R21-R23, P15): a card whose cost was reduced is a candidate on its
+## effective cost, the hand-growth prompt is answered by rule with no preview, and the 50
+## seeds play the four shipped decks under seeded pairings.
 ##
 ## Matches play the fixture deck on both seats unless named otherwise. Every loop that
 ## drives an engine has a per-match action cap, so a bug fails the test instead of hanging
@@ -25,9 +28,11 @@ const LEVEL_SEEDS: int = 50
 ## Commit decisions checked per match seed at the low level.
 const LEVEL_DECISIONS: int = 6
 const SWEEP_SEEDS: int = 50
-## Full matches in the rejection test: the 50-seed sweep in test_full_match plays the tuned
-## bot (the registry default) with every invariant, so ten seeds here keep the gate fast.
+## Full matches in the rejection test, over the four shipped decks (cycle 8 R23, DC-09 T04;
+## ten fixture seeds before). The one knob to lower should the gdUnit budget need it.
 const MATCH_SEEDS: int = 10
+## c09's index in the fixture deck (printed cost 3, flat 3).
+const C09_INDEX: int = 8
 const BOT_SOURCE: String = "res://engine/bot/tuned_bot.gd"
 ## What the bot may call on its engine (R2).
 const ALLOWED_CALLS: Array[String] = ["preview", "preview_choice", "preview_set"]
@@ -418,16 +423,27 @@ func test_a_set_prompt_previews_n_plus_one_sets() -> void:
 			assert_bool(engine.apply(action).ok).is_true()
 
 
-## R3, R2: over seeds 1-10 (MATCH_SEEDS) a tuned bot at level 20 (seat 0) and one at
-## level 3 (seat 1), both on the shipped weights through the registry, play full matches;
-## the engine accepts every action, and while a bot chooses it calls nothing on the engine
-## but the three previews.
-func test_engine_never_rejects_the_tuned_bot_over_full_matches() -> void:
+## R3, R2, cycle 8 R23 (DC-09 T04): over seeds 1-10 (MATCH_SEEDS; test_full_match's
+## 50-seed four-deck sweep covers 50 with the tuned bot), each under its own
+## seeded pairing of the four shipped decks (Ruin, Drift, Bloom, Echo), a tuned bot at level
+## 20 (seat 0) and one at level 3 (seat 1), both on the shipped weights through the
+## registry, play full matches; the engine accepts every action, every match ends, and while
+## a bot chooses it calls nothing on the engine but the three previews. The pairings reach
+## every shipped deck.
+func test_engine_never_rejects_the_tuned_bot_over_four_decks() -> void:
 	var levels: Array[int] = [BotPlayer.FULL_LEVEL, LOW_LEVEL]
 	var previews: int = 0
+	var pool: CardDb = CardDb.load_default()
+	var decks: DeckList = DeckList.load_default()
+	var seeded: Array[String] = ["", ""]
+	var played: Dictionary[String, bool] = {}
 	for match_seed: int in range(1, MATCH_SEEDS + 1):
-		var engine: CountingEngine = CountingEngine.wrap(FixtureDecks.engine(match_seed, _db()))
+		var engine: CountingEngine = CountingEngine.wrap(
+			MatchEngine.create(match_seed, pool, decks, seeded)
+		)
 		assert_bool(engine.start().ok).is_true()
+		for deck_id: String in engine.deck_ids():
+			played[deck_id] = true
 		var bots: Array[BotPlayer] = []
 		for seat: int in range(MatchEngine.SEATS):
 			var bot_seed: int = BotRegistry.seed_for(match_seed, seat)
@@ -460,6 +476,103 @@ func test_engine_never_rejects_the_tuned_bot_over_full_matches() -> void:
 		assert_int(engine.other_calls).is_equal(0)
 		previews += engine.commit_previews + engine.choice_previews + engine.set_previews
 	assert_int(previews).is_greater(0)
+	assert_array(played.keys()).contains_exactly_in_any_order(decks.ids())
+
+
+# --- Cycle 8 (DC-09 T04): effective costs and the hand-growth rule (R21, R22, P15) -------
+
+
+## R21: seat `seat` of a started fixture match at turn 2 (budget 2: no carry, no free card)
+## holds only c09 (printed cost 3); its row and the other's are empty.
+func _cost_three_on_budget_two() -> MatchEngine:
+	var engine: MatchEngine = FixtureDecks.engine(1, _db())
+	assert_bool(engine.start().ok).is_true()
+	var seat: int = engine.awaited_seat()
+	var card: int = seat * MatchRules.DECK_SIZE + C09_INDEX
+	var state: MatchState = engine._state
+	state.turn = 2
+	state.energy = MatchState.EnergyState.new()
+	var piles: MatchState.SeatPiles = state.seats[seat]
+	piles.deck.append_array(piles.hand)
+	piles.deck.erase(card)
+	var only: Array[int] = [card]
+	piles.hand.assign(only)
+	return engine
+
+
+## The commit among `listed` that plays exactly `card`, or null.
+func _commit_of(listed: Array[EngineAction], card: int) -> EngineAction:
+	for action: EngineAction in listed:
+		if action.kind == EngineAction.Kind.COMMIT and action.cards.size() == 1:
+			if action.cards[0] == card:
+				return action
+	return null
+
+
+## R21: with c09 (cost 3) reduced to 2 by its memory on a budget of 2 the tuned bot lists
+## its commit among the candidates (it does not at the face cost), previews it, and the
+## engine accepts it.
+func test_a_cost_3_card_reduced_to_2_is_a_candidate_on_budget_2() -> void:
+	var engine: MatchEngine = _cost_three_on_budget_two()
+	var seat: int = engine.awaited_seat()
+	var card: int = seat * MatchRules.DECK_SIZE + C09_INDEX
+	assert_int(engine.budget_for(seat)).is_equal(2)
+	assert_int(LegalPlays.cost_of(card, engine.match_cards())).is_equal(3)
+	var bot: TunedBot = _tuned(1, engine.match_cards(), FULL_K, BotPlayer.FULL_LEVEL)
+	assert_object(_commit_of(bot.candidates(engine.view_for(seat)), card)).is_null()
+	engine._state.memory_for(card).cost = 1
+	var view: SeatView = engine.view_for(seat)
+	assert_int(view.own_hand_costs.size()).is_equal(1)
+	assert_int(view.own_hand_costs[0]).is_equal(2)
+	var reduced: EngineAction = _commit_of(bot.candidates(view), card)
+	assert_object(reduced).is_not_null()
+	if reduced == null:
+		return
+	assert_int(engine.preview(seat, reduced).size()).is_equal(2)
+	var result: ApplyResult = engine.apply(reduced)
+	assert_bool(result.ok).override_failure_message("error %d" % result.error).is_true()
+
+
+## R22, P15: Vine's prompt over seat 0's hand [Moss (flat 3), Acorn (flat 1, grown +5 to 6),
+## Sprout (flat 2)] is answered by rule: the highest effective flat, Acorn at position 1 (a
+## definition-flat rule would take Moss), with no preview of any kind; the engine accepts
+## the answer and Acorn grows.
+func test_the_hand_growth_prompt_is_answered_by_the_highest_flat_without_a_preview() -> void:
+	var engine: MatchEngine = BloomFixture.engine(1)
+	assert_bool(engine.start().ok).is_true()
+	var vine: int = BloomFixture.B09_VINE
+	var moss: int = BloomFixture.B04_MOSS
+	var acorn: int = BloomFixture.B03_ACORN
+	var sprout: int = BloomFixture.B02_SPROUT
+	var piles: MatchState.SeatPiles = engine._state.seats[0]
+	piles.deck.append_array(piles.hand)
+	for card: int in [vine, moss, acorn, sprout]:
+		piles.deck.erase(card)
+	var hand: Array[int] = [moss, acorn, sprout]
+	piles.hand.assign(hand)
+	var row: Array[int] = [vine]
+	piles.board.assign(row)
+	engine._state.memory_for(acorn).flat = 5
+	var none: Array[int] = []
+	for _pass: int in range(MatchEngine.SEATS):
+		assert_bool(engine.apply(EngineAction.commit(engine.awaited_seat(), none)).ok).is_true()
+	assert_int(engine.awaited_seat()).is_equal(0)
+	var view: SeatView = engine.view_for(0)
+	var verb: int = view.prompt.get("verb", -1)
+	assert_int(verb).is_equal(CardEffect.Verb.GROW_HAND_ONE_TIMES)
+	assert_array(Choice.options_of(view.prompt)).contains_exactly([0, 1, 2])
+	var counting: CountingEngine = CountingEngine.wrap(engine)
+	var bot: TunedBot = _tuned(1, engine.match_cards(), FULL_K, BotPlayer.FULL_LEVEL)
+	counting.watching = true
+	var action: EngineAction = bot.choose(view, counting)
+	counting.watching = false
+	assert_int(counting.commit_previews + counting.choice_previews).is_equal(0)
+	assert_int(counting.set_previews + counting.other_calls).is_equal(0)
+	assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
+	assert_int(action.index).is_equal(1)
+	assert_int(GreedyBot.new(1, engine.match_cards()).ranked_option(view)).is_equal(1)
+	assert_bool(engine.apply(action).ok).is_true()
+	assert_int(engine._state.memory_of(acorn).times).is_equal(25)
 
 
 # --- R2: the source -------------------------------------------------------------------

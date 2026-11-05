@@ -161,7 +161,8 @@ func _cleared(seat: int, card: int, slot: int) -> Dictionary:
 
 
 func _fired(seat: int, card: int, verb: String, trigger: String) -> Dictionary:
-	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger}
+	# Cycle 8 P7: every EFFECT_FIRED carries `uses_left`, -1 for an unlimited effect.
+	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger, "uses_left": -1}
 
 
 func _pass(engine: MatchEngine) -> ApplyResult:
@@ -221,6 +222,9 @@ func test_a_destroyed_card_flips_with_no_effect_no_mark_spent_and_no_score() -> 
 		"plus": stats.plus,
 		"order": 0,
 		"destroyed": true,
+		# DC-09 T06 review (cycle 8 R7, R25): the effective cost and the grown mark.
+		"cost": cards.def_of(wreck).cost,
+		"grown": false,
 	}
 	_assert_event(events[0], REVEALED, flipped, PUBLIC)
 	var live_flag: bool = events[2].payload["destroyed"]
@@ -264,9 +268,13 @@ func test_destroy_with_only_destroyed_cards_opposite_fizzles() -> void:
 	var events: Array[MatchEvent] = recorder.events
 	var expected: Array[int] = [REVEALED, FIRED, FIZZLED, SCORED, REVEALED, REVEALED]
 	assert_array(_kinds(events)).is_equal(expected)
-	_assert_event(
-		events[2], FIZZLED, {"seat": 0, "card": card, "verb": "destroy_random_opponent"}, PUBLIC
-	)
+	var fizzled: Dictionary = {
+		"seat": 0,
+		"card": card,
+		"verb": "destroy_random_opponent",
+		"reason": "no_target",
+	}
+	_assert_event(events[2], FIZZLED, fizzled, PUBLIC)
 	assert_int(rng.state).is_equal(stream)
 	assert_array(_of_kind(events, DESTROYED)).is_empty()
 	assert_array(state.seats[1].board).is_equal(wrecks)

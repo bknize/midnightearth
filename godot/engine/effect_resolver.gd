@@ -4,11 +4,29 @@ extends RefCounted
 ## nodes, no clock; the only randomness is the engine stream passed in.
 ##
 ## apply() handles one verb per branch and returns an Outcome: the events the firing caused,
-## in order, always starting with EFFECT_FIRED {seat, card, verb, trigger} (verb and trigger
-## as their CardEffect JSON names), and the prompt the verb needs (empty unless a prompt
-## verb found two or more targets on a live walk). ScoreWalk decides when an effect fires
-## (the trigger hooks, P6) and forwards the events to its sink on a live walk; a preview
-## drops them.
+## in order, always starting with EFFECT_FIRED {seat, card, verb, trigger, uses_left} (verb
+## and trigger as their CardEffect JSON names), and the prompt the verb needs (empty unless
+## a prompt verb found two or more targets on a live walk). ScoreWalk decides when an effect
+## fires (the trigger hooks, P6) and forwards the events to its sink on a live walk; a
+## preview drops them.
+##
+## The uses countdown (cycle 8 R6, P7; take_use): an effect with `uses > 0` counts down its
+## card's CardMemory.uses_left (read from the effect's `uses` the first time) before its
+## verb runs; with none left the firing is EFFECT_FIZZLED {seat, card, verb, reason:
+## "spent"} and nothing else. EFFECT_FIRED's `uses_left` is what is left after this firing,
+## -1 for an unlimited effect. Every EFFECT_FIZZLED carries `reason`: REASON_NO_TARGET or
+## REASON_SPENT.
+##
+## The Bloom grow verbs (cycle 8 P4, P8) are BloomEffects': GROW_OTHER_FLAT (OWN_BOARD) and
+## GROW_HAND_ONE_TIMES (OWN_HAND) are prompt verbs whose consequence is
+## BloomEffects.apply_choice(); the other seven (BloomEffects.UNTARGETED_VERBS) need no
+## target.
+##
+## The Echo verbs (cycle 8 P6, P8) are EchoEffects': RETURN_OWN_AT_TURN_END (OWN_BOARD) and
+## RETURN_OPPONENT_AT_TURN_END (OPPONENT_BOARD) are prompt verbs whose consequence is a
+## return mark (EchoEffects.mark_return); RETURN_SELF_AT_TURN_END, COST_DOWN_RIGHT,
+## COST_DOWN_SELF and ALLY_REVEAL_FLAT need no target; DRAW_ONCE draws as DRAW (its `uses` 1
+## is the countdown's); UNREVEAL_AT_TURN_END never fires: flip_echoes() reads it at turn end.
 ##
 ## Verbs here:
 ## - DRAW (amount): draws for the owner; a draw at the hand cap is burned (R25). Same
@@ -37,7 +55,7 @@ extends RefCounted
 ## - CARRY_ENERGY (ongoing): `carry[owner] = budget - spent[owner]`, ENERGY_CARRIED
 ##   {seat, amount}. Only settle_energy() fires it, at turn end.
 ## - The prompt verbs (DC-05 T05; R20, R26, R28-R34, plan P9, P10). Choice.eligible() lists
-##   the targets. With none the effect fizzles (EFFECT_FIZZLED {seat, card, verb}); with one
+##   the targets. With none the effect fizzles (EFFECT_FIZZLED {seat, card, verb, reason}); with one
 ##   it is chosen at once (CHOICE_MADE with `auto` true) and applied; with two or more the
 ##   Outcome carries the prompt {seat, card, verb, zone, options, multi: false} and the
 ##   event CHOICE_REQUESTED {seat, card, verb, text, zone, options, multi} (zone by name,
@@ -117,6 +135,14 @@ const CAUSE_BONUS_ZERO: String = "bonus_zero"
 const CAUSE_TEMP_PLUS: String = "temp_plus"
 ## A card's CardState went with an un-reveal (DC-07 P9): printed stats again.
 const CAUSE_UNREVEAL: String = "unreveal"
+## EFFECT_FIZZLED `reason` (cycle 8 P7): no eligible target (or an empty set chosen).
+const REASON_NO_TARGET: String = "no_target"
+## EFFECT_FIZZLED `reason` (cycle 8 P7): the effect's limited uses are spent.
+const REASON_SPENT: String = "spent"
+## take_use(): the effect has no use left, so it must not fire.
+const USES_SPENT: int = -2
+## take_use() and EFFECT_FIRED `uses_left` for an unlimited effect.
+const USES_UNLIMITED: int = -1
 const KEY_SEAT: String = "seat"
 const KEY_CARD: String = "card"
 const KEY_VERB: String = "verb"
@@ -146,16 +172,22 @@ static func apply(
 	var effect: CardEffect = effect_of(card, cards)
 	if effect == null:
 		return outcome
+	# The uses countdown runs on a preview's clone too, so a preview equals live play (P7).
+	var uses_left: int = take_use(state, card, effect)
+	if uses_left == USES_SPENT:
+		fizzle(seat, card, effect.verb, outcome, REASON_SPENT)
+		return outcome
 	if not outcome.quiet:
 		var fired: Dictionary = {
 			"seat": seat,
 			"card": card,
 			"verb": CardEffect.verb_name(effect.verb),
 			"trigger": CardEffect.trigger_name(effect.trigger),
+			"uses_left": uses_left,
 		}
 		outcome.add(MatchEvent.Kind.EFFECT_FIRED, fired)
 	match effect.verb:
-		CardEffect.Verb.DRAW:
+		CardEffect.Verb.DRAW, CardEffect.Verb.DRAW_ONCE:
 			_draw(state, seat, effect.amount, outcome)
 		CardEffect.Verb.FREE_FIRST_NEXT_TURN:
 			_free_first(state, seat, outcome)
@@ -199,11 +231,39 @@ static func apply(
 			_ask(state, cards, rng, policy, seat, card, effect, outcome)
 		CardEffect.Verb.SWAP_OPPONENT_RIGHT:
 			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+		CardEffect.Verb.GROW_OTHER_FLAT, CardEffect.Verb.GROW_HAND_ONE_TIMES:
+			# A card of the owner's row or hand (cycle 8 P8), then BloomEffects.apply_choice.
+			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+		CardEffect.Verb.RETURN_OWN_AT_TURN_END, CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
+			# A card of either row (cycle 8 P8), then apply_choice() marks it.
+			_ask(state, cards, rng, policy, seat, card, effect, outcome)
 		_:
-			# UNREVEAL_INSTEAD (read by destroy()), NEIGHBOUR_TIMES and EDGE_LEFT_TIMES (read by
-			# ScoreWalk.effective()) never fire: EFFECT_FIRED and nothing else.
-			pass
+			# The Bloom and Echo verbs that need no target go to their family. Every other verb
+			# left here, UNREVEAL_INSTEAD (read by destroy()), NEIGHBOUR_TIMES and
+			# EDGE_LEFT_TIMES (read by ScoreWalk.effective()) and UNREVEAL_AT_TURN_END (read by
+			# flip_echoes()), never fires: EFFECT_FIRED and nothing else.
+			if BloomEffects.UNTARGETED_VERBS.has(effect.verb):
+				BloomEffects.apply(state, cards, seat, card, effect, outcome)
+			elif EchoEffects.UNTARGETED_VERBS.has(effect.verb):
+				EchoEffects.apply(state, cards, seat, card, effect, outcome)
 	return outcome
+
+
+## The uses countdown of `card`'s `effect` (cycle 8 R6, P7), run before the effect fires:
+## USES_UNLIMITED for an effect with no `uses` (no memory entry is made); else the card's
+## CardMemory.uses_left, initialised from the effect's `uses` when unread (-1), is counted
+## down and the uses left after this firing come back, or USES_SPENT, changing nothing,
+## when none is left.
+static func take_use(state: MatchState, card: int, effect: CardEffect) -> int:
+	if effect == null or effect.uses <= 0:
+		return USES_UNLIMITED
+	var kept: CardMemory = state.memory_for(card)
+	if kept.uses_left < 0:
+		kept.uses_left = effect.uses
+	if kept.uses_left == 0:
+		return USES_SPENT
+	kept.uses_left -= 1
+	return kept.uses_left
 
 
 ## The turn-start and effect draw (R12, R25): the top of `seat`'s deck goes to its hand, or
@@ -333,6 +393,11 @@ static func apply_choice(
 			out.append_array(RuinEffects.destroy_then_draw(state, cards, holder, target, amount))
 		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
 			out.append_array(RuinEffects.destroy_then_flat_up(state, cards, holder, source, target))
+		CardEffect.Verb.GROW_OTHER_FLAT, CardEffect.Verb.GROW_HAND_ONE_TIMES:
+			var quiet: bool = policy != null
+			out.append_array(BloomEffects.apply_choice(state, cards, holder, source, target, quiet))
+		CardEffect.Verb.RETURN_OWN_AT_TURN_END, CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
+			EchoEffects.mark_return(state, target)
 	return out
 
 
@@ -387,7 +452,12 @@ static func apply_set(
 	}
 	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_MADE, made))
 	if indices.is_empty():
-		var fizzled: Dictionary = {"seat": seat, "card": source, "verb": CardEffect.verb_name(verb)}
+		var fizzled: Dictionary = {
+			"seat": seat,
+			"card": source,
+			"verb": CardEffect.verb_name(verb),
+			"reason": REASON_NO_TARGET,
+		}
 		out.append(MatchEvent.new(MatchEvent.Kind.EFFECT_FIZZLED, fizzled))
 		return out
 	if verb == CardEffect.Verb.SACRIFICE_DESTROY:
@@ -409,11 +479,15 @@ static func _choice_owner(state: MatchState, seat: int, zone: int, holder: int, 
 
 ## Turn end's return marks (R24, R25, plan P14), before the destroyed cards clear and
 ## energy settles (DC-06 P6): for each seat in turn, each marked card on its row in slot
-## order leaves the row (its modifiers go) for its owner's hand, CARD_RETURNED {seat, card,
-## slot}, public since the card was revealed. When that hand already holds HAND_CAP cards
-## the card is burned instead: CARD_BURNED {seat, card}, the draw's burn event, made public
-## for the same reason (both boards need to see the card leave its row). A marked card that
-## is destroyed is skipped: clear_destroyed() discards it (DC-06 R19).
+## order leaves the row (its modifiers go, its memory stays, cycle 8 R17) for that seat's
+## hand (the row's seat is the card's controller), CARD_RETURNED {seat, card, slot}, public
+## when the card was revealed. When that hand already holds HAND_CAP cards the card is
+## burned instead: CARD_BURNED {seat, card, slot, row_seat}, the draw's burn event with the
+## slot it left and the seat whose row that was, made public for the same reason (both
+## boards need to see the card leave its row). A card still face down (cycle 8 P8 lets
+## Recall mark one) keeps both events private to its seat; redaction hides only `card`, so
+## the other board still sees which slot emptied (DC-09 T06 review). A marked card
+## that is destroyed is skipped: clear_destroyed() discards it (DC-06 R19).
 static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	for seat: int in range(state.seats.size()):
@@ -425,16 +499,17 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 			if held == null or not held.return_marked or held.destroyed:
 				continue
 			var slot: int = piles.board.find(card)
-			if state.take_from_row(seat, card):
-				pass  # Only revealed cards are ever marked; the event is public either way.
+			var owner: int = PUBLIC if state.take_from_row(seat, card) else seat
 			if piles.hand.size() >= MatchRules.HAND_CAP:
 				piles.burned.append(card)
-				var burned: Dictionary = {"seat": seat, "card": card}
-				out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, burned))
+				var burned: Dictionary = {
+					"seat": seat, "card": card, "slot": slot, "row_seat": seat
+				}
+				out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, burned, owner))
 				continue
 			piles.hand.append(card)
 			var returned: Dictionary = {"seat": seat, "card": card, "slot": slot}
-			out.append(MatchEvent.new(MatchEvent.Kind.CARD_RETURNED, returned))
+			out.append(MatchEvent.new(MatchEvent.Kind.CARD_RETURNED, returned, owner))
 	return out
 
 
@@ -465,6 +540,23 @@ static func clear_destroyed(state: MatchState) -> Array[MatchEvent]:
 			var owner: int = PUBLIC if was_revealed else seat
 			out.append(MatchEvent.new(MatchEvent.Kind.DESTROYED_CLEARED, cleared, owner))
 	return out
+
+
+## Turn end's echo flip (cycle 8 R18, P6), after clear_destroyed() and before
+## settle_energy(): for each seat in turn, each revealed live card carrying the ongoing
+## UNREVEAL_AT_TURN_END (EchoEffects.flippers), in slot order, un-reveals in its slot as
+## destroy()'s un-reveal does (_unreveal: board changes go, memory stays; STATS_CHANGED cause
+## unreveal when that changed its shown stats), then CARD_UNREVEALED {seat, card, slot},
+## public. The next walk reveals it in full again.
+static func flip_echoes(state: MatchState, cards: MatchCards) -> Array[MatchEvent]:
+	var outcome: Outcome = Outcome.new()
+	for seat: int in range(state.seats.size()):
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		for card: int in EchoEffects.flippers(state, cards, seat):
+			var payload: Dictionary = {"seat": seat, "card": card, "slot": piles.board.find(card)}
+			_unreveal(state, cards, seat, card, outcome)
+			outcome.add(MatchEvent.Kind.CARD_UNREVEALED, payload)
+	return outcome.events
 
 
 # --- Verbs ----------------------------------------------------------------------------
@@ -501,7 +593,7 @@ static func _destroy_random(
 	var opponent: int = 1 - seat
 	var target: int = random_live(state, cards, rng, policy, opponent)
 	if target < 0:
-		_fizzle(seat, card, CardEffect.Verb.DESTROY_RANDOM_OPPONENT, outcome)
+		fizzle(seat, card, CardEffect.Verb.DESTROY_RANDOM_OPPONENT, outcome)
 		return
 	if not destroy(state, cards, target, outcome):
 		return  # random_live only offers live row cards; destroy() accepts every one.
@@ -638,7 +730,7 @@ static func _ask(
 	var zone: int = found[Choice.KEY_ZONE]
 	var options: Array[int] = Choice.options_of(found)
 	if options.is_empty():
-		_fizzle(seat, card, effect.verb, outcome)
+		fizzle(seat, card, effect.verb, outcome)
 		return
 	var prompt: Dictionary = _prompt(seat, card, effect.verb, zone, options)
 	if options.size() == 1 or policy != null:
@@ -670,7 +762,7 @@ static func _ask_set(
 	var zone: int = found[Choice.KEY_ZONE]
 	var options: Array[int] = Choice.options_of(found)
 	if options.is_empty():
-		_fizzle(seat, card, effect.verb, outcome)
+		fizzle(seat, card, effect.verb, outcome)
 		return
 	var prompt: Dictionary = _prompt(seat, card, effect.verb, zone, options)
 	if policy != null:
@@ -763,20 +855,33 @@ static func _amount_of(card: int, cards: MatchCards) -> int:
 	return effect.amount
 
 
-static func _fizzle(seat: int, card: int, verb: int, outcome: Outcome) -> void:
+## EFFECT_FIZZLED {seat, card, verb, reason} on `outcome` (public): `reason` is
+## REASON_NO_TARGET (no eligible target) or REASON_SPENT (no use left, P7).
+static func fizzle(
+	seat: int, card: int, verb: int, outcome: Outcome, reason: String = REASON_NO_TARGET
+) -> void:
 	outcome.add(
 		MatchEvent.Kind.EFFECT_FIZZLED,
-		{"seat": seat, "card": card, "verb": CardEffect.verb_name(verb)}
+		{"seat": seat, "card": card, "verb": CardEffect.verb_name(verb), "reason": reason}
 	)
 
 
 # --- Helpers --------------------------------------------------------------------------
 
 
-## STATS_CHANGED for `card` with its effective stats after the change (R21; DC-07 P5):
-## {seat, card, flat, times, plus, cause}, public.
+## STATS_CHANGED for `card` with its effective stats after the change (R21; DC-07 P5; cycle
+## 8 P4): {seat, card, flat, times, plus, cost, permanent, cause}, `cost` the effective cost
+## (ScoreWalk.effective_cost, 0 for a card with no definition) and `permanent` true when
+## the change is to the card's memory (a growth) rather than a board change. Public unless
+## `owner` names the seat it is private to (a growth on a hand or face-down card, P4).
 static func stats_changed(
-	state: MatchState, cards: MatchCards, seat: int, card: int, cause: String
+	state: MatchState,
+	cards: MatchCards,
+	seat: int,
+	card: int,
+	cause: String,
+	permanent: bool = false,
+	owner: int = PUBLIC
 ) -> MatchEvent:
 	var stats: ScoreWalk.Effective = ScoreWalk.effective(card, state, cards)
 	var payload: Dictionary = {
@@ -785,9 +890,11 @@ static func stats_changed(
 		"flat": stats.flat,
 		"times": stats.times,
 		"plus": stats.plus,
+		"cost": maxi(ScoreWalk.effective_cost(card, state, cards), 0),
+		"permanent": permanent,
 		"cause": cause,
 	}
-	return MatchEvent.new(MatchEvent.Kind.STATS_CHANGED, payload)
+	return MatchEvent.new(MatchEvent.Kind.STATS_CHANGED, payload, owner)
 
 
 ## The leftmost revealed, live (not destroyed, DC-06 R15) card on `seat`'s row with the

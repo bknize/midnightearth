@@ -14,6 +14,8 @@ var _row: Array[int] = []
 ## The player's whole row by instance id, as last reported by the board.
 var _row_ids: Array[int] = []
 var _costs: Dictionary = {}
+## Hand costs read from the view, cached until the board clears them (a played step).
+var _view_costs: Dictionary[int, int] = {}
 
 
 ## Clears the staged cards and sets the seat's budget for the turn, how many played cards
@@ -25,6 +27,30 @@ func reset(energy: int, played: int = 0, first_free: bool = false) -> void:
 	_row.clear()
 	_row_ids.clear()
 	_costs.clear()
+
+
+## The effective cost of hand card `id` in `view` (cycle 8 R24: `own_hand_costs`, parallel to
+## `own_hand`); `printed` when the view does not list it.
+static func view_cost(view: SeatView, id: int, printed: int) -> int:
+	var at: int = view.own_hand.find(id)
+	if at >= 0 and at < view.own_hand_costs.size():
+		return view.own_hand_costs[at]
+	return printed
+
+
+## `view_cost` read once per cache lifetime: `view_source` (returns the SeatView) is only
+## called when `id` is not cached, since the view is rebuilt on every call.
+func cached_cost(id: int, view_source: Callable, printed: int) -> int:
+	if not _view_costs.has(id):
+		var raw: Object = view_source.call()
+		var view: SeatView = raw as SeatView
+		_view_costs[id] = printed if view == null else view_cost(view, id, printed)
+	return _view_costs[id]
+
+
+## Forgets the cached costs (each played step, turn start).
+func clear_view_costs() -> void:
+	_view_costs.clear()
 
 
 ## True when a card of this cost, staged at the right end, fits in the energy left (R14).

@@ -4,7 +4,7 @@ tags: [planning, phase-3]
 status: closed
 related: ["[[planning/planning-moc]]"]
 created: 2026-11-02
-updated: 2026-11-04
+updated: 2026-11-05
 uid: cf1602f7-03cf-44f4-b4d4-7cfa2339fe9a
 linear:
 supersedes:
@@ -124,3 +124,12 @@ Amended (DC-07, 2026-11-04, [[specs/cycle-6-constructed-decks/spec]] C2, C3, C6)
   bonus: a ×-bonus (×1.25, ×1.5, ×2) multiplies the mult, a +-bonus (+1, +2) adds to it,
   and each card scores floor(flat × mult). Integer arithmetic only, so replays agree on
   every platform.
+
+Amended (DC-09, 2026-11-05, [[specs/cycle-8-ramp-bounce-crew/spec]] C3, Ben's rule):
+
+- **Card stats are board-specific** unless an ability says otherwise: a change ends when the
+  card leaves its row or the round ends. An ability may give a card instance **memory for
+  the match** (flat, ×-part and +-part deltas, a cost reduction, the uses left of a limited
+  ability) that survives rounds, the hand, the deck, the piles, a return and a recovery,
+  and is cleared only when a match is created. Limited-use abilities count down in that
+  memory. A card's effective cost is its printed cost less its reduction, never below 0.

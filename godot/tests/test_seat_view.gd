@@ -1,4 +1,4 @@
-# gdlint: disable=max-file-lines
+# gdlint: disable=max-file-lines, max-public-methods
 class_name TestSeatView
 extends GdUnitTestSuite
 ## Hidden information (C4): R28 (a redacted view per seat holding the listed fields), R29
@@ -39,6 +39,8 @@ const VIEW_KEYS: Array[String] = [
 	"opponent",
 	"deck_ids",
 	"own_hand",
+	"own_hand_row",
+	"own_hand_costs",
 	"own_pending",
 	"own_board",
 	"opponent_board",
@@ -46,6 +48,8 @@ const VIEW_KEYS: Array[String] = [
 	"opponent_row",
 	"own_destroyed",
 	"opponent_destroyed",
+	# DC-09 T06 review: the known destroyed-pile cards' faces, memory included.
+	"pile_entries",
 	"opponent_hand_count",
 	"opponent_pending_count",
 	"opponent_pending_slots",
@@ -364,8 +368,21 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.CARD_REVEALED:
 			# "flat" was "power" before DC-05; "slot" is new in DC-05. "order" stays for the
 			# board until it reads the walk's events (DC-05 T08, T11). "destroyed" is new in
-			# DC-06 (R14). DC-07 T03 (P4, P5): "times" and "plus" replace "bonus".
-			keys = ["seat", "card", "def_id", "flat", "times", "plus", "order", "slot", "destroyed"]
+			# DC-06 (R14). DC-07 T03 (P4, P5): "times" and "plus" replace "bonus". DC-09 T06
+			# review (cycle 8 R7, R25): the effective "cost" and the "grown" mark.
+			keys = [
+				"seat",
+				"card",
+				"def_id",
+				"flat",
+				"times",
+				"plus",
+				"order",
+				"slot",
+				"destroyed",
+				"cost",
+				"grown",
+			]
 		MatchEvent.Kind.WALK_STARTED:
 			keys = ["round", "turn", "first_seat"]
 		MatchEvent.Kind.CARD_SCORED:
@@ -390,11 +407,13 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.MATCH_ENDED:
 			keys = ["winner", "reason", "wins", "rounds_played"]
 		MatchEvent.Kind.EFFECT_FIRED:
-			keys = ["seat", "card", "verb", "trigger"]
+			# Cycle 8 P7: the uses left after the firing (-1 unlimited).
+			keys = ["seat", "card", "verb", "trigger", "uses_left"]
 		MatchEvent.Kind.EFFECT_FIZZLED:
-			keys = ["seat", "card", "verb"]
+			keys = ["seat", "card", "verb", "reason"]
 		MatchEvent.Kind.STATS_CHANGED:
-			keys = ["seat", "card", "flat", "times", "plus", "cause"]
+			# Cycle 8 P4: the effective cost and whether the change is to the memory.
+			keys = ["seat", "card", "flat", "times", "plus", "cost", "permanent", "cause"]
 		MatchEvent.Kind.CARD_DESTROYED:
 			keys = ["seat", "card", "slot"]
 		MatchEvent.Kind.DESTROYED_CLEARED:
@@ -423,6 +442,48 @@ func _payload_keys(kind: int) -> Array:
 	return keys
 
 
+## `event`'s payload keys: _payload_keys of its kind, and for a CARD_BURNED of a card burned
+## from a row at turn end (it carries `row_seat`) also `slot` and `row_seat` (DC-09 T06
+## review), whether or not the card is redacted.
+func _event_keys(event: MatchEvent) -> Array:
+	var keys: Array = _payload_keys(event.kind)
+	if event.kind == MatchEvent.Kind.CARD_BURNED and event.payload.has("row_seat"):
+		keys.append_array(["slot", "row_seat"])
+	return keys
+
+
+## `card`'s entry in the full state's `memory` (cycle 8 P2), or {} when it has none.
+func _memory_of(state: Dictionary, card: int) -> Dictionary:
+	var all_memory: Dictionary = state["memory"]
+	if not all_memory.has(card):
+		return {}
+	var kept: Dictionary = all_memory[card]
+	return kept
+
+
+## `card`'s cycle 8 view values from the full state (R4, R6, R7, P3, P7) as [cost, grown,
+## uses_left]: the printed cost less the memory's reduction, floored at MatchRules.MIN_COST;
+## grown when the memory is not empty; uses_left -1 for an unlimited (or no) effect, else
+## the memory's count once read, else the effect's uses.
+func _memory_values(state: Dictionary, card: int) -> Array[int]:
+	var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
+	var kept: Dictionary = _memory_of(state, card)
+	var cost: int = def.cost
+	var grown: int = 0
+	var uses: int = -1
+	if def.effect != null and def.effect.uses > 0:
+		uses = def.effect.uses
+	if not kept.is_empty():
+		var reduction: int = kept["cost"]
+		var left: int = kept["uses_left"]
+		cost = maxi(cost - reduction, MatchRules.MIN_COST)
+		grown = 0 if MemoryFixture.from_dict(kept).is_empty() else 1
+		if uses >= 0 and left >= 0:
+			uses = left
+	var out: Array[int] = [cost, grown, uses]
+	return out
+
+
 ## `card`'s shown stats from the full state (DC-07 P5) as [flat, times, plus]: its
 ## definition's flat and bonus (or the base a copy stored, both parts), then its entry in
 ## `card_states` (flat delta, temp plus, no bonus), which effects write since DC-05 T04.
@@ -441,6 +502,15 @@ func _shown_stats(state: Dictionary, card: int) -> Array[int]:
 			flat = held["base_flat"]
 			times = held["base_times"]
 			plus = held["base_plus"]
+	# Cycle 8 R3: the card's match memory adds after the base, before the board changes.
+	var kept: Dictionary = _memory_of(state, card)
+	if not kept.is_empty():
+		var kept_flat: int = kept["flat"]
+		var kept_times: int = kept["times"]
+		var kept_plus: int = kept["plus"]
+		flat += kept_flat
+		times += kept_times
+		plus += kept_plus
 	if not held.is_empty():
 		var delta: int = held["flat_delta"]
 		var temp: int = held["temp_plus"]
@@ -474,8 +544,21 @@ func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: 
 	assert_int(row.size()).is_equal(board.size())
 	for slot: int in range(mini(row.size(), board.size())):
 		var entry: Dictionary = row[slot]
-		var keys: Array = ["card", "flat", "times", "plus", "revealed", "destroyed"]
+		var keys: Array = [
+			"card",
+			"flat",
+			"times",
+			"plus",
+			"revealed",
+			"destroyed",
+			"cost",
+			"grown",
+			"uses_left",
+		]
 		assert_array(_sorted_keys(entry)).is_equal(_sorted(keys))
+		var cost: int = entry["cost"]
+		var grown: bool = entry["grown"]
+		var uses_left: int = entry["uses_left"]
 		var card: int = entry["card"]
 		var flat: int = entry["flat"]
 		var times: int = entry["times"]
@@ -495,10 +578,48 @@ func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: 
 			assert_int(flat).is_equal(stats[0])
 			assert_int(times).is_equal(stats[1])
 			assert_int(plus).is_equal(stats[2])
+			# Cycle 8 (R4, R6, R7): the effective cost, the grown mark and the uses left.
+			var remembered: Array[int] = _memory_values(state, card)
+			assert_int(cost).is_equal(remembered[0])
+			assert_bool(grown).is_equal(remembered[1] == 1)
+			assert_int(uses_left).is_equal(remembered[2])
 		else:
 			assert_int(flat).is_equal(0)
 			assert_int(times).is_equal(MatchRules.MULT_ONE)
 			assert_int(plus).is_equal(0)
+			# A hidden card's memory stays hidden (R8): 0, false, -1.
+			assert_int(cost).is_equal(0)
+			assert_bool(grown).is_false()
+			assert_int(uses_left).is_equal(-1)
+
+
+## `pile_entries` against the full state (DC-09 T06 review): an entry for exactly every card
+## of `seat`'s destroyed pile and every public entry of the opponent's, each with the
+## hand-row keys and its effective stats, cost, grown mark and uses left (memory included).
+func _assert_pile_entries(view: SeatView, state: Dictionary, seat: int) -> void:
+	var want: Array[int] = _state_list(state, "destroyed", seat)
+	for card: int in _shown_pile(state, 1 - seat):
+		if card != MatchEvent.HIDDEN_CARD:
+			want.append(card)
+	want.sort()
+	var have: Array[int] = []
+	have.assign(view.pile_entries.keys())
+	have.sort()
+	assert_array(have).is_equal(want)
+	for card: int in have:
+		var entry: Dictionary = view.pile_entries[card]
+		var keys: Array = ["card", "cost", "flat", "grown", "plus", "times", "uses_left"]
+		assert_array(_sorted_keys(entry)).is_equal(keys)
+		var stats: Array[int] = _shown_stats(state, card)
+		var remembered: Array[int] = _memory_values(state, card)
+		var shown: Array[int] = [entry["card"], entry["flat"], entry["times"], entry["plus"]]
+		assert_array(shown).is_equal([card, stats[0], stats[1], stats[2]])
+		var cost: int = entry["cost"]
+		var grown: bool = entry["grown"]
+		var uses_left: int = entry["uses_left"]
+		assert_int(cost).is_equal(remembered[0])
+		assert_bool(grown).is_equal(remembered[1] == 1)
+		assert_int(uses_left).is_equal(remembered[2])
 
 
 ## The view agrees with the full state on every R28 field.
@@ -514,6 +635,7 @@ func _assert_view_matches_state(view: SeatView, step: Step, seat: int) -> void:
 	assert_array(view.board_of(opp)).is_equal(view.opponent_board)
 	assert_array(view.own_destroyed).is_equal(_state_list(state, "destroyed", seat))
 	assert_array(view.opponent_destroyed).is_equal(_shown_pile(state, opp))
+	_assert_pile_entries(view, state, seat)
 	assert_int(view.opponent_hand_count).is_equal(_state_list(state, "hand", opp).size())
 	var pending: Array[int] = _state_ints(state, "pending")
 	var pending_slots: Array[int] = _state_ints(state, "pending_slots")
@@ -739,7 +861,7 @@ func test_views_and_redacted_events_never_leak() -> void:
 					assert_int(redacted.size()).is_equal(step.result.events.size())
 					for event: MatchEvent in redacted:
 						assert_array(_sorted_keys(event.payload)).is_equal(
-							_sorted(_payload_keys(event.kind))
+							_sorted(_event_keys(event))
 						)
 						var at: String = "%s event %d" % [where, event.kind]
 						var held_to: Array[int] = hidden_strict
@@ -822,6 +944,25 @@ func _assert_redacted(copy: MatchEvent, original: MatchEvent) -> void:
 		assert_array(_payload_ints(copy, "slots")).is_equal(_payload_ints(original, "slots"))
 	else:
 		assert_int(_payload_int(copy, "card")).is_equal(MatchEvent.HIDDEN_CARD)
+	if original.kind == MatchEvent.Kind.STATS_CHANGED:
+		_assert_neutral_stats(copy, original)
+
+
+## A redacted private STATS_CHANGED (a growth on a hidden card) shows neutral stats: flat 0,
+## ×1.00, +0, cost 0, not permanent, with its seat and cause kept (cycle 8 R8, R73; DC-09 T06
+## review), since the real values with the public deck list would name the card.
+func _assert_neutral_stats(copy: MatchEvent, original: MatchEvent) -> void:
+	var neutral: Dictionary = {
+		"seat": _payload_int(original, "seat"),
+		"card": MatchEvent.HIDDEN_CARD,
+		"flat": 0,
+		"times": MatchRules.MULT_ONE,
+		"plus": 0,
+		"cost": 0,
+		"permanent": false,
+		"cause": original.payload["cause"],
+	}
+	assert_dict(copy.payload).is_equal(neutral)
 
 
 func test_a_seat_outside_the_match_sees_no_private_card() -> void:
@@ -1037,14 +1178,42 @@ func test_row_entries_carry_times_and_plus() -> void:
 	var budgets: Array[int] = [1, 1]
 	var view: SeatView = SeatView.build(state, 0, 0, budgets, _defs())
 	assert_array(view.mults).is_equal([100, 100])
+	# Cycle 8 (DC-09 T01): every entry also carries cost, grown and uses_left; a hidden one
+	# shows 0, false and -1.
 	var own: Array[Dictionary] = [
-		{"card": 10, "flat": 3, "times": 125, "plus": 0, "revealed": false, "destroyed": false},
-		{"card": 7, "flat": 2, "times": 100, "plus": 1, "revealed": false, "destroyed": false},
+		_printed(
+			{"card": 10, "flat": 3, "times": 125, "plus": 0, "revealed": false, "destroyed": false},
+			3
+		),
+		_printed(
+			{"card": 7, "flat": 2, "times": 100, "plus": 1, "revealed": false, "destroyed": false},
+			2
+		),
 	]
 	var hidden: int = MatchEvent.HIDDEN_CARD
 	var theirs: Array[Dictionary] = [
-		{"card": c04_1, "flat": 3, "times": 100, "plus": 0, "revealed": true, "destroyed": false},
-		{"card": hidden, "flat": 0, "times": 100, "plus": 0, "revealed": false, "destroyed": false},
+		_printed(
+			{
+				"card": c04_1,
+				"flat": 3,
+				"times": 100,
+				"plus": 0,
+				"revealed": true,
+				"destroyed": false
+			},
+			1
+		),
+		_printed(
+			{
+				"card": hidden,
+				"flat": 0,
+				"times": 100,
+				"plus": 0,
+				"revealed": false,
+				"destroyed": false
+			},
+			0
+		),
 	]
 	assert_int(view.own_row.size()).is_equal(own.size())
 	assert_int(view.opponent_row.size()).is_equal(theirs.size())
@@ -1054,6 +1223,188 @@ func test_row_entries_carry_times_and_plus() -> void:
 	var plain: Array = view.to_dict()["own_row"]
 	var first: Dictionary = plain[0]
 	assert_dict(first).is_equal(own[0])
+
+
+## `entry` with the cycle 8 keys of a card with no memory and an unlimited (or no) effect:
+## cost `cost`, grown false, uses_left -1.
+func _printed(entry: Dictionary, cost: int) -> Dictionary:
+	var out: Dictionary = entry.duplicate()
+	out["cost"] = cost
+	out["grown"] = false
+	out["uses_left"] = -1
+	return out
+
+
+# --- Cycle 8 (DC-09 T01): card memory in the views (R7, R8, plan P3) -------------------
+
+
+## own_hand_row carries, per hand card in hand order, its effective cost and stats and the
+## grown mark; own_hand_costs is parallel to own_hand. A reduction and a growth on a hand
+## card show at once.
+func test_own_hand_row_carries_cost() -> void:
+	var engine: MatchEngine = _started(SEED)
+	var seat: int = 0
+	var hand: Array[int] = _hand(engine, seat)
+	assert_int(hand.size()).is_greater(1)
+	var view: SeatView = engine.view_for(seat)
+	assert_array(view.own_hand).is_equal(hand)
+	assert_int(view.own_hand_row.size()).is_equal(hand.size())
+	assert_int(view.own_hand_costs.size()).is_equal(hand.size())
+	for i: int in range(hand.size()):
+		var entry: Dictionary = view.own_hand_row[i]
+		var keys: Array = entry.keys()
+		keys.sort()
+		assert_array(keys).is_equal(["card", "cost", "flat", "grown", "plus", "times", "uses_left"])
+		var card: int = entry["card"]
+		var cost: int = entry["cost"]
+		var grown: bool = entry["grown"]
+		assert_int(card).is_equal(hand[i])
+		assert_int(cost).is_equal(_cost(hand[i]))
+		assert_int(view.own_hand_costs[i]).is_equal(_cost(hand[i]))
+		assert_bool(grown).is_false()
+	var target: int = hand[0]
+	var kept: CardMemory = engine._state.memory_for(target)
+	kept.cost = 1
+	kept.flat = 2
+	var grown_view: SeatView = engine.view_for(seat)
+	var grown_entry: Dictionary = grown_view.own_hand_row[0]
+	var shown_cost: int = grown_entry["cost"]
+	var shown_flat: int = grown_entry["flat"]
+	var shown_grown: bool = grown_entry["grown"]
+	var expected_cost: int = maxi(_cost(target) - 1, 0)
+	assert_int(shown_cost).is_equal(expected_cost)
+	assert_int(grown_view.own_hand_costs[0]).is_equal(expected_cost)
+	assert_int(shown_flat).is_equal(_db().card_at(target % MatchRules.DECK_SIZE).flat + 2)
+	assert_bool(shown_grown).is_true()
+	var plain: Dictionary = grown_view.to_dict()
+	var plain_row: Array = plain["own_hand_row"]
+	assert_dict(plain_row[0]).is_equal(grown_entry)
+
+
+## R8: a memory on a card in seat 0's hand reaches nothing in seat 1's view: no entry names
+## the card, no cost or grown mark of it shows, and the view is the same as before the
+## memory was written. A revealed row card's memory is public on both sides.
+func test_the_opponents_view_holds_no_entry_for_a_hand_cards_memory() -> void:
+	var engine: MatchEngine = _started(SEED)
+	var hand: Array[int] = _hand(engine, 0)
+	var before: Dictionary = engine.view_for(1).to_dict()
+	var target: int = hand[0]
+	var kept: CardMemory = engine._state.memory_for(target)
+	kept.flat = 2
+	kept.times = 50
+	kept.cost = 1
+	var after: SeatView = engine.view_for(1)
+	assert_dict(after.to_dict()).is_equal(before)
+	for entry: Dictionary in after.own_hand_row:
+		var card: int = entry["card"]
+		assert_int(card).is_not_equal(target)
+	var named: Array[int] = []
+	_card_ids(after.to_dict(), "", named)
+	assert_bool(named.has(target)).is_false()
+	# A hidden row card's entry stays blank too; once revealed its memory is public.
+	var state: MatchState = MatchState.new(SEED)
+	var c11: int = 10
+	state.seats[0].board.assign([c11])
+	state.memory_for(c11).times = 25
+	var budgets: Array[int] = [1, 1]
+	var theirs: SeatView = SeatView.build(state, 1, 0, budgets, _defs())
+	var blank: Dictionary = theirs.opponent_row[0]
+	(
+		assert_dict(blank)
+		. is_equal(
+			_printed(
+				{
+					"card": MatchEvent.HIDDEN_CARD,
+					"flat": 0,
+					"times": 100,
+					"plus": 0,
+					"revealed": false,
+					"destroyed": false,
+				},
+				0
+			)
+		)
+	)
+	state.seats[0].revealed[c11] = true
+	var revealed_entry: Dictionary = SeatView.build(state, 1, 0, budgets, _defs()).opponent_row[0]
+	var times: int = revealed_entry["times"]
+	var shown_grown: bool = revealed_entry["grown"]
+	assert_int(times).is_equal(150)
+	assert_bool(shown_grown).is_true()
+
+
+# --- DC-09 T06 review: the known pile faces and the hidden growth ----------------------
+
+
+## pile_entries: seat 0 sees its own grown destroyed card with its memory and the opponent's
+## public pile card, not the opponent's hidden one; seat 1 sees both of its own and nothing
+## of seat 0's pile card, which left its row face down.
+func test_pile_entries_show_known_pile_cards_with_their_memory() -> void:
+	var c11: int = 10
+	var c04_1: int = MatchRules.DECK_SIZE + 3
+	var c08_1: int = MatchRules.DECK_SIZE + 7
+	var state: MatchState = MatchState.new(SEED)
+	state.seats[0].destroyed.assign([c11])
+	state.seats[1].destroyed.assign([c04_1, c08_1])
+	state.seats[1].destroyed_known[c08_1] = true
+	state.memory_for(c11).times = 25
+	state.memory_for(c11).cost = 1
+	state.memory_for(c04_1).flat = 2
+	var budgets: Array[int] = [1, 1]
+	var mine: SeatView = SeatView.build(state, 0, 0, budgets, _defs())
+	var ids: Array[int] = []
+	ids.assign(mine.pile_entries.keys())
+	ids.sort()
+	assert_array(ids).is_equal([c11, c08_1])
+	assert_bool(mine.pile_entries.has(c04_1)).is_false()
+	var grown: Dictionary = {
+		"card": c11, "cost": 2, "flat": 3, "times": 150, "plus": 0, "grown": true, "uses_left": -1
+	}
+	assert_dict(mine.pile_entries[c11]).is_equal(grown)
+	var known: Dictionary = {
+		"card": c08_1,
+		"cost": 2,
+		"flat": 4,
+		"times": 100,
+		"plus": 0,
+		"grown": false,
+		"uses_left": -1
+	}
+	assert_dict(mine.pile_entries[c08_1]).is_equal(known)
+	# to_dict() lists the entries in id order; the hidden card's id is nowhere in the view.
+	assert_array(mine.to_dict()["pile_entries"]).is_equal([grown, known])
+	var named: Array[int] = []
+	_card_ids(mine.to_dict(), "", named)
+	assert_bool(named.has(c04_1)).is_false()
+	var theirs: SeatView = SeatView.build(state, 1, 0, budgets, _defs())
+	ids.assign(theirs.pile_entries.keys())
+	ids.sort()
+	assert_array(ids).is_equal([c04_1, c08_1])
+	var flat: int = theirs.pile_entries[c04_1]["flat"]
+	assert_int(flat).is_equal(5)
+
+
+## R8, R73: a growth on a hand card is private to its holder; the other seat's copy names no
+## card and shows neutral stats (flat 0, ×1.00, +0, cost 0, not permanent), so the grown
+## values cannot name the card through the deck list. The holder's copy keeps everything.
+func test_a_hidden_growth_shows_the_other_seat_neutral_stats() -> void:
+	var c11: int = 10
+	var state: MatchState = MatchState.new(SEED)
+	state.seats[0].hand.assign([c11])
+	var targets: Array[int] = [c11]
+	for stat: String in [BloomEffects.STAT_TIMES, BloomEffects.STAT_COST]:
+		var outcome: EffectResolver.Outcome = EffectResolver.Outcome.new()
+		BloomEffects.grow(state, _defs(), 0, targets, stat, 1, outcome)
+		assert_int(outcome.events.size()).is_equal(1)
+		var event: MatchEvent = outcome.events[0]
+		assert_int(event.owner_seat).is_equal(0)
+		assert_bool(event.payload["permanent"]).is_true()
+		assert_dict(event.redacted_for(0).to_dict()).is_equal(event.to_dict())
+		var copy: MatchEvent = event.redacted_for(1)
+		_assert_redacted(copy, event)
+		var cause: String = copy.payload["cause"]
+		var expected: String = "cost" if stat == BloomEffects.STAT_COST else "grow"
+		assert_str(cause).is_equal(expected)
 
 
 # --- R30: the full-state read ---------------------------------------------------------

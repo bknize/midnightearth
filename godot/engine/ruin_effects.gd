@@ -43,12 +43,7 @@ static func destroy_leftmost(
 			continue
 		if EffectResolver.destroy(state, cards, held, outcome):
 			return
-	var fizzled: Dictionary = {
-		"seat": seat,
-		"card": card,
-		"verb": CardEffect.verb_name(CardEffect.Verb.DESTROY_LEFTMOST_OWN),
-	}
-	outcome.add(MatchEvent.Kind.EFFECT_FIZZLED, fizzled)
+	EffectResolver.fizzle(seat, card, CardEffect.Verb.DESTROY_LEFTMOST_OWN, outcome)
 
 
 ## DESTROY_OWN_THEN_DRAW's consequence: `target`, on `seat`'s row, goes through destroy();

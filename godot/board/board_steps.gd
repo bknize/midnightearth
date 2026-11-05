@@ -174,6 +174,9 @@ static func _pulse(reveal: MatchEvent, scored: MatchEvent) -> BoardStep:
 	step.flat = payload.get("flat", 0)
 	step.times = payload.get("times", 100)
 	step.plus = payload.get("plus", 0)
+	if reveal != null:
+		step.cost = reveal.payload.get("cost", -1)
+		step.grown = reveal.payload.get("grown", false)
 	if reveal != null and step.destroyed:
 		# A destroyed reveal only flips: nothing scores, so nothing folds in.
 		step.revealed = false
@@ -225,6 +228,10 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			out.append(draw)
 		MatchEvent.Kind.CARD_BURNED:
 			var burn: BoardStep = _card_step(BoardStep.Kind.BURN, event)
+			var burn_slot: int = payload.get("slot", -1)
+			var burn_row: int = payload.get("row_seat", -1)
+			burn.slot = burn_slot
+			burn.row_seat = burn_row
 			burn.duration = BURN_TIME
 			out.append(burn)
 		MatchEvent.Kind.TURN_STARTED:
@@ -258,6 +265,7 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 		MatchEvent.Kind.EFFECT_FIZZLED:
 			var fizzled: BoardStep = _card_step(BoardStep.Kind.FIZZLE, event)
 			fizzled.verb = payload.get("verb", "")
+			fizzled.reason = payload.get("reason", "")
 			fizzled.duration = FIZZLE_TIME
 			out.append(fizzled)
 		MatchEvent.Kind.CHOICE_REQUESTED:
@@ -279,7 +287,14 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			shown.duration = CHOICE_SHOW_TIME
 			out.append(shown)
 		MatchEvent.Kind.STATS_CHANGED:
+			# A hand card's change is private to its holder: the other seat's copy has the
+			# card hidden and shows nothing (cycle 8 P4, P16).
+			if event.is_private() and event.owner_seat != viewer:
+				return out
 			var stats: BoardStep = _card_step(BoardStep.Kind.STATS, event)
+			stats.cost = payload.get("cost", -1)
+			stats.permanent = payload.get("permanent", false)
+			stats.in_hand = event.is_private()
 			stats.flat = payload.get("flat", 0)
 			stats.times = payload.get("times", ScoreTracker.MULT_ONE)
 			stats.plus = payload.get("plus", 0)

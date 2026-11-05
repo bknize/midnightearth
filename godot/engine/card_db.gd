@@ -1,19 +1,23 @@
 class_name CardDb
 extends RefCounted
-## Loads and validates a card pool, format 3 (R1, R3, plan P1).
+## Loads and validates a card pool, format 4 (R1, R3, plan P1; cycle 8 R9, R11, plan P1).
 ##
-## {"version": 3, "cards": [{"id", "name", "cost", "flat", "bonus", "effect"}]}, where
+## {"version": 4, "cards": [{"id", "name", "cost", "flat", "bonus", "effect"}]}, where
 ## `bonus` is null, {"x": hundredths} or {"plus": units} and `effect` is null or a
-## CardEffect object. The checks (R3, C13): unique ids, cost 1..7, flat
-## 0..cost + MatchRules.MAX_FLAT_OVER_COST, a bonus in MatchRules.TIMES_VALUES or
-## MatchRules.PLUS_VALUES, a known trigger and verb. A pool has no card count and no cost
-## mix (C3): decks are checked by DeckList.validate().
+## CardEffect object, which may carry an optional `uses`. The checks (R3, C13): unique ids,
+## cost 1..7, flat 0..cost + MatchRules.MAX_FLAT_OVER_COST, a bonus in
+## MatchRules.TIMES_VALUES or MatchRules.PLUS_VALUES, a known trigger and verb; since format
+## 4 also a `uses` that is a whole number >= 0, a grow amount in MatchRules.GROW_STEPS
+## (CardEffect.is_allowed_amount) and a verb on a trigger it may use
+## (CardEffect.is_allowed_pair). Format 4 differs from 3 only by the optional `uses`, but a
+## format-3 file fails on its version. A pool has no card count and no cost mix (C3): decks
+## are checked by DeckList.validate().
 ##
 ## Loading never prints, asserts or pushes an error: every failure is reported through
 ## load_error(), and a failed database holds no cards, so the engine refuses to start.
 
 const DEFAULT_PATH: String = "res://engine/data/cards.json"
-const FORMAT_VERSION: int = 3
+const FORMAT_VERSION: int = 4
 const MIN_COST: int = 1
 const MAX_COST: int = 7
 
@@ -28,6 +32,12 @@ const ERR_FLAT: String = "flat out of range"
 const ERR_BONUS: String = "bonus out of range"
 const ERR_TRIGGER: String = "unknown trigger"
 const ERR_VERB: String = "unknown verb"
+## Cycle 8 R11 (plan P1): a `uses` not a whole number >= 0 (or not > 0 on a
+## CardEffect.LIMITED_VERBS verb, DC-09 T06 review), a grow amount outside
+## MatchRules.GROW_STEPS, a verb on a trigger CardEffect.is_allowed_pair refuses.
+const ERR_USES: String = "bad uses"
+const ERR_GROW: String = "grow amount out of range"
+const ERR_PAIR: String = "verb not allowed on trigger"
 
 var _cards: Array[CardDef] = []
 var _index_by_id: Dictionary[String, int] = {}
@@ -236,7 +246,7 @@ static func _allowed_bonuses(kind: CardDef.BonusKind) -> Array[int]:
 
 
 ## An error message for one entry's effect, or "" when it is null or well formed with a
-## known trigger and verb.
+## known trigger and verb, a valid `uses`, and (cycle 8 R11) an allowed pair and amount.
 static func _effect_problem(value: Variant, i: int) -> String:
 	if value == null:
 		return ""
@@ -247,14 +257,50 @@ static func _effect_problem(value: Variant, i: int) -> String:
 	if not value is Dictionary:
 		return shape_error
 	var d: Dictionary = value
+	if not CardEffect.has_valid_uses(d):
+		var raw_uses: Variant = d[CardEffect.KEY_USES]
+		return (
+			"%s: card %d has uses %s (a whole number >= 0)"
+			% [ERR_USES, i, JSON.stringify(raw_uses)]
+		)
 	if not CardEffect.has_valid_shape(d):
 		return shape_error
 	var trigger_text: String = d[CardEffect.KEY_TRIGGER]
-	if CardEffect.trigger_from_name(trigger_text) < 0:
+	var trigger_value: int = CardEffect.trigger_from_name(trigger_text)
+	if trigger_value < 0:
 		return '%s: card %d has trigger "%s"' % [ERR_TRIGGER, i, trigger_text]
 	var verb_text: String = d[CardEffect.KEY_VERB]
-	if CardEffect.verb_from_name(verb_text) < 0:
+	var verb_value: int = CardEffect.verb_from_name(verb_text)
+	if verb_value < 0:
 		return '%s: card %d has verb "%s"' % [ERR_VERB, i, verb_text]
+	var uses: int = 0
+	if d.has(CardEffect.KEY_USES):
+		uses = _as_int(d[CardEffect.KEY_USES])
+	var amount: int = _as_int(d[CardEffect.KEY_AMOUNT])
+	return _rule_problem(trigger_value, verb_value, amount, uses, i)
+
+
+## An error message when a known verb sits on a trigger it may not use, names a grow
+## amount outside MatchRules.GROW_STEPS (cycle 8 R11, plan P1) or is a limited verb
+## (CardEffect.LIMITED_VERBS) with no `uses` > 0, else "".
+static func _rule_problem(
+	trigger_value: int, verb_value: int, amount: int, uses: int, i: int
+) -> String:
+	var verb_text: String = CardEffect.verb_name(verb_value)
+	if CardEffect.LIMITED_VERBS.has(verb_value) and uses <= 0:
+		return '%s: card %d has verb "%s" with no uses (needs uses > 0)' % [ERR_USES, i, verb_text]
+	if not CardEffect.is_allowed_pair(trigger_value, verb_value):
+		return (
+			'%s: card %d has verb "%s" on trigger "%s"'
+			% [ERR_PAIR, i, verb_text, CardEffect.trigger_name(trigger_value)]
+		)
+	if not CardEffect.is_allowed_amount(verb_value, amount):
+		var stat: String = CardEffect.GROW_STAT[verb_value]
+		var steps: Array = MatchRules.GROW_STEPS[stat]
+		return (
+			'%s: card %d has verb "%s" amount %d (allowed %s)'
+			% [ERR_GROW, i, verb_text, amount, str(steps)]
+		)
 	return ""
 
 

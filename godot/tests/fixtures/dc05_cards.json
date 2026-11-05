@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "cards": [
     {"id": "c01", "name": "Placeholder 01", "cost": 1, "flat": 1, "bonus": null, "effect": {"trigger": "on_reveal", "verb": "draw", "amount": 1, "text": "Draw a card."}},
     {"id": "c02", "name": "Placeholder 02", "cost": 1, "flat": 2, "bonus": null, "effect": null},

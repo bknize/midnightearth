@@ -4,9 +4,12 @@ extends RefCounted
 ## the plan's event table. Private events (deal, draw, burn, commit, and the destroy of a
 ## face-down card, DC-05 T04; the discard, a face-down card's move and a choice of a hand or
 ## face-down card, DC-05 T05; the turn-end clear of a destroyed card never revealed, DC-06
-## R21) carry the owning seat; public events carry PUBLIC.
+## R21; a growth's STATS_CHANGED on a hand or face-down card, cycle 8 P4) carry the owning
+## seat; public events carry PUBLIC.
 ## redacted_for() gives each seat its copy (R29). A private CHOICE_MADE hides only its
-## `target` (R34); every other private event hides its `card` and `cards`.
+## `target` (R34); every other private event hides its `card` and `cards`, and a private
+## STATS_CHANGED also shows neutral stats (STATS_HIDDEN), since a hidden card's effective
+## flat, bonus and cost would name it through the public deck lists (cycle 8 R8, R73).
 
 enum Kind {
 	ROUND_STARTED,
@@ -60,6 +63,12 @@ const HIDDEN_CARD: int = -1
 const KEY_CARD: String = "card"
 const KEY_CARDS: String = "cards"
 const KEY_TARGET: String = "target"
+## What the other seat's copy of a private STATS_CHANGED shows in place of the hidden card's
+## stats and memory flag (cycle 8 R8, R73): no flat, no bonus (×1.00, +0), cost 0, not
+## permanent. `seat` and `cause` stay, so the event still counts as a change on that seat.
+const STATS_HIDDEN: Dictionary = {
+	"flat": 0, "times": MatchRules.MULT_ONE, "plus": 0, "cost": 0, "permanent": false
+}
 
 var kind: int = Kind.ROUND_STARTED
 var payload: Dictionary = {}
@@ -86,7 +95,8 @@ func to_dict() -> Dictionary:
 ## The copy of this event that `seat` may see (R29). Public events and the owner's own
 ## private events come back unchanged; for anyone else a private event keeps its kind,
 ## owner and `seat`, and every card id under `card` or `cards` becomes HIDDEN_CARD (the
-## COMMITTED `count` stays); a private CHOICE_MADE keeps `card` and hides `target`. Always
+## COMMITTED `count` stays); a private STATS_CHANGED also takes STATS_HIDDEN's values for
+## its stats; a private CHOICE_MADE keeps `card` and hides `target`. Always
 ## a new object with a deep-copied payload: this event is never mutated, and mutating the
 ## copy cannot reach it.
 func redacted_for(seat: int) -> MatchEvent:
@@ -103,4 +113,7 @@ func redacted_for(seat: int) -> MatchEvent:
 			for _card: Variant in hidden:
 				masked.append(HIDDEN_CARD)
 			copied[KEY_CARDS] = masked
+		if kind == Kind.STATS_CHANGED:
+			# The stats of a hidden card would name it (cycle 8 R8): neutral values.
+			copied.merge(STATS_HIDDEN, true)
 	return MatchEvent.new(kind, copied, owner_seat)

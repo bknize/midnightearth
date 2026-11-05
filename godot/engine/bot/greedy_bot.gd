@@ -45,6 +45,9 @@ extends BotPlayer
 ## highest definition flat, a discard the one with the lowest, ties by the lower position.
 ## The flat is what the view shows: a destroyed-pile entry whose identity is hidden
 ## (MatchEvent.HIDDEN_CARD) counts as flat 0, so the rule reads nothing the view hides.
+## A hand-growth prompt (GROW_HAND_ONE_TIMES, cycle 8 R22, P15) is answered by rule too, for
+## the same reason: the grown card stays in the hand, so it takes the hand card with the
+## highest effective flat of `own_hand_row` (memory included), ties by the lower position.
 ##
 ## Orders (DC-07 P13, R36): "bonus first" is +-part desc, then ×-part desc, then flat desc;
 ## "flat first" is flat desc, then the bonus (+-part desc, then ×-part desc); both end on
@@ -231,22 +234,26 @@ func set_candidates(view: SeatView) -> Array[Array]:
 
 
 ## The option the rule picks for the single-target prompt open for `view.seat` when its
-## verb is RECOVER_DESTROYED (the highest definition flat) or DISCARD_OWN (the lowest), ties by
-## the lower position (see the class comment), with no preview; -1 for any other prompt, a
-## multi-select one, or one with no option.
+## verb is RECOVER_DESTROYED (the highest definition flat), DISCARD_OWN (the lowest) or
+## GROW_HAND_ONE_TIMES (the highest effective flat of `view.own_hand_row`, cycle 8 R22,
+## P15), ties by the lower position (see the class comment), with no preview; -1 for any
+## other prompt, a multi-select one, or one with no option.
 func ranked_option(view: SeatView) -> int:
 	var asked: int = view.prompt.get("seat", -1)
 	if asked != view.seat or Choice.is_multi_prompt(view.prompt):
 		return -1
 	var verb: int = view.prompt.get("verb", -1)
-	var highest: bool = verb == CardEffect.Verb.RECOVER_DESTROYED
+	var growing: bool = verb == CardEffect.Verb.GROW_HAND_ONE_TIMES
+	var highest: bool = growing or verb == CardEffect.Verb.RECOVER_DESTROYED
 	if not highest and verb != CardEffect.Verb.DISCARD_OWN:
 		return -1
 	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
 	var picked: int = -1
 	var picked_flat: int = 0
 	for option: int in Choice.options_of(view.prompt):
-		var flat: int = _option_flat(view, zone, option)
+		var flat: int = (
+			_hand_row_flat(view, option) if growing else _option_flat(view, zone, option)
+		)
 		var better: bool = flat > picked_flat if highest else flat < picked_flat
 		var tied: bool = flat == picked_flat and option < picked
 		if picked < 0 or better or tied:
@@ -277,6 +284,19 @@ func _option_flat(view: SeatView, zone: int, index: int) -> int:
 	return flat
 
 
+## The effective flat of hand position `index` as `view.own_hand_row` shows it (memory
+## included, cycle 8 R7); the definition flat when the view carries no hand row (a stub
+## view); 0 for a position out of range.
+func _hand_row_flat(view: SeatView, index: int) -> int:
+	if index < 0 or index >= view.own_hand.size():
+		return 0
+	if view.own_hand_row.size() != view.own_hand.size():
+		return stats_of(view.own_hand[index]).x
+	var entry: Dictionary = view.own_hand_row[index]
+	var flat: int = entry.get("flat", 0)
+	return flat
+
+
 ## The card at position `index` of BOTH_DESTROYED as the view shows it (its own pile, then
 ## the opponent's), MatchEvent.HIDDEN_CARD for a hidden entry, -1 out of range.
 func _pile_card(view: SeatView, index: int) -> int:
@@ -302,14 +322,21 @@ func _prompt_rng(view: SeatView) -> MatchRng:
 ## differs, then (with the free first card) the costliest-first order when it differs; per
 ## order the left end, then the right end when the row is not empty. An order whose
 ## commit_cost() exceeds the budget is skipped. Each commit carries explicit slots; the
-## empty set is one candidate with none.
+## empty set is one candidate with none. Every cost is the view's effective cost
+## (`own_hand_costs`, cycle 8 R21, P3; the definition's cost when the view has none,
+## hand_costs()), so a card whose cost an ability reduced is a candidate exactly when the
+## engine accepts it.
 func candidates(view: SeatView) -> Array[EngineAction]:
 	var out: Array[EngineAction] = []
 	var row_size: int = view.own_board.size()
+	var costs: Array[int] = hand_costs(view, _cards)
+	var price: Dictionary[int, int] = {}
+	for index: int in range(view.own_hand.size()):
+		price[view.own_hand[index]] = costs[index]
 	var cap: int = view.energy
 	if view.free_first:
-		cap += _highest_cost(view.own_hand)
-	for mask: int in LegalPlays.enumerate_masks(view.own_hand, cap, _cards):
+		cap += _highest_cost(costs)
+	for mask: int in LegalPlays.enumerate_masks_with(view.own_hand, costs, cap):
 		var picked: Array[int] = LegalPlays.subset(view.own_hand, mask)
 		if picked.is_empty():
 			var none: Array[int] = []
@@ -325,31 +352,62 @@ func candidates(view: SeatView) -> Array[EngineAction]:
 		if search_flat_first and flat_first != bonus_first:
 			orders.append(flat_first)
 		if view.free_first:
-			var costly_first: Array[int] = _costliest_first(bonus_first)
+			var costly_first: Array[int] = _costliest_first(bonus_first, price)
 			if not orders.has(costly_first):
 				orders.append(costly_first)
 		for order: Array in orders:
 			var cards: Array[int] = []
 			cards.assign(order)
-			if LegalPlays.commit_cost(cards, view.free_first, _cards) <= view.energy:
+			var order_costs: Array[int] = _prices_of(cards, price)
+			if LegalPlays.commit_cost_with(cards, order_costs, view.free_first) <= view.energy:
 				_add_ends(out, view.seat, cards, row_size)
 	return out
 
 
-## The highest cost of any card in `hand` (0 for an empty hand or unpriced cards).
-func _highest_cost(hand: Array[int]) -> int:
+## The costs of `view.own_hand`, parallel to it (cycle 8 R21, P3): the view's effective
+## `own_hand_costs` when it carries one per hand card, else each card's definition cost
+## over `cards` (a stub view, or one built without definitions). With no usable `cards`
+## (null, failed card data, or the empty MatchCards BotPlayer holds for null) every card is
+## unpriced (-1), whatever the view carries, so the bot's only candidate is the empty set
+## (the documented fallback).
+static func hand_costs(view: SeatView, cards: MatchCards) -> Array[int]:
+	if cards == null or not cards.is_valid() or cards.size() == 0:
+		var unpriced: Array[int] = []
+		for _card: int in view.own_hand:
+			unpriced.append(-1)
+		return unpriced
+	if view.own_hand_costs.size() == view.own_hand.size():
+		var given: Array[int] = []
+		given.assign(view.own_hand_costs)
+		return given
+	return LegalPlays.def_costs(view.own_hand, cards)
+
+
+## The highest of `costs` (0 when empty or all unpriced).
+func _highest_cost(costs: Array[int]) -> int:
 	var highest: int = 0
-	for card: int in hand:
-		highest = maxi(highest, LegalPlays.cost_of(card, _cards))
+	for cost: int in costs:
+		highest = maxi(highest, cost)
 	return highest
 
 
+## The costs of `picked` from `price` (card -> cost), in order; -1 for a card it lacks.
+func _prices_of(picked: Array[int], price: Dictionary[int, int]) -> Array[int]:
+	var out: Array[int] = []
+	for card: int in picked:
+		out.append(price.get(card, -1))
+	return out
+
+
 ## `ordered` with its costliest card moved to the front (the first of equals keeps its
-## place), the rest in their order: the order the free first card discounts most.
-func _costliest_first(ordered: Array[int]) -> Array[int]:
+## place), the rest in their order: the order the free first card discounts most. Costs come
+## from `price` (card -> cost).
+func _costliest_first(ordered: Array[int], price: Dictionary[int, int]) -> Array[int]:
 	var best: int = 0
 	for index: int in range(ordered.size()):
-		if LegalPlays.cost_of(ordered[index], _cards) > LegalPlays.cost_of(ordered[best], _cards):
+		var cost: int = price.get(ordered[index], -1)
+		var best_cost: int = price.get(ordered[best], -1)
+		if cost > best_cost:
 			best = index
 	var out: Array[int] = []
 	if ordered.is_empty():

@@ -38,6 +38,12 @@ extends RefCounted
 ##   destroyed included: a face-down card is chosen by its position and its id stays hidden.
 ## - SWAP_OPPONENT_RIGHT (DC-07 P12): OPPONENT_BOARD, every position but the rightmost, face
 ##   down or destroyed included.
+## - GROW_OTHER_FLAT (cycle 8 P8): OWN_BOARD, every live card but the source, revealed or not.
+## - GROW_HAND_ONE_TIMES (cycle 8 P8): OWN_HAND, every position (one card auto-chooses).
+## - RETURN_OWN_AT_TURN_END (cycle 8 P8): OWN_BOARD, every live card not already marked to
+##   return but the source, revealed or not.
+## - RETURN_OPPONENT_AT_TURN_END (cycle 8 P8): OPPONENT_BOARD, every revealed live card not
+##   already marked to return.
 ## Any other verb needs no choice: eligible() gives zone -1 and no options. The three
 ## OPPONENT_BOARD verbs are DriftEffects' (DC-07 T07).
 ##
@@ -80,7 +86,8 @@ static func is_pile(zone: int) -> bool:
 	return zone == Zone.BOTH_DESTROYED
 
 
-## Whether `verb` (a CardEffect.Verb) needs a target chosen.
+## Whether `verb` (a CardEffect.Verb) needs a target chosen (the two grow prompt verbs and
+## the two prompt return verbs since cycle 8 P8).
 static func needs_choice(verb: int) -> bool:
 	return (
 		verb == CardEffect.Verb.DRAW_THEN_DISCARD
@@ -91,6 +98,9 @@ static func needs_choice(verb: int) -> bool:
 		or verb == CardEffect.Verb.DISCARD_OWN
 		or verb == CardEffect.Verb.DESTROY_OWN_THEN_DRAW
 		or verb == CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP
+		or verb == CardEffect.Verb.GROW_OTHER_FLAT
+		or verb == CardEffect.Verb.GROW_HAND_ONE_TIMES
+		or verb == CardEffect.Verb.RETURN_OWN_AT_TURN_END
 		or zone_for(verb) == Zone.OPPONENT_BOARD
 	)
 
@@ -142,6 +152,14 @@ static func zone_for(verb: int) -> int:
 		CardEffect.Verb.COPY_STATS, CardEffect.Verb.MOVE_OPPONENT_LEFT:
 			return Zone.OPPONENT_BOARD
 		CardEffect.Verb.SWAP_OPPONENT_RIGHT:
+			return Zone.OPPONENT_BOARD
+		CardEffect.Verb.GROW_OTHER_FLAT:
+			return Zone.OWN_BOARD
+		CardEffect.Verb.GROW_HAND_ONE_TIMES:
+			return Zone.OWN_HAND
+		CardEffect.Verb.RETURN_OWN_AT_TURN_END:
+			return Zone.OWN_BOARD
+		CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
 			return Zone.OPPONENT_BOARD
 	return NO_ZONE
 
@@ -252,8 +270,16 @@ static func _is_eligible(
 			return true
 		CardEffect.Verb.SACRIFICE_DESTROY, CardEffect.Verb.DESTROY_OWN_THEN_DRAW:
 			return card != source and not state.is_destroyed(card)
-		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
+		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP, CardEffect.Verb.GROW_OTHER_FLAT:
 			return card != source and not state.is_destroyed(card)
+		CardEffect.Verb.GROW_HAND_ONE_TIMES:
+			return true
+		CardEffect.Verb.RETURN_OWN_AT_TURN_END:
+			var live: bool = card != source and not state.is_destroyed(card)
+			return live and not EchoEffects.is_return_marked(state, card)
+		CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
+			var shown: bool = _is_live_and_revealed(state, seat, zone, index, card)
+			return shown and not EchoEffects.is_return_marked(state, card)
 		CardEffect.Verb.COPY_STATS:
 			return _is_live_and_revealed(state, seat, zone, index, card)
 		CardEffect.Verb.MOVE_OPPONENT_LEFT:
