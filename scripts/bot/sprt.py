@@ -17,6 +17,8 @@ from typing import List, Optional, Sequence, Tuple
 ALPHA = 0.05
 BETA = 0.05
 DEFAULT_CAP = 20000
+ZERO_VAR_MIN_PAIRS = 100
+VAR_FLOOR = 1e-4
 BOUNDS = {"gainer": (0.0, 25.0), "nonreg": (-25.0, 0.0)}
 
 
@@ -37,7 +39,12 @@ def llr(counts: Sequence[int], elo0: float, elo1: float) -> float:
     mean = sum(c * (i / 4.0) for i, c in enumerate(counts)) / n
     var = sum(c * (i / 4.0 - mean) ** 2 for i, c in enumerate(counts)) / n
     if var <= 0.0:
-        return 0.0
+        # Every pair had the same outcome (identical deterministic bots split each pair
+        # 1-1). Undecided on a small sample; after ZERO_VAR_MIN_PAIRS such pairs, treat
+        # the variance as VAR_FLOOR so the test settles on the side the mean is on.
+        if n < ZERO_VAR_MIN_PAIRS:
+            return 0.0
+        var = VAR_FLOOR
     s0, s1 = logistic(elo0), logistic(elo1)
     return n * (s1 - s0) * (2.0 * mean - s0 - s1) / (2.0 * var)
 

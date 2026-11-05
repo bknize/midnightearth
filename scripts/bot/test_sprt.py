@@ -152,5 +152,22 @@ class DriverTest(unittest.TestCase):
         self.assertEqual(len(reports), 1)
 
 
+
+class IdenticalBotsTest(unittest.TestCase):
+    """Identical deterministic bots split every pair 1-1: zero raw variance."""
+
+    def test_nonreg_passes_and_gainer_fails(self):
+        nonreg = sprt.Sprt("nonreg")
+        gainer = sprt.Sprt("gainer")
+        for _ in range(99):
+            nonreg.add(1.0)
+            gainer.add(1.0)
+        self.assertIsNone(nonreg.state())
+        nonreg.add(1.0)
+        gainer.add(1.0)
+        self.assertEqual(nonreg.result(), "PASS")
+        self.assertEqual(gainer.result(), "FAIL")
+
+
 if __name__ == "__main__":
     unittest.main()
