@@ -2,7 +2,7 @@ class_name TestTunedBot
 extends GdUnitTestSuite
 ## The tuned bot (cycle 7 T04; R2, R3, R6-R16, plan P9). With the default weights and a cap
 ## above the candidate count it chooses as the greedy bot on every decision (R12); at the
-## shipped cap of 48 its departures from the full search are counted and logged; level 20
+## shipped cap of 24 its departures from the full search are counted and logged; level 20
 ## repeats itself, and level 3 strays from the best but never past push_unit (R13, R14); a
 ## set prompt costs n + 1 previews; the engine accepts every action over 50 seeds (R3); and
 ## the bot asks the engine for nothing but preview(), preview_choice() and preview_set() (R2).
@@ -17,7 +17,7 @@ const R12_SEEDS: int = 20
 const R12_SHIPPED_SEEDS: int = 3
 ## A cap above every candidate count (at most 768 previews a decision; GreedyBot).
 const FULL_K: int = 1000
-const PRUNED_K: int = 48
+const PRUNED_K: int = 24
 ## Commit decisions compared between the pruned and the full search.
 const K_DECISIONS: int = 200
 const LOW_LEVEL: int = 3
@@ -195,10 +195,10 @@ func test_null_engine_chooses_as_the_greedy_bot() -> void:
 # --- R7: the shipped cap against the full search ---------------------------------------
 
 
-## Over K_DECISIONS commit decisions of greedy-driven matches, how often the k = 48 bot
+## Over K_DECISIONS commit decisions of greedy-driven matches, how often the k = 24 bot
 ## chooses otherwise than the full search (both level 20, default weights). Logged, not
 ## asserted: the trainer tunes k (plan, risks).
-func test_k48_departures_from_the_full_search_are_logged() -> void:
+func test_k24_departures_from_the_full_search_are_logged() -> void:
 	var compared: int = 0
 	var differ: int = 0
 	var match_seed: int = 1
@@ -225,7 +225,7 @@ func test_k48_departures_from_the_full_search_are_logged() -> void:
 				return
 			actions += 1
 		match_seed += 1
-	print("TunedBot k48 differs: %d/%d" % [differ, compared])
+	print("TunedBot k24 differs: %d/%d" % [differ, compared])
 	assert_int(compared).is_equal(K_DECISIONS)
 
 

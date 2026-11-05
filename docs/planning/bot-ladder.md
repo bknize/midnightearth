@@ -28,7 +28,8 @@ far" is the weights file committed in the repository (R23); nothing else counts.
 |---|---|---|---|---|---|---|---|
 | 2026-11-04 | greedy_v1 | r4-8054169094898cc2 | – | reference | – | 52f2ef5 | Frozen copy of GreedyBot at cycle 6's merge (R21). API-forced edits: extends BotPlayer. Choices pinned on 12 seeds at round 1 turn 3 and one set prompt (`test_greedy_v1_bot.gd`, 703c449). |
 | 2026-11-04 | random | r4-8054169094898cc2 | – | reference (floor) | – | 5895167 | Uniform over legal commits and prompt answers, per-decision seed (R20). |
-| 2026-11-04 | tuned v1 (default weights: score_diff 100, k 48) | r4-8054169094898cc2 | greedy_v1 | pending: `make bot-eval` at DC-08 T11 | pending | 7425df9 | Same choices as the greedy bot under the full search (R12); the top-48 prune changed 0 of 200 test decisions. |
+| 2026-11-04 | tuned v1 (default weights: score_diff 100, k 48) | r4-8054169094898cc2 | greedy_v1 | not run: superseded by k 24 before verification | – | 7425df9 | Same choices as the greedy bot under the full search (R12); the top-48 prune changed 0 of 200 test decisions. Sweep slowest 46 ms (k 48 previews nearly every candidate). |
+| 2026-11-04 | tuned v1 (k 24, shipped) | r4-8054169094898cc2 | greedy_v1 | non-regression PASS, 111 pairs, 0.500 (identical choices); full line pending at DC-08 T11 | sweep p95 4977, p99 8862, slowest 131163 (OS stall, loaded machine) | pending | Spec C14 (Ben): k 24 and a p99 sweep assertion. The top-24 prune changed 0 of 200 test decisions. Quiet-run p99 7.0 ms, max about 11 ms. |
 
 ## Rerun after an engine change
 

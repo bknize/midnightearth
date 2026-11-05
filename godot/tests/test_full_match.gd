@@ -11,7 +11,7 @@ extends GdUnitTestSuite
 ## records the longest walk in pulses (the slots of both rows at walk start, DC-06 R4).
 ## The sweep prints "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=.. slowest_us=..
 ## prompts=.. destroyed_hidden=.. pile_hidden=.. recoveries=.. recoveries_hidden=.. sets=..
-## bot=.. p95_us=.. stamp=match|MISMATCH" and per pairing "Sweep pairing <a>/<b>: seeds=..
+## bot=.. p95_us=.. p99_us=.. stamp=match|MISMATCH" and per pairing "Sweep pairing <a>/<b>: seeds=..
 ## longest=.. seed=.. slowest_us=.. seed=.." (DC-07 T08; cycle 7 T05, R17, R19, R35, R56).
 ##
 ## Matches are played as main.gd plays its smoke run: the shipped pool and deck list, each
@@ -21,8 +21,8 @@ extends GdUnitTestSuite
 ## only for the awaited seat. A harness cap of MAX_ACTIONS fails a runaway match. Every log
 ## names both decks and replays with them (R7). DC-07 T08: the leak scan covers the
 ## destroyed piles and recoveries. Cycle 7 T05: every choose() is timed (the test reads the
-## clock, never a bot, R18) and the slowest must stay under DECISION_BUDGET_US (R17); the
-## shipped weights' stamp is checked against BotStamp.current() and printed, never asserted.
+## clock, never a bot, R18), the 99th percentile stays under DECISION_BUDGET_US and the
+## slowest is printed (R17, DC-08); the weights' stamp is printed, never asserted (R35).
 
 # GOLDEN (cycle 7 T05, R56: pinned by the orchestrator at verification)
 # The greedy bot's last pin (DC-07 T13), for reference: decks ruin/ruin, winner 1, wins
@@ -60,11 +60,12 @@ const REASONS: Array[String] = [
 static var longest_actions: int = 0
 static var longest_seed: int = 0
 ## The slowest single bot choose() call of the sweep, in microseconds, its seed, the 95th
-## percentile of every decision (nearest rank), and the prompts the sweep's bots answered;
+## and 99th percentiles of every decision (nearest rank), and the prompts the sweep's bots answered;
 ## set by the sweep test (DC-05 T14; cycle 7 T05, R17).
 static var slowest_us: int = 0
 static var slowest_seed: int = 0
 static var p95_us: int = 0
+static var p99_us: int = 0
 ## The bot the sweep played and its stamp check, STAMP_MATCH or STAMP_MISMATCH (R19, R35).
 static var sweep_bot: String = ""
 static var sweep_stamp: String = ""
@@ -727,6 +728,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	slowest_us = 0
 	slowest_seed = 0
 	p95_us = 0
+	p99_us = 0
 	sweep_bot = BotRegistry.default_name()
 	sweep_stamp = stamp_status(BotRegistry.default_weights_path(sweep_bot))
 	sweep_prompts = 0
@@ -770,7 +772,8 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 			slowest_us = run.slowest_us
 			slowest_seed = match_seed
 	sweep_prompts = choices
-	p95_us = _p95(decisions)
+	p95_us = _percentile(decisions, 95)
+	p99_us = _percentile(decisions, 99)
 	# One line for the orchestrator to read at verification (DC-05 T14, DC-06 T09; cycle 7
 	# T05: the bot, its decision times and the stamp check, R17, R19, R35, R56).
 	print(
@@ -778,7 +781,8 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 			(
 				"Sweep: longest=%d seed=%d longest_walk=%d walk_seed=%d"
 				+ " slowest_us=%d prompts=%d destroyed_hidden=%d pile_hidden=%d"
-				+ " recoveries=%d recoveries_hidden=%d sets=%d bot=%s p95_us=%d stamp=%s"
+				+ " recoveries=%d recoveries_hidden=%d sets=%d bot=%s p95_us=%d"
+				+ " p99_us=%d stamp=%s"
 			)
 			% [
 				longest_actions,
@@ -794,6 +798,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 				set_answers,
 				sweep_bot,
 				p95_us,
+				p99_us,
 				sweep_stamp,
 			]
 		)
@@ -801,12 +806,12 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	_print_pairings()
 	_assert_pairings()
 	assert_int(ended).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
-	# R17 (NSC-74): every decision of the shipped bot at full strength within the budget.
+	# R17 (NSC-74, DC-08): 99% of the shipped bot's decisions within the budget.
 	var too_slow: String = (
-		"slowest decision %d us (seed %d) over the %d us budget"
-		% [slowest_us, slowest_seed, DECISION_BUDGET_US]
+		"99th-percentile decision %d us over the %d us budget (slowest %d us, seed %d)"
+		% [p99_us, DECISION_BUDGET_US, slowest_us, slowest_seed]
 	)
-	assert_int(slowest_us).override_failure_message(too_slow).is_less(DECISION_BUDGET_US)
+	assert_int(p99_us).override_failure_message(too_slow).is_less(DECISION_BUDGET_US)
 	assert_int(face_down_seen).is_greater(0)
 	assert_int(redacted_seen).is_greater(0)
 	# The sweep really answered prompts, so their leak scan and replay ran (DC-05 T05).
@@ -889,14 +894,14 @@ func _assert_pairings() -> void:
 	assert_int(total).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
 
 
-## The 95th percentile of `times` by nearest rank: the value at rank ceil(0.95 * n) of the
-## sorted times (integer arithmetic); 0 for no times. `times` is left unsorted.
-static func _p95(times: PackedInt32Array) -> int:
+## The `pct` percentile of `times` by nearest rank: the value at rank ceil(pct / 100 * n) of
+## the sorted times (integer arithmetic); 0 for no times. `times` is left unsorted.
+static func _percentile(times: PackedInt32Array, pct: int) -> int:
 	if times.is_empty():
 		return 0
 	var sorted: PackedInt32Array = times.duplicate()
 	sorted.sort()
-	return sorted[(95 * sorted.size() + 99) / 100 - 1]
+	return sorted[(pct * sorted.size() + 99) / 100 - 1]
 
 
 ## The stamp check of R35, shared by the sweep and the stamp test: STAMP_MATCH when the

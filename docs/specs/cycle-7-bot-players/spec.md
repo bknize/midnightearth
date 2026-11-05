@@ -134,9 +134,9 @@ orchestrator exactly which two commands to run before merging.
 
 ### The decision budget (NSC-74; C10)
 
-- R17. On the verification machine, the slowest decision of the 50-seed sweep by the shipped
-  bot at full strength shall be under 10 ms, and the sweep shall print the 95th-percentile
-  and the slowest decision in microseconds.
+- R17. On the verification machine, the 99th-percentile decision of the 50-seed sweep by the
+  shipped bot at full strength shall be under 10 ms, and the sweep shall print the 95th and
+  99th percentiles and the slowest decision in microseconds (amended by C14).
 - R18. The candidate caps that keep R17 shall be whole numbers in the weights file, so the
   sweep and the harness are deterministic across machines; no bot shall read a clock.
 - R19. The sweep shall keep every invariant it checks today (every match ends, no hand over
@@ -300,6 +300,7 @@ orchestrator exactly which two commands to run before merging.
 | C11 | Round 3 Q3: where artefacts live | 3a: weights committed under `godot/engine/bot/data/` with the stamp; logs and reports under `godot/reports/bot/` (untracked); a ledger `docs/planning/bot-ladder.md` kept like `cycles.md` |
 | C12 | Round 3 Q4: proof | 4a: milestone A: `make check` with the new sweep line, golden re-pinned, a `bot-eval` summary in the cycles log, one screenshot of the tuned bot's first commit; milestone B: SPRT pass lines for the trained weights and the matrix bot, committed weights, one training match replayed |
 | C13 | Round 3 defaults, no objection | The frozen reference is cycle 6's final GreedyBot copied after its T08, never edited beyond R22; the random bot is the floor; best-so-far is the committed weights file |
+| C14 | DC-08 run, latency (2026-11-04) | 1a: the shipped cap is k = 24 (the built-in default too): it chose as `greedy_v1` in every game of a 111-pair non-regression `bot-eval` (PASS), quiet-run p99 7.0 ms; k = 48 barely pruned (13–77 candidates a position). 2a: the sweep asserts the 99th percentile under 10 ms and prints the slowest without asserting it, since one OS stall on a shared machine decides the slowest (46–393 ms seen); R17 amended |
 
 ## Scenarios
 
@@ -313,8 +314,8 @@ orchestrator exactly which two commands to run before merging.
 - **Given** the weights file is deleted, **when** the game boots, **then** one
   `Bot weights:` warning line prints, the smoke still runs and `Main ready` prints.
 - **Given** the 50-seed sweep under the tuned bot, **then** every invariant holds, the
-  slowest decision is under 10 ms, and the line reads `… bot=tuned p95_us=… slowest_us=…
-  stamp=match`.
+  99th-percentile decision is under 10 ms, and the line reads `… bot=tuned p95_us=…
+  p99_us=… stamp=match` with `slowest_us=…` printed (C14).
 - **Given** `make bot-eval` with a healthy weights file, **when** it runs, **then** eight
   workers play paired batches, the SPRT crosses a bound within about ten minutes, the
   summary names the bound and the game count, and the exit code is 0.

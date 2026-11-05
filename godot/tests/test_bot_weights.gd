@@ -15,7 +15,7 @@ const GOOD_TEXT: String = (
 
 ## A default-valued object: the fields defaults() gives.
 func _assert_defaults(weights: BotWeights) -> void:
-	assert_int(weights.k).is_equal(48)
+	assert_int(weights.k).is_equal(24)
 	assert_int(weights.k_opp).is_equal(12)
 	assert_int(weights.samples).is_equal(4)
 	assert_int(weights.rm_iterations).is_equal(200)
@@ -24,7 +24,7 @@ func _assert_defaults(weights: BotWeights) -> void:
 	assert_str(weights.stamp).is_equal("")
 
 
-func test_defaults_have_k_48_and_score_diff() -> void:
+func test_defaults_have_k_24_and_score_diff() -> void:
 	var weights: BotWeights = BotWeights.defaults("tuned")
 	assert_str(weights.bot).is_equal("tuned")
 	assert_str(weights.load_error).is_equal("")
@@ -38,7 +38,7 @@ func test_shipped_file_loads_with_the_current_stamp() -> void:
 	assert_str(weights.load_error).is_equal("")
 	assert_str(weights.bot).is_equal("tuned")
 	assert_str(weights.stamp).is_equal(BotStamp.current())
-	assert_int(weights.k).is_equal(48)
+	assert_int(weights.k).is_equal(24)
 	assert_int(weights.k_opp).is_equal(12)
 	assert_int(weights.samples).is_equal(4)
 	assert_int(weights.rm_iterations).is_equal(200)

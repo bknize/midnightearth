@@ -6,7 +6,7 @@ extends RefCounted
 ## counts a feature once.
 ##
 ## The file (P7, R10): a JSON object
-## `{"version": 1, "bot": "tuned", "stamp": "r4-…", "k": 48, "k_opp": 12, "samples": 4,
+## `{"version": 1, "bot": "tuned", "stamp": "r4-…", "k": 24, "k_opp": 12, "samples": 4,
 ## "rm_iterations": 200, "push_unit": 10, "weights": {"score_diff": 100, …}}`. `version` is
 ## required and must be FORMAT_VERSION; every other key is optional and keeps its default
 ## when absent; keys outside that list are ignored. load() and from_json() never print: on
@@ -27,8 +27,9 @@ const MAX_SAFE_FLOAT: float = 9007199254740992.0
 
 ## The bot these weights are for (the registry name), "" when unnamed.
 var bot: String = ""
-## The tuned bot's preview cap: how many candidates of the bound ranking are previewed (R7).
-var k: int = 48
+## The tuned bot's preview cap: how many candidates of the bound ranking are previewed (R7);
+## 24 since DC-08, the cap that keeps R17's decision budget (Ben, 2026-11-04).
+var k: int = 24
 ## The matrix bot's cap on opponent candidates (milestone B).
 var k_opp: int = 12
 ## How many opponent hands the matrix bot samples (milestone B).

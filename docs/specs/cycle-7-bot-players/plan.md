@@ -218,7 +218,7 @@ exit 0 pass | 1 fail | 2 cap or no promotion | 3 error
 ## Amendments during DC-08 (2026-11-04)
 
 Changes the run made to this plan, each recorded on its Linear issue. The requirements
-did not change.
+did not change, except R17 (spec C14).
 
 - **Waves.** Re-ordered so no task is written against a class that has not merged: W1
   T01 + T08, W2 T02 + T03, W3 T04 + T06, W4 T05 + T07 + T09.
@@ -238,6 +238,10 @@ did not change.
 - **P19 zero variance.** Identical deterministic bots split every seat-swapped pair 1-1, so
   the sample variance is 0. After 100 such pairs the variance is floored at 1e-4; every
   sample with a variance is unchanged.
+- **P7 and P15 latency (Ben, spec C14).** The shipped and default `k` is 24, not 48: k = 48
+  previewed nearly every candidate and the sweep's slowest decision reached 46 ms. P15's
+  sweep asserts `p99_us < 10000` and prints `p95_us`, `p99_us` and `slowest_us`; the
+  slowest is not asserted (R17 amended).
 
 ## Open questions
 

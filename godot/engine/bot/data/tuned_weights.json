@@ -2,7 +2,7 @@
 	"version": 1,
 	"bot": "tuned",
 	"stamp": "r4-8054169094898cc2",
-	"k": 48,
+	"k": 24,
 	"k_opp": 12,
 	"samples": 4,
 	"rm_iterations": 200,

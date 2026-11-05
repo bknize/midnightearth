@@ -122,7 +122,7 @@ func test_make_keeps_the_given_weights() -> void:
 	assert_bool(bot.weights == weights).is_true()
 	var plain: BotPlayer = BotRegistry.make("greedy", 1, _defs(), null, BotPlayer.FULL_LEVEL)
 	assert_object(plain).is_not_null()
-	assert_int(plain.weights.k).is_equal(48)
+	assert_int(plain.weights.k).is_equal(24)
 	assert_str(plain.weights.bot).is_equal("greedy")
 
 
@@ -187,7 +187,7 @@ func test_default_weights_path() -> void:
 func test_weights_defaults() -> void:
 	var weights: BotWeights = BotWeights.defaults("tuned")
 	assert_str(weights.bot).is_equal("tuned")
-	assert_int(weights.k).is_equal(48)
+	assert_int(weights.k).is_equal(24)
 	assert_int(weights.k_opp).is_equal(12)
 	assert_int(weights.samples).is_equal(4)
 	assert_int(weights.rm_iterations).is_equal(200)
