@@ -229,14 +229,32 @@ func test_k48_departures_from_the_full_search_are_logged() -> void:
 ## The cap cuts the previewed list to k, keeps it in the full list's order, and keeps the
 ## k best by CandidateGen's ranking.
 func test_candidates_are_the_top_k_in_search_order() -> void:
+	# The first commit view of seed 2, played by greedy bots, with more than two candidates
+	# (the opening view can offer a single one).
 	var engine: MatchEngine = FixtureDecks.engine(2, _db())
 	assert_bool(engine.start().ok).is_true()
-	var view: SeatView = engine.view_for(engine.awaited_seat())
 	var defs: MatchCards = engine.match_cards()
-	var listed: Array[EngineAction] = CandidateGen.all(
-		view.own_hand, view.energy, view.own_board.size(), view.free_first, view.seat, defs
-	)
-	assert_int(listed.size()).is_greater(2)
+	var greedy: Array[GreedyBot] = _greedy_pair(2, engine)
+	var view: SeatView = null
+	var listed: Array[EngineAction] = []
+	var actions: int = 0
+	while not engine.is_over() and actions < MAX_ACTIONS:
+		var seat: int = engine.awaited_seat()
+		var here: SeatView = engine.view_for(seat)
+		if _is_commit_view(here):
+			listed = CandidateGen.all(
+				here.own_hand, here.energy, here.own_board.size(), here.free_first, seat, defs
+			)
+			if listed.size() > 2:
+				view = here
+				break
+		if not engine.apply(greedy[seat].choose(here, engine)).ok:
+			fail("action %d rejected" % actions)
+			return
+		actions += 1
+	assert_object(view).is_not_null()
+	if view == null:
+		return
 	for k: int in [1, 2, listed.size() - 1, listed.size(), FULL_K]:
 		var got: Array[EngineAction] = _tuned(1, defs, k, BotPlayer.FULL_LEVEL).candidates(view)
 		var top: Array[EngineAction] = CandidateGen.top(
