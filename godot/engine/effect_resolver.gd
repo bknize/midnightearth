@@ -21,6 +21,12 @@ extends RefCounted
 ## GROW_HAND_ONE_TIMES (OWN_HAND) are prompt verbs whose consequence is
 ## BloomEffects.apply_choice(); the other seven need no target.
 ##
+## The Echo verbs (cycle 8 P6, P8) are EchoEffects': RETURN_OWN_AT_TURN_END (OWN_BOARD) and
+## RETURN_OPPONENT_AT_TURN_END (OPPONENT_BOARD) are prompt verbs whose consequence is a
+## return mark (EchoEffects.apply_choice); RETURN_SELF_AT_TURN_END, COST_DOWN_RIGHT,
+## COST_DOWN_SELF and ALLY_REVEAL_FLAT need no target; DRAW_ONCE draws as DRAW (its `uses` 1
+## is the countdown's); UNREVEAL_AT_TURN_END never fires: flip_echoes() reads it at turn end.
+##
 ## Verbs here:
 ## - DRAW (amount): draws for the owner; a draw at the hand cap is burned (R25). Same
 ##   events, owners and privacy as the turn-start draw (CARD_DRAWN, CARD_BURNED).
@@ -180,7 +186,7 @@ static func apply(
 		}
 		outcome.add(MatchEvent.Kind.EFFECT_FIRED, fired)
 	match effect.verb:
-		CardEffect.Verb.DRAW:
+		CardEffect.Verb.DRAW, CardEffect.Verb.DRAW_ONCE:
 			_draw(state, seat, effect.amount, outcome)
 		CardEffect.Verb.FREE_FIRST_NEXT_TURN:
 			_free_first(state, seat, outcome)
@@ -235,9 +241,17 @@ static func apply(
 			BloomEffects.apply(state, cards, seat, card, effect, outcome)
 		CardEffect.Verb.GROW_ROW_TIMES:
 			BloomEffects.apply(state, cards, seat, card, effect, outcome)
+		CardEffect.Verb.RETURN_OWN_AT_TURN_END, CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
+			# A card of either row (cycle 8 P8), then EchoEffects.apply_choice marks it.
+			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+		CardEffect.Verb.RETURN_SELF_AT_TURN_END, CardEffect.Verb.COST_DOWN_RIGHT:
+			EchoEffects.apply(state, cards, seat, card, effect, outcome)
+		CardEffect.Verb.COST_DOWN_SELF, CardEffect.Verb.ALLY_REVEAL_FLAT:
+			EchoEffects.apply(state, cards, seat, card, effect, outcome)
 		_:
 			# UNREVEAL_INSTEAD (read by destroy()), NEIGHBOUR_TIMES and EDGE_LEFT_TIMES (read by
-			# ScoreWalk.effective()) never fire: EFFECT_FIRED and nothing else.
+			# ScoreWalk.effective()) and UNREVEAL_AT_TURN_END (read by flip_echoes()) never
+			# fire: EFFECT_FIRED and nothing else.
 			pass
 	return outcome
 
@@ -389,6 +403,9 @@ static func apply_choice(
 		CardEffect.Verb.GROW_OTHER_FLAT, CardEffect.Verb.GROW_HAND_ONE_TIMES:
 			var quiet: bool = policy != null
 			out.append_array(BloomEffects.apply_choice(state, cards, holder, source, target, quiet))
+		_:
+			if not EchoEffects.apply_choice(state, verb, target):
+				pass  # Any other verb has no consequence beyond CHOICE_MADE.
 	return out
 
 
@@ -470,11 +487,13 @@ static func _choice_owner(state: MatchState, seat: int, zone: int, holder: int, 
 
 ## Turn end's return marks (R24, R25, plan P14), before the destroyed cards clear and
 ## energy settles (DC-06 P6): for each seat in turn, each marked card on its row in slot
-## order leaves the row (its modifiers go) for its owner's hand, CARD_RETURNED {seat, card,
-## slot}, public since the card was revealed. When that hand already holds HAND_CAP cards
-## the card is burned instead: CARD_BURNED {seat, card}, the draw's burn event, made public
-## for the same reason (both boards need to see the card leave its row). A marked card that
-## is destroyed is skipped: clear_destroyed() discards it (DC-06 R19).
+## order leaves the row (its modifiers go, its memory stays, cycle 8 R17) for that seat's
+## hand (the row's seat is the card's controller), CARD_RETURNED {seat, card, slot}, public
+## when the card was revealed. When that hand already holds HAND_CAP cards the card is
+## burned instead: CARD_BURNED {seat, card}, the draw's burn event, made public for the
+## same reason (both boards need to see the card leave its row). A card still face down
+## (cycle 8 P8 lets Recall mark one) keeps both events private to its seat. A marked card
+## that is destroyed is skipped: clear_destroyed() discards it (DC-06 R19).
 static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	for seat: int in range(state.seats.size()):
@@ -486,16 +505,15 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 			if held == null or not held.return_marked or held.destroyed:
 				continue
 			var slot: int = piles.board.find(card)
-			if state.take_from_row(seat, card):
-				pass  # Only revealed cards are ever marked; the event is public either way.
+			var owner: int = PUBLIC if state.take_from_row(seat, card) else seat
 			if piles.hand.size() >= MatchRules.HAND_CAP:
 				piles.burned.append(card)
 				var burned: Dictionary = {"seat": seat, "card": card}
-				out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, burned))
+				out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, burned, owner))
 				continue
 			piles.hand.append(card)
 			var returned: Dictionary = {"seat": seat, "card": card, "slot": slot}
-			out.append(MatchEvent.new(MatchEvent.Kind.CARD_RETURNED, returned))
+			out.append(MatchEvent.new(MatchEvent.Kind.CARD_RETURNED, returned, owner))
 	return out
 
 
@@ -526,6 +544,23 @@ static func clear_destroyed(state: MatchState) -> Array[MatchEvent]:
 			var owner: int = PUBLIC if was_revealed else seat
 			out.append(MatchEvent.new(MatchEvent.Kind.DESTROYED_CLEARED, cleared, owner))
 	return out
+
+
+## Turn end's echo flip (cycle 8 R18, P6), after clear_destroyed() and before
+## settle_energy(): for each seat in turn, each revealed live card carrying the ongoing
+## UNREVEAL_AT_TURN_END (EchoEffects.flippers), in slot order, un-reveals in its slot as
+## destroy()'s un-reveal does (_unreveal: board changes go, memory stays; STATS_CHANGED cause
+## unreveal when that changed its shown stats), then CARD_UNREVEALED {seat, card, slot},
+## public. The next walk reveals it in full again.
+static func flip_echoes(state: MatchState, cards: MatchCards) -> Array[MatchEvent]:
+	var outcome: Outcome = Outcome.new()
+	for seat: int in range(state.seats.size()):
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		for card: int in EchoEffects.flippers(state, cards, seat):
+			var payload: Dictionary = {"seat": seat, "card": card, "slot": piles.board.find(card)}
+			_unreveal(state, cards, seat, card, outcome)
+			outcome.add(MatchEvent.Kind.CARD_UNREVEALED, payload)
+	return outcome.events
 
 
 # --- Verbs ----------------------------------------------------------------------------

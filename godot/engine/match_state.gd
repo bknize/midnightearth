@@ -385,7 +385,8 @@ class EnergyState:
 ## resume scores whatever card holds that slot. With them, the ScoreWalk.Stage to resume at
 ## and, for the WATCHERS stage, the watcher snapshot (the on-opponent-reveal cards in row
 ## order when the stage first ran; empty when it has not run yet) and the snapshot index it
-## goes on from (DC-05 T05, T13).
+## goes on from (DC-05 T05, T13); for the ALLY_WATCHERS stage the same two fields hold that
+## stage's snapshot (the revealing seat's other on-ally-reveal cards) and index (cycle 8 P5).
 class WalkState:
 	extends RefCounted
 

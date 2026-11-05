@@ -151,11 +151,7 @@ const HANDLED_VERBS: Array[String] = [
 	"grow_hand_one_times",
 	"grow_row_flat",
 	"grow_row_times",
-]
-## The Echo verbs (cycle 8 P6): known to the loader since DC-09 T01, in no shipped deck yet;
-## DC-09 T03 implements them and moves each into HANDLED_VERBS, and T04 ships the decks.
-## The Bloom grow verbs moved to HANDLED_VERBS with DC-09 T02.
-const PENDING_VERBS: Array[String] = [
+	# DC-09 T03: the Echo verbs (cycle 8 P6), EchoEffects' via EffectResolver.
 	"return_self_at_turn_end",
 	"return_own_at_turn_end",
 	"return_opponent_at_turn_end",
@@ -165,12 +161,16 @@ const PENDING_VERBS: Array[String] = [
 	"draw_once",
 	"ally_reveal_flat",
 ]
+## The cycle 8 verbs known to the loader but not yet resolved: none since DC-09 T03 (the
+## Bloom grow verbs moved to HANDLED_VERBS with T02, the Echo verbs with T03).
+const PENDING_VERBS: Array[String] = []
 ## The engine sources that resolve a verb: each shipped verb's enum name appears in one.
 const RESOLVER_SOURCES: Array[String] = [
 	"res://engine/effect_resolver.gd",
 	"res://engine/ruin_effects.gd",
 	"res://engine/drift_effects.gd",
 	"res://engine/bloom_effects.gd",
+	"res://engine/echo_effects.gd",
 	"res://engine/score_walk.gd",
 ]
 
