@@ -276,6 +276,7 @@ func unreveal(step: BoardStep) -> void:
 		return
 	flip_down(card, step.duration)
 	if step.seat == 0:
+		card.set_destroyed(false)  # Veil makes a destroyed card live again (cycle 8 R65).
 		face_down_ids[step.card] = true
 		return
 	card.instance_id = -1
