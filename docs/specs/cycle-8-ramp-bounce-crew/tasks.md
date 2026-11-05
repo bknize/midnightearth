@@ -6,7 +6,7 @@ related: ["[[specs/cycle-8-ramp-bounce-crew/spec]]", "[[specs/cycle-8-ramp-bounc
 created: 2026-11-04
 updated: 2026-11-04
 uid: 74041068-ca8e-4595-97eb-c4819afd258a
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-8-ramp-bounce-crew-c3fe684d879f
 supersedes:
 ---
 
@@ -115,15 +115,31 @@ Owned by the orchestrator, on `cycle-8b-ramp-bounce-crew`. Two screenshots.
 - [ ] Bot vs bot on every deck pairing and Crew ends with no rejected action (the sweep).
 - [ ] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new.
 
-## Linear
+## Linear (exercised 2026-11-04)
 
-Filled by `/exercise cycle-8-ramp-bounce-crew`. Empty until then.
+- Project: [Cycle 8 — ramp, bounce, Crew](https://linear.app/night-science-llc/project/cycle-8-ramp-bounce-crew-c3fe684d879f)
+  (P-NSC-9, `planned`)
+- Milestones: A `DC-09 ramp-bounce` (T01–T07), B `DC-11 crew` (T08–T14), both created at
+  their `/cycle plan`; cycle 7 milestone B runs between them as DC-10 (Ben, spec C12, 1a); the
+  orchestrator amends the DC-08 cycles row and the ledger sentence at our `/cycle plan`
+- Label: `spec/cycle-8-ramp-bounce-crew`
 
-- Project: <URL>
-- Milestones: A `DC-09 ramp-bounce` (T01–T07), B `DC-11 crew` (T08–T14); cycle 7 milestone
-  B runs between them as DC-10 (Ben, spec C12, 1a); the orchestrator amends the DC-08 cycles
-  row and the ledger sentence at our `/cycle plan`
-- Issue mapping: task n is issue <KEY-m>
+| Task | Issue | Blocked by |
+|---|---|---|
+| T01 Card memory and effective cost | NSC-118 | – |
+| T02 Bloom: the grow verbs and the uses countdown | NSC-119 | NSC-118 |
+| T03 Echo: returns, turn-end flips, cost-down and ON_ALLY_REVEAL | NSC-120 | NSC-119 |
+| T04 The Bloom and Echo tables, the bot, golden and sweep | NSC-121 | NSC-120 |
+| T05 Board A: grown faces, effective cost and hand restats | NSC-122 | NSC-118 |
+| T06 Review of T01–T05 | NSC-123 | NSC-118 to NSC-122 |
+| T07 Verification A | NSC-124 | NSC-118 to NSC-123 |
+| T08 Crew data and the deck lists | NSC-125 | NSC-124 |
+| T09 Optional prompts, the decline action and the turn-start pause | NSC-126 | NSC-125 |
+| T10 Crew triggers and the eight Crew abilities | NSC-127 | NSC-126 |
+| T11 Bot answers for optional and turn-start prompts, and the Crew stamp | NSC-128 | NSC-127 |
+| T12 Board B: the Crew line, badges, Skip and the turn-start prompt | NSC-129 | NSC-126 |
+| T13 Review of T08–T12 | NSC-130 | NSC-125 to NSC-129 |
+| T14 Verification B | NSC-131 | NSC-125 to NSC-130 |
 
 ## Commit plan
 
