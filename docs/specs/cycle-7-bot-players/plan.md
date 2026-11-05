@@ -249,6 +249,13 @@ did not change, except R17 (spec C14).
   bot packs. P16: `matrix` is rejected by the launcher before any weights warning, and the
   board guards a driver that cannot build its bot. Kept as designed: a worker failing
   after the test decided still exits 3, and the per-seat deck stays in the pair variance.
+- **T11 verification.** P8's cross-language pin moved from the shipped data to the frozen
+  DC-05 fixtures (`r<RULES_VERSION>-0039c94a1d4af56c`), and the shipped-weights test checks
+  only that a stamp is present. Pinning the shipped stamp turned the gate red on any card
+  or deck change, against R35 and C8; a probe with an edited deck list now stays green and
+  prints `stamp=MISMATCH`. A rules-version bump still trips `test_action_log`'s own
+  version pins, as before this cycle. The T06 worker smoke over seeds 1–10 gives 16 pairs
+  and 32 games, not 20: the six mixed-deck seeds are played deck-swapped too (P17).
 
 ## Open questions
 
