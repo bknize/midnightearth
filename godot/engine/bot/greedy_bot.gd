@@ -45,6 +45,9 @@ extends BotPlayer
 ## highest definition flat, a discard the one with the lowest, ties by the lower position.
 ## The flat is what the view shows: a destroyed-pile entry whose identity is hidden
 ## (MatchEvent.HIDDEN_CARD) counts as flat 0, so the rule reads nothing the view hides.
+## A hand-growth prompt (GROW_HAND_ONE_TIMES, cycle 8 R22, P15) is answered by rule too, for
+## the same reason: the grown card stays in the hand, so it takes the hand card with the
+## highest effective flat of `own_hand_row` (memory included), ties by the lower position.
 ##
 ## Orders (DC-07 P13, R36): "bonus first" is +-part desc, then ×-part desc, then flat desc;
 ## "flat first" is flat desc, then the bonus (+-part desc, then ×-part desc); both end on
@@ -231,22 +234,26 @@ func set_candidates(view: SeatView) -> Array[Array]:
 
 
 ## The option the rule picks for the single-target prompt open for `view.seat` when its
-## verb is RECOVER_DESTROYED (the highest definition flat) or DISCARD_OWN (the lowest), ties by
-## the lower position (see the class comment), with no preview; -1 for any other prompt, a
-## multi-select one, or one with no option.
+## verb is RECOVER_DESTROYED (the highest definition flat), DISCARD_OWN (the lowest) or
+## GROW_HAND_ONE_TIMES (the highest effective flat of `view.own_hand_row`, cycle 8 R22,
+## P15), ties by the lower position (see the class comment), with no preview; -1 for any
+## other prompt, a multi-select one, or one with no option.
 func ranked_option(view: SeatView) -> int:
 	var asked: int = view.prompt.get("seat", -1)
 	if asked != view.seat or Choice.is_multi_prompt(view.prompt):
 		return -1
 	var verb: int = view.prompt.get("verb", -1)
-	var highest: bool = verb == CardEffect.Verb.RECOVER_DESTROYED
+	var growing: bool = verb == CardEffect.Verb.GROW_HAND_ONE_TIMES
+	var highest: bool = growing or verb == CardEffect.Verb.RECOVER_DESTROYED
 	if not highest and verb != CardEffect.Verb.DISCARD_OWN:
 		return -1
 	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
 	var picked: int = -1
 	var picked_flat: int = 0
 	for option: int in Choice.options_of(view.prompt):
-		var flat: int = _option_flat(view, zone, option)
+		var flat: int = (
+			_hand_row_flat(view, option) if growing else _option_flat(view, zone, option)
+		)
 		var better: bool = flat > picked_flat if highest else flat < picked_flat
 		var tied: bool = flat == picked_flat and option < picked
 		if picked < 0 or better or tied:
@@ -273,6 +280,19 @@ func _option_flat(view: SeatView, zone: int, index: int) -> int:
 	if index < 0 or index >= row.size():
 		return 0
 	var entry: Dictionary = row[index]
+	var flat: int = entry.get("flat", 0)
+	return flat
+
+
+## The effective flat of hand position `index` as `view.own_hand_row` shows it (memory
+## included, cycle 8 R7); the definition flat when the view carries no hand row (a stub
+## view); 0 for a position out of range.
+func _hand_row_flat(view: SeatView, index: int) -> int:
+	if index < 0 or index >= view.own_hand.size():
+		return 0
+	if view.own_hand_row.size() != view.own_hand.size():
+		return stats_of(view.own_hand[index]).x
+	var entry: Dictionary = view.own_hand_row[index]
 	var flat: int = entry.get("flat", 0)
 	return flat
 

@@ -100,6 +100,28 @@ func test_all_equals_the_greedy_candidates_on_20_views() -> void:
 			assert_int(mine[key]).is_equal(1)
 
 
+## Cycle 8 R21, P15 (DC-09 T04): all() given the face costs of the hand (its trailing
+## `costs`) lists exactly the commits, in the same order, of the enumeration without costs,
+## with and without the free first card.
+func test_all_with_face_costs_equals_the_enumeration_without() -> void:
+	var views: Array[SeatView] = _views(VIEW_COUNT)
+	assert_int(views.size()).is_equal(VIEW_COUNT)
+	var cards: MatchCards = FixtureDecks.defs(_db())
+	for view: SeatView in views:
+		var costs: Array[int] = LegalPlays.def_costs(view.own_hand, cards)
+		var row_size: int = view.own_board.size()
+		for free_first: bool in [view.free_first, not view.free_first]:
+			var without: Array[EngineAction] = CandidateGen.all(
+				view.own_hand, view.energy, row_size, free_first, view.seat, cards
+			)
+			var with_costs: Array[EngineAction] = CandidateGen.all(
+				view.own_hand, view.energy, row_size, free_first, view.seat, cards, costs
+			)
+			assert_int(with_costs.size()).is_equal(without.size())
+			for index: int in range(mini(with_costs.size(), without.size())):
+				assert_dict(with_costs[index].to_dict()).is_equal(without[index].to_dict())
+
+
 ## all() keeps the greedy bot's search order and its commits are for the given seat.
 func test_all_keeps_search_order_and_seat() -> void:
 	var cards: MatchCards = FixtureDecks.defs(_db())

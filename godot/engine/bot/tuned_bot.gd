@@ -14,12 +14,13 @@ extends BotPlayer
 ## MatchRng.derive_seed(bot_seed, [round, turn]), the greedy bot's commit derivation.
 ##
 ## Prompts (R9): answered as the greedy bot answers them, valued by the evaluator. A
-## single-target prompt previews each option (preview_choice); a RECOVER_DESTROYED or
-## DISCARD_OWN prompt is answered by the greedy bot's rule with no preview
-## (GreedyBot.ranked_option); a multi-select prompt previews the greedy bot's n + 1 candidate
-## sets (GreedyBot.set_candidates, preview_set). Below level 20 the values are pushed with
-## decision_rng(view, PUSH_TAG, [the prompt's source card]); ties by the greedy bot's prompt
-## derivation, MatchRng.derive_seed(bot_seed, [round, turn, GreedyBot.PROMPT_TAG, source]).
+## single-target prompt previews each option (preview_choice); a RECOVER_DESTROYED,
+## DISCARD_OWN or GROW_HAND_ONE_TIMES prompt (cycle 8 R22, P15) is answered by the greedy
+## bot's rule with no preview (GreedyBot.ranked_option); a multi-select prompt previews the
+## greedy bot's n + 1 candidate sets (GreedyBot.set_candidates, preview_set). Below level
+## 20 the values are pushed with decision_rng(view, PUSH_TAG, [the prompt's source card]);
+## ties by the greedy bot's prompt derivation,
+## MatchRng.derive_seed(bot_seed, [round, turn, GreedyBot.PROMPT_TAG, source]).
 ##
 ## R12 by construction: with the default weights (score_diff at 100 hundredths, the rest 0)
 ## a value is exactly own minus opponent score (100 · diff / 100 floors to diff, so no two
@@ -113,9 +114,9 @@ func candidates(view: SeatView) -> Array[EngineAction]:
 
 
 ## The answer to the prompt open for `view.seat` (see the class comment): a multi-select
-## prompt by answer_set(); a recovery or a discard by the greedy bot's rule; otherwise the
-## best-valued previewed option, ties by the greedy bot's prompt seed. Null when no prompt
-## is open for that seat.
+## prompt by answer_set(); a recovery, a discard or a hand growth by the greedy bot's rule
+## (GreedyBot.ranked_option); otherwise the best-valued previewed option, ties by the greedy
+## bot's prompt seed. Null when no prompt is open for that seat.
 func answer_prompt(view: SeatView, engine: MatchEngine) -> EngineAction:
 	var open: bool = view.prompt.get("open", false)
 	var asked: int = view.prompt.get("seat", -1)
