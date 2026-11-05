@@ -25,6 +25,9 @@ const LEVEL_SEEDS: int = 50
 ## Commit decisions checked per match seed at the low level.
 const LEVEL_DECISIONS: int = 6
 const SWEEP_SEEDS: int = 50
+## Full matches in the rejection test: the 50-seed sweep in test_full_match plays the tuned
+## bot (the registry default) with every invariant, so ten seeds here keep the gate fast.
+const MATCH_SEEDS: int = 10
 const BOT_SOURCE: String = "res://engine/bot/tuned_bot.gd"
 ## What the bot may call on its engine (R2).
 const ALLOWED_CALLS: Array[String] = ["preview", "preview_choice", "preview_set"]
@@ -415,14 +418,14 @@ func test_a_set_prompt_previews_n_plus_one_sets() -> void:
 			assert_bool(engine.apply(action).ok).is_true()
 
 
-## R3, R2: over seeds 1-50 a tuned bot at level 20 (seat 0) and one at level 3 (seat 1),
-## both on the shipped weights through the registry, play full matches; the engine accepts
-## every action, and while a bot chooses it calls nothing on the engine but the three
-## previews.
-func test_engine_never_rejects_the_tuned_bot_over_50_seeds() -> void:
+## R3, R2: over seeds 1-10 (MATCH_SEEDS) a tuned bot at level 20 (seat 0) and one at
+## level 3 (seat 1), both on the shipped weights through the registry, play full matches;
+## the engine accepts every action, and while a bot chooses it calls nothing on the engine
+## but the three previews.
+func test_engine_never_rejects_the_tuned_bot_over_full_matches() -> void:
 	var levels: Array[int] = [BotPlayer.FULL_LEVEL, LOW_LEVEL]
 	var previews: int = 0
-	for match_seed: int in range(1, SWEEP_SEEDS + 1):
+	for match_seed: int in range(1, MATCH_SEEDS + 1):
 		var engine: CountingEngine = CountingEngine.wrap(FixtureDecks.engine(match_seed, _db()))
 		assert_bool(engine.start().ok).is_true()
 		var bots: Array[BotPlayer] = []
