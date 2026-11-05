@@ -6,9 +6,11 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from typing import Any, Dict, List, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import driver  # noqa: E402
 import evolve  # noqa: E402
 import records  # noqa: E402
 
@@ -109,6 +111,25 @@ class BoundsTest(unittest.TestCase):
     def test_matrix_stub_within_bounds(self) -> None:
         self.check("matrix", os.path.join(FIX, "matrix_weights.json"), 12)
 
+    def test_matrix_caps_are_c16(self) -> None:
+        self.assertEqual(evolve.bounds_for("matrix"), {"k": (1, 6), "k_opp": (1, 4)})
+        # the CLI overrides can only lower a cap, never raise it
+        self.assertEqual(evolve.bounds_for("matrix", 12, 12), {"k": (1, 6), "k_opp": (1, 4)})
+        self.assertEqual(evolve.bounds_for("matrix", 3, 2), {"k": (1, 3), "k_opp": (1, 2)})
+        self.assertEqual(evolve.bounds_for("tuned", 48), {"k": (1, 24)})
+
+    def test_matrix_defaults_are_c16(self) -> None:
+        d = evolve.default_doc("matrix")
+        self.assertEqual((d["k"], d["k_opp"], d["samples"], d["rm_iterations"]), (6, 4, 2, 50))
+        fix = read(os.path.join(FIX, "matrix_weights.json"))
+        self.assertEqual((fix["k"], fix["k_opp"], fix["samples"], fix["rm_iterations"]),
+                         (6, 4, 2, 50))
+        doc = evolve.genome_doc({}, evolve.genome_of({"weights": {"score_diff": 1}},
+                                                     evolve.bounds_for("matrix"), 300, "matrix"),
+                                "matrix", "r5-x")
+        self.assertEqual((doc["k"], doc["k_opp"], doc["samples"], doc["rm_iterations"]),
+                         (6, 4, 2, 50))
+
     def test_unknown_bot_refused(self) -> None:
         with self.assertRaises(evolve.TrainError):
             evolve.bounds_for("nope")
@@ -138,6 +159,143 @@ class ResumeTest(Base):
         again.cfg.run_seed = 99
         with self.assertRaises(evolve.TrainError):
             again.run()
+
+
+class LabelAndPendingTest(Base):
+    def test_default_label_carries_the_stamp_and_resumes_unfinished(self) -> None:
+        stamp = records.current_stamp()
+        first = self.trainer(lambda r, p, g: (1, "x"), label="", max_generations=1)
+        self.assertEqual(first.label, "tuned-%s" % stamp)
+        first.run()
+        again = self.trainer(lambda r, p, g: (1, "x"), label="", max_generations=2)
+        self.assertEqual(again.label, first.label)
+        again.run()
+        self.assertTrue(os.path.isfile(os.path.join(again.run_dir, "gen-2.json")))
+
+    def test_default_label_after_promotion_starts_a_fresh_run(self) -> None:
+        first = self.trainer(passing, label="", max_generations=1)
+        self.assertEqual(first.run(), evolve.EXIT_PROMOTED)
+        second = self.trainer(passing, label="", max_generations=1)
+        self.assertEqual(second.label, first.label + "-2")
+        self.assertEqual(second.run(), evolve.EXIT_PROMOTED)
+        self.assertTrue(os.path.isfile(os.path.join(second.run_dir, "gen-1.json")))
+
+    def test_checkpoint_of_another_stamp_refused(self) -> None:
+        first = self.trainer(lambda r, p, g: (1, "x"), max_generations=1)
+        first.run()
+        path = os.path.join(first.run_dir, "gen-1.json")
+        ck = read(path)
+        ck["stamp"] = "r1-0000000000000000"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(ck, f)
+        again = self.trainer(lambda r, p, g: (1, "x"), max_generations=2)
+        with self.assertRaises(evolve.TrainError) as ctx:
+            again.run()
+        self.assertIn("new LABEL", str(ctx.exception))
+        # the default label of the new stamp does not meet the old run at all
+        self.assertNotEqual(self.trainer(label="").label, "tuned-r1-0000000000000000")
+
+    def test_interrupted_promotion_is_rerun_on_resume(self) -> None:
+        def boom(reference: str, path: str, gen: int) -> Tuple[int, str]:
+            raise evolve.TrainError("eval crashed")
+        first = self.trainer(boom, max_generations=1)
+        with self.assertRaises(evolve.TrainError):
+            first.run()
+        ck = read(os.path.join(first.run_dir, "gen-1.json"))
+        self.assertEqual(ck["pending"]["generation"], 1)
+        pending = ck["pending"]["genome"]
+        seen: List[str] = []
+
+        def ok(reference: str, path: str, gen: int) -> Tuple[int, str]:
+            seen.append("%s@%d" % (reference, gen))
+            return 0, "pairs=10 winrate=0.600±0.100"
+        second = self.trainer(ok, max_generations=1)
+        self.assertEqual(second.run(), evolve.EXIT_PROMOTED)
+        self.assertEqual(seen, ["greedy_v1@1", "best@1"])  # before any new generation
+        self.assertFalse(os.path.exists(os.path.join(second.run_dir, "gen-2.json")))
+        done = read(os.path.join(second.run_dir, "gen-1.json"))
+        self.assertTrue(done["promoted"])
+        self.assertIsNone(done["pending"])
+        new = read(os.path.join(self.weights, "tuned_weights.json"))
+        self.assertEqual(new["weights"], pending["weights"])
+        self.assertTrue(any("pending promotion of gen=1" in s for s in self.lines))
+
+    def test_pending_failing_again_goes_on_to_evolve(self) -> None:
+        def boom(reference: str, path: str, gen: int) -> Tuple[int, str]:
+            raise evolve.TrainError("eval crashed")
+        with self.assertRaises(evolve.TrainError):
+            self.trainer(boom, max_generations=1).run()
+        second = self.trainer(lambda r, p, g: (1, "x"), max_generations=2)
+        self.assertEqual(second.run(), evolve.EXIT_NONE)
+        self.assertIsNone(read(os.path.join(second.run_dir, "gen-1.json"))["pending"])
+        self.assertTrue(os.path.isfile(os.path.join(second.run_dir, "gen-2.json")))
+
+
+class EvaluateFaultTest(unittest.TestCase):
+    def evaluate(self, codes: List[int]) -> Tuple[int, str]:
+        cfg = evolve.Config(bot="tuned")
+        fn = evolve.make_godot_evaluate(cfg, "/nowhere", lambda: 1)
+        with mock.patch.object(driver, "eval_report",
+                               return_value=(driver.EXIT_ERROR, {"worker_exit_codes": codes})):
+            return fn("greedy_v1", "/x.json", 1)
+
+    def test_rejected_action_is_a_candidate_fail(self) -> None:
+        code, info = self.evaluate([1])
+        self.assertEqual(code, driver.EXIT_FAIL)
+        self.assertIn("REJECTED", info)
+
+    def test_infrastructure_error_aborts(self) -> None:
+        for codes in ([2], [1, 3], [127], []):
+            with self.assertRaises(evolve.TrainError):
+                self.evaluate(codes)
+
+    def test_candidate_fail_continues_the_run(self) -> None:
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        weights = os.path.join(tmp, "w")
+        os.makedirs(weights)
+        shutil.copy(TUNED, weights)
+        cfg = evolve.Config(bot="tuned", label="f", run_seed=3, rr_seeds=2, ref_seeds=2,
+                            hours=1.0, workers=2, max_generations=2,
+                            reports_dir=os.path.join(tmp, "r"))
+        lines: List[str] = []
+        tr = evolve.Trainer(cfg, stub_play, evolve.make_godot_evaluate(cfg, tmp, lambda: 3),
+                            weights, lines.append)
+        with mock.patch.object(driver, "eval_report",
+                               return_value=(driver.EXIT_ERROR, {"worker_exit_codes": [1]})):
+            self.assertEqual(tr.run(), evolve.EXIT_NONE)
+        self.assertTrue(os.path.isfile(os.path.join(tr.run_dir, "gen-2.json")))
+
+
+class StampMismatchTest(Base):
+    def test_summary_lines_repeat_the_mismatch(self) -> None:
+        path = os.path.join(self.weights, "tuned_weights.json")
+        doc = read(path)
+        doc["stamp"] = "r1-0000000000000000"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        tr = self.trainer(lambda r, p, g: (1, "x"), max_generations=1)
+        tr.run()
+        self.assertIn("differs from current", self.lines[0])
+        self.assertIn("stamp=%s MISMATCH" % records.current_stamp(), self.lines[-1])
+
+    def test_promoted_summary_repeats_the_mismatch(self) -> None:
+        path = os.path.join(self.weights, "tuned_weights.json")
+        doc = read(path)
+        doc["stamp"] = "r1-0000000000000000"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.trainer(passing, max_generations=1).run()
+        self.assertTrue(any(s.startswith("bot-train: PROMOTED") and "MISMATCH" in s
+                            for s in self.lines))
+
+    def test_no_mismatch_note_when_stamps_agree(self) -> None:
+        doc = read(os.path.join(self.weights, "tuned_weights.json"))
+        doc["stamp"] = records.current_stamp()
+        with open(os.path.join(self.weights, "tuned_weights.json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        self.trainer(lambda r, p, g: (1, "x"), max_generations=1).run()
+        self.assertNotIn("MISMATCH", self.lines[-1])
 
 
 class PromotionTest(Base):

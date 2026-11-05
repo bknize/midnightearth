@@ -96,6 +96,10 @@ def aggregate(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     firsts = [bool(r.get("first_won")) for r in games if "first_won" in r]
     us = [int(r["us"]) for r in decisions]
     p95 = percentile(us, 0.95)
+    a_seat = {(r.get("seed"), r.get("game")): r.get("a_seat") for r in games}
+    us_a = [int(r["us"]) for r in decisions
+            if a_seat.get((r.get("seed"), r.get("game"))) == r.get("seat")]
+    p99_a = percentile(us_a, 0.99)  # side a's own decisions only (R17, C16)
     slowest = max(us) if us else 0
     for e in ends:  # a worker's own slowest can only raise the figure
         slowest = max(slowest, int(e.get("slowest_us", 0)))
@@ -107,6 +111,7 @@ def aggregate(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "winrate_ci95": ci,
         "first_committer": (sum(firsts) / len(firsts)) if firsts else 0.0,
         "p95_us": p95,
+        "p99_us": p99_a,
         "slowest_us": slowest,
         "rejected": sum(int(e.get("rejected", 0)) for e in ends),
         "overruns": sum(int(e.get("overruns", 0)) for e in ends),

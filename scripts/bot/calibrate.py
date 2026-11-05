@@ -1,17 +1,22 @@
 """Calibration (plan P21, spec R55): what each difficulty level means, as a win rate.
 
   driver.py calibrate [--levels 0,4,8,12,16,20] [--pairings ruin/ruin,...] [--seeds 200]
-                      [--bot tuned] [--ref greedy_v1]
+                      [--bot tuned] [--ref greedy_v1] [--no-ledger]
 
 Runs levels x pairings, `--seeds` paired seeds per cell, the bot at the level against the
 reference at full strength. Pairs are scored and the interval taken by `records.aggregate`,
 as `eval` does. Prints a Markdown table `level | pairing | winrate ± ci` and a tier
-suggestion by win-rate band; progress goes to stderr.
+suggestion by win-rate band; progress goes to stderr. The table is also written into the
+ledger `docs/planning/bot-ladder.md` (R55): the `## Calibration` section holds the latest run
+between `<!-- calibration:begin -->` and `<!-- calibration:end -->`, replaced on each run;
+`--no-ledger` skips that. When the bot's weights stamp is not the current one (R38) the
+first line, the table's header and the ledger block all say MISMATCH.
 """
 import argparse
 import concurrent.futures
 import datetime
 import os
+import re
 import sys
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -25,6 +30,11 @@ DEFAULT_SEEDS = 200
 # Win-rate bands: tier name -> target winrate; "hard" is the highest measured level.
 EASY_TARGET = 0.35
 NORMAL_TARGET = 0.50
+
+LEDGER_PATH = os.path.join(records.REPO_ROOT, "docs", "planning", "bot-ladder.md")
+BEGIN_MARK = "<!-- calibration:begin -->"
+END_MARK = "<!-- calibration:end -->"
+SECTION = "## Calibration"
 
 Cell = Tuple[int, str]  # (level, pairing)
 # factory(level, pairing, lo, hi, out) -> argv; runner(argv) -> (exit code, output tail)
@@ -71,7 +81,17 @@ def suggest_tiers(rates: Dict[int, float]) -> Dict[str, Tuple[int, float]]:
     return {tier: (lv, rates[lv]) for tier, lv in out.items()}
 
 
-def build_table(results: Results, bot: str = "tuned", ref: str = "greedy_v1") -> str:
+def stamp_note(bot: str, stamp: str, weights_dir: str = records.WEIGHTS_DIR) -> str:
+    """`<stamp>`, or `<stamp> MISMATCH (weights <their stamp>)` when the bot's weights file
+    carries another stamp (R38); a bot with no weights file has nothing to mismatch."""
+    ws = records.weights_stamp(bot, weights_dir)
+    if ws is not None and ws != stamp:
+        return "%s MISMATCH (%s weights are stamped %s; retrain, R38)" % (stamp, bot, ws)
+    return stamp
+
+
+def build_table(results: Results, bot: str = "tuned", ref: str = "greedy_v1",
+                stamp: str = "") -> str:
     lines = ["| level | pairing | winrate ± ci | pairs |", "|---|---|---|---|"]
     for level, pairing in sorted(results):
         agg = results[(level, pairing)]
@@ -87,7 +107,46 @@ def build_table(results: Results, bot: str = "tuned", ref: str = "greedy_v1") ->
     for tier in ("easy", "normal", "hard"):
         if tier in tiers:
             lines.append("- %s: level %d (winrate %.3f)" % (tier, tiers[tier][0], tiers[tier][1]))
+    if stamp:
+        lines += ["", "Stamp: %s" % stamp]
     return "\n".join(lines)
+
+
+def ledger_block(table: str, bot: str, ref: str, seeds: int, stamp: str, day: str) -> str:
+    """The text between the markers: when, under which stamp, what was run, and the table
+    with the tiers named by their measured win rate (R55)."""
+    return "\n".join([
+        "Latest run, %s. Stamp: %s. Bot: `%s` at each level against `%s` at full strength; "
+        "%d paired seeds per cell." % (day, stamp, bot, ref, seeds),
+        "", table])
+
+
+def update_ledger(path: str, block: str, day: str) -> None:
+    """Put `block` between the markers of the `## Calibration` section of the ledger at
+    `path`, creating the section (before `## Rerun after an engine change`, else at the end)
+    or just the markers when missing, and bump the note's `updated:` date."""
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+    body = "%s\n\n%s\n\n%s" % (BEGIN_MARK, block, END_MARK)
+    if BEGIN_MARK in text and END_MARK in text:
+        head, _, rest = text.partition(BEGIN_MARK)
+        _, _, tail = rest.partition(END_MARK)
+        text = head + body + tail
+    elif re.search(r"^%s\s*$" % re.escape(SECTION), text, re.M):
+        text = re.sub(r"^(%s[ \t]*\n)" % re.escape(SECTION), lambda m: m.group(1) + "\n" + body
+                      + "\n", text, count=1, flags=re.M)
+    else:
+        section = "%s\n\n%s\n\n" % (SECTION, body)
+        m = re.search(r"^## Rerun after an engine change", text, re.M)
+        if m:
+            text = text[:m.start()] + section + text[m.start():]
+        else:
+            text = text.rstrip("\n") + "\n\n" + section.rstrip("\n") + "\n"
+    text = re.sub(r"^updated:.*$", "updated: %s" % day, text, count=1, flags=re.M)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
 
 
 def run_cells(cells: List[Cell], lo: int, hi: int, factory: CellFactory, out_dir: str,
@@ -148,9 +207,21 @@ def run_calibrate(args: argparse.Namespace, factory: Optional[CellFactory] = Non
         for f in failures:
             print("bot-calibrate: " + f, file=sys.stderr)
         return driver.EXIT_ERROR
+    stamp = stamp_note(args.bot, records.current_stamp())
     print("Calibration: %s vs %s, %d seeds per cell, stamp %s\n"
-          % (args.bot, args.ref, args.seeds, records.current_stamp()))
-    print(build_table(results, args.bot, args.ref))
+          % (args.bot, args.ref, args.seeds, stamp))
+    table = build_table(results, args.bot, args.ref, stamp)
+    print(table)
+    if not args.no_ledger:
+        path = args.ledger or LEDGER_PATH
+        day = datetime.date.today().isoformat()
+        try:
+            update_ledger(path, ledger_block(table, args.bot, args.ref, args.seeds, stamp, day),
+                          day)
+        except OSError as e:
+            print("bot-calibrate: cannot write the ledger %s: %s" % (path, e), file=sys.stderr)
+            return driver.EXIT_ERROR
+        print("\nbot-calibrate: ledger updated: %s" % path, file=sys.stderr)
     return driver.EXIT_PASS
 
 
@@ -164,4 +235,7 @@ def add_calibrate_parser(sub: Any) -> None:
     p.add_argument("--seeds", type=int, default=DEFAULT_SEEDS, help="paired seeds per cell")
     p.add_argument("--bot", default="tuned")
     p.add_argument("--ref", default="greedy_v1")
+    p.add_argument("--no-ledger", action="store_true",
+                   help="do not write the table into docs/planning/bot-ladder.md")
+    p.add_argument("--ledger", default="", help=argparse.SUPPRESS)
     p.add_argument("--reports-dir", default="", help=argparse.SUPPRESS)

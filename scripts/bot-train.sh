@@ -4,7 +4,8 @@
 #   scripts/bot-train.sh --bot tuned [--hours 8] [--label L] [--run-seed N]
 #   GODOT_BIN=/path/to/Godot scripts/bot-train.sh ...
 #
-# Exit codes: 0 promoted, 2 time limit with nothing promoted, 3 error (including a missing
+# The default label is <bot>-<stamp>; a checkpoint of another stamp is refused (pass a new
+# --label). Exit codes: 0 promoted, 2 time limit with nothing promoted, 3 error (including a missing
 # Godot or python3). Spends no model tokens. Never run by `make check`.
 set -uo pipefail
 

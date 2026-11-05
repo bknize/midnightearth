@@ -39,17 +39,28 @@ REFERENCE = "greedy_v1"
 FORMAT_VERSION = 1
 INT_FIELDS = ["k", "k_opp", "samples", "rm_iterations", "push_unit"]
 SEED_SPAN = 1_000_000_000
-# Tunable integer caps per bot: name -> (lowest, default highest). `k_max` and `k_opp_max`
-# in Config replace the highest. The tuned k_max is the shipped 24 (spec C14); the matrix
-# defaults keep k * k_opp at the plan's 12 x 12 previews per decision (P11).
+# Tunable integer caps per bot: name -> (lowest, highest). `k_max` and `k_opp_max` in Config
+# (and the CLI) can only lower the highest. The tuned k cap is the shipped 24 (spec C14). The
+# matrix caps are k <= 6 and k_opp <= 4 (C16, Ben's 2a: 12 x 12 previews measured a p99 of
+# 59 ms against the 10 ms budget); its `samples` (2) and `rm_iterations` (50) are not
+# tunable, so they stay at the values of its weights file.
 TUNABLE: Dict[str, Dict[str, Tuple[int, int]]] = {
     "tuned": {"k": (1, 24)},
-    "matrix": {"k": (1, 12), "k_opp": (1, 12)},
+    "matrix": {"k": (1, 6), "k_opp": (1, 4)},
 }
+# Built-in defaults when a bot has no committed weights file (the committed file wins).
 DEFAULT_DOC: Dict[str, Any] = {
     "k": 24, "k_opp": 12, "samples": 4, "rm_iterations": 200, "push_unit": 10,
     "weights": {"score_diff": 100},
 }
+MATRIX_DEFAULT_DOC: Dict[str, Any] = {
+    "k": 6, "k_opp": 4, "samples": 2, "rm_iterations": 50, "push_unit": 10,
+    "weights": {"score_diff": 100},
+}
+
+
+def default_doc(bot: str) -> Dict[str, Any]:
+    return copy.deepcopy(MATRIX_DEFAULT_DOC if bot == "matrix" else DEFAULT_DOC)
 
 Genome = Dict[str, Dict[str, int]]
 # play(a_path, b_path, lo, hi, out) -> pair points of A over seeds lo..hi; b_path "" = greedy_v1
@@ -96,9 +107,10 @@ def bounds_for(bot: str, k_max: Optional[int] = None,
         raise TrainError("unknown bot %r; trainable bots: %s" % (bot, ", ".join(sorted(TUNABLE))))
     out = dict(TUNABLE[bot])
     if k_max is not None and "k" in out:
-        out["k"] = (out["k"][0], max(out["k"][0], k_max))
+        out["k"] = (out["k"][0], max(out["k"][0], min(out["k"][1], k_max)))
     if k_opp_max is not None and "k_opp" in out:
-        out["k_opp"] = (out["k_opp"][0], max(out["k_opp"][0], k_opp_max))
+        out["k_opp"] = (out["k_opp"][0],
+                        max(out["k_opp"][0], min(out["k_opp"][1], k_opp_max)))
     return out
 
 
@@ -114,12 +126,13 @@ def load_base_doc(bot: str, weights_dir: str = records.WEIGHTS_DIR) -> Dict[str,
         if not isinstance(doc, dict) or not isinstance(doc.get("weights"), dict):
             raise TrainError("bad weights file %s" % path)
         return doc
-    return copy.deepcopy(DEFAULT_DOC)
+    return default_doc(bot)
 
 
 def genome_of(doc: Dict[str, Any], bounds: Dict[str, Tuple[int, int]],
-              weight_max: int) -> Genome:
-    ints = {n: int(doc.get(n, DEFAULT_DOC[n])) for n in bounds}
+              weight_max: int, bot: str = "tuned") -> Genome:
+    fallback = default_doc(bot)
+    ints = {n: int(doc.get(n, fallback[n])) for n in bounds}
     weights = {str(k): int(v) for k, v in doc["weights"].items()}
     return clamp({"ints": ints, "weights": weights}, bounds, weight_max)
 
@@ -169,8 +182,9 @@ def make_offspring(parents: List[Genome], lam: int, rng: random.Random, sigma: f
 def genome_doc(base_doc: Dict[str, Any], g: Genome, bot: str, stamp: str) -> Dict[str, Any]:
     """The weights file for a genome: the loader's key order, uncapped fields from base."""
     doc: Dict[str, Any] = {"version": FORMAT_VERSION, "bot": bot, "stamp": stamp}
+    fallback = default_doc(bot)
     for n in INT_FIELDS:
-        doc[n] = g["ints"].get(n, int(base_doc.get(n, DEFAULT_DOC[n])))
+        doc[n] = g["ints"].get(n, int(base_doc.get(n, fallback[n])))
     doc["weights"] = dict(g["weights"])
     return doc
 
@@ -194,6 +208,31 @@ def checkpoints(run_dir: str) -> Dict[int, str]:
     return out
 
 
+def resolve_label(cfg: "Config", stamp: str) -> str:
+    """The run's label. An explicit one is used as given (and resumes). The default is
+    `<bot>-<stamp>`: a run stopped early resumes under it, but one already promoted never
+    does, so a finished run does not swallow the next `bot-train`; a promoted run's label
+    gets a `-2`, `-3`... suffix for the next one. A stamp that moved on is a new label."""
+    if cfg.label:
+        return cfg.label
+    base_reports = cfg.reports_dir or os.path.join(records.GODOT_DIR, "reports", "bot")
+    root = "%s-%s" % (cfg.bot, stamp)
+    n = 1
+    while True:
+        label = root if n == 1 else "%s-%d" % (root, n)
+        found = checkpoints(os.path.join(base_reports, label))
+        if not found:
+            return label
+        try:
+            with open(found[max(found)], "r", encoding="utf-8") as f:
+                promoted = bool(json.load(f).get("promoted"))
+        except (OSError, ValueError):
+            promoted = False
+        if not promoted:
+            return label
+        n += 1
+
+
 class Trainer:
     def __init__(self, cfg: Config, play: PlayFn, evaluate: EvalFn,
                  weights_dir: str = records.WEIGHTS_DIR,
@@ -204,11 +243,12 @@ class Trainer:
         self.weights_dir = weights_dir
         self.say = out
         self.bounds = bounds_for(cfg.bot, cfg.k_max, cfg.k_opp_max)
-        self.label = cfg.label or "%s-train" % cfg.bot
+        self.stamp = records.current_stamp()
+        self.label = resolve_label(cfg, self.stamp)
         base_reports = cfg.reports_dir or os.path.join(records.GODOT_DIR, "reports", "bot")
         self.run_dir = os.path.abspath(os.path.join(base_reports, self.label))
-        self.stamp = records.current_stamp()
         self.run_seed = 0
+        self.mismatch = False   # the weights file's stamp is not the current one (R38)
 
     def run(self) -> int:
         cfg = self.cfg
@@ -218,7 +258,10 @@ class Trainer:
         if ws is not None and ws != self.stamp:
             self.say("bot-train: %s weights stamp %s differs from current %s (R38)"
                      % (cfg.bot, ws, self.stamp))
+            self.mismatch = True
         state = self.load_state(base_doc)
+        if state.get("pending") and not state.get("promoted"):
+            self.resume_pending(state, base_doc)
         started = time.monotonic()
         limit = cfg.hours * 3600.0
         ran = 0
@@ -250,8 +293,10 @@ class Trainer:
             if cfg.run_seed is not None and cfg.run_seed != ck["run_seed"]:
                 raise TrainError("label %s was started with run seed %d" % (self.label, ck["run_seed"]))
             if ck.get("stamp") != self.stamp:
-                self.say("bot-train: checkpoint stamp %s differs from current %s"
-                         % (ck.get("stamp"), self.stamp))
+                raise TrainError(
+                    "label %s holds a checkpoint stamped %s but the current stamp is %s; "
+                    "pass a new LABEL (make bot-train LABEL=...) to start a fresh run"
+                    % (self.label, ck.get("stamp"), self.stamp))
             self.say("bot-train: resuming %s from gen-%d.json, continuing at generation %d"
                      % (self.label, newest, newest + 1))
             self.run_seed = int(ck["run_seed"])
@@ -259,16 +304,18 @@ class Trainer:
                     "parents": [p["genome"] for p in ck["population"]],
                     "best_norm": ck.get("best_norm"), "last_candidate": ck.get("last_candidate"),
                     "promoted": newest if ck.get("promoted") else 0, "last_result": ck.get("candidate"),
-                    "best": ck.get("best")}
+                    "best": ck.get("best"), "pending": ck.get("pending"),
+                    "ck": ck, "ck_path": found[newest]}
         seed = cfg.run_seed if cfg.run_seed is not None else int(time.time()) % SEED_SPAN
         self.run_seed = seed
-        base = genome_of(base_doc, self.bounds, cfg.weight_max)
+        base = genome_of(base_doc, self.bounds, cfg.weight_max, cfg.bot)
         rng = random.Random(derive(seed, "init"))
         parents = initial_parents(base, cfg.mu, rng, cfg.sigma, cfg.k_sigma,
                                   self.bounds, cfg.weight_max)
         self.say("bot-train: %s label=%s run_seed=%d hours=%g" % (cfg.bot, self.label, seed, cfg.hours))
         return {"generation": 0, "run_seed": seed, "parents": parents, "best_norm": None,
-                "last_candidate": None, "promoted": 0, "last_result": None, "best": None}
+                "last_candidate": None, "promoted": 0, "last_result": None, "best": None,
+                "pending": None, "ck": None, "ck_path": ""}
 
     def seed_range(self, state: Dict[str, Any], tag: str, n: int, count: int) -> Tuple[int, int]:
         lo = derive(state["run_seed"], tag, n) % SEED_SPAN + 1
@@ -341,7 +388,8 @@ class Trainer:
             "best": {"index": best, "genome": pop[best], "fitness": fit[best]},
             "best_norm": state["best_norm"],
             "last_candidate": pop[best] if is_candidate else state["last_candidate"],
-            "candidate": None, "promoted": False, "elapsed_s": round(time.monotonic() - started),
+            "candidate": None, "promoted": False, "pending": None,
+            "elapsed_s": round(time.monotonic() - started),
         }
         ck_path = os.path.join(self.run_dir, "gen-%d.json" % n)
         write_json(ck_path, ck, indent=2)
@@ -350,13 +398,36 @@ class Trainer:
         state["best"] = ck["best"]
         if is_candidate:
             state["last_candidate"] = pop[best]
-            result = self.promote(n, paths[best], pop[best], base_doc)
-            ck["candidate"] = result
-            ck["promoted"] = bool(result["promoted"])
-            state["last_result"] = result
-            if result["promoted"]:
-                state["promoted"] = n
+            # Persist the candidate before its (long) promotion eval, so a crash or an
+            # interrupt can be resumed: the run re-runs this promotion first (R41, C16).
+            ck["pending"] = {"generation": n, "genome": pop[best], "weights": paths[best]}
             write_json(ck_path, ck, indent=2)
+            self.finish_promotion(state, ck, ck_path, n, paths[best], pop[best], base_doc)
+
+    def finish_promotion(self, state: Dict[str, Any], ck: Dict[str, Any], ck_path: str,
+                         n: int, cand_path: str, genome: Genome,
+                         base_doc: Dict[str, Any]) -> None:
+        result = self.promote(n, cand_path, genome, base_doc)
+        ck["candidate"] = result
+        ck["promoted"] = bool(result["promoted"])
+        ck["pending"] = None
+        state["pending"] = None
+        state["last_result"] = result
+        if result["promoted"]:
+            state["promoted"] = n
+        write_json(ck_path, ck, indent=2)
+
+    def resume_pending(self, state: Dict[str, Any], base_doc: Dict[str, Any]) -> None:
+        """Re-run the promotion a stopped run left pending, before evolving further."""
+        pend = state["pending"]
+        n = int(pend["generation"])
+        genome: Genome = pend["genome"]
+        cand_path = str(pend["weights"])
+        os.makedirs(os.path.dirname(cand_path), exist_ok=True)
+        write_json(cand_path, genome_doc(base_doc, genome, self.cfg.bot, self.stamp))
+        self.say("bot-train: re-running the pending promotion of gen=%d" % n)
+        self.finish_promotion(state, state["ck"], state["ck_path"], n, cand_path, genome,
+                              base_doc)
 
     def promote(self, n: int, cand_path: str, genome: Genome,
                 base_doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -376,8 +447,13 @@ class Trainer:
         write_json(target, genome_doc(base_doc, genome, self.cfg.bot, self.stamp))
         result["promoted"] = True
         self.say("bot-train: PROMOTED gen=%d stamp=%s vs_greedy_v1=PASS(%s) vs_best=PASS(%s)"
-                 % (n, self.stamp, result["vs_greedy_v1"]["info"], result["vs_best"]["info"]))
+                 % (n, self.stamp_note(), result["vs_greedy_v1"]["info"],
+                    result["vs_best"]["info"]))
         return result
+
+    def stamp_note(self) -> str:
+        """`<stamp>`, or `<stamp> MISMATCH` when the committed weights are of another stamp."""
+        return self.stamp + " MISMATCH" if self.mismatch else self.stamp
 
     def summarize_unpromoted(self, state: Dict[str, Any], ran: int) -> int:
         best = state.get("best") or {}
@@ -392,7 +468,9 @@ class Trainer:
                                                 % r["code"], r["info"]))
             detail = " last_candidate=gen%d %s" % (last["gen"], " ".join(parts))
         self.say("bot-train: NOT PROMOTED label=%s generations=%d (this run %d) best_fitness=%s%s "
-                 "exit=2" % (self.label, state["generation"], ran, best.get("fitness"), detail))
+                 "stamp=%s exit=2"
+                 % (self.label, state["generation"], ran, best.get("fitness"), detail,
+                    self.stamp_note()))
         return EXIT_NONE
 
 
@@ -421,6 +499,14 @@ def make_godot_evaluate(cfg: Config, run_dir: str, run_seed_of: Callable[[], int
             weights_a=cand_path, weights_b="")
         code, report = driver.eval_report(args)
         if code == driver.EXIT_ERROR:
+            # Worker exit 1 is the candidate's own fault (a rejected action or a replay
+            # mismatch, R41); the driver reports the exit codes it saw. That is a FAIL of
+            # this candidate and the run goes on. Any other code (bad arguments, engine
+            # failure, no Godot) is infrastructure and aborts the run.
+            codes = report.get("worker_exit_codes") or []
+            if codes and all(c == 1 for c in codes):
+                return driver.EXIT_FAIL, ("REJECTED (candidate made a rejected action or a "
+                                          "replay mismatch; worker exit 1)")
             raise TrainError("eval of gen %d vs %s errored" % (n, reference))
         agg = report.get("aggregates", {})
         info = "%s pairs=%s winrate=%.3f±%.3f" % (report.get("result"), agg.get("pairs"),
@@ -464,8 +550,8 @@ def run_train(args: argparse.Namespace) -> int:
                              "and --hours >= 0")
         if not os.path.isfile(driver.godot_bin()):
             raise TrainError("Godot not found at %s (set GODOT_BIN)" % driver.godot_bin())
-        label = cfg.label or "%s-train" % cfg.bot
-        trainer = Trainer(cfg, make_godot_play(cfg.bot, label), _unset_evaluate)
+        cfg.label = resolve_label(cfg, records.current_stamp())
+        trainer = Trainer(cfg, make_godot_play(cfg.bot, cfg.label), _unset_evaluate)
         trainer.evaluate = make_godot_evaluate(cfg, trainer.run_dir, lambda: trainer.run_seed)
         return trainer.run()
     except TrainError as e:

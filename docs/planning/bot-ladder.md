@@ -32,24 +32,42 @@ far" is the weights file committed in the repository (R23); nothing else counts.
 | 2026-11-04 | tuned v1 (k 24, shipped) | r4-8054169094898cc2 | greedy_v1 | non-regression PASS (H1), 100 pairs, 200 games, 0.500 ± 0.000 (identical choices); first committer won 0.50 | sweep p95 4475, p99 6795, slowest 25020; eval (8 workers, loaded) p95 8789, slowest 132623, overruns 389 / 424 (greedy_v1) | e9e18fe | Spec C14 (Ben): k 24 and a p99 sweep assertion. The top-24 prune changed 0 of 200 test decisions. Quiet-run p99 7.0 ms, max about 11 ms. Check at DC-08 T11: `greedy` against `greedy_v1` is PASS (H1), 100 pairs, 0.500. Full line: `bot-eval: a=tuned b=greedy_v1 result=PASS bound=H1 pairs=100 games=200 winrate=0.500±0.000 first_committer=0.50 p95_us=8789 slowest_us=132623 overruns_a=389 overruns_b=424 stamp=match exit=0`. |
 | 2026-11-05 | tuned v1 (k 24, default weights, re-stamped without training) | r5-f898a1b1ce5bee0f | greedy_v1 | non-regression PASS (H1), 64 pairs, 128 games, 0.508 ± 0.015; first committer won 0.49 | sweep p95 5104, p99 7191, slowest 11383; eval p95 8502, slowest 67444, overruns 241 / 293 (greedy_v1) | (DC-09 T07) | Cycle 8 milestone A (Bloom, Echo, card memory, rules 5). `make bot-train` lands with DC-10, so the `stamp` field was edited by hand (plan P18); `make check` then reads `stamp=match`. The two bots no longer choose identically: the shipped bot reads effective costs, `greedy_v1` printed ones (unedited, R21). Full line: `bot-eval: a=tuned b=greedy_v1 result=PASS bound=H1 pairs=64 games=128 winrate=0.508±0.015 first_committer=0.49 p95_us=8502 slowest_us=67444 overruns_a=241 overruns_b=293 stamp=MISMATCH exit=0` (run before the re-stamp). |
 
+## Calibration
+
+<!-- calibration:begin -->
+
+Not yet run. `make bot-calibrate` writes its latest table here (R55); `NO_LEDGER=1` skips it.
+
+<!-- calibration:end -->
+
 ## Rerun after an engine change
 
 Any cycle that changes `MatchRules.RULES_VERSION`, the card pool JSON or the deck list
 JSON (anything that moves the stamp) does this before its `/cycle test` merge (R36):
 
-1. `make sweep` (the 50-seed sweep, outside the gate since NSC-133; `make sweep BOT=matrix`
-   sweeps another bot). The sweep line prints `stamp=MISMATCH` when the shipped weights were
-   measured under another stamp; the sweep stays green either way.
-2. `make bot-eval` (the shipped bot against `greedy_v1`, non-regression, about ten minutes
-   on all cores). Its first line says when a stamp does not match.
-3. On FAIL or `stamp=MISMATCH`: `make bot-train` (overnight by default; `HOURS=` to bound
-   it), then commit the promoted weights on the cycle branch. A run that promotes nothing
-   leaves the old weights and records the best candidate's result here.
+1. `make sweep` and `make sweep BOT=matrix` (the 50-seed sweep, outside the gate since
+   NSC-133). The sweep line prints `stamp=MISMATCH` when the shipped weights were measured
+   under another stamp; the sweep stays green either way, and `p99_us` must stay under
+   10000 (the latency budget, for both bots).
+2. `make bot-eval` and `make bot-eval BOT=matrix` (each shipped bot against `greedy_v1`,
+   non-regression, about ten minutes on all cores). The first line says when a stamp does
+   not match.
+3. On FAIL or `stamp=MISMATCH`: `make bot-train` and `make bot-train BOT=matrix` for the
+   bot concerned (overnight by default; `HOURS=` to bound it), then commit the promoted
+   weights on the cycle branch. The default run label is `<bot>-<stamp>`; a checkpoint of
+   another stamp is refused (pass a new `LABEL=`). The final line repeats a stamp
+   mismatch. A candidate is promoted only if it passes the gainer test against `greedy_v1`
+   and the best-so-far with no rejected action, no replay mismatch and a p99 decision
+   under 10 ms (R41, C16). A run that promotes nothing leaves the old weights and records
+   the best candidate's result here.
 4. If an engine API change forced an edit to `greedy_v1`, list the edit in its row's note.
 5. Add a row here and put the `bot-eval` line in the cycle's row of [[planning/cycles]].
 
 Milestone B (`make bot-train`, `make bot-calibrate`, the matrix bot) lands as DC-10, after cycle 8
 milestone A as DC-09 (Ben, [[specs/cycle-8-ramp-bounce-crew/spec]] C12); until then step 3 cannot run, and a FAIL is recorded as a follow-up issue instead.
+
+After a retrain or a large change to the bots, `make bot-calibrate` refreshes the
+[Calibration](#calibration) table.
 
 ## Related
 
