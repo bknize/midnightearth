@@ -303,8 +303,9 @@ func _prompt_rng(view: SeatView) -> MatchRng:
 ## order the left end, then the right end when the row is not empty. An order whose
 ## commit_cost() exceeds the budget is skipped. Each commit carries explicit slots; the
 ## empty set is one candidate with none. Every cost is the view's effective cost
-## (`own_hand_costs`, cycle 8 R21, P3; printed when the view carries none, hand_costs()),
-## so a card whose cost an ability reduced is a candidate exactly when the engine accepts it.
+## (`own_hand_costs`, cycle 8 R21, P3; the definition's cost when the view has none,
+## hand_costs()), so a card whose cost an ability reduced is a candidate exactly when the
+## engine accepts it.
 func candidates(view: SeatView) -> Array[EngineAction]:
 	var out: Array[EngineAction] = []
 	var row_size: int = view.own_board.size()
@@ -344,14 +345,22 @@ func candidates(view: SeatView) -> Array[EngineAction]:
 
 
 ## The costs of `view.own_hand`, parallel to it (cycle 8 R21, P3): the view's effective
-## `own_hand_costs` when it carries one per hand card, else each card's printed cost over
-## `cards` (a stub view, or one built without definitions).
+## `own_hand_costs` when it carries one per hand card, else each card's definition cost
+## over `cards` (a stub view, or one built without definitions). With no usable `cards`
+## (null, failed card data, or the empty MatchCards BotPlayer holds for null) every card is
+## unpriced (-1), whatever the view carries, so the bot's only candidate is the empty set
+## (the documented fallback).
 static func hand_costs(view: SeatView, cards: MatchCards) -> Array[int]:
+	if cards == null or not cards.is_valid() or cards.size() == 0:
+		var unpriced: Array[int] = []
+		for _card: int in view.own_hand:
+			unpriced.append(-1)
+		return unpriced
 	if view.own_hand_costs.size() == view.own_hand.size():
 		var given: Array[int] = []
 		given.assign(view.own_hand_costs)
 		return given
-	return LegalPlays.printed_costs(view.own_hand, cards)
+	return LegalPlays.def_costs(view.own_hand, cards)
 
 
 ## The highest of `costs` (0 when empty or all unpriced).

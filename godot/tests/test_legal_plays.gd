@@ -420,11 +420,11 @@ func test_a_budget_2_commit_of_a_cost_3_card_needs_its_reduction() -> void:
 	assert_bool(LegalPlays.enumerate_masks_with(hand, printed, 2).has(1)).is_false()
 
 
-## With printed costs the `_with` functions equal the printed-cost ones (no rule change).
-func test_with_variants_equal_the_printed_ones_on_printed_costs() -> void:
+## With definition costs the `_with` functions equal the printed-cost ones (no rule change).
+func test_with_variants_equal_the_printed_ones_on_def_costs() -> void:
 	var db: MatchCards = _defs()
 	var hand: Array[int] = [0, 4, 8, 11, 14, 18, 22]
-	var costs: Array[int] = LegalPlays.printed_costs(hand, db)
+	var costs: Array[int] = LegalPlays.def_costs(hand, db)
 	for energy: int in range(0, 12):
 		assert_array(LegalPlays.enumerate_masks_with(hand, costs, energy)).is_equal(
 			LegalPlays.enumerate_masks(hand, energy, db)
@@ -432,7 +432,7 @@ func test_with_variants_equal_the_printed_ones_on_printed_costs() -> void:
 	var proposals: Array[Array] = [[18, 0], [8], [], [4, 11]]
 	for raw: Array in proposals:
 		var proposal: Array[int] = _typed(raw)
-		var proposal_costs: Array[int] = LegalPlays.printed_costs(proposal, db)
+		var proposal_costs: Array[int] = LegalPlays.def_costs(proposal, db)
 		var slots: Array[int] = LegalPlays.append_slots(0, proposal.size())
 		for free_first: bool in [false, true]:
 			var with_cost: int = LegalPlays.commit_cost_with(proposal, proposal_costs, free_first)

@@ -425,6 +425,38 @@ func _payload_keys(kind: int) -> Array:
 	return keys
 
 
+## `card`'s entry in the full state's `memory` (cycle 8 P2), or {} when it has none.
+func _memory_of(state: Dictionary, card: int) -> Dictionary:
+	var all_memory: Dictionary = state["memory"]
+	if not all_memory.has(card):
+		return {}
+	var kept: Dictionary = all_memory[card]
+	return kept
+
+
+## `card`'s cycle 8 view values from the full state (R4, R6, R7, P3, P7) as [cost, grown,
+## uses_left]: the printed cost less the memory's reduction, floored at MatchRules.MIN_COST;
+## grown when the memory is not empty; uses_left -1 for an unlimited (or no) effect, else
+## the memory's count once read, else the effect's uses.
+func _memory_values(state: Dictionary, card: int) -> Array[int]:
+	var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
+	var kept: Dictionary = _memory_of(state, card)
+	var cost: int = def.cost
+	var grown: int = 0
+	var uses: int = -1
+	if def.effect != null and def.effect.uses > 0:
+		uses = def.effect.uses
+	if not kept.is_empty():
+		var reduction: int = kept["cost"]
+		var left: int = kept["uses_left"]
+		cost = maxi(cost - reduction, MatchRules.MIN_COST)
+		grown = 0 if CardMemory.from_dict(kept).is_empty() else 1
+		if uses >= 0 and left >= 0:
+			uses = left
+	var out: Array[int] = [cost, grown, uses]
+	return out
+
+
 ## `card`'s shown stats from the full state (DC-07 P5) as [flat, times, plus]: its
 ## definition's flat and bonus (or the base a copy stored, both parts), then its entry in
 ## `card_states` (flat delta, temp plus, no bonus), which effects write since DC-05 T04.
@@ -443,6 +475,15 @@ func _shown_stats(state: Dictionary, card: int) -> Array[int]:
 			flat = held["base_flat"]
 			times = held["base_times"]
 			plus = held["base_plus"]
+	# Cycle 8 R3: the card's match memory adds after the base, before the board changes.
+	var kept: Dictionary = _memory_of(state, card)
+	if not kept.is_empty():
+		var kept_flat: int = kept["flat"]
+		var kept_times: int = kept["times"]
+		var kept_plus: int = kept["plus"]
+		flat += kept_flat
+		times += kept_times
+		plus += kept_plus
 	if not held.is_empty():
 		var delta: int = held["flat_delta"]
 		var temp: int = held["temp_plus"]
@@ -476,8 +517,21 @@ func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: 
 	assert_int(row.size()).is_equal(board.size())
 	for slot: int in range(mini(row.size(), board.size())):
 		var entry: Dictionary = row[slot]
-		var keys: Array = ["card", "flat", "times", "plus", "revealed", "destroyed"]
+		var keys: Array = [
+			"card",
+			"flat",
+			"times",
+			"plus",
+			"revealed",
+			"destroyed",
+			"cost",
+			"grown",
+			"uses_left",
+		]
 		assert_array(_sorted_keys(entry)).is_equal(_sorted(keys))
+		var cost: int = entry["cost"]
+		var grown: bool = entry["grown"]
+		var uses_left: int = entry["uses_left"]
 		var card: int = entry["card"]
 		var flat: int = entry["flat"]
 		var times: int = entry["times"]
@@ -497,10 +551,19 @@ func _assert_row(row: Array[Dictionary], state: Dictionary, row_seat: int, own: 
 			assert_int(flat).is_equal(stats[0])
 			assert_int(times).is_equal(stats[1])
 			assert_int(plus).is_equal(stats[2])
+			# Cycle 8 (R4, R6, R7): the effective cost, the grown mark and the uses left.
+			var remembered: Array[int] = _memory_values(state, card)
+			assert_int(cost).is_equal(remembered[0])
+			assert_bool(grown).is_equal(remembered[1] == 1)
+			assert_int(uses_left).is_equal(remembered[2])
 		else:
 			assert_int(flat).is_equal(0)
 			assert_int(times).is_equal(MatchRules.MULT_ONE)
 			assert_int(plus).is_equal(0)
+			# A hidden card's memory stays hidden (R8): 0, false, -1.
+			assert_int(cost).is_equal(0)
+			assert_bool(grown).is_false()
+			assert_int(uses_left).is_equal(-1)
 
 
 ## The view agrees with the full state on every R28 field.

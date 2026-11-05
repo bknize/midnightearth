@@ -52,11 +52,12 @@ static func total_cost(card_ids: Array[int], cards: MatchCards) -> int:
 ## set, a pass) is always included, even if energy is negative. A subset containing a
 ## card with no definition is never legal.
 static func enumerate_masks(hand: Array[int], energy: int, cards: MatchCards) -> Array[int]:
-	return enumerate_masks_with(hand, printed_costs(hand, cards), energy)
+	return enumerate_masks_with(hand, def_costs(hand, cards), energy)
 
 
-## The printed cost of each card of `card_ids`, in order (cost_of; -1 for an unpriced one).
-static func printed_costs(card_ids: Array[int], cards: MatchCards) -> Array[int]:
+## The definition (printed) cost of each card of `card_ids`, in order (cost_of; -1 for an
+## unpriced one).
+static func def_costs(card_ids: Array[int], cards: MatchCards) -> Array[int]:
 	var out: Array[int] = []
 	for instance_id: int in card_ids:
 		out.append(cost_of(instance_id, cards))
@@ -123,7 +124,7 @@ static func validate(
 	cards: MatchCards
 ) -> int:
 	return validate_with(
-		proposal, slots, hand, printed_costs(hand, cards), row_size, budget, free_first
+		proposal, slots, hand, def_costs(hand, cards), row_size, budget, free_first
 	)
 
 
@@ -184,7 +185,7 @@ static func append_slots(row_size: int, count: int) -> Array[int]:
 ## What a commit of `proposal` (in slot order) costs: the summed cost, less the leftmost
 ## card's when `free_first` is true (R10). -1 when any card maps to no definition.
 static func commit_cost(proposal: Array[int], free_first: bool, cards: MatchCards) -> int:
-	return commit_cost_with(proposal, printed_costs(proposal, cards), free_first)
+	return commit_cost_with(proposal, def_costs(proposal, cards), free_first)
 
 
 ## commit_cost() over `proposal_costs`, parallel to `proposal` (cycle 8 P3): the summed cost,
