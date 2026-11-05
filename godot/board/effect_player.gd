@@ -71,7 +71,7 @@ func pulse(step: BoardStep) -> void:
 		push_warning("Board: a reveal found no face-down card on the opponent's row")
 		return
 	card.instance_id = step.card
-	show(card, step)
+	show(card, step, reveal_entry(step))
 	if lift:
 		_lift_and_settle(card, step.duration)
 	_flip_up(card, flip_time)
@@ -91,7 +91,12 @@ func effect(step: BoardStep) -> void:
 func fizzle(step: BoardStep) -> void:
 	var card: BoardCard = _find_in_row(step.seat, step.card, -1)
 	if card != null:
-		card.flash_note("no target", step.duration)
+		card.flash_note(fizzle_note(step.reason), step.duration)
+
+
+## The note a fizzle flashes: "spent" for a once-only effect, otherwise "no target".
+static func fizzle_note(reason: String) -> String:
+	return "spent" if reason == "spent" else "no target"
 
 
 ## The numbers change and the one that changed pulses (R42).
@@ -161,7 +166,13 @@ func clear_destroyed(step: BoardStep) -> void:
 ## or a recovered one that found a full hand (in the hand, R19). True when the card has swept
 ## off; false when it is a deck burn the board spawns itself.
 func burn_from_row(step: BoardStep) -> bool:
-	if step.card >= 0:
+	if step.row_seat >= 0:
+		# A row burn names its row and slot, public even when the card's id is hidden.
+		var on_row: BoardCard = _find_in_row(step.row_seat, step.card, step.slot)
+		if on_row != null and on_row.instance_id == step.card:
+			_sweep_off_row(step.row_seat, on_row, step.duration)
+			return true
+	elif step.card >= 0:
 		var card: BoardCard = _find_in_row(step.seat, step.card, -1)
 		if card != null and card.instance_id == step.card:
 			_sweep_off_row(step.seat, card, step.duration)
@@ -438,13 +449,31 @@ func reset() -> void:
 
 
 ## Face text for a card the viewer may see. The card must be in the tree.
-func show(card: BoardCard, step: BoardStep) -> void:
+func show(card: BoardCard, step: BoardStep, entry: Dictionary = {}) -> void:
 	card.instance_id = step.card
 	var def: CardDef = null if match_cards == null else match_cards.def_of(step.card)
 	if def == null:
 		push_warning("Board: no card definition for card %d" % step.card)
 		return
-	card.show_entry(def, BoardCard.entry_in(_hand_rows(), step.card))
+	var face: Dictionary = entry
+	if face.is_empty():
+		face = BoardCard.entry_in(_hand_rows(), step.card)
+	card.show_entry(def, face)
+
+
+## The face entry a reveal step carries (cost, bonus and grown mark are public), or an empty
+## dictionary when the event named no effective cost.
+static func reveal_entry(step: BoardStep) -> Dictionary:
+	if step.cost < 0:
+		return {}
+	return {
+		"card": step.card,
+		"cost": step.cost,
+		"flat": step.flat,
+		"times": step.times,
+		"plus": step.plus,
+		"grown": step.grown,
+	}
 
 
 ## Takes a card off a row, onto the loose layer where it is, and sweeps it off. The row
