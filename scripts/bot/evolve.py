@@ -41,12 +41,12 @@ INT_FIELDS = ["k", "k_opp", "samples", "rm_iterations", "push_unit"]
 SEED_SPAN = 1_000_000_000
 # Tunable integer caps per bot: name -> (lowest, highest). `k_max` and `k_opp_max` in Config
 # (and the CLI) can only lower the highest. The tuned k cap is the shipped 24 (spec C14). The
-# matrix caps are k <= 6 and k_opp <= 4 (C16, Ben's 2a: 12 x 12 previews measured a p99 of
-# 59 ms against the 10 ms budget); its `samples` (2) and `rm_iterations` (50) are not
-# tunable, so they stay at the values of its weights file.
+# matrix caps are k <= 6 and k_opp <= 3 (C16, Ben's 2a: 12 x 12 previews measured a p99 of
+# 59 ms against the 10 ms budget; k_opp 4 still measured 10.9 ms, so k_opp 3 at T18);
+# its `samples` (2) and `rm_iterations` (50) are not tunable, so they stay at the values of its weights file.
 TUNABLE: Dict[str, Dict[str, Tuple[int, int]]] = {
     "tuned": {"k": (1, 24)},
-    "matrix": {"k": (1, 6), "k_opp": (1, 4)},
+    "matrix": {"k": (1, 6), "k_opp": (1, 3)},
 }
 # Built-in defaults when a bot has no committed weights file (the committed file wins).
 DEFAULT_DOC: Dict[str, Any] = {
@@ -54,7 +54,7 @@ DEFAULT_DOC: Dict[str, Any] = {
     "weights": {"score_diff": 100},
 }
 MATRIX_DEFAULT_DOC: Dict[str, Any] = {
-    "k": 6, "k_opp": 4, "samples": 2, "rm_iterations": 50, "push_unit": 10,
+    "k": 6, "k_opp": 3, "samples": 2, "rm_iterations": 50, "push_unit": 10,
     "weights": {"score_diff": 100},
 }
 

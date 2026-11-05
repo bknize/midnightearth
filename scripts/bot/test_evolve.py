@@ -112,23 +112,23 @@ class BoundsTest(unittest.TestCase):
         self.check("matrix", os.path.join(FIX, "matrix_weights.json"), 12)
 
     def test_matrix_caps_are_c16(self) -> None:
-        self.assertEqual(evolve.bounds_for("matrix"), {"k": (1, 6), "k_opp": (1, 4)})
+        self.assertEqual(evolve.bounds_for("matrix"), {"k": (1, 6), "k_opp": (1, 3)})
         # the CLI overrides can only lower a cap, never raise it
-        self.assertEqual(evolve.bounds_for("matrix", 12, 12), {"k": (1, 6), "k_opp": (1, 4)})
+        self.assertEqual(evolve.bounds_for("matrix", 12, 12), {"k": (1, 6), "k_opp": (1, 3)})
         self.assertEqual(evolve.bounds_for("matrix", 3, 2), {"k": (1, 3), "k_opp": (1, 2)})
         self.assertEqual(evolve.bounds_for("tuned", 48), {"k": (1, 24)})
 
     def test_matrix_defaults_are_c16(self) -> None:
         d = evolve.default_doc("matrix")
-        self.assertEqual((d["k"], d["k_opp"], d["samples"], d["rm_iterations"]), (6, 4, 2, 50))
+        self.assertEqual((d["k"], d["k_opp"], d["samples"], d["rm_iterations"]), (6, 3, 2, 50))
         fix = read(os.path.join(FIX, "matrix_weights.json"))
         self.assertEqual((fix["k"], fix["k_opp"], fix["samples"], fix["rm_iterations"]),
-                         (6, 4, 2, 50))
+                         (6, 3, 2, 50))
         doc = evolve.genome_doc({}, evolve.genome_of({"weights": {"score_diff": 1}},
                                                      evolve.bounds_for("matrix"), 300, "matrix"),
                                 "matrix", "r5-x")
         self.assertEqual((doc["k"], doc["k_opp"], doc["samples"], doc["rm_iterations"]),
-                         (6, 4, 2, 50))
+                         (6, 3, 2, 50))
 
     def test_unknown_bot_refused(self) -> None:
         with self.assertRaises(evolve.TrainError):

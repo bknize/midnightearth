@@ -3,7 +3,7 @@
 	"bot": "matrix",
 	"stamp": "r5-f898a1b1ce5bee0f",
 	"k": 6,
-	"k_opp": 4,
+	"k_opp": 3,
 	"samples": 2,
 	"rm_iterations": 50,
 	"push_unit": 10,

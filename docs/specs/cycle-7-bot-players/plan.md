@@ -204,7 +204,8 @@ exit 0 pass | 1 fail | 2 cap or no promotion | 3 error
 - **10 ms not met on the matrix bot** → `k`, `k_opp`, `samples` are file values; the
   verification lowers them until the sweep passes and the ledger records the numbers.
   Measured at DC-10 T17: p99 59 ms at 12/12/4/200, so C16 ships `k` 6, `k_opp` 4, `samples`
-  2, `rm_iterations` 50 and caps the trainer at `k` 6 and `k_opp` 4; T18 measures it.
+  2, `rm_iterations` 50 and caps the trainer at `k` 6 and `k_opp` 4; T18 measured p99 10.9 ms
+  there, so `k_opp` is 3 (and its trainer cap 3; Ben, 2026-11-05).
 - **Pentanomial SPRT arithmetic wrong** → `test_sprt.py` simulates known win rates; the
   first `bot-eval` runs `tuned` (default weights) vs `greedy_v1`, which must be a draw.
 - **Seat advantage near zero makes mirroring useless** → the driver reports the
