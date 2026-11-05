@@ -4,7 +4,7 @@ tags: [planning, bot, ledger]
 status: growing
 related: ["[[specs/cycle-7-bot-players/spec]]", "[[specs/cycle-7-bot-players/plan]]", "[[planning/cycles]]", "[[planning/planning-moc]]"]
 created: 2026-11-04
-updated: 2026-11-04
+updated: 2026-11-05
 uid: ef993f98-4b7e-47a9-9dc2-6884a4a06820
 linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
@@ -30,6 +30,7 @@ far" is the weights file committed in the repository (R23); nothing else counts.
 | 2026-11-04 | random | r4-8054169094898cc2 | – | reference (floor) | – | 5895167 | Uniform over legal commits and prompt answers, per-decision seed (R20). |
 | 2026-11-04 | tuned v1 (default weights: score_diff 100, k 48) | r4-8054169094898cc2 | greedy_v1 | not run: superseded by k 24 before verification | – | 7425df9 | Same choices as the greedy bot under the full search (R12); the top-48 prune changed 0 of 200 test decisions. Sweep slowest 46 ms (k 48 previews nearly every candidate). |
 | 2026-11-04 | tuned v1 (k 24, shipped) | r4-8054169094898cc2 | greedy_v1 | non-regression PASS (H1), 100 pairs, 200 games, 0.500 ± 0.000 (identical choices); first committer won 0.50 | sweep p95 4475, p99 6795, slowest 25020; eval (8 workers, loaded) p95 8789, slowest 132623, overruns 389 / 424 (greedy_v1) | e9e18fe | Spec C14 (Ben): k 24 and a p99 sweep assertion. The top-24 prune changed 0 of 200 test decisions. Quiet-run p99 7.0 ms, max about 11 ms. Check at DC-08 T11: `greedy` against `greedy_v1` is PASS (H1), 100 pairs, 0.500. Full line: `bot-eval: a=tuned b=greedy_v1 result=PASS bound=H1 pairs=100 games=200 winrate=0.500±0.000 first_committer=0.50 p95_us=8789 slowest_us=132623 overruns_a=389 overruns_b=424 stamp=match exit=0`. |
+| 2026-11-05 | tuned v1 (k 24, default weights, re-stamped without training) | r5-f898a1b1ce5bee0f | greedy_v1 | non-regression PASS (H1), 64 pairs, 128 games, 0.508 ± 0.015; first committer won 0.49 | sweep p95 5104, p99 7191, slowest 11383; eval p95 8502, slowest 67444, overruns 241 / 293 (greedy_v1) | (DC-09 T07) | Cycle 8 milestone A (Bloom, Echo, card memory, rules 5). `make bot-train` lands with DC-10, so the `stamp` field was edited by hand (plan P18); `make check` then reads `stamp=match`. The two bots no longer choose identically: the shipped bot reads effective costs, `greedy_v1` printed ones (unedited, R21). Full line: `bot-eval: a=tuned b=greedy_v1 result=PASS bound=H1 pairs=64 games=128 winrate=0.508±0.015 first_committer=0.49 p95_us=8502 slowest_us=67444 overruns_a=241 overruns_b=293 stamp=MISMATCH exit=0` (run before the re-stamp). |
 
 ## Rerun after an engine change
 

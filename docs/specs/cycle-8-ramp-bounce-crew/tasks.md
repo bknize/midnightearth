@@ -4,7 +4,7 @@ tags: [tasks, cycle-8-ramp-bounce-crew, engine, board, cards]
 status: approved
 related: ["[[specs/cycle-8-ramp-bounce-crew/spec]]", "[[specs/cycle-8-ramp-bounce-crew/plan]]", "[[specs/cycle-7-bot-players/tasks]]", "[[decisions/0002-one-branch-per-cycle]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-04
-updated: 2026-11-04
+updated: 2026-11-05
 uid: 74041068-ca8e-4595-97eb-c4819afd258a
 linear: https://linear.app/night-science-llc/project/cycle-8-ramp-bounce-crew-c3fe684d879f
 supersedes:
@@ -62,36 +62,38 @@ re-run against T11's engine. Then T13 and T14. Milestone B runs as its own cycle
 Owned by the orchestrator, on `cycle-8-ramp-bounce-crew`, editor opened on the cycle
 worktree. Two screenshots.
 
-- [ ] `make check` exits 0; gdUnit run time under 30 s (cycle 7 C15, spec C12); record the
+- [x] `make check` exits 0; gdUnit run time under 30 s (cycle 7 C15, spec C12); record the
       case count and the time in the cycles row.
-- [ ] Re-pin the seed-1 golden under the four-deck seeded pairing in `GOLDEN_TUNED`
+- [x] Re-pin the seed-1 golden under the four-deck seeded pairing in `GOLDEN_TUNED`
       (`test_full_match.gd`, DC-08's mechanism): smoke, `Board: match ended …` and the
       `test_match_driver` pin agree across headless `--fixed-fps 60 --autoplay` and an editor
       run; record the line in [[planning/cycles]].
-- [ ] Re-pin the frozen-fixture stamp digest in `test_bot_stamp.gd` (and its Python twin)
+- [x] Re-pin the frozen-fixture stamp digest in `test_bot_stamp.gd` (and its Python twin)
       for the format-4 fixture (`shasum -a 256` over the fixture files, cards then decks).
-- [ ] 50-seed sweep over four decks: every log replays, the leak scan is clean (memory on
+- [x] 50-seed sweep over four decks: every log replays, the leak scan is clean (memory on
       hidden cards included), `p99_us` under 10 ms with the slowest printed; record pairing
       counts and the longest match.
-- [ ] Cycle 7 rerun provision as restated (R32, plan P18): the sweep line reads
+- [x] Cycle 7 rerun provision as restated (R32, plan P18): the sweep line reads
       `stamp=MISMATCH`; run `make bot-eval` (expected PASS with identical default choices);
       edit the `stamp` field of `godot/engine/bot/data/tuned_weights.json` to the new
       `BotStamp.current()` value, re-run `make check` for `stamp=match`; add a ledger row
       "re-stamped without training: default weights" with the eval line, and paste both
       into the cycles row. No `make bot-train` (it lands with cycle 7 milestone B).
-- [ ] **Memory.** On a seed where Sapling scores twice (scripted through the probe scene if
+- [x] **Memory.** On a seed where Sapling scores twice (scripted through the probe scene if
       none does): its face reads "×1.50" with the grown mark; after the round, the same card
       in hand still reads "×1.50"; Tinker reduces a neighbour and the hand face shows the
       lower cost; staging that card on the reduced budget is accepted. **Screenshot 1:**
       `godot/reports/DC-09/grown-hand-face.png`.
-- [ ] **Bounce.** Echo flips face down at turn end in its slot and reveals again next walk
+- [x] **Bounce.** Echo flips face down at turn end in its slot and reveals again next walk
       with its on-reveal; Flicker returns to the hand; Banish returns an enemy card to the
       opponent's fan. **Screenshot 2:** `godot/reports/DC-09/echo-face-down.png`.
-- [ ] Ben has reviewed the Bloom and Echo tables and any row change is in `cards.json`, the
+- [x] Ben has reviewed the Bloom and Echo tables and any row change is in `cards.json`, the
       plan and the golden before the re-pin.
-- [ ] No GDScript warning in the editor run; `obsidian-cli vault=docs unresolved` and
+- [x] No GDScript warning in the editor run; `obsidian-cli vault=docs unresolved` and
       `orphans` report nothing new; the Phase 3 amendment (C3) is appended to the planning
       notes; the cycles row records the gdUnit time against the 30 s budget.
+
+Outcome (2026-11-05): all boxes checked; the gate, golden, sweep, bot rerun and MCP results are in the DC-09 row of [[planning/cycles]]. Ben's table review: the tables stand as signed off at `/spec` (no rows struck). Staging a reduced card was proven by `test_staging_memory`, not driven on the board.
 
 ## Verification task B (14)
 
