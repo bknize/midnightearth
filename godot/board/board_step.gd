@@ -110,6 +110,12 @@ var trigger: String = ""
 var text: String = ""
 ## STATS: why the numbers changed.
 var cause: String = ""
+## STATS: the card's effective cost after the change (-1 when the event carried none), whether
+## the change is kept as card memory, and whether the card is in the viewer's hand (cycle 8
+## P16: EffectPlayer.restat_hand).
+var cost: int = -1
+var permanent: bool = false
+var in_hand: bool = false
 ## CHOICE_SHOW, PROMPT: the zone chosen from and the pick.
 var zone: String = ""
 var index: int = -1

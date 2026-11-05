@@ -27,6 +27,15 @@ func reset(energy: int, played: int = 0, first_free: bool = false) -> void:
 	_costs.clear()
 
 
+## The effective cost of hand card `id` in `view` (cycle 8 R24: `own_hand_costs`, parallel to
+## `own_hand`); `printed` when the view does not list it.
+static func view_cost(view: SeatView, id: int, printed: int) -> int:
+	var at: int = view.own_hand.find(id)
+	if at >= 0 and at < view.own_hand_costs.size():
+		return view.own_hand_costs[at]
+	return printed
+
+
 ## True when a card of this cost, staged at the right end, fits in the energy left (R14).
 func can_afford(cost: int) -> bool:
 	if _free_first and _row.is_empty():
