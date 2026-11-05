@@ -1,0 +1,25 @@
+{
+	"version": 1,
+	"bot": "matrix",
+	"stamp": "r5-f898a1b1ce5bee0f",
+	"k": 12,
+	"k_opp": 12,
+	"samples": 4,
+	"rm_iterations": 200,
+	"push_unit": 10,
+	"weights": {
+		"score_diff": 100,
+		"own_score": 0,
+		"opp_score": 0,
+		"energy_left": 0,
+		"cards_left": 0,
+		"cards_committed": 0,
+		"turns_left": 0,
+		"wins_diff": 0,
+		"wins_needed": 0,
+		"opp_hand": 0,
+		"opp_pending": 0,
+		"deck_left": 0,
+		"row_len_diff": 0
+	}
+}
