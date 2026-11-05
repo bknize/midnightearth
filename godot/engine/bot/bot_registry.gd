@@ -4,7 +4,7 @@ extends RefCounted
 ## harness build their bots here, so one name picks one policy everywhere.
 ##
 ## make() returns null on anything it cannot build: an unknown name, a name whose class has
-## not landed yet (`greedy_v1` at T02, `tuned` at T04, `matrix` in milestone B), a level
+## not landed yet (`tuned` at T04, `matrix` in milestone B), a level
 ## outside 0..20, and a level below full strength for a bot without an evaluator (`greedy`,
 ## `greedy_v1`, `random`). It never prints; the launcher reports the error (P16).
 
@@ -33,6 +33,8 @@ static func make(
 	var bot: BotPlayer = null
 	if name == "greedy":
 		bot = GreedyBot.new(bot_seed, cards)
+	elif name == "greedy_v1":
+		bot = GreedyV1Bot.new(bot_seed, cards)
 	elif name == "random":
 		bot = RandomBot.new(bot_seed, cards)
 	if bot == null:
