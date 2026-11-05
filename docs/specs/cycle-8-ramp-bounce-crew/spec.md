@@ -12,7 +12,7 @@ supersedes:
 
 # Spec: Cycle 8 — ramp, bounce, Crew
 
-**Slug:** `cycle-8-ramp-bounce-crew`  ·  **Change type:** engine + scene (cards data, engine verbs and triggers, Crew as a new engine concept, board UI for Crew and the optional-trigger decline, bot)  ·  **Status:** approved (Ben, 2026-11-04, three rounds, C1–C11; signed off 2026-11-04: "Looks good")  ·  **Runs as:** two milestones, A then B, each its own `DC-NN` cycle
+**Slug:** `cycle-8-ramp-bounce-crew`  ·  **Change type:** engine + scene (cards data, engine verbs and triggers, Crew as a new engine concept, board UI for Crew and the optional-trigger decline, bot)  ·  **Status:** approved (Ben, 2026-11-04, three rounds, C1–C11; signed off 2026-11-04: "Looks good"; reconciled with DC-08 as merged and re-approved, C12: "1a")  ·  **Runs as:** two milestones, A as DC-09 then B as DC-11 (cycle 7 milestone B is DC-10 between them, C12)
 
 Cycle 8 finishes the four-deck set Ben asked for at cycle 6 and adds Crew. **Milestone A**
 ships **Bloom**, a ramp deck whose cards grow for the rest of the match (bonuses that
@@ -165,8 +165,11 @@ Requirements R1–R38 are milestone A; R39–R70 are milestone B; R71–R74 are 
 
 ### Bot (cycle 7 R1–R9 apply)
 
-- R21. The shipped bot shall enumerate its candidates with effective costs (R4), so a card
-  whose cost was reduced is affordable to it exactly when the engine accepts it.
+- R21. The shipped bot shall enumerate its candidates and value its energy with effective
+  costs (R4), so a card whose cost was reduced is affordable to it exactly when the engine
+  accepts it; the frozen reference bot of cycle 7 R21 shall stay unedited and keep reading
+  printed costs, which never exceed the effective ones, so its commits stay legal and its
+  pinned choices hold.
 - R22. The shipped bot shall answer the new single-target prompts by preview, as cycle 7 R9
   says, except a hand-growth prompt, which it shall answer by rule (the hand card with the
   highest effective flat, ties by position) since a hand card never scores in a preview.
@@ -196,13 +199,18 @@ Requirements R1–R38 are milestone A; R39–R70 are milestone B; R71–R74 are 
   board shall print `Board: match ended …` with the fields of cycle 7 R56; the seed-1 values
   are re-pinned under the four-deck pairing.
 - R31. The 50-seed sweep shall run under seeded pairings over all four decks, every log
-  shall replay, no view or event shall leak a hidden id (memory included), and the slowest
-  bot decision shall stay under cycle 7's 10 ms.
-- R32. Because the pool and the deck list change, `/cycle test` of milestone A shall run cycle
-  7's rerun provision (R36 there): `make bot-eval`, then `make bot-train` and commit the
-  re-stamped weights if it fails or the stamp mismatches.
-- R33. The gdUnit stage shall stay under 20 s of gdUnit run time (C8: the budget is raised
-  from 15 s for this spec and onward, recorded in the cycles log).
+  shall replay, no view or event shall leak a hidden id (memory included), and the
+  99th-percentile bot decision shall stay under cycle 7's 10 ms with the slowest printed,
+  as cycle 7 R17 reads since its C14.
+- R32. Because the pool and the deck list change, `/cycle test` of milestone A shall run
+  cycle 7's rerun provision (R36 there) with what exists at that point: `make check` prints
+  `stamp=MISMATCH`, `make bot-eval` (the shipped bot against `greedy_v1`, non-regression)
+  must pass; since `make bot-train` arrives only with cycle 7 milestone B (after this
+  milestone, C2) and the shipped weights are the untrained defaults, the orchestrator shall
+  re-stamp the committed weights file by hand with the new stamp, unchanged otherwise, and
+  record a ledger row saying so (C12); no training is run in this cycle.
+- R33. The gdUnit stage shall stay under 30 s of gdUnit run time, the budget cycle 7 C15 set;
+  this spec does not change it (C8 as restated in C12).
 - R34–R38. Reserved (no requirement; numbering kept stable for the plan).
 
 ### Crew: data and presence (milestone B; C4, C6)
@@ -288,7 +296,10 @@ Requirements R1–R38 are milestone A; R39–R70 are milestone B; R71–R74 are 
   can be previewed: for Shade, the revealed card of its own with an on-reveal effect and the
   highest effective flat, else decline.
 - R58. The stamp of cycle 7 R33 shall cover the Crew pool file as well as the card pool and
-  deck list, so a Crew change re-runs the bot provision.
+  deck list, on the engine side and the script side alike, so a Crew change re-runs the bot
+  provision; the frozen-fixture pin of the stamp (DC-08 T11) shall gain a Crew fixture and
+  be re-pinned, and the shipped data shall stay unpinned so a data change keeps the gate
+  green.
 
 ### Board (milestone B; C5)
 
@@ -340,9 +351,10 @@ Requirements R1–R38 are milestone A; R39–R70 are milestone B; R71–R74 are 
 | C5 | Round 2 Q1: Crew on the table and the decline UI | 1a: three face-up Crew in a line beside each row with a uses badge; a Crew lifts when it fires and lifts to read; an optional prompt adds a "Skip" button where the confirm sits, submitting a logged `decline`; a turn-start Crew prompt opens before staging (R52–R54, R59–R64) |
 | C6 | Round 2 Q2: the Crew pool | 2a: eight Crew, Ben's five plus three (a movement Crew for Drift, a growth Crew for Bloom, a reveal Crew for Echo); each deck lists three with sharing (R40, R47) |
 | C7 | Round 2 Q3: the cycle 6 C18 one-shot | 3a: a Crew power (Veil), once per match, optional: flip every revealed card you control face down instead; none destroyed; the destroyed card still counts (R47, R50) |
-| C8 | Round 3 Q1: the gdUnit budget | 1a: raised to 20 s of gdUnit run time for this spec and onward, recorded in the cycles log; the sweep stays in `make check` (R33) |
+| C8 | Round 3 Q1: the gdUnit budget | 1a: raised to 20 s of gdUnit run time with the sweep kept in `make check`. Superseded on reconciliation (C12): cycle 7 C15 had already set 30 s (gdUnit ran about 26 s at DC-08), so this spec keeps 30 s and lowers nothing (R33) |
 | C9 | Round 3 Q2: per-instance countdowns on cards | 2a: one or two cards in the new decks use them (Oak, Messenger), so the machinery is proven on cards and Crew (R6, R12, R16) |
 | C10 | Round 3 Q3: where ramp growth reaches | 3a: a card on your row (itself or another) or cards in your hand (one chosen, or all), never the deck; hand faces refresh at once (R13, R24) |
+| C12 | Reconciliation with DC-08 as merged (2026-11-04), Ben 1a: "reconcile with DC-08 before /exercise" | The notes are aligned with cycle 7 milestone A as shipped (merged as fbb0d38; this branch re-based onto it): the 30 s gdUnit budget (C15 there) replaces C8's 20 s (R33); the sweep's latency check is the 99th percentile (R31); `make bot-train` does not exist until cycle 7 milestone B, so milestone A's rerun provision is `make bot-eval` plus a hand re-stamp of the untrained default weights with a ledger row (R32); `BotStamp`, `CandidateGen`, `TunedBot`, `GreedyBot` and `Evaluator` exist and are extended, never created, the frozen `greedy_v1` is not edited (R21); the golden is DC-08's `GOLDEN_TUNED` line and the stamp pin lives on frozen fixtures (R58); milestone numbering decided by Ben in the change list (1a): this spec's milestone A takes DC-09, cycle 7 milestone B becomes DC-10 and this spec's milestone B DC-11; the orchestrator amends the DC-08 cycles row and the ledger sentence at our `/cycle plan`. Change list approved by Ben 2026-11-04 ("1a") |
 | C11 | Round 2 Q4 and the round 3 defaults, no objection | The bounce toolkit of R16 with the enemy bounce; working names Bloom and Echo; rules version 5 in A and 6 in B, log format 4 in B; Crew are not cards; a memory travels hidden with a hidden card; the bot previews an optional prompt's options plus the decline and answers a turn-start Crew prompt by rule (R42, R55–R57) |
 
 ## Scenarios
@@ -390,11 +402,16 @@ Requirements R1–R38 are milestone A; R39–R70 are milestone B; R71–R74 are 
   `match_rules.gd`, `match_state.gd`, `card_state.gd`, `score_walk.gd`,
   `effect_resolver.gd`, `choice.gd`, `legal_plays.gd`, `engine_action.gd`,
   `engine_error.gd`, `action_log.gd`, `match_engine.gd`, `seat_view.gd`, `match_event.gd`,
-  `preview_policy.gd`, cycle 7's `bot/candidate_gen.gd`, `tuned_bot.gd`, `bot_stamp.gd`,
-  `greedy_bot.gd` (costs), `tests/fixtures/dc05_cards.json` (format 4); `godot/board/*`
+  `preview_policy.gd`, cycle 7's `bot/candidate_gen.gd`, `tuned_bot.gd`, `greedy_bot.gd`,
+  `evaluator.gd` (effective costs), `bot_stamp.gd` and `scripts/bot/records.py` (the Crew
+  file in the stamp, B), `bot/data/tuned_weights.json` (re-stamped by hand, R32),
+  `tests/fixtures/dc05_cards.json` (format 4), `tests/fixtures/dc05_crew.json` (new, B),
+  `tests/test_action_log.gd` and `test_bot_stamp.gd` (version and fixture pins),
+  `tests/test_full_match.gd` (`GOLDEN_TUNED`), `docs/planning/bot-ladder.md` (a ledger row
+  per milestone); never `bot/reference/greedy_v1_bot.gd` (R21); `godot/board/*`
   (faces, hand faces, steps, prompt host and rules, HUD Skip, Crew line, lift rules, staging
   cost), `main.gd` (smoke), `match_driver.gd` (decline); `docs/specs/specs-moc.md`;
-  `docs/planning/cycles.md` (20 s budget, rows) at `/cycle test`.
+  `docs/planning/cycles.md` (rows) at `/cycle test`.
 - Read only: `godot/picker/*` (no change, C4), `godot/input/*`, `scripts/*`.
 - Never: `godot/addons/*`, `godot/art/*`, `docs/.obsidian/`, `.env`, `godot/.godot/`,
   `godot/reports/`, the archive.
@@ -412,24 +429,26 @@ Requirements R1–R38 are milestone A; R39–R70 are milestone B; R71–R74 are 
 The persistence rule of C3 is a design principle for every later card: the orchestrator may
 append it to [[planning/phase-3-game-loop]] at milestone A's `/cycle test` ("card stats are
 board-specific unless an ability says otherwise; an ability may give a card instance memory
-for the match"), with the 20 s gdUnit budget (C8) noted in [[planning/cycles]].
+for the match"). The gdUnit budget stays the 30 s cycle 7 C15 recorded (C12).
 
 ## Definition of done
 
 Milestone A
 - [ ] R1–R33 and R71–R74 each covered by a named gdUnit4 case, the boot log, the sweep line
       or a step of the verification.
-- [ ] `make check` green, gdUnit under 20 s; the seed-1 golden re-pinned under the four-deck
-      pairing; the sweep line clean with the slowest decision under 10 ms.
-- [ ] Cycle 7's rerun provision run: `make bot-eval` outcome (and `make bot-train` if needed)
-      pasted into the cycles row and the ledger.
+- [ ] `make check` green, gdUnit under 30 s; the seed-1 golden (`GOLDEN_TUNED`) re-pinned
+      under the four-deck pairing; the sweep line clean with `p99_us` under 10 ms and
+      `stamp=match` after the re-stamp.
+- [ ] Cycle 7's rerun provision as R32 restates it: the `make bot-eval` line and the hand
+      re-stamp pasted into the cycles row and a ledger row.
 - [ ] Ben has reviewed the Bloom and Echo tables (cycle 6 C7).
 - [ ] Two screenshots: a hand face with a grown mark and a reduced cost beside the printed
       row card; an Echo card face down in its slot at turn end next to a revealed neighbour.
 
 Milestone B
 - [ ] R39–R66 covered as above; a format-3 log fails replay.
-- [ ] `make check` green under 20 s; golden re-pinned if the Crew change it; sweep clean.
+- [ ] `make check` green under 30 s; golden re-pinned if the Crew change it; sweep clean
+      (`p99_us` under 10 ms); the stamp covers `crew.json` and the fixture pin is re-pinned.
 - [ ] Two screenshots: the Crew line with a "1 left" badge and a "spent" Crew; an optional
       prompt with the Skip button beside the glowing eligible cards.
 - [ ] Constitution Check passes (see plan).

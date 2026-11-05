@@ -15,11 +15,13 @@ supersedes:
 Implements [[specs/cycle-8-ramp-bounce-crew/spec|spec]]. The spec is clarified (C1–C11, no
 open markers). Everything builds on cycle 6's engine and on cycle 7 milestone A's bot
 ([[specs/cycle-7-bot-players/plan]]: `BotRegistry`, `TunedBot`, `CandidateGen`, `BotStamp`,
-the rerun provision). **Precondition (C2):** `/cycle plan` for milestone A waits until
-`cycle-7-bot-players` (DC-08) has merged into `master`, and milestone A runs before cycle 7
-milestone B; the orchestrator re-bases `cycle-8-ramp-bounce-crew` (three notes only) onto
-`master` first. Milestone B is a second cycle on `cycle-8b-ramp-bounce-crew`, cut from
-`master` after A merges (as cycle 7 does).
+the rerun provision, as amended during DC-08: `k` 24, a p99 latency assertion, the stamp
+pinned on frozen fixtures, a 30 s gdUnit budget). **Precondition (C2), met:** cycle 7
+milestone A (DC-08) merged into `master` as fbb0d38 and `cycle-8-ramp-bounce-crew` was
+re-based onto it (the three notes only); milestone A runs before cycle 7 milestone B, which
+is why `make bot-train` is not available to this milestone (P18). Milestone B is a second
+cycle on `cycle-8b-ramp-bounce-crew`, cut from `master` after A merges (as cycle 7 does).
+The reconciliation with DC-08 as shipped is spec C12; every row it changed says so.
 
 ## Stack mapping
 
@@ -29,8 +31,8 @@ milestone B; the orchestrator re-bases `cycle-8-ramp-bounce-crew` (three notes o
 | Godot scenes/UI | yes | `board/*`: hand faces with effective cost and a grown mark, hand restat steps, Crew line (Card3D line collection, D1), Skip button and Crew badges as plain Theme (D7); no picker change (C4); verified through the Godot MCP |
 | Shaders/cards | no | Faces stay Label3D text; the grown mark is a Label3D glyph with a Theme colour; glows and dimmer are the DC-04 materials |
 | Input | no | Pointer shim unchanged; Crew taps route through `PromptRules`/`LiftRules` |
-| Tooling/scripts | minimal | `scripts/check.sh` unchanged; `BotStamp` (cycle 7) hashes `crew.json` too in B; the orchestrator runs `make bot-eval` per cycle 7 R36 |
-| Vault/docs | yes | This set, the specs MOC row, cycles rows and the 20 s budget note at `/cycle test`, the Phase 3 amendment (C3) |
+| Tooling/scripts | minimal | `scripts/check.sh` unchanged; in B `BotStamp.current()` and `scripts/bot/records.py current_stamp()` gain the Crew file (P15); the orchestrator runs `make bot-eval` per cycle 7 R36 and, with no `make bot-train` yet, re-stamps the default weights by hand (P18) |
+| Vault/docs | yes | This set, the specs MOC row, cycles rows and a bot-ledger row at each `/cycle test`, the Phase 3 amendment (C3) |
 | Linear | yes | One project "Cycle 8 — ramp, bounce, Crew", two milestones (A, B; the next two free `DC-NN`), labels `area/engine`, `area/cards`, `area/ui`, `type/feature`, `spec/cycle-8-ramp-bounce-crew` (filled by `/exercise`) |
 
 ## Module layout
@@ -62,9 +64,12 @@ milestone B; the orchestrator re-bases `cycle-8-ramp-bounce-crew` (three notes o
 | `engine/crew_effects.gd` (new, B) | `CrewEffects` | The eight abilities, the trigger queue (P13, P14) | `test_crew_effects.gd` |
 | `engine/deck_list.gd` | `DeckList` | v2 parse; `crew_ids(deck_id)`; `validate(cards, crew)` (B) | `test_deck_list.gd` |
 | `engine/match_cards.gd` | `MatchCards` | `has_trigger(ON_ALLY_REVEAL)`; `crew_for(seat)` (B) | `test_match_cards.gd` |
-| `engine/bot/candidate_gen.gd`, `tuned_bot.gd`, `greedy_bot.gd` (cycle 7) | – | `costs` from the view (P3); hand-growth rule; optional prompts and turn-start rule (B, P15) | `test_candidate_gen.gd`, `test_tuned_bot.gd`, `test_greedy_bot.gd` |
-| `engine/bot/bot_stamp.gd` (cycle 7, B) | `BotStamp` | Hash covers `crew.json` | `test_bot_stamp.gd` |
-| `tests/test_full_match.gd` | – | Golden under the four-deck pairing (skip until pinned), sweep leak scan covers memory and Crew prompts | itself |
+| `engine/bot/candidate_gen.gd`, `tuned_bot.gd`, `greedy_bot.gd`, `evaluator.gd` (cycle 7, shipped; extended) | `CandidateGen`, `TunedBot`, `GreedyBot`, `Evaluator` | `costs` from the view in `CandidateGen.all()` (a new trailing parameter), `GreedyBot.candidates_for()` and `Evaluator.features_of()` (P3); the hand-growth rule in `GreedyBot.ranked_option()`; optional prompts and the turn-start rule in `TunedBot.answer_prompt()` (B, P15) | `test_candidate_gen.gd`, `test_tuned_bot.gd`, `test_greedy_bot.gd`, `test_evaluator.gd` |
+| `engine/bot/reference/greedy_v1_bot.gd` (cycle 7, frozen) | `GreedyV1Bot` | **Not edited** (cycle 7 R21, R22): it keeps the printed-cost `LegalPlays` functions, which stay (P3) | `test_greedy_v1_bot.gd` unchanged |
+| `engine/bot/bot_stamp.gd` (cycle 7, shipped; extended in B), `scripts/bot/records.py` | `BotStamp` | `current(cards_path, decks_path, crew_path)` hashes the three files in that order; `records.py current_stamp()` the same; `test_bot_stamp.gd`'s frozen-fixture digest re-pinned (A: fixture format bump; B: the third file, `tests/fixtures/dc05_crew.json`) | `test_bot_stamp.gd`, `scripts/bot/test_sprt.py` |
+| `engine/bot/data/tuned_weights.json` (cycle 7) | – | Default weights; re-stamped by hand at each `/cycle test` (P18) | `test_bot_weights.gd` (checks a stamp is present) |
+| `tests/test_full_match.gd` | – | `GOLDEN_TUNED` emptied by T04 and pinned by the orchestrator at T07 (DC-08's mechanism); the sweep keeps `p99_us < 10000` and the `stamp=` print; leak scan covers memory and Crew prompts | itself |
+| `tests/test_action_log.gd` | – | The `RULES_VERSION` literal pin (4 today) follows each bump (5 in A, 6 in B) | itself |
 | `board/board_card.gd`, `board_card.tscn` | `BoardCard` | `CostLabel` effective cost, `GrownMark` glyph (P16) | node query |
 | `board/board.gd`, `board_steps.gd`, `board_step.gd`, `effect_player.gd`, `lift_rules.gd`, `staging.gd`, `prompt_host.gd`, `prompt_rules.gd`, `board_hud.gd`, `match_driver.gd` | – | Hand restat, staging by effective cost, Skip button, Crew prompt before staging, `submit_decline` (P16, P17) | `test_board_steps.gd`, `test_prompt_rules.gd`, `test_lift_rules.gd`, `test_staging.gd`, MCP |
 | `board/crew_line.gd` (new, B) | `CrewLine` | Three Crew per side as Card3D line, badges, fire pulse, lift-to-read (P17) | MCP, `test_crew_line_text.gd` (badge text, pure) |
@@ -75,7 +80,7 @@ milestone B; the orchestrator re-bases `cycle-8-ramp-bounce-crew` (three notes o
 |---|---|---|
 | P1 | **Pool format 4.** `cards.json` `"version": 4`; an effect may carry `"uses": n` (absent or 0 is unlimited). `CardDb` checks: `uses` a non-negative whole; a grow verb's amount in `MatchRules.GROW_STEPS` (`flat` {1, 2}, `times` {25, 50}, `plus` {1}, `cost` {1, 2}); each verb only on the triggers `CardEffect.ALLOWED_TRIGGERS[verb]` lists (for example `grow_self_times` on `on_score` or `on_reveal`, `unreveal_at_turn_end` on `ongoing` only, `ally_reveal_flat` and `draw` on `on_ally_reveal`). The DC-05 fixture is the same cards with the version bumped | R9, R11 |
 | P2 | **CardMemory.** `MatchState.memory: Dictionary[int, CardMemory]` by instance id; `CardMemory {flat: int, times: int (hundredths delta), plus: int, cost: int (reduction ≥ 0), uses_left: int (-1 until first read, then the effect's `uses`)}`. `memory_for(card)` creates at defaults; `is_empty()` drops nothing (an entry with `uses_left` set is not empty). `_begin_round` does not touch it; `create()` starts it empty. `to_dict()` serialises `"memory": {id: {...}}`; `duplicate()` deep-copies. A recovery, return, un-reveal or round start never reads it; only `effective()`, `effective_cost()` and the uses check do | R2, R6, R8, R14 |
-| P3 | **Effective stats and cost.** In `ScoreWalk.effective()`: after the base (printed or copied) add `memory.flat`, `memory.times` and `memory.plus`, then positional parts, `flat_delta`, `temp_plus`, then `no_bonus` (×1.00, +0; memory untouched). `ScoreWalk.effective_cost(card, state, cards) = max(def.cost - memory.cost, MatchRules.MIN_COST)`. `LegalPlays` no longer reads `CardDef.cost` directly: `enumerate_masks(hand, costs, energy)`, `validate(proposal, slots, hand, costs, row_size, budget, free_first)`, `commit_cost(proposal, proposal_costs, free_first)`; `MatchEngine` builds `costs` from `effective_cost` and `SeatView.own_hand_costs` carries them, so the bots (`CandidateGen.all(hand, costs, …)`, `GreedyBot.candidates`) and the board's staging read one number. `preview()` clones carry memory, so previews see the same costs and stats | R3, R4, R21, R24 |
+| P3 | **Effective stats and cost.** In `ScoreWalk.effective()`: after the base (printed or copied) add `memory.flat`, `memory.times` and `memory.plus`, then positional parts, `flat_delta`, `temp_plus`, then `no_bonus` (×1.00, +0; memory untouched). `ScoreWalk.effective_cost(card, state, cards) = max(def.cost - memory.cost, MatchRules.MIN_COST)`. `LegalPlays` keeps its printed-cost functions unchanged (the frozen `GreedyV1Bot` calls them, cycle 7 R22) and gains cost-array variants the engine and the shipped bots use: `enumerate_masks_with(hand, costs, energy)`, `validate_with(proposal, slots, hand, costs, row_size, budget, free_first)`, `commit_cost_with(proposal, proposal_costs, free_first)`. `MatchEngine` builds `costs` from `effective_cost` for every check and preview; `SeatView.own_hand_costs` carries them, so `GreedyBot.candidates_for()` (and through it `CandidateGen.all()` with its new trailing `costs` parameter, printed when empty), `TunedBot`, `Evaluator.features_of()` (`energy_left`) and the board's staging read one number. The frozen bot's printed costs are never below the effective ones, so its commits stay legal (R21). `preview()` clones carry memory, so previews see the same costs and stats. (C12) | R3, R4, R21, R24 |
 | P4 | **The grow family (Bloom).** Verbs `grow_self_flat`, `grow_self_times`, `grow_self_plus`, `grow_self_times_once` (uses 1), `grow_other_flat` (prompt OWN_BOARD), `grow_hand_flat` (all hand), `grow_hand_one_times` (prompt OWN_HAND), `grow_row_flat`, `grow_row_times` (all other row cards). One `BloomEffects.grow(state, cards, seat, targets: Array[int], stat, amount, outcome)`: `memory_for(t).<stat> += amount`, then `STATS_CHANGED {seat, card, flat, times, plus, cost, cause: "grow", permanent: true}` per target, public for a row card, private to the holder for a hand card (redaction hides `card`). Empty target set → `EFFECT_FIZZLED`. Growth on a hand card changes no board state, so the walk's cursor is untouched | R12, R13, R26 |
 | P5 | **ON_ALLY_REVEAL.** `CardEffect.Trigger.ON_ALLY_REVEAL`; in `Pulse.run` a new stage `ALLY_WATCHERS` between `WATCHERS` and `SCORE`: snapshot the revealing seat's other revealed live cards with the trigger, in row order, fire each (skipping any no longer revealed), pause/resume exactly like `_watchers` (the snapshot and index stored in `walk.paused_watchers` / `paused_watcher_at`, the stage in `paused_stage`). Skipped outright when `MatchCards.has_trigger(ON_ALLY_REVEAL)` is false | R15 |
 | P6 | **Echo verbs.** `return_self_at_turn_end` (on_reveal: `return_marked` on the source), `return_own_at_turn_end` (prompt OWN_BOARD, live, source excluded → `return_marked`), `return_opponent_at_turn_end` (prompt OPPONENT_BOARD, revealed live → `return_marked`; `resolve_returns` already sends a card to its row's seat, the controller), `unreveal_at_turn_end` (ongoing marker; `EffectResolver.flip_echoes(state, cards)` runs in `_end_turn` after `clear_destroyed` and before `settle_energy`: for each seat, each revealed live card carrying it goes through `_unreveal` + `CARD_UNREVEALED`, in slot order), `cost_down_right` (on_reveal: the card at `slot + 1` of the source's row, any state; `memory.cost += amount`, `STATS_CHANGED cause "cost"`; none → fizzle), `cost_down_self`, `draw_once` (on_reveal, uses 1: `_draw(amount)`), `ally_reveal_flat` (on_ally_reveal: `flat_delta += amount`, cause `ally_reveal`), `draw` on `on_ally_reveal` (existing verb), `free_first_next_turn` (existing), `grow_self_flat` on `on_reveal` (P4) | R16–R18 |
@@ -87,8 +92,9 @@ milestone B; the orchestrator re-bases `cycle-8-ramp-bounce-crew` (three notes o
 | P12 | **Crew data (B).** `crew.json`: `{"version": 1, "crew": [{"id": "shade", "name": "Shade", "trigger": "turn_start", "verb": "unreveal_own_one", "amount": 4, "optional": true, "uses": 0, "scope": "none", "text": "…"}, …]}`; `CrewDef` mirrors it; `CrewPool.load_default()`, `validate()`, `crew_of(id)`. `decks.json` `"version": 2`, each deck `"crew": ["salvager", "veil", "quartermaster"]`; `DeckList.validate(cards, crew)` checks three distinct known ids. `MatchEngine.create(seed, cards, decks, deck_ids, crew)`; `MatchCards.crew_for(seat) -> Array[CrewDef]`; `MATCH_STARTED` gains `crew`, two lists of three ids (seat 0's, seat 1's). The log header is unchanged (Crew derive from the deck ids) | R39–R42 |
 | P13 | **Crew triggers (B).** `CrewDef.Trigger {TURN_START, ROUND_END, OWN_DESTROYED, OWN_MOVED, OWN_RETURNED, ONGOING}`. `MatchState.crew_uses: Array[Array[int]]` per seat per slot (-1 unlimited), reset per scope at `_begin_round`. A **queue**: `EffectResolver.destroy()`, `DriftEffects.rewrite_row()`, `resolve_returns()` and every un-reveal append `{trigger, seat, card}` to `state.crew_queue`; `ScoreWalk.Pulse` drains the queue after each `_fire` outcome resolves (and after an `answer`/`answer_set` resolves), firing matching Crew of the card's controller in slot order through `CrewEffects.fire()`; a Crew prompt pauses with `resume: "walk"` and the stage the pulse was at, the queue kept in state (`walk.crew_queue` is serialised). Turn-end hooks drain after `resolve_returns` and `flip_echoes`; round end fires `ROUND_END` Crew before `_leader()`. Events: `CREW_FIRED {seat, slot, crew, verb, trigger, uses_left}` (public), `CREW_SKIPPED` is `CHOICE_DECLINED`. A Crew with no eligible target is not fired and emits nothing | R45–R49 |
 | P14 | **The eight Crew (B).** Quartermaster `turn_start` amount 1 (turn == amount): `_draw(2)`. Tallyman `ongoing`: in `effective()`, when the card's row seat holds Tallyman and `flat % 2 == 0`, `times = times_hundredths(times, 125)` after the positional parts (skipped when neither seat has it). Shade `turn_start` amount 4, optional, verb `unreveal_own_one` (prompt OWN_BOARD revealed live): `_unreveal` + `CARD_UNREVEALED`, queues `OWN_RETURNED`. Salvager `own_destroyed`, optional, scope round: prompt OWN_HAND (every position; empty hand → not fired); accept: `_discard(chosen)`, `card_state_for(destroyed).salvaged = true`; `clear_destroyed()` sends a salvaged card to its controller's hand (burn at cap) with `DESTROYED_CLEARED {…, pile: false, salvaged: true}` and queues `OWN_RETURNED`. Veil `own_destroyed`, optional, scope match: prompt over the destroyed card only (one option, still prompted, R49); accept: clear `destroyed` on it, then `_unreveal` every revealed card of that row (it included) in slot order, one `CARD_UNREVEALED` each, queue `OWN_RETURNED` per card. Navigator `own_moved`: `flat_delta += 1`, `STATS_CHANGED cause "crew"`. Gardener `round_end`: `grow(row cards, flat, 1)` for its seat. Lookout `own_returned`: `_draw(1)` | R47, R50, R51 |
-| P15 | **Bot (A and B).** `CandidateGen.all(hand, costs, budget, row_size, free_first, seat, cards)`; `TunedBot` and `GreedyBot` pass `view.own_hand_costs`; `bound()` unchanged (stats from `effective` via the view's entries, not `CardDef`: `stats_of` reads `own_hand_row`). Prompt rules: `grow_hand_one_times` → the hand card with the highest effective flat (ties by position), no preview (the hand never scores in a preview); every other new single prompt by preview. B: an optional walk prompt → preview each option (`preview_choice`) and the decline (`preview_decline(seat)`: clone, `EffectResolver.decline`, `_hide_opponent`, finish the walk), best value, ties by the prompt rng; a turn-start prompt (`view.prompt.resume == "turn_start"`) → `shade` rule (R57), any other → decline. `BotStamp.current()` hashes `cards.json`, `decks.json`, `crew.json` (and `records.py` the same) | R21–R23, R56–R58 |
+| P15 | **Bot (A and B), on cycle 7's shipped classes.** `CandidateGen.all(hand, budget, row_size, free_first, seat, cards, costs: Array[int] = [])` sets `own_hand_costs` on the stub view it builds; `GreedyBot.candidates_for(view, cards)` reads `view.own_hand_costs` (printed when empty); `TunedBot.candidates()` passes the view through as today; `bound()` and the two orderings keep reading printed stats from `CardDef` (a ranking heuristic; previews see memory). Prompt rules: `GreedyBot.ranked_option()` gains `grow_hand_one_times` → the hand card with the highest effective flat from `own_hand_row` (ties by position), no preview, which `TunedBot.answer_prompt()` already consults; every other new single prompt by preview as today. B, in `TunedBot.answer_prompt()`: an optional walk prompt → preview each option (`preview_choice`) and the decline (`preview_decline(seat)`: clone, `EffectResolver.decline`, `_hide_opponent`, finish the walk), best value through `Evaluator`, ties by the greedy prompt seed (cycle 7 P9 amended); a turn-start prompt (`view.prompt.resume == "turn_start"`) → the Shade rule (R57), any other → decline. `GreedyBot` needs no B change: a `CHOOSE` is legal on an optional prompt and a turn-start preview ties every option. `BotStamp.current(cards_path = CardDb.DEFAULT_PATH, decks_path = DeckList.DEFAULT_PATH, crew_path = CrewPool.DEFAULT_PATH)` hashes the three files in that order, `records.py current_stamp()` the same (C12) | R21–R23, R56–R58 |
 | P16 | **Board A.** `BoardCard`: `CostLabel` text from the view entry's `cost`; `GrownMark` (a Label3D "◆" in a Theme colour, visible when `grown`); `show_entry(entry)` used for hand and row faces alike. `SeatView.own_hand_row` drives hand faces at `TURN_START`, after a `STATS` step on a hand card (new: `BoardSteps` maps a private `STATS_CHANGED` whose card is in the viewer's hand to a `STATS` step with `in_hand: true`; `EffectPlayer.restat_hand`), and after draws. `Staging` cost checks read `view.own_hand_costs` (`board._cost_of`). `LiftRules.step_touches` covers the hand restat. Turn-end `CARD_UNREVEALED` and `CARD_RETURNED` already have steps; the strip's `_dress` uses `show_entry` with memory | R24–R28 |
+| P18 | **Rerun provision for milestone A (C12).** The data change moves the stamp, so `make check` prints `stamp=MISMATCH` and stays green (DC-08 T11 moved the pin to frozen fixtures). At `/cycle test`: run `make bot-eval` (non-regression, tuned vs `greedy_v1`; with default weights the two choose alike, so PASS is expected); `make bot-train` does not exist until cycle 7 milestone B, and the shipped weights are untrained defaults, so the orchestrator edits only the `stamp` field of `godot/engine/bot/data/tuned_weights.json` to `BotStamp.current()`'s value, re-runs `make check` for `stamp=match`, and adds a ledger row "re-stamped without training: default weights; eval line …". Milestone B does the same with the three-file stamp. The `/cycle test` skill's R36 step (which says `bot-train`) is the orchestrator's to amend | R32, R58 |
 | P17 | **Board B.** `CrewLine` (RefCounted, like `DeckStrip`): a Card3D line of three `BoardCard`s per side at `CREW_ORIGIN_OWN` (left of the player's hand) and `CREW_ORIGIN_OPP` (left of the opponent's hand), built from `MATCH_STARTED.crew` with name and text, `badge: Label3D` ("2 left" / "spent", dimmed at 0; hidden for unlimited), `pulse(slot)` on a `CREW_FIRE` step (`BoardSteps` maps `CREW_FIRED`, 0.25 s), badge update from `uses_left`. `LiftRules`: a Crew lifts to read, never drags (`BoardDragStrategy` refuses). Prompt: `PromptHost.open` shows `hud.show_skip()` when `prompt.optional` (a plain Theme Button at the confirm's anchor, text "Skip"); `skip_pressed` → `driver.submit_decline()` → `EngineAction.decline(0)`. Banner text for a Crew prompt: `"<Crew name>: <text>"`. Turn-start prompt: the `PROMPT` step arrives before `TURN_START`'s staging unlock; `board.may_act()` is false while a prompt is open (already), Commit disabled, `_refresh_staging_ui` after the prompt closes. `CHOICE_DECLINED` → a `FIZZLE`-like 0.15 s step clearing the prompt. Salvaged `DESTROYED_CLEARED {pile: false}` → `RETURN` step instead of the fly-off; pile counts read `pile` | R59–R66 |
 
 ## Interfaces and contracts
@@ -110,10 +116,10 @@ static func effective(card, state, cards) -> Effective        # memory, then boa
 static func effective_cost(card: int, state: MatchState, cards: MatchCards) -> int
 enum Stage { REVEAL_EFFECT, WATCHERS, ALLY_WATCHERS, SCORE, DONE }
 
-# LegalPlays (every cost from the caller)
-static func enumerate_masks(hand: Array[int], costs: Array[int], energy: int) -> Array[int]
-static func validate(proposal, slots, hand, costs, row_size, budget, free_first) -> int
-static func commit_cost(proposal: Array[int], proposal_costs: Array[int], free_first: bool) -> int
+# LegalPlays (the printed-cost functions stay for the frozen bot; the engine and shipped bots use these)
+static func enumerate_masks_with(hand: Array[int], costs: Array[int], energy: int) -> Array[int]
+static func validate_with(proposal, slots, hand, costs, row_size, budget, free_first) -> int
+static func commit_cost_with(proposal: Array[int], proposal_costs: Array[int], free_first: bool) -> int
 
 # SeatView
 var own_hand_row: Array[Dictionary]     # {card, cost, flat, times, plus, grown, uses_left}
@@ -136,11 +142,17 @@ static func load_default() -> CrewPool
 func validate() -> String; func crew_of(id: String) -> CrewDef
 class CrewDef: id, name, trigger: Trigger, verb: Verb, amount: int, optional: bool, uses: int, scope: Scope, text
 
-# CandidateGen (cycle 7, amended)
-static func all(hand: Array[int], costs: Array[int], budget: int, row_size: int, free_first: bool, seat: int, cards: MatchCards) -> Array[EngineAction]
+# CandidateGen (cycle 7, shipped; one trailing parameter added, existing callers unchanged)
+static func all(hand: Array[int], budget: int, row_size: int, free_first: bool, seat: int, cards: MatchCards, costs: Array[int] = []) -> Array[EngineAction]
+
+# BotStamp (cycle 7, shipped; B adds the third path)
+static func current(cards_path: String = CardDb.DEFAULT_PATH, decks_path: String = DeckList.DEFAULT_PATH, crew_path: String = CrewPool.DEFAULT_PATH) -> String
+
+# MatchDriver (cycle 7's shipped signature, B adds `crew`)
+static func create(p_seed: int, cards: CardDb, decks: DeckList, ids: Array[String], p_autoplay: bool, p_bot_name: String, level: int, crew: CrewPool) -> MatchDriver
 
 # MatchDriver (B)
-func submit_decline() -> ApplyResult
+func submit_decline() -> ApplyResult                 # EngineAction.decline(PLAYER_SEAT)
 
 # BoardHud (B)
 signal skip_pressed
@@ -275,15 +287,15 @@ Milestone A: format 3, rules 5 (no structural change). Milestone B: format 4, ru
 |---|---|---|
 | All project GDScript is fully typed (`parse` promotes warnings to errors) | PASS | `CardMemory`, `CrewDef` are classes; costs are `Array[int]`; the typed-strict checklist in every brief |
 | Engine is deterministic: seeded RNG, no wall-clock, no node access, serializable action log (D4) | PASS | No new random pick (R72); memory, uses, crew uses and the queue are in `to_dict()`; the decline is a logged action; previews clone memory and never touch the stream |
-| `make check` gate contract | PASS | Boot prints `Engine smoke:` and `Main ready`; golden re-pinned at verification; the 20 s gdUnit budget (C8) is a DoD item, not a gate change |
-| Implementers never run Godot or `make check` | PASS | Golden left as a skip with literals to pin |
+| `make check` gate contract | PASS | Boot prints `Engine smoke:` and `Main ready`; golden re-pinned at verification through `GOLDEN_TUNED`; the 30 s gdUnit budget (cycle 7 C15) is a DoD item, not a gate change; a data change leaves the gate green with `stamp=MISMATCH` (DC-08 T11) |
+| Implementers never run Godot or `make check` | PASS | `GOLDEN_TUNED` left empty (the case skips) and the fixture stamp literal left for the orchestrator to pin |
 | P5 frontmatter and vault-root links | PASS | Three notes, fresh uids |
 | Do-not-touch list | PASS | No addon change; the Crew line uses Card3D's line layout as the strip does |
 | Secrets only in `.env` | PASS | None involved |
 | One branch per cycle, one commit per task, `--no-ff` into `master` (ADR 0002) | PASS | A on `cycle-8-ramp-bounce-crew` (re-based onto `master` after DC-08 merges, C2); B on `cycle-8b-ramp-bounce-crew` cut from `master` after A merges |
 | D2 Compatibility-clean visuals | PASS | Label3D text and DC-04 materials only |
 | D7 plain Theme for UI | PASS | Skip button and badges are plain Theme controls and Label3D |
-| Cycle 7 rerun provision (R36 there) | PASS | R32, R58: `make bot-eval` at each `/cycle test`; `BotStamp` covers `crew.json` in B |
+| Cycle 7 rerun provision (R36 there) | PASS | R32, R58, P18: `make bot-eval` at each `/cycle test`, a hand re-stamp of the default weights with a ledger row while `make bot-train` does not exist; `BotStamp` covers `crew.json` in B; the frozen `greedy_v1` is not edited (R22 there) |
 
 **Result:** PASS.
 
@@ -311,14 +323,23 @@ Milestone A: format 3, rules 5 (no structural change). Milestone B: format 4, ru
   own suite and module (`BloomEffects`, `EchoEffects`), the resolver only dispatching.
 - **Tallyman in `effective()` costs time in the sweep** → skipped unless a seat holds it
   (`MatchCards.has_crew`), as the positional parts are.
-- **Stamp mismatch after the pool change** → expected; R32 and cycle 7 R36 say what to run.
-  With default weights (before cycle 7 B) `make bot-eval` is a draw check and `bot-train` is
-  not expected to be needed; if it is, it is the overnight run the orchestrator already owns.
-- **The 20 s budget** → measured at each verification; if B lands over it, the speed skips of
-  cycle 6 T12 are the first lever and the cycles row records the number.
+- **Stamp mismatch after the pool change** → expected and green (DC-08 T11); P18 says what to
+  run: `make bot-eval` as a draw check on default weights, then a hand re-stamp with a ledger
+  row, since `make bot-train` arrives with cycle 7 milestone B after this milestone (C2).
+  Should `bot-eval` fail (it cannot with identical default choices unless a new prompt
+  breaks R3), the failing seed goes to the review before the merge.
+- **The frozen bot and the cost change** → `LegalPlays` keeps its printed-cost functions so
+  `GreedyV1Bot` compiles untouched; its pinned suite is the guard (cycle 7 R21, R22).
+- **The 30 s budget (cycle 7 C15; gdUnit about 26 s at DC-08)** → this spec adds about two
+  hundred cases and 40 cards to the sweep; measured at each verification, and if a milestone
+  lands over it the speed skips of cycle 6 T12 are the first lever and the cycles row records
+  the number; no test is cut without Ben.
 - **Table balance is untested design** → Ben reviews both tables at sign-off (cycle 6 C7);
   numbers are data, so a rebalance after the sweep is a JSON edit and a golden re-pin.
 
 ## Open questions
 
-- None. Numbers in the tables are Ben's to strike or change at sign-off.
+- None. Milestone numbering was decided by Ben (C12, 1a): milestone A is DC-09, cycle 7
+  milestone B DC-10, milestone B DC-11; the orchestrator amends the DC-08 row of
+  [[planning/cycles]] and the ledger sentence at our `/cycle plan`. Numbers in the tables are
+  Ben's to strike or change before T04 and T08 land.
