@@ -11,6 +11,7 @@ GODOT_DIR = os.path.join(REPO_ROOT, "godot")
 DATA_DIR = os.path.join(GODOT_DIR, "engine", "data")
 CARDS_PATH = os.path.join(DATA_DIR, "cards.json")
 DECKS_PATH = os.path.join(DATA_DIR, "decks.json")
+CREW_PATH = os.path.join(DATA_DIR, "crew.json")
 RULES_PATH = os.path.join(GODOT_DIR, "engine", "match_rules.gd")
 WEIGHTS_DIR = os.path.join(GODOT_DIR, "engine", "bot", "data")
 STAMP_RE = re.compile(r"^r\d+-[0-9a-f]{16}$")
@@ -26,9 +27,12 @@ def rules_version(path: str = RULES_PATH) -> int:
 
 
 def current_stamp(cards: str = CARDS_PATH, decks: str = DECKS_PATH,
-                  rules: str = RULES_PATH) -> str:
+                  rules: str = RULES_PATH, crew: str = CREW_PATH) -> str:
+    """`r<RULES_VERSION>-` and the first 16 hex digits of SHA-256 over the card pool, the deck
+    list and the Crew pool files, in that order (cycle 7 R33; cycle 8 R58, P15): the same
+    string as the engine's BotStamp.current() for the same files."""
     h = hashlib.sha256()
-    for p in (cards, decks):
+    for p in (cards, decks, crew):
         with open(p, "rb") as f:
             h.update(f.read())
     return "r%d-%s" % (rules_version(rules), h.hexdigest()[:16])

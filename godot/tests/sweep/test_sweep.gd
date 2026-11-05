@@ -9,7 +9,8 @@ extends FullMatchHarness
 ## that fails to load fails the sweep, and the coverage assertions are skipped.
 ## The sweep prints "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=.. slowest_us=..
 ## prompts=.. destroyed_hidden=.. pile_hidden=.. recoveries=.. recoveries_hidden=.. sets=..
-## memory_hidden=.. bot=.. p95_us=.. p99_us=.. stamp=match|MISMATCH" and per pairing played
+## memory_hidden=.. crew_prompts=.. declines=.. bot=.. p95_us=.. p99_us=.. stamp=match|MISMATCH"
+## (crew_prompts and declines since DC-11 T11, cycle 8 R56, R57, R73) and per pairing played
 ## "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=.. slowest_us=.. seed=.." (DC-07 T08;
 ## cycle 7 T05, R17, R19, R35, R56).
 ## Every match checks what test_full_match.gd's seed 1 does (FullMatchHarness._assert_run):
@@ -120,6 +121,9 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	var recoveries: int = 0
 	var recoveries_hidden: int = 0
 	var set_answers: int = 0
+	var crew_prompts: int = 0
+	var declines: int = 0
+	var crew_prompts_scanned: int = 0
 	var face_down_seen: int = 0
 	var redacted_seen: int = 0
 	var choices: int = 0
@@ -138,6 +142,9 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 		recoveries_hidden += run.hidden_recoveries_seen
 		memory_hidden += run.memory_hidden_seen
 		set_answers += run.set_answers
+		crew_prompts += run.crew_prompts
+		declines += run.declines
+		crew_prompts_scanned += run.crew_prompts_scanned
 		_record_pairing(run)
 		if run.longest_walk > longest_walk:
 			longest_walk = run.longest_walk
@@ -160,7 +167,8 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 			(
 				"Sweep: longest=%d seed=%d longest_walk=%d walk_seed=%d"
 				+ " slowest_us=%d prompts=%d destroyed_hidden=%d pile_hidden=%d"
-				+ " recoveries=%d recoveries_hidden=%d sets=%d memory_hidden=%d bot=%s"
+				+ " recoveries=%d recoveries_hidden=%d sets=%d memory_hidden=%d"
+				+ " crew_prompts=%d declines=%d bot=%s"
 				+ " p95_us=%d p99_us=%d stamp=%s weights=%s"
 			)
 			% [
@@ -176,6 +184,8 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 				recoveries_hidden,
 				set_answers,
 				memory_hidden,
+				crew_prompts,
+				declines,
 				sweep_bot,
 				p95_us,
 				p99_us,
@@ -205,6 +215,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 			"recoveries": recoveries,
 			"memory_hidden": memory_hidden,
 			"longest_walk": longest_walk,
+			"crew_prompts_scanned": crew_prompts_scanned,
 		}
 		_assert_coverage(counts)
 	else:
@@ -223,8 +234,8 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 
 ## The sweep's coverage counters (`counts`, keyed by name, set by the sweep test) for the
 ## default bot: the scan really met face-down and redacted cards, prompts, hidden destroys,
-## hidden pile entries, recoveries, hidden memory and a walk. Each depends on how the bot
-## happens to play, so a SWEEP_BOT other than the default skips them.
+## hidden pile entries, recoveries, hidden memory, a walk and a Crew prompt. Each depends on
+## how the bot happens to play, so a SWEEP_BOT other than the default skips them.
 func _assert_coverage(counts: Dictionary) -> void:
 	var face_down_seen: int = counts["face_down_seen"]
 	var redacted_seen: int = counts["redacted_seen"]
@@ -234,6 +245,7 @@ func _assert_coverage(counts: Dictionary) -> void:
 	var recoveries: int = counts["recoveries"]
 	var memory_hidden: int = counts["memory_hidden"]
 	var walk: int = counts["longest_walk"]
+	var crew_scanned: int = counts["crew_prompts_scanned"]
 	assert_int(face_down_seen).is_greater(0)
 	assert_int(redacted_seen).is_greater(0)
 	# The sweep really answered prompts, so their leak scan and replay ran (DC-05 T05).
@@ -254,6 +266,9 @@ func _assert_coverage(counts: Dictionary) -> void:
 	# other seat (a growth on a hand card: Rain, Redwood, Vine).
 	var no_memory: String = "no private memory event in the sweep"
 	assert_int(memory_hidden).override_failure_message(no_memory).is_greater(0)
+	# Cycle 8 R73 (DC-11 T11): a Crew prompt really reached the scan, from both seats' views.
+	var no_crew: String = "no Crew prompt in the sweep"
+	assert_int(crew_scanned).override_failure_message(no_crew).is_greater(0)
 
 
 ## A pairing's record before any seed: no seeds, no match, no decision.

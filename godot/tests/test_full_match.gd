@@ -34,7 +34,8 @@ extends FullMatchHarness
 # Seed 1 under the four-deck seeded pairing (Bloom and Echo shipped), pinned at DC-09 T07:
 # "seed=1 decks=bloom/ruin bot=tuned winner=0 wins=4-0 rounds=4 end=wins actions=64".
 # Emptied at DC-11 T10: the Crew fire (Gardener, Tallyman, Quartermaster; Salvager, Veil),
-# so seed 1 plays another match; the orchestrator re-pins it at verification (T14).
+# so seed 1 plays another match; the orchestrator re-pins it at verification (T14). Still
+# empty at DC-11 T11 (the tuned bot may decline an optional Crew prompt, cycle 8 R56, R57).
 const GOLDEN_TUNED: String = ""
 # END GOLDEN
 
