@@ -4,7 +4,7 @@ tags: [plan, cycle-7-bot-players, engine, bot, tooling]
 status: approved
 related: ["[[specs/cycle-7-bot-players/spec]]", "[[specs/cycle-7-bot-players/tasks]]", "[[specs/cycle-6-constructed-decks/plan]]", "[[specs/cycle-4-card-effects/plan]]", "[[planning/phase-1-tech-stack]]", "[[decisions/0002-one-branch-per-cycle]]"]
 created: 2026-11-04
-updated: 2026-11-04
+updated: 2026-11-05
 uid: 7395b17a-0387-4b44-8464-fcbdaefd3ca6
 linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
@@ -203,6 +203,9 @@ exit 0 pass | 1 fail | 2 cap or no promotion | 3 error
   trainer (P20).
 - **10 ms not met on the matrix bot** → `k`, `k_opp`, `samples` are file values; the
   verification lowers them until the sweep passes and the ledger records the numbers.
+  Measured at DC-10 T17: p99 59 ms at 12/12/4/200, so C16 ships `k` 6, `k_opp` 4, `samples`
+  2, `rm_iterations` 50 and caps the trainer at `k` 6 and `k_opp` 4; T18 measured p99 10.9 ms
+  there, so `k_opp` is 3 (and its trainer cap 3; Ben, 2026-11-05).
 - **Pentanomial SPRT arithmetic wrong** → `test_sprt.py` simulates known win rates; the
   first `bot-eval` runs `tuned` (default weights) vs `greedy_v1`, which must be a draw.
 - **Seat advantage near zero makes mirroring useless** → the driver reports the
@@ -233,8 +236,11 @@ did not change, except R17 (spec C14).
   seed, so R12 holds bit for bit; at level 20 no push draw is taken.
 - **P17 overruns.** The greedy references are over the 10 ms budget by design (NSC-74), so
   the worker never exits 1 for an overrun: it counts `overruns_a` and `overruns_b`; a
-  gainer run fails when the bot under test overruns; non-regression runs only report
-  them. The binding latency check is the `make check` sweep (R17).
+  gainer run fails only on a rejected action or a replay mismatch; its `p99_us` and the
+  overrun counts are printed, not decisive, since a parallel eval on all cores overruns by OS
+  contention. The trainer judges the p99 afterwards with a quiet 50-seed sweep of the
+  candidate's weights (`SWEEP_WEIGHTS=<path> scripts/check.sh sweep`, one Godot process,
+  p99 under 10 ms; C16 follow-up, R41); non-regression runs only report overruns. The binding latency check is the `make check` sweep (R17).
 - **P19 zero variance.** Identical deterministic bots split every seat-swapped pair 1-1, so
   the sample variance is 0. After 100 such pairs the variance is floored at 1e-4; every
   sample with a variance is unchanged.

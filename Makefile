@@ -1,7 +1,7 @@
 # Midnight Earth build gate. Every target dispatches to scripts/check.sh (see cycle-0 R12-R19).
 # Exit 0 = buildable and testable. GODOT_BIN overrides the Godot 4.6 binary.
 # bot-eval and bot-selftest (cycle 7) are never part of `check`.
-.PHONY: check import lint parse boot test bootstrap bot-eval bot-selftest
+.PHONY: check import lint parse boot test bootstrap bot-eval bot-selftest bot-train bot-calibrate
 
 BOT   ?= tuned
 REF   ?= greedy_v1
@@ -14,5 +14,13 @@ parse:      ; @scripts/check.sh parse
 boot:       ; @scripts/check.sh boot
 test:       ; @scripts/check.sh test
 bootstrap:  ; @scripts/bootstrap.sh
+# The 50-seed sweep (NSC-133), outside `check`. `make sweep BOT=matrix` sweeps that bot;
+# `WEIGHTS=<abs path>` builds it on that weights file.
+.PHONY: sweep
+sweep:      ; @$(if $(filter command line,$(origin BOT)),SWEEP_BOT=$(BOT) )$(if $(filter command line,$(origin WEIGHTS)),SWEEP_WEIGHTS=$(WEIGHTS) )scripts/check.sh sweep
 bot-eval:   ; @scripts/bot-eval.sh --a $(BOT) --b $(REF) --seeds $(SEEDS)
 bot-selftest: ; @python3 -I scripts/bot/driver.py selftest
+HOURS ?= 8
+LABEL ?=
+bot-train:  ; @scripts/bot-train.sh --bot $(BOT) --hours $(HOURS) --label "$(LABEL)"
+bot-calibrate: ; @python3 -I scripts/bot/driver.py calibrate $(if $(LEVELS),--levels $(LEVELS)) $(if $(NO_LEDGER),--no-ledger)

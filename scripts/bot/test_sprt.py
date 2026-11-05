@@ -5,6 +5,7 @@ import random
 import sys
 import tempfile
 import unittest
+from typing import Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import driver  # noqa: E402
@@ -78,6 +79,7 @@ class RecordsTest(unittest.TestCase):
         self.assertAlmostEqual(a["winrate"], 3.5 / 6.0)
         self.assertAlmostEqual(a["first_committer"], 4 / 6.0)
         self.assertEqual((a["p95_us"], a["slowest_us"]), (1900, 2000))
+        self.assertEqual(a["p99_us"], 2000)
 
     def test_fixture_merge(self) -> None:
         recs = records.merge([os.path.join(FIX, "a.jsonl"), os.path.join(FIX, "b.jsonl")])
@@ -113,26 +115,57 @@ class DriverTest(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertIn("seeds 1-25 exit 1", text)
 
-    def test_gainer_with_overruns_a_cannot_pass(self) -> None:
+    def gainer_run(self, us: int, rejected: int = 0, replay: int = 0,
+                   overruns_a: int = 0) -> Tuple[int, str]:
+        """A gainer eval over stub batches whose side-a decisions all take `us` microseconds."""
         script = ("import sys, json\n"
+                  "us, rej, rep, ov = [int(x) for x in sys.argv[2:6]]\n"
                   "rows = [{'t': 'p', 'seed': i, 'decks': 'x', 'points_a': 1.5 if i % 2 else 1.0} "
                   "for i in range(25)]\n"
-                  "rows.append({'t': 'end', 'games': 50, 'rejected': 0, 'overruns': 3, "
-                  "'overruns_a': 3, 'overruns_b': 0, 'replay_mismatches': 0, 'p95_us': 1, "
-                  "'slowest_us': 1, 'stamp': 'r4-0123456789abcdef'})\n"
+                  "rows.append({'t': 'g', 'seed': 0, 'game': 0, 'a_seat': 1})\n"
+                  "rows += [{'t': 'd', 'seed': 0, 'game': 0, 'seat': 1, 'us': us}] * 100\n"
+                  "rows += [{'t': 'd', 'seed': 0, 'game': 0, 'seat': 0, 'us': 99999}] * 100\n"
+                  "rows.append({'t': 'end', 'games': 50, 'rejected': rej, 'overruns': ov, "
+                  "'overruns_a': ov, 'overruns_b': 0, 'replay_mismatches': rep, "
+                  "'stamp': 'r4-0123456789abcdef'})\n"
                   "open(sys.argv[1], 'w').write('\\n'.join(json.dumps(r) for r in rows) + '\\n')\n")
         with tempfile.TemporaryDirectory() as tmp:
             args = driver.build_parser().parse_args(
                 ["eval", "--a", "x", "--b", "y", "--gainer", "--seeds", "1-5000",
                  "--reports-dir", tmp])
-            factory = lambda a, b, s, e, out: [sys.executable, "-c", script, out]  # noqa: E731
+            factory = lambda a, b, s, e, out: [  # noqa: E731
+                sys.executable, "-c", script, out, str(us), str(rejected), str(replay),
+                str(overruns_a)]
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 code = driver.run_eval(args, factory, workers=2)
+        return code, out.getvalue()
+
+    def test_gainer_p99_over_budget_is_printed_but_does_not_fail(self) -> None:
+        # R41 follow-up (C16): the all-core eval only prints the p99; the trainer's quiet
+        # sweep judges it
+        code, text = self.gainer_run(us=10000, overruns_a=3)
+        self.assertEqual(code, 0)
+        self.assertIn("result=PASS", text)
+        self.assertNotIn("reason=", text)
+        self.assertIn("p99_us=10000", text)
+        self.assertIn("overruns_a=3 overruns_b=0", text)
+
+    def test_gainer_overruns_alone_do_not_block(self) -> None:
+        code, text = self.gainer_run(us=2000, overruns_a=300)
+        self.assertEqual(code, 0)
+        self.assertIn("result=PASS", text)
+        self.assertIn("p99_us=2000", text)
+        self.assertIn("overruns_a=300", text)
+        self.assertNotIn("reason=", text)
+
+    def test_gainer_rejected_or_replay_cannot_pass(self) -> None:
+        code, text = self.gainer_run(us=2000, rejected=1)
         self.assertEqual(code, 1)
-        self.assertIn("result=FAIL", out.getvalue())
-        self.assertIn("reason=overrun", out.getvalue())
-        self.assertIn("overruns_a=3 overruns_b=0", out.getvalue())
+        self.assertIn("reason=rejected", text)
+        code, text = self.gainer_run(us=2000, replay=2)
+        self.assertEqual(code, 1)
+        self.assertIn("reason=replay", text)
 
     def test_fake_worker_pass(self) -> None:
         """A worker that writes 25 pair records of 1.5 points reaches H1."""

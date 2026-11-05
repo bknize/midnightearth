@@ -45,6 +45,16 @@ def weights_stamp(bot: str, weights_dir: str = WEIGHTS_DIR) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
+def file_stamp(path: str) -> Optional[str]:
+    """The stamp field of the weights file at `path`, or None when absent or unreadable."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            value = json.load(f).get("stamp")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return value if isinstance(value, str) else None
+
+
 def read_records(path: str) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     with open(path, "r", encoding="utf-8") as f:
@@ -86,6 +96,10 @@ def aggregate(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     firsts = [bool(r.get("first_won")) for r in games if "first_won" in r]
     us = [int(r["us"]) for r in decisions]
     p95 = percentile(us, 0.95)
+    a_seat = {(r.get("seed"), r.get("game")): r.get("a_seat") for r in games}
+    us_a = [int(r["us"]) for r in decisions
+            if a_seat.get((r.get("seed"), r.get("game"))) == r.get("seat")]
+    p99_a = percentile(us_a, 0.99)  # side a's own decisions only (R17, C16)
     slowest = max(us) if us else 0
     for e in ends:  # a worker's own slowest can only raise the figure
         slowest = max(slowest, int(e.get("slowest_us", 0)))
@@ -97,6 +111,7 @@ def aggregate(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "winrate_ci95": ci,
         "first_committer": (sum(firsts) / len(firsts)) if firsts else 0.0,
         "p95_us": p95,
+        "p99_us": p99_a,
         "slowest_us": slowest,
         "rejected": sum(int(e.get("rejected", 0)) for e in ends),
         "overruns": sum(int(e.get("overruns", 0)) for e in ends),
