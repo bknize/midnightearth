@@ -36,7 +36,65 @@ far" is the weights file committed in the repository (R23); nothing else counts.
 
 <!-- calibration:begin -->
 
-Not yet run. `make bot-calibrate` writes its latest table here (R55); `NO_LEDGER=1` skips it.
+Latest run, 2026-11-05. Stamp: r5-f898a1b1ce5bee0f. Bot: `tuned` at each level against `greedy_v1` at full strength; 200 paired seeds per cell.
+
+| level | pairing | winrate ± ci | pairs |
+|---|---|---|---|
+| 0 | bloom/bloom | 0.350 ± 0.037 | 200 |
+| 0 | bloom/echo | 0.497 ± 0.003 | 400 |
+| 0 | drift/drift | 0.170 ± 0.034 | 200 |
+| 0 | echo/echo | 0.205 ± 0.036 | 200 |
+| 0 | ruin/drift | 0.144 ± 0.022 | 400 |
+| 0 | ruin/ruin | 0.140 ± 0.033 | 200 |
+| 4 | bloom/bloom | 0.362 ± 0.035 | 200 |
+| 4 | bloom/echo | 0.496 ± 0.004 | 400 |
+| 4 | drift/drift | 0.210 ± 0.036 | 200 |
+| 4 | echo/echo | 0.205 ± 0.036 | 200 |
+| 4 | ruin/drift | 0.174 ± 0.024 | 400 |
+| 4 | ruin/ruin | 0.170 ± 0.034 | 200 |
+| 8 | bloom/bloom | 0.407 ± 0.033 | 200 |
+| 8 | bloom/echo | 0.497 ± 0.003 | 400 |
+| 8 | drift/drift | 0.237 ± 0.037 | 200 |
+| 8 | echo/echo | 0.265 ± 0.037 | 200 |
+| 8 | ruin/drift | 0.231 ± 0.026 | 400 |
+| 8 | ruin/ruin | 0.220 ± 0.040 | 200 |
+| 12 | bloom/bloom | 0.425 ± 0.033 | 200 |
+| 12 | bloom/echo | 0.500 ± 0.000 | 400 |
+| 12 | drift/drift | 0.295 ± 0.039 | 200 |
+| 12 | echo/echo | 0.300 ± 0.038 | 200 |
+| 12 | ruin/drift | 0.292 ± 0.028 | 400 |
+| 12 | ruin/ruin | 0.275 ± 0.044 | 200 |
+| 16 | bloom/bloom | 0.450 ± 0.033 | 200 |
+| 16 | bloom/echo | 0.499 ± 0.002 | 400 |
+| 16 | drift/drift | 0.335 ± 0.034 | 200 |
+| 16 | echo/echo | 0.372 ± 0.038 | 200 |
+| 16 | ruin/drift | 0.338 ± 0.029 | 400 |
+| 16 | ruin/ruin | 0.325 ± 0.044 | 200 |
+| 20 | bloom/bloom | 0.482 ± 0.018 | 200 |
+| 20 | bloom/echo | 0.499 ± 0.002 | 400 |
+| 20 | drift/drift | 0.500 ± 0.000 | 200 |
+| 20 | echo/echo | 0.580 ± 0.028 | 200 |
+| 20 | ruin/drift | 0.500 ± 0.003 | 400 |
+| 20 | ruin/ruin | 0.500 ± 0.000 | 200 |
+
+Mean over pairings, `tuned` at the level vs `greedy_v1`:
+
+| level | winrate |
+|---|---|
+| 0 | 0.251 |
+| 4 | 0.270 |
+| 8 | 0.310 |
+| 12 | 0.348 |
+| 16 | 0.386 |
+| 20 | 0.510 |
+
+Tier suggestion (easy ≈ 0.35, normal ≈ 0.50, hard = the max):
+
+- easy: level 12 (winrate 0.348)
+- normal: level 20 (winrate 0.510)
+- hard: level 20 (winrate 0.510)
+
+Stamp: r5-f898a1b1ce5bee0f
 
 <!-- calibration:end -->
 
