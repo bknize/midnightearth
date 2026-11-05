@@ -1,12 +1,15 @@
 class_name TestBotStamp
 extends GdUnitTestSuite
 ## BotStamp (cycle 7 T03; R33, plan P8): "r<RULES_VERSION>-" and the first 16 hex digits of
-## SHA-256 over cards.json then decks.json. The pinned literal is the shipped data's stamp,
-## the same string scripts/bot/records.py current_stamp() gives; re-pin it whenever the rules
-## version, the card pool or the deck list changes (and retrain, R36).
+## SHA-256 over cards.json then decks.json. The pinned digest is over the frozen DC-05 test
+## fixtures, the same digits scripts/bot/records.py current_stamp() gives for those paths, so
+## the cross-check never moves with the shipped data: a rules or data change only prints
+## `stamp=MISMATCH` on the sweep line and leaves the gate green (R35; DC-08 T11).
 
-## The stamp of the shipped data (RULES_VERSION 4), as records.py computes it.
-const PINNED: String = "r4-8054169094898cc2"
+const FIXTURE_CARDS: String = "res://tests/fixtures/dc05_cards.json"
+const FIXTURE_DECKS: String = "res://tests/fixtures/dc05_decks.json"
+## The first 16 hex digits of SHA-256 over the two fixtures, cards first (shasum -a 256).
+const PINNED_DIGEST: String = "0039c94a1d4af56c"
 
 
 func test_shape_is_rules_version_and_16_hex() -> void:
@@ -18,8 +21,9 @@ func test_shape_is_rules_version_and_16_hex() -> void:
 		assert_str(found.get_string(1)).is_equal(str(MatchRules.RULES_VERSION))
 
 
-func test_current_equals_the_pinned_stamp() -> void:
-	assert_str(BotStamp.current()).is_equal(PINNED)
+func test_fixture_stamp_equals_the_pinned_digest() -> void:
+	var expected: String = "r%d-%s" % [MatchRules.RULES_VERSION, PINNED_DIGEST]
+	assert_str(BotStamp.current(FIXTURE_CARDS, FIXTURE_DECKS)).is_equal(expected)
 
 
 ## The defaults are the engine's data files, hashed cards first.

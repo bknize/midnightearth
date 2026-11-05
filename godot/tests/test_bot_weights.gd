@@ -31,13 +31,14 @@ func test_defaults_have_k_24_and_score_diff() -> void:
 	_assert_defaults(weights)
 
 
-## R34: the shipped file loads with no error, for the tuned bot, at the current stamp, with
-## the plan's numbers and score_diff at 100, every other feature at 0.
-func test_shipped_file_loads_with_the_current_stamp() -> void:
+## R34: the shipped file loads with no error, for the tuned bot, carrying a stamp, with the
+## plan's numbers and score_diff at 100, every other feature at 0. Whether that stamp is the
+## current one is the sweep's printed check, never a failure (R35; DC-08 T11).
+func test_shipped_file_loads_with_a_stamp() -> void:
 	var weights: BotWeights = BotWeights.load(SHIPPED_PATH)
 	assert_str(weights.load_error).is_equal("")
 	assert_str(weights.bot).is_equal("tuned")
-	assert_str(weights.stamp).is_equal(BotStamp.current())
+	assert_str(weights.stamp).is_not_empty()
 	assert_int(weights.k).is_equal(24)
 	assert_int(weights.k_opp).is_equal(12)
 	assert_int(weights.samples).is_equal(4)

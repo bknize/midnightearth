@@ -31,9 +31,12 @@ const EXPECTED_LINE: String = (
 	"Board: match ended seed=1 decks=ruin/ruin bot=greedy winner=1 wins=1-4 rounds=5 end=wins"
 	+ " actions=88"
 )
-## Seed 1's result line under the default bot (tuned, level 20); the orchestrator pins it at
-## verification. While it is empty the test prints the line and checks only `bot=tuned`.
-const GOLDEN_TUNED: String = ""
+## Seed 1's result line under the default bot (tuned, level 20, k 24); pinned at DC-08 T11.
+## While empty the test prints the line and checks only `bot=tuned`.
+const GOLDEN_TUNED: String = (
+	"Board: match ended seed=1 decks=ruin/ruin bot=tuned winner=1 wins=1-4 rounds=5 end=wins"
+	+ " actions=88"
+)
 ## The bot the helpers build: the greedy bot, whose play the goldens pin (R5).
 const GREEDY: String = "greedy"
 const FULL_LEVEL: int = 20

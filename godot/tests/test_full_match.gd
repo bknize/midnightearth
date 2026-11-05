@@ -27,10 +27,10 @@ extends GdUnitTestSuite
 # GOLDEN (cycle 7 T05, R56: pinned by the orchestrator at verification)
 # The greedy bot's last pin (DC-07 T13), for reference: decks ruin/ruin, winner 1, wins
 # 1-4, rounds 5, end wins, actions 88 (DC-06: winner=0 wins=4-3 rounds=7 actions=120).
-# Seed 1's line under the default bot, as the golden case prints it after "Golden: "
-# ("seed=1 decks=a/b bot=.. winner=.. wins=a-b rounds=.. end=.. actions=.."). While empty
-# the case prints the line and compares nothing. Pin by pasting the printed line here.
-const GOLDEN_TUNED: String = ""
+# Seed 1's line under the default bot (tuned, k 24), pinned at DC-08 T11: the greedy game.
+const GOLDEN_TUNED: String = (
+	"seed=1 decks=ruin/ruin bot=tuned winner=1 wins=1-4 rounds=5 end=wins actions=88"
+)
 # END GOLDEN
 
 ## The four pairings of the shipped decks, in the order the sweep prints them.
@@ -42,7 +42,7 @@ const SWEEP_LAST: int = 50
 ## end a turn (and the start). Lower it if the sweep outgrows the test stage's budget.
 const EVERY_STEP_SCAN_LAST: int = 50
 const MAX_ACTIONS: int = 2000
-## The slowest single decision the sweep allows, in microseconds (R17, NSC-74).
+## The 99th-percentile decision the sweep allows, in microseconds (R17, NSC-74, C14).
 const DECISION_BUDGET_US: int = 10000
 ## The stamp check's two results (R35), and the stamp test's altered copy and stamp.
 const STAMP_MATCH: String = "match"
