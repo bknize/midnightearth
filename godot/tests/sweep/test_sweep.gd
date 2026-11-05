@@ -4,7 +4,9 @@ extends FullMatchHarness
 ## It runs outside the gate: `make check` skips res://tests/sweep, `make sweep` (or
 ## `scripts/check.sh sweep`) runs it, at /cycle test and for the bot rerun provision. The
 ## bot is BotRegistry.default_name() unless the SWEEP_BOT environment variable names another
-## (`make sweep BOT=matrix`).
+## (`make sweep BOT=matrix`). SWEEP_WEIGHTS=<absolute path> builds the bot on that weights
+## file instead of the shipped one (the trainer's quiet p99 measurement, R41, C16); a file
+## that fails to load fails the sweep, and the coverage assertions are skipped.
 ## The sweep prints "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=.. slowest_us=..
 ## prompts=.. destroyed_hidden=.. pile_hidden=.. recoveries=.. recoveries_hidden=.. sets=..
 ## memory_hidden=.. bot=.. p95_us=.. p99_us=.. stamp=match|MISMATCH" and per pairing played
@@ -26,6 +28,8 @@ const EVERY_STEP_SCAN_LAST: int = 50
 const DECISION_BUDGET_US: int = 10000
 ## The environment variable naming the bot to sweep instead of the default (NSC-133).
 const BOT_ENV: String = "SWEEP_BOT"
+## The environment variable naming a weights file to build the bot on.
+const WEIGHTS_ENV: String = "SWEEP_WEIGHTS"
 
 ## The longest swept match in accepted actions, and its seed; set by the sweep test.
 static var longest_actions: int = 0
@@ -68,6 +72,19 @@ func _bot_name() -> String:
 	return BotRegistry.default_name()
 
 
+## The weights file SWEEP_WEIGHTS names, or "" (the shipped weights).
+func _weights_path() -> String:
+	return OS.get_environment(WEIGHTS_ENV)
+
+
+## The weights the sweep's bots are built on: SWEEP_WEIGHTS's file, else null (shipped).
+func _bot_weights() -> BotWeights:
+	var path: String = _weights_path()
+	if path == "":
+		return null
+	return BotWeights.load(path)
+
+
 # --- 50-seed sweep --------------------------------------------------------------------
 
 
@@ -79,7 +96,18 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	p95_us = 0
 	p99_us = 0
 	sweep_bot = _bot_name()
-	sweep_stamp = stamp_status(BotRegistry.default_weights_path(sweep_bot))
+	var weights_path: String = _weights_path()
+	if weights_path != "":
+		var loaded: BotWeights = BotWeights.load(weights_path)
+		var load_msg: String = "SWEEP_WEIGHTS %s failed to load: %s" % [
+			weights_path, loaded.load_error
+		]
+		assert_str(loaded.load_error).override_failure_message(load_msg).is_empty()
+		if loaded.load_error != "":
+			return
+		sweep_stamp = stamp_status(weights_path)
+	else:
+		sweep_stamp = stamp_status(BotRegistry.default_weights_path(sweep_bot))
 	sweep_prompts = 0
 	longest_walk = 0
 	longest_walk_seed = 0
@@ -133,7 +161,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 				"Sweep: longest=%d seed=%d longest_walk=%d walk_seed=%d"
 				+ " slowest_us=%d prompts=%d destroyed_hidden=%d pile_hidden=%d"
 				+ " recoveries=%d recoveries_hidden=%d sets=%d memory_hidden=%d bot=%s"
-				+ " p95_us=%d p99_us=%d stamp=%s"
+				+ " p95_us=%d p99_us=%d stamp=%s weights=%s"
 			)
 			% [
 				longest_actions,
@@ -152,6 +180,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 				p95_us,
 				p99_us,
 				sweep_stamp,
+				weights_path if weights_path != "" else "shipped",
 			]
 		)
 	)
@@ -166,7 +195,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	assert_int(p99_us).override_failure_message(too_slow).is_less(DECISION_BUDGET_US)
 	# Coverage (which hidden paths the bots happened to reach) holds only for the default bot,
 	# whose play the counters were set for; every invariant above holds for any bot.
-	if sweep_bot == BotRegistry.default_name():
+	if sweep_bot == BotRegistry.default_name() and weights_path == "":
 		var counts: Dictionary = {
 			"face_down_seen": face_down_seen,
 			"redacted_seen": redacted_seen,
@@ -181,8 +210,8 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	else:
 		print(
 			(
-				"Sweep: coverage assertions skipped for bot=%s (they hold for the default, %s)"
-				% [sweep_bot, BotRegistry.default_name()]
+				"Sweep: coverage assertions skipped for bot=%s weights=%s (they hold for the default, %s)"
+				% [sweep_bot, weights_path, BotRegistry.default_name()]
 			)
 		)
 	# The longest match, readable from the static and from this message.

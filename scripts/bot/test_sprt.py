@@ -141,16 +141,17 @@ class DriverTest(unittest.TestCase):
                 code = driver.run_eval(args, factory, workers=2)
         return code, out.getvalue()
 
-    def test_gainer_p99_over_budget_cannot_pass(self) -> None:
+    def test_gainer_p99_over_budget_is_printed_but_does_not_fail(self) -> None:
+        # R41 follow-up (C16): the all-core eval only prints the p99; the trainer's quiet
+        # sweep judges it
         code, text = self.gainer_run(us=10000, overruns_a=3)
-        self.assertEqual(code, 1)
-        self.assertIn("result=FAIL", text)
-        self.assertIn("reason=p99", text)
+        self.assertEqual(code, 0)
+        self.assertIn("result=PASS", text)
+        self.assertNotIn("reason=", text)
         self.assertIn("p99_us=10000", text)
         self.assertIn("overruns_a=3 overruns_b=0", text)
 
-    def test_gainer_overruns_alone_do_not_block_when_p99_is_under(self) -> None:
-        # R41 as amended by C16: overruns are printed but only the p99 decides
+    def test_gainer_overruns_alone_do_not_block(self) -> None:
         code, text = self.gainer_run(us=2000, overruns_a=300)
         self.assertEqual(code, 0)
         self.assertIn("result=PASS", text)

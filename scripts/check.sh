@@ -130,7 +130,7 @@ stage_test() {
 }
 
 # The 50-seed sweep (NSC-133), outside `all`: SWEEP_BOT=<name> sweeps another bot than
-# BotRegistry.default_name() (make sweep BOT=matrix). Prints the sweep's summary lines.
+# BotRegistry.default_name() (make sweep BOT=matrix); SWEEP_WEIGHTS=<abs path> builds it on that weights file. Prints the sweep's summary lines.
 stage_sweep() {
   run_gdunit sweep 'Sweep:|Sweep pairing|Statistics:' --add res://tests/sweep
 }

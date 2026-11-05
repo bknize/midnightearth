@@ -115,8 +115,9 @@ JSON (anything that moves the stamp) does this before its `/cycle test` merge (R
    weights on the cycle branch. The default run label is `<bot>-<stamp>`; a checkpoint of
    another stamp is refused (pass a new `LABEL=`). The final line repeats a stamp
    mismatch. A candidate is promoted only if it passes the gainer test against `greedy_v1`
-   and the best-so-far with no rejected action, no replay mismatch and a p99 decision
-   under 10 ms (R41, C16). A run that promotes nothing leaves the old weights and records
+   and the best-so-far with no rejected action and no replay mismatch, and a quiet
+   50-seed sweep with the candidate's weights (`make sweep BOT=<bot> WEIGHTS=<path>`, run by
+   the trainer after both passes) has a p99 decision under 10 ms (R41, C16). A run that promotes nothing leaves the old weights and records
    the best candidate's result here.
 4. If an engine API change forced an edit to `greedy_v1`, list the edit in its row's note.
 5. Add a row here and put the `bot-eval` line in the cycle's row of [[planning/cycles]].

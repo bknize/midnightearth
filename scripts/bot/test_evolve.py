@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import driver  # noqa: E402
@@ -44,6 +44,10 @@ def passing(reference: str, path: str, gen: int) -> Tuple[int, str]:
     return 0, "pairs=10 winrate=0.600±0.100"
 
 
+def quiet(path: str, gen: int) -> Tuple[bool, Optional[int], str]:
+    return True, 7000, "exit 0"
+
+
 class Base(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.mkdtemp()
@@ -53,12 +57,14 @@ class Base(unittest.TestCase):
         shutil.copy(TUNED, self.weights)
         self.lines: List[str] = []
 
-    def trainer(self, evaluate: Any = passing, label: str = "t", **kw: Any) -> evolve.Trainer:
+    def trainer(self, evaluate: Any = passing, label: str = "t", sweep: Any = quiet,
+                **kw: Any) -> evolve.Trainer:
         kw.setdefault("hours", 1.0)
         cfg = evolve.Config(bot="tuned", label=label, run_seed=42, rr_seeds=3,
                             ref_seeds=4, reports_dir=os.path.join(self.tmp, "reports"),
                             workers=2, **kw)
-        return evolve.Trainer(cfg, stub_play, evaluate, self.weights, self.lines.append)
+        return evolve.Trainer(cfg, stub_play, evaluate, self.weights, self.lines.append,
+                              sweep=sweep)
 
 
 class GenerationTest(Base):
@@ -339,6 +345,86 @@ class PromotionTest(Base):
         self.assertLessEqual(new["k"], 24)
         self.assertEqual(read(os.path.join(tr.run_dir, "previous_tuned_weights.json")), before)
         self.assertTrue(any(s.startswith("bot-train: PROMOTED gen=1 stamp=") for s in self.lines))
+
+
+class QuietSweepTest(Base):
+    def run_sweep(self, result: Tuple[bool, Optional[int], str], gens: int = 1,
+                  **kw: Any) -> Tuple[int, evolve.Trainer, List[str]]:
+        seen: List[str] = []
+
+        def sweep(path: str, gen: int) -> Tuple[bool, Optional[int], str]:
+            seen.append(path)
+            return result
+        tr = self.trainer(passing, sweep=sweep, max_generations=gens, **kw)
+        return tr.run(), tr, seen
+
+    def test_p99_over_budget_is_not_promoted_and_the_run_continues(self) -> None:
+        before = read(TUNED)
+        code, tr, seen = self.run_sweep((True, 12000, "exit 0"), gens=2)
+        self.assertEqual(code, evolve.EXIT_NONE)
+        self.assertEqual(read(os.path.join(self.weights, "tuned_weights.json")), before)
+        ck = read(os.path.join(tr.run_dir, "gen-1.json"))
+        self.assertFalse(ck["promoted"])
+        self.assertEqual(ck["candidate"]["quiet_sweep"]["reason"], "p99")
+        self.assertEqual(ck["candidate"]["quiet_sweep"]["p99_us"], 12000)
+        self.assertTrue(os.path.isfile(os.path.join(tr.run_dir, "gen-2.json")))
+        self.assertTrue(all(p.endswith(".json") and os.path.isabs(p) for p in seen))
+        self.assertTrue(any("quiet sweep FAIL reason=p99" in s for s in self.lines))
+        self.assertIn("quiet_sweep=FAIL(p99_us=", self.lines[-1])
+
+    def test_p99_under_budget_is_promoted(self) -> None:
+        code, tr, seen = self.run_sweep((True, 8000, "exit 0"))
+        self.assertEqual(code, evolve.EXIT_PROMOTED)
+        ck = read(os.path.join(tr.run_dir, "gen-1.json"))
+        self.assertTrue(ck["promoted"])
+        self.assertEqual(ck["candidate"]["quiet_sweep"],
+                         {"passed": True, "p99_us": 8000, "info": "exit 0", "reason": ""})
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(any("quiet_sweep=PASS(p99_us=8000)" in s for s in self.lines))
+
+    def test_p99_exactly_at_budget_is_not_promoted(self) -> None:
+        code, tr, _ = self.run_sweep((True, 10000, "exit 0"))
+        self.assertEqual(code, evolve.EXIT_NONE)
+
+    def test_other_sweep_failure_is_reason_sweep(self) -> None:
+        code, tr, _ = self.run_sweep((False, None, "exit 100: invariant"))
+        self.assertEqual(code, evolve.EXIT_NONE)
+        ck = read(os.path.join(tr.run_dir, "gen-1.json"))
+        self.assertEqual(ck["candidate"]["quiet_sweep"]["reason"], "sweep")
+
+    def test_failed_sweep_with_slow_p99_is_reason_p99(self) -> None:
+        code, tr, _ = self.run_sweep((False, 15000, "exit 100"))
+        ck = read(os.path.join(tr.run_dir, "gen-1.json"))
+        self.assertEqual(ck["candidate"]["quiet_sweep"]["reason"], "p99")
+
+    def test_sweep_is_skipped_when_a_gainer_test_fails(self) -> None:
+        seen: List[str] = []
+
+        def sweep(path: str, gen: int) -> Tuple[bool, Optional[int], str]:
+            seen.append(path)
+            return True, 1, ""
+        self.trainer(lambda r, p, g: (1, "x"), sweep=sweep, max_generations=1).run()
+        self.assertEqual(seen, [])
+
+    def test_pending_candidate_reruns_the_sweep_on_resume(self) -> None:
+        def boom(path: str, gen: int) -> Tuple[bool, Optional[int], str]:
+            raise evolve.TrainError("sweep crashed")
+        with self.assertRaises(evolve.TrainError):
+            self.trainer(passing, sweep=boom, max_generations=1).run()
+        seen: List[str] = []
+
+        def sweep(path: str, gen: int) -> Tuple[bool, Optional[int], str]:
+            seen.append(path)
+            return True, 8000, "exit 0"
+        second = self.trainer(passing, sweep=sweep, max_generations=1)
+        self.assertEqual(second.run(), evolve.EXIT_PROMOTED)
+        self.assertEqual(len(seen), 1)
+
+    def test_parse_sweep_p99(self) -> None:
+        line = ("check: sweep: Sweep: longest=300 seed=4 slowest_us=900 bot=tuned p95_us=3000 "
+                "p99_us=7123 stamp=match weights=/x/y.json")
+        self.assertEqual(evolve.parse_sweep_p99(line), 7123)
+        self.assertIsNone(evolve.parse_sweep_p99("Sweep pairing a/b: seeds=3"))
 
 
 class MatrixStubTest(Base):

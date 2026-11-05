@@ -11,7 +11,9 @@ derived from the run seed. After each generation a checkpoint
 `godot/reports/bot/<label>/gen-<n>.json` is written; a run with the same label resumes from
 the newest one. The generation's best is a candidate when its fitness beats the best so far;
 a candidate is promoted only when `eval --gainer` passes against `greedy_v1` and against the
-committed weights.
+committed weights, and then a quiet 50-seed sweep with the candidate's weights (one Godot
+process, nothing else running; `scripts/check.sh sweep`) passes with a p99 decision under
+10 ms (R41, C16 follow-up).
 
 Exit codes: 0 promoted, 2 time limit reached with nothing promoted, 3 error.
 At least one generation always runs, so a short `--hours` still produces a checkpoint.
@@ -25,7 +27,9 @@ import hashlib
 import json
 import os
 import random
+import re
 import shutil
+import subprocess
 import sys
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -39,6 +43,7 @@ REFERENCE = "greedy_v1"
 FORMAT_VERSION = 1
 INT_FIELDS = ["k", "k_opp", "samples", "rm_iterations", "push_unit"]
 SEED_SPAN = 1_000_000_000
+SWEEP_TIMEOUT_S = 3600
 # Tunable integer caps per bot: name -> (lowest, highest). `k_max` and `k_opp_max` in Config
 # (and the CLI) can only lower the highest. The tuned k cap is the shipped 24 (spec C14). The
 # matrix caps are k <= 6 and k_opp <= 3 (C16, Ben's 2a: 12 x 12 previews measured a p99 of
@@ -67,6 +72,8 @@ Genome = Dict[str, Dict[str, int]]
 PlayFn = Callable[[str, str, int, int, str], List[float]]
 # evaluate(reference, candidate_path, generation) -> (exit code, "pairs=… winrate=…")
 EvalFn = Callable[[str, str, int], Tuple[int, str]]
+# sweep(candidate_path, generation) -> (passed, p99_us or None, info): the quiet 50-seed sweep
+SweepFn = Callable[[str, int], Tuple[bool, Optional[int], str]]
 
 
 class TrainError(Exception):
@@ -236,10 +243,12 @@ def resolve_label(cfg: "Config", stamp: str) -> str:
 class Trainer:
     def __init__(self, cfg: Config, play: PlayFn, evaluate: EvalFn,
                  weights_dir: str = records.WEIGHTS_DIR,
-                 out: Callable[[str], None] = print) -> None:
+                 out: Callable[[str], None] = print,
+                 sweep: Optional[SweepFn] = None) -> None:
         self.cfg = cfg
         self.play = play
         self.evaluate = evaluate
+        self.sweep: SweepFn = sweep if sweep is not None else _unset_sweep
         self.weights_dir = weights_dir
         self.say = out
         self.bounds = bounds_for(cfg.bot, cfg.k_max, cfg.k_opp_max)
@@ -440,15 +449,30 @@ class Trainer:
             result["vs_best"] = {"code": code, "info": info}
         if result["vs_greedy_v1"]["code"] != 0 or code != 0:
             return result
+        # Both gainer tests passed: the quiet sweep decides the speed condition (R41, C16).
+        # Nothing else runs now, so the p99 is not inflated by the evals' all-core load.
+        passed, p99, sweep_info = self.sweep(cand_path, n)
+        reason = ""
+        if p99 is not None and p99 >= driver.P99_BUDGET_US:
+            reason = "p99"
+        elif not passed or p99 is None:
+            reason = "sweep"
+        result["quiet_sweep"] = {"passed": reason == "", "p99_us": p99, "info": sweep_info,
+                                 "reason": reason}
+        if reason:
+            self.say("bot-train: gen=%d quiet sweep FAIL reason=%s p99_us=%s (%s)"
+                     % (n, reason, p99, sweep_info))
+            return result
         target = os.path.join(self.weights_dir, "%s_weights.json" % self.cfg.bot)
         if os.path.isfile(target):
             shutil.copyfile(target, os.path.join(self.run_dir, "previous_%s_weights.json"
                                                  % self.cfg.bot))
         write_json(target, genome_doc(base_doc, genome, self.cfg.bot, self.stamp))
         result["promoted"] = True
-        self.say("bot-train: PROMOTED gen=%d stamp=%s vs_greedy_v1=PASS(%s) vs_best=PASS(%s)"
+        self.say("bot-train: PROMOTED gen=%d stamp=%s vs_greedy_v1=PASS(%s) vs_best=PASS(%s) "
+                 "quiet_sweep=PASS(p99_us=%s)"
                  % (n, self.stamp_note(), result["vs_greedy_v1"]["info"],
-                    result["vs_best"]["info"]))
+                    result["vs_best"]["info"], p99))
         return result
 
     def stamp_note(self) -> str:
@@ -466,6 +490,11 @@ class Trainer:
                 if r:
                     parts.append("%s=%s(%s)" % (key, "PASS" if r["code"] == 0 else "FAIL(exit %d)"
                                                 % r["code"], r["info"]))
+            qs = last.get("quiet_sweep")
+            if qs:
+                parts.append("quiet_sweep=%s(p99_us=%s%s)"
+                             % ("PASS" if qs["passed"] else "FAIL", qs["p99_us"],
+                                " reason=" + qs["reason"] if qs["reason"] else ""))
             detail = " last_candidate=gen%d %s" % (last["gen"], " ".join(parts))
         self.say("bot-train: NOT PROMOTED label=%s generations=%d (this run %d) best_fitness=%s%s "
                  "stamp=%s exit=2"
@@ -486,6 +515,43 @@ def make_godot_play(bot: str, label: str) -> PlayFn:
         os.remove(out)
         return [float(r["points_a"]) for r in recs if r.get("t") == "p"]
     return play
+
+
+SWEEP_LINE_RE = re.compile(r"Sweep: longest=.*?\bp99_us=(\d+)")
+
+
+def parse_sweep_p99(text: str) -> Optional[int]:
+    """The `p99_us=` of the sweep's `Sweep: longest=...` line, or None when there is none."""
+    m = SWEEP_LINE_RE.search(text)
+    return int(m.group(1)) if m else None
+
+
+def make_godot_sweep(bot: str) -> SweepFn:
+    """The quiet sweep: `scripts/check.sh sweep` on the candidate's weights, one Godot process."""
+    def sweep(cand_path: str, n: int) -> Tuple[bool, Optional[int], str]:
+        env = dict(os.environ)
+        env["SWEEP_BOT"] = bot
+        env["SWEEP_WEIGHTS"] = os.path.abspath(cand_path)
+        script = os.path.join(records.REPO_ROOT, "scripts", "check.sh")
+        try:
+            proc = subprocess.run([script, "sweep"], cwd=records.REPO_ROOT, env=env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  universal_newlines=True, timeout=SWEEP_TIMEOUT_S)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return False, None, "sweep did not run: %s" % e
+        text = proc.stdout or ""
+        p99 = parse_sweep_p99(text)
+        if p99 is None and proc.returncode != 0:
+            # a failed sweep prints no summary line; its p99 is still in the gdUnit log
+            log = os.path.join(records.GODOT_DIR, "reports", "sweep.log")
+            try:
+                with open(log, "r", encoding="utf-8", errors="replace") as f:
+                    p99 = parse_sweep_p99(f.read())
+            except OSError:
+                p99 = None
+        tail = " | ".join(text.strip().splitlines()[-3:])
+        return proc.returncode == 0, p99, "exit %d: %s" % (proc.returncode, tail)
+    return sweep
 
 
 def make_godot_evaluate(cfg: Config, run_dir: str, run_seed_of: Callable[[], int]) -> EvalFn:
@@ -517,6 +583,10 @@ def make_godot_evaluate(cfg: Config, run_dir: str, run_seed_of: Callable[[], int
 
 def _unset_evaluate(reference: str, cand_path: str, n: int) -> Tuple[int, str]:
     raise TrainError("evaluate not wired")
+
+
+def _unset_sweep(cand_path: str, n: int) -> Tuple[bool, Optional[int], str]:
+    raise TrainError("sweep not wired")
 
 
 def add_train_parser(sub: Any) -> None:
@@ -551,7 +621,8 @@ def run_train(args: argparse.Namespace) -> int:
         if not os.path.isfile(driver.godot_bin()):
             raise TrainError("Godot not found at %s (set GODOT_BIN)" % driver.godot_bin())
         cfg.label = resolve_label(cfg, records.current_stamp())
-        trainer = Trainer(cfg, make_godot_play(cfg.bot, cfg.label), _unset_evaluate)
+        trainer = Trainer(cfg, make_godot_play(cfg.bot, cfg.label), _unset_evaluate,
+                          sweep=make_godot_sweep(cfg.bot))
         trainer.evaluate = make_godot_evaluate(cfg, trainer.run_dir, lambda: trainer.run_seed)
         return trainer.run()
     except TrainError as e:

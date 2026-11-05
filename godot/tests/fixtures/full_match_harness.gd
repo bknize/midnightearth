@@ -204,6 +204,12 @@ func _bot_name() -> String:
 	return BotRegistry.default_name()
 
 
+## The weights both seats' bots are built on; null reads the shipped file (cycle 7 P15).
+## The sweep suite overrides it for SWEEP_WEIGHTS.
+func _bot_weights() -> BotWeights:
+	return null
+
+
 ## One shipped bot per seat on the match's own definitions (each card through its origin's
 ## deck), as main.gd's smoke builds them: _bot_name() at full level, null
 ## weights so the registry reads the shipped file (cycle 7 P15). An entry is null when the
@@ -211,10 +217,11 @@ func _bot_name() -> String:
 func _new_bots(match_seed: int, engine: MatchEngine) -> Array[BotPlayer]:
 	var bots: Array[BotPlayer] = []
 	var bot_name: String = _bot_name()
+	var weights: BotWeights = _bot_weights()
 	var cards: MatchCards = engine.match_cards()
 	for seat: int in range(MatchEngine.SEATS):
 		var bot_seed: int = BotRegistry.seed_for(match_seed, seat)
-		bots.append(BotRegistry.make(bot_name, bot_seed, cards, null, BotPlayer.FULL_LEVEL))
+		bots.append(BotRegistry.make(bot_name, bot_seed, cards, weights, BotPlayer.FULL_LEVEL))
 	return bots
 
 
