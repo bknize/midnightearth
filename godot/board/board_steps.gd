@@ -279,7 +279,14 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			shown.duration = CHOICE_SHOW_TIME
 			out.append(shown)
 		MatchEvent.Kind.STATS_CHANGED:
+			# A hand card's change is private to its holder: the other seat's copy has the
+			# card hidden and shows nothing (cycle 8 P4, P16).
+			if event.is_private() and event.owner_seat != viewer:
+				return out
 			var stats: BoardStep = _card_step(BoardStep.Kind.STATS, event)
+			stats.cost = payload.get("cost", -1)
+			stats.permanent = payload.get("permanent", false)
+			stats.in_hand = event.is_private()
 			stats.flat = payload.get("flat", 0)
 			stats.times = payload.get("times", ScoreTracker.MULT_ONE)
 			stats.plus = payload.get("plus", 0)

@@ -37,6 +37,7 @@ var instance_id: int = -1
 
 var _flat_pulse: Tween = null
 var _bonus_pulse: Tween = null
+var _cost_pulse: Tween = null
 var _glow: MeshInstance3D = null
 var _crack: MeshInstance3D = null
 var _crack_material: StandardMaterial3D = null
@@ -56,11 +57,13 @@ var _base_face: Color = Color.WHITE
 @onready var _flat_label: Label3D = $CardMesh/FlatLabel
 @onready var _bonus_label: Label3D = $CardMesh/BonusLabel
 @onready var _text_label: Label3D = $CardMesh/TextLabel
+@onready var _grown_mark: Label3D = $CardMesh/GrownMark
 
 
 func show_def(def: CardDef) -> void:
 	_name_label.text = def.name
 	_cost_label.text = str(def.cost)
+	_grown_mark.visible = false
 	var times: int = ScoreTracker.MULT_ONE
 	var plus: int = 0
 	if def.bonus_kind == CardDef.BonusKind.TIMES:
@@ -71,12 +74,52 @@ func show_def(def: CardDef) -> void:
 	_text_label.text = rules_text(def)
 
 
+## Dresses the face from a view entry (SeatView `own_hand_row`, `own_row`, `opponent_row`;
+## cycle 8 P16, R24, R25): the effective cost, flat and bonus, and the grown mark when the
+## card carries memory. A key the entry lacks falls back to the printed value of `def`. The
+## rules text stays the card's own (cycle 6 C23).
+func show_entry(def: CardDef, entry: Dictionary) -> void:
+	_name_label.text = def.name
+	var cost: int = entry.get("cost", def.cost)
+	_cost_label.text = str(cost)
+	var times: int = ScoreTracker.MULT_ONE
+	var plus: int = 0
+	if def.bonus_kind == CardDef.BonusKind.TIMES:
+		times = def.bonus
+	elif def.bonus_kind == CardDef.BonusKind.PLUS:
+		plus = def.bonus
+	var flat: int = entry.get("flat", def.flat)
+	times = entry.get("times", times)
+	plus = entry.get("plus", plus)
+	_set_numbers(flat, times, plus)
+	_text_label.text = rules_text(def)
+	var grown: bool = entry.get("grown", false)
+	_grown_mark.visible = grown
+
+
+## The entry of card `id` in a view's rows, or an empty dictionary when it is not listed.
+static func entry_in(rows: Array[Dictionary], id: int) -> Dictionary:
+	for entry: Dictionary in rows:
+		var named: int = entry.get("card", MatchEvent.HIDDEN_CARD)
+		if named == id:
+			return entry
+	return {}
+
+
 ## Updates the shown flat and bonus and pulses the label that changed (R42). The tweens are
-## owned by the labels, so a card freed mid-pulse takes them along.
-func show_stats(flat: int, times: int, plus: int) -> void:
+## owned by the labels, so a card freed mid-pulse takes them along. A `cost` of 0 or more
+## also updates the cost label, and `permanent` shows the grown mark (cycle 8 R25, R26).
+func show_stats(flat: int, times: int, plus: int, cost: int = -1, permanent: bool = false) -> void:
 	var flat_changed: bool = _flat_label.text != str(flat)
 	var bonus_changed: bool = _bonus_label.text != bonus_text(times, plus)
 	_set_numbers(flat, times, plus)
+	var cost_changed: bool = cost >= 0 and _cost_label.text != str(cost)
+	if cost >= 0:
+		_cost_label.text = str(cost)
+	if permanent:
+		_grown_mark.visible = true
+	if cost_changed:
+		_cost_pulse = _pulse(_cost_label, _cost_pulse)
 	if flat_changed:
 		_flat_pulse = _pulse(_flat_label, _flat_pulse)
 	if bonus_changed:
@@ -204,6 +247,7 @@ func clear_def() -> void:
 	_bonus_label.text = ""
 	_bonus_label.visible = false
 	_text_label.text = ""
+	_grown_mark.visible = false
 
 
 ## Copies the face text and the face-up/down state from another card.
@@ -214,6 +258,7 @@ func copy_face_from(other: BoardCard) -> void:
 	_bonus_label.text = other._bonus_label.text
 	_bonus_label.visible = other._bonus_label.visible
 	_text_label.text = other._text_label.text
+	_grown_mark.visible = other._grown_mark.visible
 	face_down = other.face_down
 	instance_id = other.instance_id
 
@@ -284,7 +329,9 @@ func _capture_look() -> void:
 		face_mat = face_mat.duplicate() as StandardMaterial3D
 		front.material_override = face_mat
 		_base_face = face_mat.albedo_color
-	for label: Label3D in [_name_label, _cost_label, _flat_label, _bonus_label, _text_label]:
+	for label: Label3D in [
+		_name_label, _cost_label, _flat_label, _bonus_label, _text_label, _grown_mark
+	]:
 		_base_colors[label] = label.modulate
 	_build_crack()
 
