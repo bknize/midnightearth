@@ -4,9 +4,14 @@ extends RefCounted
 ## harness build their bots here, so one name picks one policy everywhere.
 ##
 ## make() returns null on anything it cannot build: an unknown name, a name whose class has
-## not landed yet (`tuned` at T04, `matrix` in milestone B), a level
-## outside 0..20, and a level below full strength for a bot without an evaluator (`greedy`,
-## `greedy_v1`, `random`). It never prints; the launcher reports the error (P16).
+## not landed yet (`matrix`, milestone B), a level outside 0..20, and a level below full
+## strength for a bot without an evaluator (`greedy`, `greedy_v1`, `random`). It never
+## prints; the launcher reports the error (P16).
+##
+## A bot with an evaluator (`tuned`) given no weights reads its shipped file
+## (default_weights_path); when that fails to load it gets the built-in defaults for its
+## name, with the file's `load_error` kept so the launcher can print its `Bot weights:`
+## warning (R11).
 
 ## Separates bot seeds from any other derivation of the match seed ("bot" in ASCII). Moved
 ## from GreedyBot with its value, so seed_for() is unchanged (cycle 7 P1, R5).
@@ -21,8 +26,8 @@ const WEIGHTS_DIR: String = "res://engine/bot/data/"
 const WEIGHTS_SUFFIX: String = "_weights.json"
 
 
-## The bot `name` seeded `bot_seed` over `cards`, with `weights` (the built-in defaults for
-## the name when null) and `level`; null when it cannot be built (see the class comment).
+## The bot `name` seeded `bot_seed` over `cards`, with `weights` (default_weights(name) when
+## null) and `level`; null when it cannot be built (see the class comment).
 static func make(
 	name: String, bot_seed: int, cards: MatchCards, weights: BotWeights, level: int
 ) -> BotPlayer:
@@ -37,17 +42,32 @@ static func make(
 		bot = GreedyV1Bot.new(bot_seed, cards)
 	elif name == "random":
 		bot = RandomBot.new(bot_seed, cards)
+	elif name == "tuned":
+		bot = TunedBot.new(bot_seed, cards)
 	if bot == null:
 		return null
 	bot.level = level
-	bot.weights = weights if weights != null else BotWeights.defaults(name)
+	bot.weights = weights if weights != null else default_weights(name)
 	return bot
 
 
-## The bot a seat gets when no name is given (R4): `greedy` until the tuned bot lands
-## (cycle 7 T04 switches it to `tuned`).
+## The weights bot `name` gets when none are given: the built-in defaults for a bot without
+## an evaluator; otherwise its shipped file (default_weights_path), or, when that fails to
+## load, the built-in defaults for the name carrying the file's `load_error` (R11).
+static func default_weights(name: String) -> BotWeights:
+	if NO_LEVEL.has(name):
+		return BotWeights.defaults(name)
+	var loaded: BotWeights = BotWeights.load(default_weights_path(name))
+	if loaded.load_error == "":
+		return loaded
+	var fallback: BotWeights = BotWeights.defaults(name)
+	fallback.load_error = loaded.load_error
+	return fallback
+
+
+## The bot a seat gets when no name is given (R4): the tuned bot (cycle 7 T04).
 static func default_name() -> String:
-	return "greedy"
+	return "tuned"
 
 
 ## The seed a caller should give the bot playing `seat` in a match seeded `match_seed`.
