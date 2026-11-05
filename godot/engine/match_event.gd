@@ -60,6 +60,8 @@ enum Kind {
 	## the source card (-1 for a Crew prompt) and `crew` the Crew id ("" for a card prompt).
 	## Public; the ability does not apply and no use is counted.
 	CHOICE_DECLINED,
+	## Cycle 8 P13 (T10): a Crew fired {seat, slot, crew, verb, trigger, uses_left}; public.
+	CREW_FIRED,
 }
 
 ## owner_seat of an event every seat may see in full.
