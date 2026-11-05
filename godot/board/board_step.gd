@@ -116,6 +116,12 @@ var cause: String = ""
 var cost: int = -1
 var permanent: bool = false
 var in_hand: bool = false
+## PULSE (first reveal): the card carries a grown bonus (public).
+var grown: bool = false
+## BURN from a row: the seat whose row it left (-1 for a hand burn); `slot` is its row index.
+var row_seat: int = -1
+## FIZZLE: "no_target" or "spent".
+var reason: String = ""
 ## CHOICE_SHOW, PROMPT: the zone chosen from and the pick.
 var zone: String = ""
 var index: int = -1

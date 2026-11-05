@@ -46,7 +46,7 @@ func test_a_printed_card_has_no_mark() -> void:
 	card.show_entry(_def(), {"cost": 3, "flat": 2, "times": 100, "plus": 0, "grown": false})
 	assert_bool(_label(card, "GrownMark").visible).is_false()
 	assert_str(_label(card, "CostLabel").text).is_equal("3")
-	card.show_def(_def())
+	card.show_entry(_def(), {})
 	assert_bool(_label(card, "GrownMark").visible).is_false()
 
 

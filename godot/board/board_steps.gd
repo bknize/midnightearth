@@ -174,6 +174,9 @@ static func _pulse(reveal: MatchEvent, scored: MatchEvent) -> BoardStep:
 	step.flat = payload.get("flat", 0)
 	step.times = payload.get("times", 100)
 	step.plus = payload.get("plus", 0)
+	if reveal != null:
+		step.cost = reveal.payload.get("cost", -1)
+		step.grown = reveal.payload.get("grown", false)
 	if reveal != null and step.destroyed:
 		# A destroyed reveal only flips: nothing scores, so nothing folds in.
 		step.revealed = false

@@ -60,20 +60,6 @@ var _base_face: Color = Color.WHITE
 @onready var _grown_mark: Label3D = $CardMesh/GrownMark
 
 
-func show_def(def: CardDef) -> void:
-	_name_label.text = def.name
-	_cost_label.text = str(def.cost)
-	_grown_mark.visible = false
-	var times: int = ScoreTracker.MULT_ONE
-	var plus: int = 0
-	if def.bonus_kind == CardDef.BonusKind.TIMES:
-		times = def.bonus
-	elif def.bonus_kind == CardDef.BonusKind.PLUS:
-		plus = def.bonus
-	_set_numbers(def.flat, times, plus)
-	_text_label.text = rules_text(def)
-
-
 ## Dresses the face from a view entry (SeatView `own_hand_row`, `own_row`, `opponent_row`;
 ## cycle 8 P16, R24, R25): the effective cost, flat and bonus, and the grown mark when the
 ## card carries memory. A key the entry lacks falls back to the printed value of `def`. The
