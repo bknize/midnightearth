@@ -36,7 +36,10 @@ extends FullMatchHarness
 # Emptied at DC-11 T10: the Crew fire (Gardener, Tallyman, Quartermaster; Salvager, Veil),
 # so seed 1 plays another match; the orchestrator re-pins it at verification (T14). Still
 # empty at DC-11 T11 (the tuned bot may decline an optional Crew prompt, cycle 8 R56, R57).
-const GOLDEN_TUNED: String = ""
+# Re-pinned at DC-11 T14 (four decks, live Crew, the T11 bot).
+const GOLDEN_TUNED: String = (
+	"seed=1 decks=bloom/ruin bot=tuned winner=0 wins=4-0 rounds=4 end=wins actions=74"
+)
 # END GOLDEN
 
 const SEED: int = 1

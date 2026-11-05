@@ -41,9 +41,12 @@ const EXPECTED_LINE: String = (
 ## moved at DC-11 T10 (live Crew: actions 64 -> 72, same result: "Board: match ended seed=1
 ## decks=bloom/ruin bot=tuned winner=0 wins=4-0 rounds=4 end=wins actions=72"). Emptied at
 ## DC-11 T11 (the tuned bot may decline an optional Crew prompt and answers Shade by rule,
-## cycle 8 R56, R57); the orchestrator re-pins it at T14.
+## cycle 8 R56, R57); re-pinned at DC-11 T14.
 ## While empty the test prints the line and checks only `bot=tuned`.
-const GOLDEN_TUNED: String = ""
+const GOLDEN_TUNED: String = (
+	"Board: match ended seed=1 decks=bloom/ruin bot=tuned winner=0 wins=4-0 rounds=4 end=wins"
+	+ " actions=74"
+)
 ## The bot the helpers build: the greedy bot, whose play the goldens pin (R5).
 const GREEDY: String = "greedy"
 const FULL_LEVEL: int = 20
