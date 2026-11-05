@@ -533,8 +533,8 @@ static func resolve_returns(state: MatchState, cards: MatchCards = null) -> Arra
 ## event is public when the card was revealed, and its identity in the pile is public too
 ## (`destroyed_known`, R18); it is private to its seat when the card never was, so the
 ## other seat sees the slot and not the card. A salvaged card (cycle 8 R51, DC-11 T10) goes
-## to its controller's hand instead, {pile: false, salvaged: true} then CrewEffects
-## .salvage() (the burn at the cap, the Crew of `cards`). Round end burns the piles
+## to its controller's hand instead through CrewEffects.salvage(): {pile: false, salvaged:
+## true}, or at the hand cap a row burn alone (T13 review). Round end burns the piles
 ## (MatchState.burn_destroyed_piles).
 static func clear_destroyed(state: MatchState, cards: MatchCards = null) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
@@ -549,13 +549,13 @@ static func clear_destroyed(state: MatchState, cards: MatchCards = null) -> Arra
 			var salvaged: bool = state.card_state_for(card).salvaged
 			var was_revealed: bool = state.take_from_row(seat, card)
 			var owner: int = PUBLIC if was_revealed else seat
+			if salvaged:
+				out.append_array(CrewEffects.salvage(state, cards, seat, card, slot, owner))
+				continue
 			var cleared: Dictionary = {
-				"seat": seat, "card": card, "slot": slot, "pile": not salvaged, "salvaged": salvaged
+				"seat": seat, "card": card, "slot": slot, "pile": true, "salvaged": false
 			}
 			out.append(MatchEvent.new(MatchEvent.Kind.DESTROYED_CLEARED, cleared, owner))
-			if salvaged:
-				out.append_array(CrewEffects.salvage(state, cards, seat, card, owner))
-				continue
 			piles.destroyed.append(card)
 			if was_revealed:
 				piles.destroyed_known[card] = true
