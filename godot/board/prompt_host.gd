@@ -23,6 +23,8 @@ var driver: MatchDriver = null
 ## Where the deck strip is built, and the board's card factory.
 var strip_parent: Node3D = null
 var spawn: Callable = Callable()
+## The Crew pool, for a Crew prompt's banner (cycle 8 R66); null reads every prompt as a card's.
+var crew_pool: CrewPool = null
 ## The multi-select's chosen positions in the prompt's zone, ascending (R48).
 var selected: Array[int] = []
 ## The deck strip of a recover prompt, or an idle one.
@@ -67,7 +69,7 @@ func open(prompt: Dictionary, text: String, view: SeatView) -> void:
 	close()
 	_prompt = prompt.duplicate(true)
 	selected.clear()
-	hud.show_prompt(text)
+	hud.show_prompt(PromptRules.banner_text(text, _crew_name()))
 	card_lift.set_rest_alpha(DIM_ALPHA)
 	var own_size: int = view.own_board.size()
 	for spot: CardSpot in PromptRules.spots(_prompt, own_size):
@@ -83,6 +85,8 @@ func open(prompt: Dictionary, text: String, view: SeatView) -> void:
 		_open_strip(view)
 	if is_multi():
 		hud.show_confirm(PromptRules.confirm_text(_prompt, 0))
+	if PromptRules.wants_skip(_prompt):
+		hud.show_skip(is_multi())
 
 
 func is_multi() -> bool:
@@ -124,6 +128,7 @@ func close(keep_strip: bool = false) -> void:
 	if hud != null:
 		hud.hide_action()
 		hud.hide_confirm()
+		hud.hide_skip()
 	for card: BoardCard in _lit:
 		if is_instance_valid(card):
 			card.set_selected(false)
@@ -240,6 +245,22 @@ func confirm() -> ApplyResult:
 	var chosen: Array[int] = []
 	chosen.assign(selected)
 	return driver.submit_set(zone, chosen)
+
+
+## The Skip button was pressed (R63): declines the open optional prompt; null when none is open.
+func skip() -> ApplyResult:
+	if not is_open() or driver == null or not PromptRules.wants_skip(_prompt):
+		return null
+	return driver.submit_decline()
+
+
+## The open prompt's Crew name, or "" for a card prompt (R66).
+func _crew_name() -> String:
+	var crew_id: String = _prompt.get("crew", "")
+	if crew_id == "" or crew_pool == null:
+		return ""
+	var def: CrewDef = crew_pool.crew_of(crew_id)
+	return "" if def == null else def.name
 
 
 func _refresh_selection() -> void:

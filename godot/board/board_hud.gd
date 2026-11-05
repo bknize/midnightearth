@@ -15,6 +15,8 @@ signal decks_pressed
 signal action_pressed
 ## The multi-select prompt's confirm button was pressed (R48).
 signal confirm_pressed
+## The Skip button of an optional prompt was pressed (cycle 8 R63).
+signal skip_pressed
 
 const PIPS_PER_SEAT: int = 4
 const PIP_ON: Color = Color(0.95, 0.78, 0.25, 1.0)
@@ -30,6 +32,8 @@ var _confirm_button: Button = null
 ## The confirm is out of sight while a card is lifted, so it never meets the action button.
 var _confirm_suspended: bool = false
 var _confirm_wanted: bool = false
+## The Skip button of an optional prompt, built in code, where the confirm button sits.
+var _skip_button: Button = null
 
 var _score_labels: Array[Label] = []
 var _destroyed_labels: Array[Label] = []
@@ -277,6 +281,40 @@ func confirm_visible() -> bool:
 
 func _on_confirm_button_pressed() -> void:
 	confirm_pressed.emit()
+
+
+## Shows the optional prompt's Skip button (R63), a plain Theme Button at the confirm button's
+## place; `above_confirm` lifts it one button higher when a multi-select confirm shares the
+## spot.
+func show_skip(above_confirm: bool = false) -> void:
+	if _skip_button == null:
+		_skip_button = Button.new()
+		_skip_button.name = "SkipButton"
+		_skip_button.text = "Skip"
+		var err: int = _skip_button.pressed.connect(_on_skip_button_pressed)
+		if err != OK:
+			push_warning("BoardHud: could not connect the skip button")
+		$Root.add_child(_skip_button)
+	_skip_button.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	var lift: float = 68.0 if above_confirm else 0.0
+	_skip_button.offset_left = -190.0
+	_skip_button.offset_right = -20.0
+	_skip_button.offset_top = -148.0 - lift
+	_skip_button.offset_bottom = -88.0 - lift
+	_skip_button.visible = true
+
+
+func hide_skip() -> void:
+	if _skip_button != null:
+		_skip_button.visible = false
+
+
+func skip_visible() -> bool:
+	return _skip_button != null and _skip_button.visible
+
+
+func _on_skip_button_pressed() -> void:
+	skip_pressed.emit()
 
 
 func show_pause(shown: bool) -> void:

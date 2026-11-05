@@ -1,3 +1,4 @@
+# gdlint: ignore=max-public-methods
 class_name TestBoardSteps
 extends GdUnitTestSuite
 ## BoardSteps (R31-R38): seat-0 events become animation steps. The events come from a real
@@ -548,3 +549,42 @@ func test_turn_start_carries_the_viewers_budget_and_free_first() -> void:
 	assert_int(step.energy).is_equal(3)
 	assert_int(step.budget).is_equal(5)
 	assert_bool(step.free_first).is_true()
+
+
+func test_crew_fired_yields_a_crew_fire_step() -> void:
+	var payload: Dictionary = {
+		"seat": 1,
+		"slot": 2,
+		"crew": "lookout",
+		"verb": "draw_on_return",
+		"trigger": "own_returned",
+		"uses_left": 1,
+	}
+	var step: BoardStep = _one(_event(MatchEvent.Kind.CREW_FIRED, payload))
+	assert_int(step.kind).is_equal(BoardStep.Kind.CREW_FIRE)
+	assert_int(step.seat).is_equal(1)
+	assert_int(step.slot).is_equal(2)
+	assert_str(step.crew).is_equal("lookout")
+	assert_str(step.verb).is_equal("draw_on_return")
+	assert_int(step.uses_left).is_equal(1)
+	assert_float(step.duration).is_equal_approx(0.25, EPSILON)
+
+
+func test_choice_declined_yields_a_decline_step() -> void:
+	var payload: Dictionary = {"seat": 0, "card": -1, "crew": "shade"}
+	var step: BoardStep = _one(_event(MatchEvent.Kind.CHOICE_DECLINED, payload))
+	assert_int(step.kind).is_equal(BoardStep.Kind.DECLINE)
+	assert_int(step.seat).is_equal(0)
+	assert_float(step.duration).is_equal_approx(0.15, EPSILON)
+
+
+func test_a_salvaged_clear_is_a_return_and_a_pile_clear_is_not() -> void:
+	var salvaged: Dictionary = {"seat": 0, "card": 7, "slot": 1, "pile": false, "salvaged": true}
+	var returned: BoardStep = _one(_event(MatchEvent.Kind.DESTROYED_CLEARED, salvaged))
+	assert_int(returned.kind).is_equal(BoardStep.Kind.RETURN)
+	assert_int(returned.slot).is_equal(1)
+	assert_bool(returned.pile).is_false()
+	var piled: Dictionary = {"seat": 0, "card": 7, "slot": 1, "pile": true}
+	var cleared: BoardStep = _one(_event(MatchEvent.Kind.DESTROYED_CLEARED, piled))
+	assert_int(cleared.kind).is_equal(BoardStep.Kind.CLEAR_DESTROYED)
+	assert_bool(cleared.pile).is_true()

@@ -1,3 +1,4 @@
+# gdlint: ignore=max-public-methods
 class_name TestLiftRules
 extends GdUnitTestSuite
 ## LiftRules (R1, R2, R9, R11). Steps come from a real seed-1 bot-vs-bot match, built the
@@ -235,3 +236,11 @@ func test_a_re_pulse_of_the_held_card_touches_it() -> void:
 	assert_bool(LiftRules.step_touches(pulse, 7, LiftRules.Place.ROW, false)).is_true()
 	var elsewhere: BoardStep = _card_step(BoardStep.Kind.PULSE, 0, 9)
 	assert_bool(LiftRules.step_touches(elsewhere, 7, LiftRules.Place.ROW, false)).is_false()
+
+
+func test_a_crew_lifts_to_read_and_a_crew_firing_sets_a_held_crew_down() -> void:
+	assert_bool(LiftRules.may_lift(LiftRules.Place.CREW, true)).is_true()
+	var step: BoardStep = BoardStep.new()
+	step.kind = BoardStep.Kind.CREW_FIRE
+	assert_bool(LiftRules.step_touches(step, -1, LiftRules.Place.CREW, false)).is_true()
+	assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.HAND, false)).is_false()

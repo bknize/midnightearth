@@ -106,6 +106,20 @@ static func toggled(selected: Array[int], option: int) -> Array[int]:
 	return out
 
 
+## Whether the prompt shows the Skip button: only an optional prompt does (cycle 8 R63).
+static func wants_skip(prompt: Dictionary) -> bool:
+	var optional: bool = prompt.get("optional", false)
+	return optional
+
+
+## The banner text: a Crew prompt reads "<Crew name>: <rules text>" (R66), any other prompt its
+## own text. An empty `crew_name` is a card prompt.
+static func banner_text(text: String, crew_name: String) -> String:
+	if crew_name == "":
+		return text
+	return "%s: %s" % [crew_name, text]
+
+
 ## The HUD confirm button's text for a multi prompt with `count` cards selected (R48).
 static func confirm_text(prompt: Dictionary, count: int) -> String:
 	var verb: int = prompt.get("verb", -1)
