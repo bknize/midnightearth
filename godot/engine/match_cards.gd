@@ -22,6 +22,10 @@ var _verbs: Dictionary[int, bool] = {}
 var _triggers: Dictionary[int, bool] = {}
 ## Each seat's Crew in slot order, seat 0's MatchRules.CREW_SIZE then seat 1's (R42).
 var _crew: Array[CrewDef] = []
+## Per seat, the CrewDef.Trigger values its Crew sit on, as sets (has_crew_trigger; DC-11
+## T10). Both empty when the Crew pool's Crew do not fire (CrewPool.fires) or the build
+## failed, so no Crew of the match fires.
+var _crew_triggers: Array[Dictionary] = [{}, {}]
 
 
 ## Resolves the definitions of a match where seat s plays the deck `deck_ids[s]` of
@@ -52,6 +56,11 @@ static func build(cards: CardDb, decks: DeckList, ids: Array[String], crew: Crew
 			seat_crew.append(crew.crew_of(crew_id))
 	out._defs = defs
 	out._crew = seat_crew
+	for at: int in range(seat_crew.size()):
+		var def: CrewDef = seat_crew[at]
+		if crew.fires and def != null:
+			var held: Dictionary = out._crew_triggers[0 if at < MatchRules.CREW_SIZE else 1]
+			held[def.trigger] = true
 	out._deck_ids.assign(ids)
 	for def: CardDef in defs:
 		if def != null and def.effect != null:
@@ -110,6 +119,38 @@ func crew_for(seat: int) -> Array[CrewDef]:
 		return out
 	out.assign(_crew.slice(seat * MatchRules.CREW_SIZE, (seat + 1) * MatchRules.CREW_SIZE))
 	return out
+
+
+## Whether a Crew of `seat` sits on `trigger` (a CrewDef.Trigger) and fires (DC-11 T10), or
+## with `seat` -1 a Crew of either seat. False when the pool's Crew do not fire
+## (CrewPool.fires) and after a failed build, so the Crew hooks can skip their work.
+func has_crew_trigger(trigger: int, seat: int = -1) -> bool:
+	if seat < 0:
+		return has_crew_trigger(trigger, 0) or has_crew_trigger(trigger, 1)
+	if seat >= _crew_triggers.size():
+		return false
+	var held: Dictionary = _crew_triggers[seat]
+	return held.has(trigger)
+
+
+## `seat`'s Crew in slot `slot`, or null when out of range (no copy of the list is made).
+func crew_def(seat: int, slot: int) -> CrewDef:
+	if seat < 0 or slot < 0 or slot >= MatchRules.CREW_SIZE:
+		return null
+	var at: int = seat * MatchRules.CREW_SIZE + slot
+	if at >= _crew.size():
+		return null
+	return _crew[at]
+
+
+## The slot of `seat`'s Crew with the id `crew_id`, or -1 when it holds none (a deck names
+## three distinct Crew, so the id is the slot's).
+func crew_slot(seat: int, crew_id: String) -> int:
+	for slot: int in range(MatchRules.CREW_SIZE):
+		var def: CrewDef = crew_def(seat, slot)
+		if def != null and def.id == crew_id:
+			return slot
+	return -1
 
 
 ## `seat`'s Crew ids in slot order, as plain data (MATCH_STARTED `crew`, SeatView.crew);

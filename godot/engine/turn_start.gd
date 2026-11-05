@@ -18,9 +18,13 @@ extends RefCounted
 ##
 ## The firing is `fire`, a Callable (state: MatchState, cards: MatchCards, rng: MatchRng,
 ## seat: int, slot: int) -> EffectResolver.Outcome: the Outcome's events in order, and the
-## prompt the Crew needs ({zone, options}, the rest stamped here; no CHOICE_REQUESTED of
-## its own), or no prompt when it resolved. The Crew abilities land with DC-11 T10
-## (CrewEffects); until then `fire` is unset, so no Crew fires, and the tests set a stub.
+## prompt the Crew needs ({zone, options}, the rest stamped by CrewEffects.open_prompt; no
+## CHOICE_REQUESTED of its own), or no prompt when it resolved; null when the Crew does
+## not fire. It is
+## CrewEffects.turn_start (DC-11 T10: Quartermaster, Shade) unless a test sets a stand-in
+## (StubCrew). After each firing that resolved, and when run() resumes after a Crew
+## prompt's answer, the Crew trigger queue drains (CrewEffects.drain_all: Lookout's draw
+## after Shade's flip), so its Crew act before the next turn-start Crew.
 ## Pure: no nodes, no clock; the only randomness is the engine stream handed to `fire`.
 
 ## MatchState.turn_start_at outside the turn start.
@@ -28,6 +32,10 @@ const DONE: int = -1
 
 ## The Crew firing (see the class comment); an invalid Callable fires nothing.
 var fire: Callable = Callable()
+
+
+func _init() -> void:
+	fire = _crew_fire
 
 
 ## Starts the turn start's Crew at the first seat's slot 0 (MatchEngine._begin_turn, after
@@ -43,6 +51,7 @@ func begin(state: MatchState, cards: MatchCards, rng: MatchRng, out: Array[Match
 ## AWAIT_FIRST.
 func run(state: MatchState, cards: MatchCards, rng: MatchRng, out: Array[MatchEvent]) -> void:
 	var total: int = 2 * MatchRules.CREW_SIZE
+	out.append_array(CrewEffects.drain_all(state, cards))
 	while state.turn_start_at >= 0 and state.turn_start_at < total:
 		var at: int = state.turn_start_at
 		state.turn_start_at += 1
@@ -59,9 +68,10 @@ func run(state: MatchState, cards: MatchCards, rng: MatchRng, out: Array[MatchEv
 			continue
 		out.append_array(outcome.events)
 		if outcome.needs_prompt():
-			_open(state, seat, def, outcome.prompt, out)
+			CrewEffects.open_prompt(state, seat, def, outcome.prompt, Choice.RESUME_TURN_START, out)
 			state.phase = MatchState.Phase.AWAIT_CHOICE
 			return
+		out.append_array(CrewEffects.drain_all(state, cards))
 	state.turn_start_at = DONE
 	state.phase = MatchState.Phase.AWAIT_FIRST
 
@@ -73,20 +83,8 @@ static func is_paused(state: MatchState) -> bool:
 	return Choice.resume_of(state.prompt) == Choice.RESUME_TURN_START
 
 
-## Opens the Crew prompt of `def` (seat `seat`) from the firing's `found` (see the class
-## comment) and announces it on `out`.
-static func _open(
-	state: MatchState, seat: int, def: CrewDef, found: Dictionary, out: Array[MatchEvent]
-) -> void:
-	var prompt: Dictionary = found.duplicate(true)
-	prompt[EffectResolver.KEY_SEAT] = seat
-	prompt[EffectResolver.KEY_CARD] = -1
-	prompt[EffectResolver.KEY_VERB] = def.verb
-	prompt[Choice.KEY_MULTI] = Choice.is_multi_prompt(found)
-	prompt[Choice.KEY_OPTIONAL] = def.optional
-	prompt[Choice.KEY_RESUME] = Choice.RESUME_TURN_START
-	prompt[Choice.KEY_CREW] = def.id
-	state.prompt = prompt
-	var verb: String = CrewDef.VERB_NAMES[def.verb]
-	var requested: Dictionary = EffectResolver.requested(prompt, verb, def.text)
-	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_REQUESTED, requested))
+## The shipped firing (`fire`'s default): CrewEffects.turn_start.
+func _crew_fire(
+	state: MatchState, cards: MatchCards, rng: MatchRng, seat: int, slot: int
+) -> EffectResolver.Outcome:
+	return CrewEffects.turn_start(state, cards, rng, seat, slot)

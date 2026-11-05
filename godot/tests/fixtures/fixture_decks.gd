@@ -361,7 +361,18 @@ static func decks() -> DeckList:
 ## The Crew pool the fixture decks name their Crew from (DC-11 T08, cycle 8 P12): the
 ## shipped pool, the only one there is until a frozen Crew fixture lands. The fixture deck
 ## lists navigator, gardener and lookout; the in-memory Ruin and Drift decks the plan's.
+## Its Crew do not fire (CrewPool.fires cleared, DC-11 T10): the suites built on it were
+## pinned before the Crew, and their matches and replays keep those pins. The Crew still
+## stand in MATCH_STARTED, the views and crew_uses. test_crew_effects.gd builds on
+## live_crew() instead.
 static func crew() -> CrewPool:
+	var pool: CrewPool = CrewPool.load_default()
+	pool.fires = false
+	return pool
+
+
+## The shipped Crew pool with its Crew firing (DC-11 T10), for the suites that test them.
+static func live_crew() -> CrewPool:
 	return CrewPool.load_default()
 
 

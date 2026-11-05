@@ -74,6 +74,13 @@ extends RefCounted
 ## records the card, the slot and the next stage in `walk.paused_*` (for WATCHERS and
 ## ALLY_WATCHERS with that stage's snapshot and next index); the next step() resumes there
 ## (step()).
+##
+## The Crew (DC-11 T10, cycle 8 R46, P13): a firing that resolved without a prompt is
+## followed by a drain of the Crew trigger queue (CrewEffects.drain) before the pulse goes
+## on: after the on-reveal effect and after each watcher, and after the score's bursts and
+## on-score effect together. A Crew prompt pauses the pulse at the stage that would come
+## next, as a card's prompt does; step() drains again before resuming, so the Crew an
+## answer queued (a card's or a Crew's) fire before the pulse goes on.
 
 ## Where a pulse resumes after a prompt (WalkState.paused_stage). DONE: nothing is left.
 enum Stage { REVEAL_EFFECT, WATCHERS, ALLY_WATCHERS, SCORE, DONE }
@@ -135,6 +142,8 @@ static func next_card(state: MatchState) -> int:
 ## cheap: the positional parts look at the card's two neighbours and its own slot only, and
 ## are skipped outright in a match where no definition carries either positional verb
 ## (MatchCards.has_verb), since every lookup would then leave the ×-part as it is.
+## Tallyman (DC-11 T10, cycle 8 P14) applies after `flat_delta` and `temp_plus`, before
+## `no_bonus`: CrewEffects.tallied(), skipped unless some seat's Crew sit on ONGOING.
 ## A copied base (R34, C22) holds the target's whole shown bonus, a ×-part and a +-part at
 ## once when it showed both; the copier's own positional parts, `flat_delta`, `temp_plus`
 ## and `no_bonus` apply on top of it as on a printed base (P5).
@@ -164,9 +173,11 @@ static func effective(card: int, state: MatchState, cards: MatchCards) -> Effect
 	if held != null:
 		out.flat += held.flat_delta
 		out.plus += held.temp_plus
-		if held.no_bonus:
-			out.times = MatchRules.MULT_ONE
-			out.plus = 0
+	if cards.has_crew_trigger(CrewDef.Trigger.ONGOING):
+		out.times = CrewEffects.tallied(card, state, cards, out.flat, out.times)
+	if held != null and held.no_bonus:
+		out.times = MatchRules.MULT_ONE
+		out.plus = 0
 	return out
 
 
@@ -302,6 +313,9 @@ static func step(
 	# Still waiting for the choice: nothing moves until EffectResolver.answer() runs.
 	if not state.prompt.is_empty():
 		return true
+	# The Crew an answered prompt queued fire first (DC-11 T10, P13); one may prompt again.
+	if _drain(state, cards, sink, policy):
+		return true
 	if walk.paused_card >= 0:
 		var resumed: int = walk.paused_card
 		var slot: int = walk.paused_slot
@@ -355,6 +369,22 @@ static func run(
 		if step(state, cards, rng, sink, policy):
 			return true
 	return false
+
+
+## Drains the Crew trigger queue (CrewEffects.drain) once a firing or an answer has
+## resolved (cycle 8 R46, P13; DC-11 T10), its events forwarded as an effect's. True when a
+## Crew prompt opened (`state.prompt`), which pauses the pulse as a card's prompt does; a
+## preview opens none (its policy declines the Crew).
+static func _drain(
+	state: MatchState, cards: MatchCards, sink: Callable, policy: PreviewPolicy
+) -> bool:
+	if state.crew_queue.is_empty():
+		return false
+	var outcome: EffectResolver.Outcome = EffectResolver.Outcome.new()
+	outcome.quiet = policy != null
+	var opened: bool = CrewEffects.drain(state, cards, policy, true, outcome)
+	_forward(outcome.events, sink, policy)
+	return opened
 
 
 ## Sends an effect's events to `sink` with their owners, on a live walk only.
@@ -537,7 +567,7 @@ class Pulse:
 		var at: int = stage
 		while at != ScoreWalk.Stage.DONE:
 			if at == ScoreWalk.Stage.REVEAL_EFFECT:
-				if _fire(seat, revealer, CardEffect.Trigger.ON_REVEAL):
+				if _fire(seat, revealer, CardEffect.Trigger.ON_REVEAL) or _drain():
 					_pause(revealer, slot, ScoreWalk.Stage.WATCHERS)
 					return true
 				at = ScoreWalk.Stage.WATCHERS
@@ -604,9 +634,9 @@ class Pulse:
 			_pause(card, slot, ScoreWalk.Stage.DONE)
 			return true
 		var piles: MatchState.SeatPiles = state.seats[seat]
-		if not piles.is_revealed(card):
-			return false
-		if _fire(seat, card, CardEffect.Trigger.ON_SCORE):
+		var fired: bool = piles.is_revealed(card) and _fire(seat, card, CardEffect.Trigger.ON_SCORE)
+		# The Crew of the bursts and the on-score effect fire once both resolved (DC-11 T10).
+		if fired or _drain():
 			_pause(card, slot, ScoreWalk.Stage.DONE)
 			return true
 		return false
@@ -647,7 +677,7 @@ class Pulse:
 			# An earlier firing may have taken it off the row or turned it face down.
 			if not piles.board.has(watcher) or not piles.is_revealed(watcher):
 				continue
-			if _fire(other, watcher, CardEffect.Trigger.ON_OPPONENT_REVEAL):
+			if _fire(other, watcher, CardEffect.Trigger.ON_OPPONENT_REVEAL) or _drain():
 				_pause(card, slot, ScoreWalk.Stage.WATCHERS)
 				return true
 		return false
@@ -683,7 +713,7 @@ class Pulse:
 			watcher_at += 1
 			if not piles.board.has(watcher) or not piles.is_revealed(watcher):
 				continue
-			if _fire(seat, watcher, CardEffect.Trigger.ON_ALLY_REVEAL):
+			if _fire(seat, watcher, CardEffect.Trigger.ON_ALLY_REVEAL) or _drain():
 				_pause(card, slot, ScoreWalk.Stage.ALLY_WATCHERS)
 				return true
 		return false
@@ -718,6 +748,11 @@ class Pulse:
 			return false
 		state.prompt = outcome.prompt
 		return true
+
+	## Drains the Crew trigger queue after a firing resolved (ScoreWalk._drain); true when a
+	## Crew prompt opened, so the caller pauses as for a card's prompt.
+	func _drain() -> bool:
+		return ScoreWalk._drain(state, cards, sink, policy)
 
 	## Records where the pulse of `slot` resumes: `card`, the card whose stage was running,
 	## `stage`, and for WATCHERS and ALLY_WATCHERS the snapshot and next index (an empty

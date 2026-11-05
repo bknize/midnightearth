@@ -420,8 +420,9 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.CARD_DESTROYED:
 			keys = ["seat", "card", "slot"]
 		MatchEvent.Kind.DESTROYED_CLEARED:
-			# DC-07 P6: the card went to its seat's destroyed pile.
-			keys = ["seat", "card", "slot", "pile"]
+			# DC-07 P6: the card went to its seat's destroyed pile; DC-11 T10 (cycle 8 R51):
+			# or, salvaged, to its hand.
+			keys = ["seat", "card", "slot", "pile", "salvaged"]
 		MatchEvent.Kind.CARD_RECOVERED:
 			keys = ["seat", "card", "from_seat", "position"]
 		MatchEvent.Kind.BONUS_ZERO_SET, MatchEvent.Kind.FREE_FIRST_SET:
@@ -446,6 +447,12 @@ func _payload_keys(kind: int) -> Array:
 			# DC-07: the deck ids only; the seed would predict every shuffle. DC-11 T08
 			# (cycle 8 R42): both seats' Crew ids.
 			keys = ["decks", "crew"]
+		MatchEvent.Kind.CHOICE_DECLINED:
+			# DC-11 T09 (cycle 8 P10): public.
+			keys = ["seat", "card", "crew"]
+		MatchEvent.Kind.CREW_FIRED:
+			# DC-11 T10 (cycle 8 P13): public; names no card.
+			keys = ["seat", "slot", "crew", "verb", "trigger", "uses_left"]
 	return keys
 
 

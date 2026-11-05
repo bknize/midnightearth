@@ -213,7 +213,10 @@ func test_a_destroyed_card_is_piled_at_turn_end_and_burned_at_round_end() -> voi
 	assert_bool(turn_six.ok).is_true()
 	var cleared: Array[MatchEvent] = _of_kind(turn_six.events, CLEARED)
 	assert_int(cleared.size()).is_equal(1)
-	_assert_event(cleared[0], CLEARED, {"seat": 1, "card": first, "slot": 0, "pile": true}, PUBLIC)
+	var payload: Dictionary = {
+		"seat": 1, "card": first, "slot": 0, "pile": true, "salvaged": false
+	}
+	_assert_event(cleared[0], CLEARED, payload, PUBLIC)
 	var other: MatchState.SeatPiles = state.seats[1]
 	assert_int(engine.energy()).is_equal(7)
 	assert_array(other.destroyed).is_equal(_typed([first]))

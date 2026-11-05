@@ -45,6 +45,14 @@ const ERR_OPTIONAL: String = "bad optional"
 const ERR_SCOPE: String = "bad scope"
 const ERR_USES: String = "bad uses"
 
+## Whether this pool's Crew fire in a match (DC-11 T10; cycle 8 R45-R51): true for every
+## loaded pool. A test seam, as StubCrew is for TurnStart.fire: the suites written before
+## the Crew (DC-05 to DC-09) build their matches on a pool with it cleared
+## (FixtureDecks.crew()), so their pinned walks, hands and events hold while MATCH_STARTED,
+## the views and MatchState.crew_uses still name the Crew. MatchCards.build() reads it, so
+## a replay over the same pool fires the same Crew (none).
+var fires: bool = true
+
 var _crew: Array[CrewDef] = []
 var _index_by_id: Dictionary[String, int] = {}
 var _error: String = ""

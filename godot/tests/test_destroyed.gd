@@ -157,7 +157,7 @@ func _assert_event(event: MatchEvent, kind: int, payload: Dictionary, owner: int
 
 ## A DESTROYED_CLEARED payload (DC-07 P6: the card went to the destroyed pile).
 func _cleared(seat: int, card: int, slot: int) -> Dictionary:
-	return {"seat": seat, "card": card, "slot": slot, "pile": true}
+	return {"seat": seat, "card": card, "slot": slot, "pile": true, "salvaged": false}
 
 
 func _fired(seat: int, card: int, verb: String, trigger: String) -> Dictionary:
