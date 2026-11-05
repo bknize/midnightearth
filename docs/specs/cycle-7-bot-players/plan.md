@@ -256,6 +256,8 @@ did not change, except R17 (spec C14).
   prints `stamp=MISMATCH`. A rules-version bump still trips `test_action_log`'s own
   version pins, as before this cycle. The T06 worker smoke over seeds 1–10 gives 16 pairs
   and 32 games, not 20: the six mixed-deck seeds are played deck-swapped too (P17).
+- **Test budget (Ben, spec C15).** The test stage's budget is 30 s of gdUnit time from
+  this cycle on (about 25 s at T11); no test was trimmed.
 
 ## Open questions
 

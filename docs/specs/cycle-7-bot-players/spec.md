@@ -301,6 +301,7 @@ orchestrator exactly which two commands to run before merging.
 | C12 | Round 3 Q4: proof | 4a: milestone A: `make check` with the new sweep line, golden re-pinned, a `bot-eval` summary in the cycles log, one screenshot of the tuned bot's first commit; milestone B: SPRT pass lines for the trained weights and the matrix bot, committed weights, one training match replayed |
 | C13 | Round 3 defaults, no objection | The frozen reference is cycle 6's final GreedyBot copied after its T08, never edited beyond R22; the random bot is the floor; best-so-far is the committed weights file |
 | C14 | DC-08 run, latency (2026-11-04) | 1a: the shipped cap is k = 24 (the built-in default too): it chose as `greedy_v1` in every game of a 111-pair non-regression `bot-eval` (PASS), quiet-run p99 7.0 ms; k = 48 barely pruned (13–77 candidates a position). 2a: the sweep asserts the 99th percentile under 10 ms and prints the slowest without asserting it, since one OS stall on a shared machine decides the slowest (46–393 ms seen); R17 amended |
+| C15 | DC-08 T11, test budget (2026-11-04) | 1b: the test stage's budget is 30 s of gdUnit time, up from 15 s (cycle 6 C23), and every test is kept: gdUnit ran about 25 s, the 50-seed tuned sweep about 8 s and `test_tuned_bot` about 9 s (its 20-seed full-search parity check about 4.7 s). Rejected: trimming the parity and repeat checks to reach about 19 s (a), or also halving the sweep to hold 15 s (c) |
 
 ## Scenarios
 
@@ -365,8 +366,9 @@ orchestrator exactly which two commands to run before merging.
 Milestone A
 - [ ] R1–R38 and R56–R57 each covered by a named gdUnit4 case, the sweep line, the boot
       log, a harness run or a step of the verification.
-- [ ] `make check` green, test stage under 15 s; sweep line shows `bot=tuned`, slowest under
-      10 ms, `stamp=match`; the seed-1 golden re-pinned under the tuned bot.
+- [ ] `make check` green, test stage under 30 s of gdUnit time (C15); sweep line shows
+      `bot=tuned`, p99 under 10 ms (C14), `stamp=match`; the seed-1 golden re-pinned under
+      the tuned bot.
 - [ ] `make bot-eval` exits 0 with its summary line pasted into the cycles log; the ledger
       has its first two rows (greedy_v1 frozen, tuned v1 shipped).
 - [ ] One screenshot: the board at the tuned bot's first commit.

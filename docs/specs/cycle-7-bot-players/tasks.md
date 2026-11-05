@@ -66,7 +66,8 @@ own cycle on `cycle-7b-bot-players` cut from `master` after A merges (plan, Risk
 
 Owned by the orchestrator, on `cycle-7-bot-players`, editor opened on the cycle worktree.
 
-- [ ] `make check` exits 0, test stage under 15 s; record the case count. The sweep line
+- [ ] `make check` exits 0, test stage under 30 s of gdUnit time (C15); record the case
+      count. The sweep line
       reads `bot=tuned p95_us=… p99_us=… stamp=match` with `p99_us < 10000`; record
       `slowest_us` (C14).
 - [ ] Re-pin the seed-1 golden under the tuned bot: smoke and `Board: match ended …` lines
