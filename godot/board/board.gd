@@ -83,6 +83,8 @@ var _tracker: ScoreTracker = ScoreTracker.new()
 var _fx: EffectPlayer = EffectPlayer.new()
 ## The prompt on the table (R55-R57): banner, glows, dim and tap routing.
 var _prompt: PromptHost = PromptHost.new()
+## Each side's three Crew beside its hand (cycle 8 R59-R62).
+var _crew_line: CrewLine = CrewLine.new()
 ## True when the first seed was fixed (`fixed_seed` or --seed=), so a rematch uses seed + 1.
 var _seed_fixed: bool = false
 var _paused: bool = false
@@ -134,6 +136,8 @@ func _ready() -> void:
 		push_warning("Board: could not connect the card lift or action signals")
 	if hud.confirm_pressed.connect(_on_confirm_pressed) != OK:
 		push_warning("Board: could not connect the confirm button")
+	if hud.skip_pressed.connect(_on_skip_pressed) != OK:
+		push_warning("Board: could not connect the skip button")
 	_cards = CardDb.load_default()
 	if not _cards.is_valid():
 		push_error("Card data failed to load: %s" % _cards.load_error())
@@ -192,6 +196,7 @@ func _setup_effects() -> void:
 	_prompt.wire(_collections(), card_lift, hud, _row_glow.material_override)
 	_prompt.strip_parent = self
 	_prompt.spawn = _spawn_card
+	_prompt.crew_pool = _crew
 
 
 ## Starts a fresh match (new driver, empty table, opening steps); a "" deck id = seeded pick.
@@ -222,6 +227,7 @@ func start_match(new_seed: int, deck_ids: Array[String]) -> void:
 		push_error("Board: the match did not start (seed %d)" % new_seed)
 		_halted = true
 		return
+	_crew_line.build(self, driver.view(), _crew)
 	_enqueue(events)
 	_run()
 
@@ -275,13 +281,6 @@ func _resolve_seed(args: PackedStringArray) -> int:
 	var flagged: int = fixed_seed if fixed_seed != 0 else BoardSeeds.from_args(args)
 	_seed_fixed = flagged != 0
 	return flagged if flagged != 0 else BoardSeeds.clock_seed()
-
-
-## The rematch seed (R43): seed + 1 when the first seed was fixed, else a fresh clock seed.
-func _next_seed() -> int:
-	if _seed_fixed and driver != null:
-		return BoardSeeds.bumped(driver.match_seed)
-	return BoardSeeds.clock_seed()
 
 
 # --- The queue ---------------------------------------------------------------------------
@@ -391,6 +390,7 @@ func _end_wait() -> void:
 
 func _apply(step: BoardStep) -> void:
 	_fx.note_step(step)
+	_crew_line.note_step(step)
 	staging.clear_view_costs()
 	_tracker.apply(step)
 	hud.set_destroyed(_tracker.destroyed)
@@ -456,6 +456,8 @@ func _apply_effect(step: BoardStep) -> void:
 			_fx.discard(step)
 		BoardStep.Kind.PROMPT:
 			_open_prompt(step)
+		BoardStep.Kind.DECLINE:
+			_close_prompt()
 
 
 ## The HUD shows the tracker's held totals only: the previous turn's (R33, R35).
@@ -616,6 +618,11 @@ func _on_action_pressed() -> void:
 ## The HUD confirm (R48): submits the selected set.
 func _on_confirm_pressed() -> void:
 	_answer(_prompt.confirm())
+
+
+## The Skip button (R63): declines the optional prompt.
+func _on_skip_pressed() -> void:
+	_answer(_prompt.skip())
 
 
 # --- Card helpers ------------------------------------------------------------------------
@@ -894,6 +901,8 @@ func _on_pointer_cancelled() -> void:
 
 ## The LiftRules.Place of a card, or -1 if it is in no collection.
 func _place_of(card: Card3D) -> int:
+	if _crew_line.has_card(card):
+		return LiftRules.Place.CREW
 	if player_hand.cards.has(card):
 		return LiftRules.Place.HAND
 	if player_row.cards.has(card):
@@ -909,14 +918,14 @@ func _place_of(card: Card3D) -> int:
 ## it if the rules allow (R1, R2), never during a drag or a pause (R7).
 func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
 	if _prompt.is_open() and not _paused:
-		_prompt.handle_tap(_card_from_hit(hit))
+		_prompt.handle_tap(LiftRules.card_from_hit(hit))
 		return
 	if card_lift.is_holding():
 		card_lift.put_down()
 		return
 	if _paused or _drag_card != null:
 		return
-	var card: BoardCard = _card_from_hit(hit)
+	var card: BoardCard = LiftRules.card_from_hit(hit)
 	if card == null:
 		return
 	var place: int = _place_of(card)
@@ -924,16 +933,6 @@ func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
 		return
 	if LiftRules.may_lift(place as LiftRules.Place, not card.face_down):
 		card_lift.lift(card)
-
-
-func _card_from_hit(hit: Object) -> BoardCard:
-	var node: Node = hit as Node
-	if node == null:
-		return null
-	var card: BoardCard = node as BoardCard
-	if card == null:
-		card = node.get_parent() as BoardCard
-	return card
 
 
 func _on_card_lifted(_card: BoardCard) -> void:
@@ -997,4 +996,4 @@ func _on_concede_pressed() -> void:
 
 func _on_rematch_pressed() -> void:
 	hud.hide_result()
-	start_match(_next_seed(), _deck_ids)
+	start_match(BoardSeeds.rematch(_seed_fixed, driver.match_seed), _deck_ids)

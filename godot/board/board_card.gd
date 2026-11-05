@@ -28,12 +28,21 @@ const CRACK_Z: float = 0.02
 const CRACK_IMAGE_SIZE: Vector2i = Vector2i(128, 180)
 const CRACK_SEED: int = 7
 
+## The Crew look (cycle 8 R59, R60): the face is dimmed to this brightness once spent.
+const CREW_DIM_BRIGHTNESS: float = 0.5
+const CREW_DIM_ALPHA: float = 0.45
+const BADGE_POSITION: Vector3 = Vector3(0.0, -1.4, 0.01)
+const BADGE_FONT_SIZE: int = 44
+const BADGE_COLOR: Color = Color(0.1, 0.25, 0.7, 1.0)
+
 ## The crack image from `godot/art/` when the file exists (ADR 0003 manifest); otherwise the
 ## placeholder built in code. One path, so a later `/art` image drops in with no code change.
 @export var crack_texture_path: String = "res://art/destroyed/crack.png"
 
 ## Engine instance id; -1 for an unrevealed opponent card.
 var instance_id: int = -1
+## A Crew card's uses badge, built by show_crew(); null on every other card.
+var badge: Label3D = null
 
 var _flat_pulse: Tween = null
 var _bonus_pulse: Tween = null
@@ -81,6 +90,57 @@ func show_entry(def: CardDef, entry: Dictionary) -> void:
 	_text_label.text = rules_text(def)
 	var grown: bool = entry.get("grown", false)
 	_grown_mark.visible = grown
+
+
+## Dresses the face as a Crew (cycle 8 R59): its name and rules text, no cost, flat or bonus,
+## and a uses badge under the text. A Crew is not a card and has no instance id.
+func show_crew(crew_name: String, text: String) -> void:
+	_name_label.text = crew_name
+	_text_label.text = text
+	_cost_label.text = ""
+	_flat_label.text = ""
+	_bonus_label.visible = false
+	_grown_mark.visible = false
+	if badge == null:
+		badge = Label3D.new()
+		badge.name = "Badge"
+		badge.pixel_size = 0.01
+		badge.double_sided = false
+		badge.outline_size = 0
+		badge.font_size = BADGE_FONT_SIZE
+		badge.modulate = BADGE_COLOR
+		badge.position = BADGE_POSITION
+		var mesh: Node3D = $CardMesh as Node3D
+		mesh.add_child(badge)
+
+
+## Sets the badge text; an empty text hides it (an unlimited Crew shows none, R60).
+func set_badge(text: String) -> void:
+	if badge == null:
+		return
+	badge.text = text
+	badge.visible = text != ""
+
+
+## Dims a spent Crew (R60): the face darkens and the labels fade. Own materials, made once.
+func set_dim(on: bool) -> void:
+	var shade: float = CREW_DIM_BRIGHTNESS if on else 1.0
+	for part: String in ["CardBackMesh", "CardFrontMesh"]:
+		var mesh: MeshInstance3D = get_node_or_null("CardMesh/" + part) as MeshInstance3D
+		if mesh == null:
+			continue
+		var material: StandardMaterial3D = mesh.material_override as StandardMaterial3D
+		if material == null:
+			continue
+		if not material.has_meta(&"crew_base"):
+			material = material.duplicate() as StandardMaterial3D
+			material.set_meta(&"crew_base", material.albedo_color)
+			mesh.material_override = material
+		var base: Color = material.get_meta(&"crew_base")
+		material.albedo_color = Color(base.r * shade, base.g * shade, base.b * shade, base.a)
+	for label: Label3D in [_name_label, _text_label, badge]:
+		if label != null:
+			label.modulate.a = CREW_DIM_ALPHA if on else 1.0
 
 
 ## The entry of card `id` in a view's rows, or an empty dictionary when it is not listed.

@@ -10,7 +10,8 @@ extends DragStrategy
 ##   is_played(card)  -> bool   the card is played (revealed or committed); never draggable
 ## An unset callable answers false (is_locked answers true).
 
-enum Role { PLAYER_HAND, PLAYER_ROW, OPPONENT }
+## CREW is a Crew line (cycle 8 R62): nothing in it ever drags.
+enum Role { PLAYER_HAND, PLAYER_ROW, OPPONENT, CREW }
 
 var role: Role = Role.OPPONENT
 var can_act: Callable = Callable()

@@ -118,6 +118,12 @@ func submit_set(zone: int, indices: Array[int]) -> ApplyResult:
 	return submit_player(EngineAction.choose_set(PLAYER_SEAT, zone, indices))
 
 
+## Declines seat 0's open optional prompt (cycle 8 R52, P10): the Skip button. Rejected like
+## any action when no prompt is open or the prompt is not optional.
+func submit_decline() -> ApplyResult:
+	return submit_player(EngineAction.decline(PLAYER_SEAT))
+
+
 ## Seat 0's open prompt (`{seat, card, verb, zone, options, multi}`), or `{}` when none is
 ## open for seat 0. Options are positions in the zone, never hidden ids (R34); `multi` is
 ## true when the prompt takes a set (submit_set) rather than one position (submit_choice).

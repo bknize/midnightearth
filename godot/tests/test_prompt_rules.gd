@@ -238,3 +238,18 @@ func test_a_pile_prompt_glows_no_row_card_and_routes_strip_entries() -> void:
 	assert_int(lift.index).is_equal(1)
 	var swap: PromptTap = PromptRules.route(true, 0, true, 1)
 	assert_int(swap.kind).is_equal(PromptRules.Tap.SWAP_LIFT)
+
+
+func test_an_optional_prompt_wants_the_skip_button_and_a_plain_one_does_not() -> void:
+	var plain: Dictionary = _prompt(Choice.Zone.OWN_HAND, [0])
+	assert_bool(PromptRules.wants_skip(plain)).is_false()
+	plain["optional"] = false
+	assert_bool(PromptRules.wants_skip(plain)).is_false()
+	var optional: Dictionary = _prompt(Choice.Zone.OWN_HAND, [0])
+	optional["optional"] = true
+	assert_bool(PromptRules.wants_skip(optional)).is_true()
+
+
+func test_a_crew_prompt_banner_names_the_crew() -> void:
+	assert_str(PromptRules.banner_text("Flip one card.", "Shade")).is_equal("Shade: Flip one card.")
+	assert_str(PromptRules.banner_text("Swap two cards.", "")).is_equal("Swap two cards.")

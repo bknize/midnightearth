@@ -59,6 +59,11 @@ enum Kind {
 	STRIP_SHOW,
 	## The deck strip slides away.
 	STRIP_HIDE,
+	## A Crew's ability fires (CREW_FIRED): `seat`, `slot`, `crew`, `verb`, `trigger`,
+	## `uses_left`. The Crew lifts and settles.
+	CREW_FIRE,
+	## An optional prompt was declined (CHOICE_DECLINED): the prompt clears.
+	DECLINE,
 }
 
 var kind: int = Kind.CLEAR_TABLE
@@ -120,6 +125,9 @@ var in_hand: bool = false
 var grown: bool = false
 ## BURN from a row: the seat whose row it left (-1 for a hand burn); `slot` is its row index.
 var row_seat: int = -1
+## CREW_FIRE: the Crew's id and the uses it has left (-1 unlimited).
+var crew: String = ""
+var uses_left: int = -1
 ## FIZZLE: "no_target" or "spent".
 var reason: String = ""
 ## CHOICE_SHOW, PROMPT: the zone chosen from and the pick.

@@ -42,6 +42,8 @@ const ROUND_END_TIME: float = 0.30
 const UNREVEAL_TIME: float = 0.35
 const RECOVER_TIME: float = 0.3
 const STRIP_TIME: float = 0.25
+const CREW_TIME: float = 0.25
+const DECLINE_TIME: float = 0.15
 
 
 ## Steps for `events` (as `viewer` may see them) in event order. `speed` is 1 normally and
@@ -112,6 +114,34 @@ static func _move_run(events: Array[MatchEvent], at: int, folded: Dictionary) ->
 		i += 1
 	step.from_slot = step.from_slots[0]
 	step.slot = step.slots_to[0]
+	return step
+
+
+## The CREW_FIRE step of a CREW_FIRED event (cycle 8 R61).
+static func _crew_fire(event: MatchEvent) -> BoardStep:
+	var step: BoardStep = _make(BoardStep.Kind.CREW_FIRE, event)
+	var payload: Dictionary = event.payload
+	step.seat = payload.get("seat", -1)
+	step.slot = payload.get("slot", -1)
+	step.crew = payload.get("crew", "")
+	step.verb = payload.get("verb", "")
+	step.trigger = payload.get("trigger", "")
+	step.uses_left = payload.get("uses_left", -1)
+	step.duration = CREW_TIME
+	return step
+
+
+## A destroyed card leaving its row: to the pile it flies off; a salvaged one (`pile` false)
+## returns to its owner's hand instead (cycle 8 R65).
+static func _cleared(event: MatchEvent) -> BoardStep:
+	var payload: Dictionary = event.payload
+	# An event without the key is a pile clear, as every DC-07 clear was.
+	var to_pile: bool = payload.get("pile", true)
+	var kind: int = BoardStep.Kind.CLEAR_DESTROYED if to_pile else BoardStep.Kind.RETURN
+	var step: BoardStep = _card_step(kind, event)
+	step.slot = payload.get("slot", -1)
+	step.pile = payload.get("pile", false)
+	step.duration = CLEAR_DESTROYED_TIME if to_pile else RETURN_TIME
 	return step
 
 
@@ -306,12 +336,16 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			destroyed.slot = payload.get("slot", -1)
 			destroyed.duration = DESTROY_TIME
 			out.append(destroyed)
+		MatchEvent.Kind.CREW_FIRED:
+			out.append(_crew_fire(event))
+		MatchEvent.Kind.CHOICE_DECLINED:
+			var declined: BoardStep = _make(BoardStep.Kind.DECLINE, event)
+			var declined_seat: int = payload["seat"]
+			declined.seat = declined_seat
+			declined.duration = DECLINE_TIME
+			out.append(declined)
 		MatchEvent.Kind.DESTROYED_CLEARED:
-			var cleared: BoardStep = _card_step(BoardStep.Kind.CLEAR_DESTROYED, event)
-			cleared.slot = payload.get("slot", -1)
-			cleared.pile = payload.get("pile", false)
-			cleared.duration = CLEAR_DESTROYED_TIME
-			out.append(cleared)
+			out.append(_cleared(event))
 		MatchEvent.Kind.CARD_RETURNED:
 			var returned: BoardStep = _card_step(BoardStep.Kind.RETURN, event)
 			returned.slot = payload.get("slot", -1)

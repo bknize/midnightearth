@@ -324,6 +324,7 @@ func return_card(step: BoardStep) -> void:
 		push_warning("Board: a return found no card on seat %d's row" % step.seat)
 		return
 	var hand: CardCollection3D = _hand_of(step.seat)
+	card.set_destroyed(false)  # A salvaged card leaves the row still marked (cycle 8 R65).
 	move_card(card, _row_of(step.seat), hand, step.duration)
 	if step.seat == 0:
 		_forget_flags(card.instance_id)

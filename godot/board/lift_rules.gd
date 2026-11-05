@@ -2,7 +2,8 @@ class_name LiftRules
 extends RefCounted
 ## Pure rules for the card pick-up (R1, R2, R9, R11). No nodes, no scene access.
 
-enum Place { HAND, ROW, OPPONENT_ROW, OPPONENT_HAND }
+## CREW is a face-up Crew on a side's line: it lifts to read and never drags (cycle 8 R62).
+enum Place { HAND, ROW, OPPONENT_ROW, OPPONENT_HAND, CREW }
 
 
 ## R1, R2, R11: may this card be lifted? Decided from the card's own state alone (its
@@ -10,6 +11,17 @@ enum Place { HAND, ROW, OPPONENT_ROW, OPPONENT_HAND }
 ## touching the board.
 static func may_lift(_place: Place, face_up: bool) -> bool:
 	return face_up
+
+
+## The card a pointer hit stands for: the hit itself or its parent when that is a BoardCard.
+static func card_from_hit(hit: Object) -> BoardCard:
+	var node: Node = hit as Node
+	if node == null:
+		return null
+	var card: BoardCard = node as BoardCard
+	if card == null:
+		card = node.get_parent() as BoardCard
+	return card
 
 
 ## R9: would this step move, flip, mark, re-pulse or remove the held card? `held_id` is the engine
@@ -33,6 +45,9 @@ static func step_touches(
 		BoardStep.Kind.RETURN, BoardStep.Kind.DISCARD, BoardStep.Kind.BURN:
 			# Remove or send away: the step names the held card.
 			return held_id >= 0 and step.card == held_id
+		BoardStep.Kind.CREW_FIRE:
+			# A Crew has no instance id: any firing sets a held Crew down first.
+			return held_place == Place.CREW
 		BoardStep.Kind.MOVE:
 			return _moves_row_of(step, held_id, held_place)
 		BoardStep.Kind.TURN_START:

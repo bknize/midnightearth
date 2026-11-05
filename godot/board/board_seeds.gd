@@ -25,6 +25,11 @@ static func clock_seed() -> int:
 	return mixed if mixed != 0 else 1
 
 
+## The rematch seed (R43): `previous` + 1 when the first seed was fixed, else a fresh clock seed.
+static func rematch(was_fixed: bool, previous: int) -> int:
+	return bumped(previous) if was_fixed else clock_seed()
+
+
 ## The seed after `previous`, masked; never 0.
 static func bumped(previous: int) -> int:
 	var next_seed: int = (previous + 1) & SEED_MASK
