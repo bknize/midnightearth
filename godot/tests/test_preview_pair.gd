@@ -13,6 +13,7 @@ extends GdUnitTestSuite
 const SEED: int = 1
 const TURN: int = 6
 # Definition indices in the fixture card list.
+const C01: int = 0  # cost 1, flat 1, draws a card on reveal
 const C02: int = 1  # cost 1, flat 2
 const C03: int = 2  # cost 1, flat 1, ×1.25
 const C04: int = 3  # cost 1, flat 3
@@ -20,6 +21,7 @@ const C08: int = 7  # cost 2, flat 4
 const C13: int = 12  # cost 4, flat 5
 const C14: int = 13  # cost 4, flat 6
 const C18: int = 17  # cost 6, flat 8
+const C20: int = 19  # cost 7, flat 7
 
 var _cached_db: CardDb = null
 
@@ -107,6 +109,33 @@ func _bury(engine: MatchEngine, card: int, pile: String) -> void:
 		piles.destroyed.append(card)
 
 
+## Puts `card` on top of seat 1's deck.
+func _to_top(engine: MatchEngine, card: int) -> void:
+	var piles: MatchState.SeatPiles = engine._state.seats[1]
+	piles.deck.erase(card)
+	piles.deck.insert(0, card)
+
+
+## Draws `card` into seat 1's hand with the engine's own draw (EffectResolver.draw_card, the
+## turn start's and the draw effect's), as a draw this round leaves it.
+func _draw(engine: MatchEngine, card: int) -> void:
+	_to_top(engine, card)
+	var drawn: MatchEvent = EffectResolver.draw_card(engine._state, 1)
+	assert_int(drawn.kind).is_equal(MatchEvent.Kind.CARD_DRAWN)
+	var piles: MatchState.SeatPiles = engine._state.seats[1]
+	assert_bool(piles.hand.has(card)).is_true()
+
+
+## The scores of the TURN_ENDED in `result`, or [] when it holds none.
+func _turn_scores(result: ApplyResult) -> Array[int]:
+	var out: Array[int] = []
+	for event: MatchEvent in result.events:
+		if event.kind == MatchEvent.Kind.TURN_ENDED:
+			var raw: Array = event.payload["scores"]
+			out.assign(raw)
+	return out
+
+
 ## Everything a preview must leave alone: the full state, the live stream, the accepted
 ## actions, the log, the last call's events and both views.
 func _snapshot(engine: MatchEngine) -> Dictionary:
@@ -183,8 +212,10 @@ func test_hypothesis_must_match_the_public_count_and_slots() -> void:
 	var three: EngineAction = EngineAction.commit(
 		1, _typed([c08, c14, _id(1, C03)]), _typed([0, 2, 3])
 	)
+	# Over the budget even with the first card free, the grant a first committer is priced
+	# with (PairPreview._free_first): 0 + 7 of 6.
 	var over_budget: EngineAction = EngineAction.commit(
-		1, _typed([c14, _id(1, C18)]), _typed([0, 2])
+		1, _typed([c14, _id(1, C20)]), _typed([0, 2])
 	)
 	assert_array(engine.preview_pair(0, own, wrong_count)).is_empty()
 	assert_array(engine.preview_pair(0, own, wrong_slots)).is_empty()
@@ -222,7 +253,74 @@ func test_hypothesis_of_seen_cards_or_wrong_shape_is_refused() -> void:
 	assert_array(engine.preview_pair(0, not_held, empty)).is_empty()
 
 
+# --- The free first card (cycle 4 R10) ------------------------------------------------
+
+
+## The opponent committed first with its free first card: that commit consumed the grant,
+## yet a hypothesis that fits the budget only with its first card free is taken and scored,
+## as the engine took the real commit (T12 review: it was refused).
+func test_free_first_prices_a_hypothesis_after_the_opponent_committed() -> void:
+	var c13: int = _id(1, C13)
+	var c14: int = _id(1, C14)
+	var c18: int = _id(1, C18)
+	var hand_1: Array[int] = [c13, c14, c18]
+	var engine: MatchEngine = _position(1, _own_hand(), hand_1, _none(), _typed([_id(1, C04)]))
+	engine._state.energy.free_first[1] = true
+	# c18 free then c14: 0 + 4 of a budget of 6 (10 without the grant).
+	assert_bool(engine.apply(EngineAction.commit(1, _typed([c18, c14]))).ok).is_true()
+	assert_bool(engine._state.energy.free_first[1]).is_false()
+	var slots: Array[int] = [1, 2]
+	# c13 free then c14: 0 + 4 (8 without the grant). c04, c13, c14: 3 + 5 + 6.
+	var other: EngineAction = EngineAction.commit(1, _typed([c13, c14]), slots)
+	assert_array(engine.preview_pair(0, _own(), other)).is_equal(_typed([6, 14]))
+	# The real commit as a hypothesis: c04, c18, c14: 3 + 8 + 6.
+	var real: EngineAction = EngineAction.commit(1, _typed([c18, c14]), slots)
+	assert_array(engine.preview_pair(0, _own(), real)).is_equal(_typed([6, 17]))
+
+
+## Before the opponent commits, its live grant prices a hypothesis exactly as the engine
+## will price its commit: taken with the grant, refused without it.
+func test_free_first_before_the_opponent_commits_is_the_live_grant() -> void:
+	var hand_1: Array[int] = [_id(1, C14), _id(1, C18)]
+	var row_1: Array[int] = [_id(1, C04)]
+	var granted: MatchEngine = _position(0, _own_hand(), hand_1, _none(), row_1)
+	granted._state.energy.free_first[1] = true
+	var plain: MatchEngine = _position(0, _own_hand(), hand_1, _none(), row_1)
+	var hypothesis: EngineAction = EngineAction.commit(1, _typed([_id(1, C18), _id(1, C14)]))
+	# c18 free then c14: 0 + 4; c04, c18, c14: 3 + 8 + 6.
+	assert_array(granted.preview_pair(0, _own(), hypothesis)).is_equal(_typed([6, 17]))
+	assert_array(plain.preview_pair(0, _own(), hypothesis)).is_empty()
+
+
 # --- Hidden information (R49) ---------------------------------------------------------
+
+
+## A hypothesis card the opponent drew this round and then committed first, as the
+## hypothesis, scores what the live engine scores once the own commit lands, in a walk whose
+## c01 draws from the opponent's deck. A twin with the same view, where that card is still on
+## top of the deck (another card drawn and committed), previews the same scores although its
+## clone erases the card from the deck, so the walk's draw takes a different card.
+func test_drawn_hypothesis_card_scores_as_the_live_engine() -> void:
+	var c01: int = _id(1, C01)
+	var x: int = _id(1, C14)
+	var y: int = _id(1, C13)
+	var row_1: Array[int] = [_id(1, C04)]
+	var drawn: MatchEngine = _position(1, _own_hand(), _typed([c01]), _none(), row_1)
+	_draw(drawn, x)
+	var twin: MatchEngine = _position(1, _own_hand(), _typed([c01]), _none(), row_1)
+	_draw(twin, y)
+	_to_top(twin, x)
+	assert_bool(drawn.apply(EngineAction.commit(1, _typed([c01, x]))).ok).is_true()
+	assert_bool(twin.apply(EngineAction.commit(1, _typed([c01, y]))).ok).is_true()
+	assert_dict(twin.view_for(0).to_dict()).is_equal(drawn.view_for(0).to_dict())
+	var hypothesis: EngineAction = EngineAction.commit(1, _typed([c01, x]), _typed([1, 2]))
+	var expected: Array[int] = drawn.preview_pair(0, _own(), hypothesis)
+	# c04, c01, c14: 3 + 1 + 6.
+	assert_array(expected).is_equal(_typed([6, 10]))
+	assert_array(twin.preview_pair(0, _own(), hypothesis)).is_equal(expected)
+	var played: ApplyResult = drawn.apply(_own())
+	assert_bool(played.ok).is_true()
+	assert_array(_turn_scores(played)).is_equal(expected)
 
 
 ## Two engines with the same view, one holding the hypothesis card in the opponent's hand

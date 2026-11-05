@@ -25,9 +25,8 @@ extends TunedBot
 ##   played is RegretMatching.sample_index() with decision_rng(view, MATRIX_TAG).
 ## - Fallback: with no opponent candidate, or no column kept, the bot commits as the tuned
 ##   bot does (TunedBot.best_commit: one engine.preview per own candidate). preview_pair
-##   may legitimately refuse every hypothesis (a real opponent commit that used a free-first
-##   grant, a hidden cost cut or a recovered card of this seat's deck), so this is a real
-##   path, never an error.
+##   may legitimately refuse every hypothesis (PairPreview.accepts: a hidden cost cut or a
+##   recovered card of this seat's deck), so this is a real path, never an error.
 ##
 ## Previews per commit decision: at most `k · k_opp` joint previews, plus at most `k` plain
 ## previews on the fallback. Prompts (R52): answered exactly as the tuned bot answers them
