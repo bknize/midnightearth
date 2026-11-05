@@ -6,8 +6,10 @@ extends RefCounted
 ## unlimited Crew), lifts and settles when its ability fires, and never drags: its collection
 ## sits outside the DragController and its strategy refuses every question.
 
-## Where each seat's line rests: left of that seat's hand (index = seat).
-const ORIGINS: Array[Vector3] = [Vector3(-26.0, -8.5, 0.0), Vector3(-26.0, 8.5, 0.0)]
+## Where each seat's line rests: left of that seat's hand (index = seat). At DC-11 T14 the
+## first origins (x -26) projected off the 1280 x 720 window's left edge; these put the
+## player's line bottom left (about x 270, y 610) and the opponent's top left (x 390, y 100).
+const ORIGINS: Array[Vector3] = [Vector3(-13.7, -9.6, 0.0), Vector3(-7.5, 8.8, 0.0)]
 const MAX_WIDTH: float = 11.0
 ## How far a firing Crew lifts toward the camera, and for how long at least.
 const LIFT: float = 1.2
@@ -69,6 +71,10 @@ func clear() -> void:
 	for seat: int in range(_collections.size()):
 		var made: CardCollection3D = _collections[seat]
 		if made != null and is_instance_valid(made):
+			# Detached first so a rebuilt line in the same frame keeps the name CrewLine<seat>.
+			var parent: Node = made.get_parent()
+			if parent != null:
+				parent.remove_child(made)
 			made.queue_free()
 		_collections[seat] = null
 		_cards[seat] = []
