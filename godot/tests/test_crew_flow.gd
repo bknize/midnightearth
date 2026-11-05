@@ -312,7 +312,8 @@ func test_a_concede_during_the_pause_ends_the_match() -> void:
 	_assert_rejected(engine, EngineAction.decline(first), EngineError.Code.MATCH_OVER)
 
 
-## With no Crew firing (no stub: the abilities are T10's) the turn start never pauses.
+## With the shipped Crew (no stub; DC-11 T10) Echo's turn 1 fires only Quartermaster, which
+## needs no choice, so the turn start does not pause.
 func test_without_a_firing_the_turn_start_awaits_the_first_committer() -> void:
 	var engine: MatchEngine = MatchEngine.create(
 		SEED,

@@ -566,6 +566,7 @@ func _end_round() -> void:
 	# Each destroyed pile empties into its burn pile (DC-07 R17, P6), after the last turn's
 	# clear has filled it.
 	_state.burn_destroyed_piles()
+	_events.append_array(CrewEffects.round_end(_state, _cards))  # Gardener (DC-11 T10, R45).
 	var winner: int = _leader()
 	if winner >= 0:
 		_state.wins[winner] += 1
@@ -800,9 +801,10 @@ func _prompt_seat() -> int:
 ## carries nothing); then the scores are the walk totals and the higher one wins the turn,
 ## as cycle 1 R16 did from power. Rows shrink only here.
 func _end_turn() -> void:
-	_events.append_array(EffectResolver.resolve_returns(_state))
-	_events.append_array(EffectResolver.clear_destroyed(_state))
+	_events.append_array(EffectResolver.resolve_returns(_state, _cards))
+	_events.append_array(EffectResolver.clear_destroyed(_state, _cards))
 	_events.append_array(EffectResolver.flip_echoes(_state, _cards))
+	_events.append_array(CrewEffects.drain_all(_state, _cards))  # Their Crew (DC-11 T10).
 	_events.append_array(EffectResolver.settle_energy(_state, _cards))
 	var winner: int = _leader()
 	_state.last_turn_winner = winner

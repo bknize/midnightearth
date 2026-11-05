@@ -80,6 +80,13 @@ var turn_start_at: int = -1
 ## Empty per seat until the first round starts; reset_crew_uses() fills it then and resets
 ## each ROUND Crew at every round start, keeping MATCH Crew. Public: SeatView shows it.
 var crew_uses: Array[Array] = [[], []]
+## The Crew trigger queue (cycle 8 R45, R46, plan P13; DC-11 T10, CrewEffects): each entry
+## {trigger: a CrewDef.Trigger, seat: the card's controller, card: its instance id, slot:
+## the next of that seat's Crew slots to consider}, in the order the causes happened. An
+## effect appends (a destroy, a move, a return, an un-reveal) and the queue drains once
+## that effect has resolved, so a Crew never fires inside one; a Crew prompt opened by the
+## drain leaves its entry at the head until it is answered. Empty between drains.
+var crew_queue: Array[Dictionary] = []
 
 
 func _init(p_match_seed: int = 0) -> void:
@@ -138,6 +145,7 @@ func to_dict() -> Dictionary:
 		"prompt": prompt.duplicate(true),
 		"turn_start_at": turn_start_at,
 		"crew_uses": _crew_uses_list(),
+		"crew_queue": _crew_queue_list(),
 	}
 
 
@@ -175,6 +183,7 @@ func duplicate() -> MatchState:
 	out.prompt = prompt.duplicate(true)
 	out.turn_start_at = turn_start_at
 	out.crew_uses.assign(_crew_uses_list())
+	out.crew_queue.assign(_crew_queue_list())
 	return out
 
 
@@ -303,6 +312,14 @@ func _crew_uses_list() -> Array:
 	var out: Array = []
 	for seat_uses: Array in crew_uses:
 		out.append(seat_uses.duplicate())
+	return out
+
+
+## The Crew queue as plain, deep-copied entries (to_dict() and duplicate()).
+func _crew_queue_list() -> Array:
+	var out: Array = []
+	for entry: Dictionary in crew_queue:
+		out.append(entry.duplicate(true))
 	return out
 
 

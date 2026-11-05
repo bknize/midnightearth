@@ -35,13 +35,14 @@ const LINE_UNPINNED: String = ""
 ## Re-pinned at DC-09 T07 (headless --fixed-fps 60 autoplay agrees, greedy and tuned alike).
 const EXPECTED_LINE: String = (
 	"Board: match ended seed=1 decks=bloom/ruin bot=greedy winner=0 wins=4-0 rounds=4 end=wins"
-	+ " actions=64"
+	+ " actions=72"
 )
-## Seed 1's result line under the default bot (tuned, level 20, k 24); pinned at DC-08 T11.
+## Seed 1's result line under the default bot (tuned, level 20, k 24); pinned at DC-08 T11,
+## moved at DC-11 T10 (live Crew: actions 64 -> 72, same result).
 ## While empty the test prints the line and checks only `bot=tuned`.
 const GOLDEN_TUNED: String = (
 	"Board: match ended seed=1 decks=bloom/ruin bot=tuned winner=0 wins=4-0 rounds=4 end=wins"
-	+ " actions=64"
+	+ " actions=72"
 )
 ## The bot the helpers build: the greedy bot, whose play the goldens pin (R5).
 const GREEDY: String = "greedy"

@@ -122,6 +122,10 @@ extends RefCounted
 ## revealed card's destroy is public. The card stays face down until the cursor reaches it,
 ## and DESTROYED_CLEARED follows the same rule at turn end: private while never revealed.
 ##
+## The Crew (DC-11 T10, CrewEffects): destroy() queues OWN_DESTROYED for a card it marks,
+## unreveal() and a return to a hand queue OWN_RETURNED, and a Crew prompt's answer is
+## CrewEffects.apply_choice(); the queue drains in ScoreWalk, TurnStart and MatchEngine.
+##
 ## Preview seam (orchestrator, DC-05 T04): a null `policy` is a live walk, which always picks
 ## the destroyed card with MatchRng.pick_index on the engine stream at the moment the effect
 ## fires; walk order is deterministic given the log, so a replay destroys the same card. A
@@ -369,7 +373,9 @@ static func apply_choice(
 	}
 	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_MADE, made, owner))
 	if Choice.crew_of(prompt) != "":
-		return out  # A Crew prompt's `verb` is a CrewDef.Verb; the Crew abilities are DC-11 T10's.
+		# A Crew prompt's `verb` is a CrewDef.Verb (DC-11 T10).
+		out.append_array(CrewEffects.apply_choice(state, cards, prompt, target, policy))
+		return out
 	match verb:
 		CardEffect.Verb.DRAW_THEN_DISCARD:
 			out.append(_discard(state, holder, target))
@@ -491,8 +497,9 @@ static func _choice_owner(state: MatchState, seat: int, zone: int, holder: int, 
 ## boards need to see the card leave its row). A card still face down (cycle 8 P8 lets
 ## Recall mark one) keeps both events private to its seat; redaction hides only `card`, so
 ## the other board still sees which slot emptied (DC-09 T06 review). A marked card
-## that is destroyed is skipped: clear_destroyed() discards it (DC-06 R19).
-static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
+## that is destroyed is skipped: clear_destroyed() discards it (DC-06 R19). A card back in
+## its hand queues OWN_RETURNED for the Crew of `cards` (DC-11 T10; none when null).
+static func resolve_returns(state: MatchState, cards: MatchCards = null) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	for seat: int in range(state.seats.size()):
 		var piles: MatchState.SeatPiles = state.seats[seat]
@@ -512,6 +519,7 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 				out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, burned, owner))
 				continue
 			piles.hand.append(card)
+			CrewEffects.push(state, cards, CrewDef.Trigger.OWN_RETURNED, seat, card)
 			var returned: Dictionary = {"seat": seat, "card": card, "slot": slot}
 			out.append(MatchEvent.new(MatchEvent.Kind.CARD_RETURNED, returned, owner))
 	return out
@@ -521,12 +529,14 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 ## resolve and before energy settles: for each seat in turn, each destroyed card on its row
 ## in slot order leaves the row (its modifiers and the mark go) for the end of that seat's
 ## destroyed pile (DC-07 R16, P6; the row's seat is the card's controller), DESTROYED_CLEARED
-## {seat, card, slot, pile: true}, `slot` the card's slot as it leaves. The event is public
-## when the card was revealed, and its identity in the pile is public too
+## {seat, card, slot, pile: true, salvaged: false}, `slot` the card's slot as it leaves. The
+## event is public when the card was revealed, and its identity in the pile is public too
 ## (`destroyed_known`, R18); it is private to its seat when the card never was, so the
-## other seat sees the slot and not the card. Round end burns the piles
+## other seat sees the slot and not the card. A salvaged card (cycle 8 R51, DC-11 T10) goes
+## to its controller's hand instead, {pile: false, salvaged: true} then CrewEffects
+## .salvage() (the burn at the cap, the Crew of `cards`). Round end burns the piles
 ## (MatchState.burn_destroyed_piles).
-static func clear_destroyed(state: MatchState) -> Array[MatchEvent]:
+static func clear_destroyed(state: MatchState, cards: MatchCards = null) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	for seat: int in range(state.seats.size()):
 		var piles: MatchState.SeatPiles = state.seats[seat]
@@ -536,20 +546,26 @@ static func clear_destroyed(state: MatchState) -> Array[MatchEvent]:
 			if not state.is_destroyed(card):
 				continue
 			var slot: int = piles.board.find(card)
+			var salvaged: bool = state.card_state_for(card).salvaged
 			var was_revealed: bool = state.take_from_row(seat, card)
+			var owner: int = PUBLIC if was_revealed else seat
+			var cleared: Dictionary = {
+				"seat": seat, "card": card, "slot": slot, "pile": not salvaged, "salvaged": salvaged
+			}
+			out.append(MatchEvent.new(MatchEvent.Kind.DESTROYED_CLEARED, cleared, owner))
+			if salvaged:
+				out.append_array(CrewEffects.salvage(state, cards, seat, card, owner))
+				continue
 			piles.destroyed.append(card)
 			if was_revealed:
 				piles.destroyed_known[card] = true
-			var cleared: Dictionary = {"seat": seat, "card": card, "slot": slot, "pile": true}
-			var owner: int = PUBLIC if was_revealed else seat
-			out.append(MatchEvent.new(MatchEvent.Kind.DESTROYED_CLEARED, cleared, owner))
 	return out
 
 
 ## Turn end's echo flip (cycle 8 R18, P6), after clear_destroyed() and before
 ## settle_energy(): for each seat in turn, each revealed live card carrying the ongoing
 ## UNREVEAL_AT_TURN_END (EchoEffects.flippers), in slot order, un-reveals in its slot as
-## destroy()'s un-reveal does (_unreveal: board changes go, memory stays; STATS_CHANGED cause
+## destroy()'s un-reveal does (unreveal(): board changes go, memory stays; STATS_CHANGED cause
 ## unreveal when that changed its shown stats), then CARD_UNREVEALED {seat, card, slot},
 ## public. The next walk reveals it in full again.
 static func flip_echoes(state: MatchState, cards: MatchCards) -> Array[MatchEvent]:
@@ -558,7 +574,7 @@ static func flip_echoes(state: MatchState, cards: MatchCards) -> Array[MatchEven
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		for card: int in EchoEffects.flippers(state, cards, seat):
 			var payload: Dictionary = {"seat": seat, "card": card, "slot": piles.board.find(card)}
-			_unreveal(state, cards, seat, card, outcome)
+			unreveal(state, cards, seat, card, outcome)
 			outcome.add(MatchEvent.Kind.CARD_UNREVEALED, payload)
 	return outcome.events
 
@@ -643,20 +659,23 @@ static func destroy(state: MatchState, cards: MatchCards, card: int, outcome: Ou
 	var payload: Dictionary = {"seat": seat, "card": card, "slot": slot}
 	var revealed: bool = piles.is_revealed(card)
 	if revealed and RuinEffects.carries(card, cards, CardEffect.Verb.UNREVEAL_INSTEAD):
-		_unreveal(state, cards, seat, card, outcome)
+		unreveal(state, cards, seat, card, outcome)
 		outcome.add(MatchEvent.Kind.CARD_UNREVEALED, payload)
 		return true
 	state.card_state_for(card).destroyed = true
+	CrewEffects.push(state, cards, CrewDef.Trigger.OWN_DESTROYED, seat, card)  # DC-11 T10.
 	outcome.add(MatchEvent.Kind.CARD_DESTROYED, payload, PUBLIC if revealed else seat)
 	return true
 
 
 ## The un-reveal's state change (P9, R30, C9): `card`'s CardState goes, so it shows its
 ## printed stats with no marks (STATS_CHANGED, cause unreveal, while it is still face up and
-## only when that changed its shown stats), then it leaves `seat`'s revealed set.
-static func _unreveal(
+## only when that changed its shown stats), then it leaves `seat`'s revealed set, and it
+## counts as flipped face down for the Crew (OWN_RETURNED queued; DC-11 T10, CrewEffects).
+static func unreveal(
 	state: MatchState, cards: MatchCards, seat: int, card: int, outcome: Outcome
 ) -> void:
+	CrewEffects.push(state, cards, CrewDef.Trigger.OWN_RETURNED, seat, card)
 	var before: Dictionary = ScoreWalk.effective(card, state, cards).to_dict()
 	if state.clear_card_state(card):
 		var after: Dictionary = ScoreWalk.effective(card, state, cards).to_dict()

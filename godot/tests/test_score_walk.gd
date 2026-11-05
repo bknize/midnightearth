@@ -783,6 +783,7 @@ func test_card_states_are_in_the_full_state_and_cleared_at_round_start() -> void
 		"temp_plus": 0,
 		"return_marked": false,
 		"destroyed": false,
+		"salvaged": false,  # DC-11 T10.
 	}
 	assert_dict(entry).is_equal(expected)
 	assert_bool(plain.has("walk")).is_true()
