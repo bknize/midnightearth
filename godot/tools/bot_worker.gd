@@ -12,8 +12,9 @@ extends SceneTree
 ## pair records). Each decision is timed; a decision slower than --budget-us (0 disables)
 ## is an overrun. Each game's log is replayed and its full state compared.
 ##
-## Exit codes: 0 ok; 1 a rejected action, an overrun or a replay mismatch (all records and
-## the end record are still written); 2 bad arguments or an unknown bot; 3 the engine failed
+## Exit codes: 0 ok; 1 a rejected action or a replay mismatch (all records and the end record
+## are still written; an overrun never fails the run, the end record counts them per side as
+## overruns_a and overruns_b); 2 bad arguments or an unknown bot; 3 the engine failed
 ## to start. Prints nothing but errors (stderr). This is tooling, so it may read the clock.
 
 const DEFAULT_BUDGET_US: int = 10000
@@ -36,7 +37,7 @@ var _decks: DeckList = null
 var _file: FileAccess = null
 var _games: int = 0
 var _rejected: int = 0
-var _overruns: int = 0
+var _overruns: Array[int] = [0, 0]
 var _mismatches: int = 0
 var _times: PackedInt64Array = PackedInt64Array()
 var _slowest_us: int = 0
@@ -73,7 +74,7 @@ func _run() -> int:
 			break
 	_write_end()
 	_file.close()
-	if code == EXIT_OK and (_rejected > 0 or _overruns > 0 or _mismatches > 0):
+	if code == EXIT_OK and (_rejected > 0 or _mismatches > 0):
 		code = EXIT_FAILED
 	return code
 
@@ -255,7 +256,7 @@ func _play_game(
 		var began: int = Time.get_ticks_usec()
 		var action: EngineAction = bots[seat].choose(view, engine)
 		var us: int = Time.get_ticks_usec() - began
-		_note_time(us)
+		_note_time(us, seat if a_seat == 0 else 1 - seat)
 		var as_dict: Dictionary = {} if action == null else action.to_dict()
 		var level: int = _levels[seat if a_seat == 0 else 1 - seat]
 		_write(
@@ -324,12 +325,12 @@ func _margin(payload: Dictionary, a_seat: int) -> int:
 
 
 ## Keeps the decision time and counts an overrun.
-func _note_time(us: int) -> void:
-	if not _times.append(us):
+func _note_time(us: int, side: int) -> void:
+	if _times.append(us):
 		printerr("bot_worker: out of memory keeping times")
 	_slowest_us = maxi(_slowest_us, us)
 	if _budget_us > 0 and us > _budget_us:
-		_overruns += 1
+		_overruns[side] += 1
 
 
 ## Whether the engine's log replays (through JSON) to an equal full state.
@@ -350,6 +351,13 @@ func _write_end() -> void:
 	var p95: int = BotWorkerRecords.percentile(_times, 0.95)
 	_write(
 		BotWorkerRecords.end(
-			_games, _rejected, _overruns, _mismatches, p95, _slowest_us, BotStamp.current()
+			_games,
+			_rejected,
+			_overruns[0],
+			_overruns[1],
+			_mismatches,
+			p95,
+			_slowest_us,
+			BotStamp.current()
 		)
 	)

@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import random
 import sys
@@ -86,6 +88,7 @@ class RecordsTest(unittest.TestCase):
         self.assertAlmostEqual(g["first_committer"], 0.5)
         self.assertEqual((g["p95_us"], g["slowest_us"]), (2000, 3000))
         self.assertEqual((g["rejected"], g["overruns"], g["replay_mismatches"]), (1, 2, 3))
+        self.assertEqual((g["overruns_a"], g["overruns_b"]), (0, 0))
         self.assertEqual(g["stamps"], ["r4-0123456789abcdef"])
 
 
@@ -109,6 +112,27 @@ class DriverTest(unittest.TestCase):
             text = err.read()
         self.assertEqual(code, 3)
         self.assertIn("seeds 1-25 exit 1", text)
+
+    def test_gainer_with_overruns_a_cannot_pass(self) -> None:
+        script = ("import sys, json\n"
+                  "rows = [{'t': 'p', 'seed': i, 'decks': 'x', 'points_a': 1.5 if i % 2 else 1.0} "
+                  "for i in range(25)]\n"
+                  "rows.append({'t': 'end', 'games': 50, 'rejected': 0, 'overruns': 3, "
+                  "'overruns_a': 3, 'overruns_b': 0, 'replay_mismatches': 0, 'p95_us': 1, "
+                  "'slowest_us': 1, 'stamp': 'r4-0123456789abcdef'})\n"
+                  "open(sys.argv[1], 'w').write('\\n'.join(json.dumps(r) for r in rows) + '\\n')\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            args = driver.build_parser().parse_args(
+                ["eval", "--a", "x", "--b", "y", "--gainer", "--seeds", "1-5000",
+                 "--reports-dir", tmp])
+            factory = lambda a, b, s, e, out: [sys.executable, "-c", script, out]  # noqa: E731
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = driver.run_eval(args, factory, workers=2)
+        self.assertEqual(code, 1)
+        self.assertIn("result=FAIL", out.getvalue())
+        self.assertIn("reason=overrun", out.getvalue())
+        self.assertIn("overruns_a=3 overruns_b=0", out.getvalue())
 
     def test_fake_worker_pass(self) -> None:
         """A worker that writes 25 pair records of 1.5 points reaches H1."""
