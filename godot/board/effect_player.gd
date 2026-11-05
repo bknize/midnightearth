@@ -61,6 +61,8 @@ func pulse(step: BoardStep) -> void:
 		var own: BoardCard = _player_card(step.card)
 		if own == null:
 			return
+		# The public payload dresses the face: a row card is not in the hand row's entries.
+		show(own, step, reveal_entry(step))
 		if lift:
 			_lift_and_settle(own, step.duration)
 		if face_down_ids.erase(step.card):
