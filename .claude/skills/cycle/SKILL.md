@@ -83,9 +83,11 @@ The acceptance ritual (P7). A cycle is done only when every box is ticked. A spe
 waive the screenshot for an engine- or tooling-only cycle (DC-01 C12): then the proof is
 the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
 
-1. `scripts/check.sh` on `<cycle branch>`: must exit 0. Paste the stage summary.
+1. `scripts/check.sh` on `<cycle branch>`: must exit 0. Paste the stage summary. Then run
+   `make sweep` (the 50-seed sweep, outside the gate since NSC-133) and paste its summary
+   lines (`Sweep: ...`, the `Sweep pairing` lines, the `stamp=` and `p99_us=` fields).
 1b. Bot rerun provision (cycle 7 R36): if this cycle changed `RULES_VERSION`, the card
-   pool JSON or the deck list JSON, run `make bot-eval`; on FAIL or `stamp=MISMATCH` run
+   pool JSON or the deck list JSON, `make sweep` (its `stamp=` field) and `make bot-eval`; on FAIL or `stamp=MISMATCH` run
    `make bot-train` and commit the promoted weights on the cycle branch before the merge.
    Record the outcome in the cycle's row and in `docs/planning/bot-ladder.md`.
 2. Point the editor at the cycle branch: `scripts/godot-editor.sh switch <cycle branch>`.
