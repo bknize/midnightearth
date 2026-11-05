@@ -5,10 +5,14 @@ extends GdUnitTestSuite
 ## shipped cap of 24 its departures from the full search are counted and logged; level 20
 ## repeats itself, and level 3 strays from the best but never past push_unit (R13, R14); a
 ## set prompt costs n + 1 previews; the engine accepts every action over 50 seeds (R3); and
-## the bot asks the engine for nothing but preview(), preview_choice() and preview_set() (R2).
+## the bot asks the engine for nothing but its previews (R2; preview_decline() since DC-11).
 ## Cycle 8 (DC-09 T04; R21-R23, P15): a card whose cost was reduced is a candidate on its
 ## effective cost, the hand-growth prompt is answered by rule with no preview, and the 50
 ## seeds play the four shipped decks under seeded pairings.
+## Cycle 8 milestone B (DC-11 T11; R56, R57, P15): an optional prompt costs n + 1 previews
+## (each option and the decline) and may be declined; Shade's turn-start prompt is answered
+## by the on-reveal rule with no preview, and any other turn-start prompt is declined. R12's
+## comparisons skip Crew prompts, where the tuned bot departs from the greedy bot by design.
 ##
 ## Matches play the fixture deck on both seats unless named otherwise. Every loop that
 ## drives an engine has a per-match action cap, so a bug fails the test instead of hanging
@@ -35,7 +39,17 @@ const MATCH_SEEDS: int = 10
 const C09_INDEX: int = 8
 const BOT_SOURCE: String = "res://engine/bot/tuned_bot.gd"
 ## What the bot may call on its engine (R2).
-const ALLOWED_CALLS: Array[String] = ["preview", "preview_choice", "preview_set"]
+const ALLOWED_CALLS: Array[String] = ["preview", "preview_choice", "preview_set", "preview_decline"]
+## Fixture deck indices (instance id on seat 0): c01 (flat 1, on reveal: draw), c02 (flat 2,
+## vanilla), c04 (flat 3, vanilla), c08 (flat 4, vanilla), c09 (flat 3, on reveal: draw 2
+## then discard 1), c10 (flat 3, on reveal: free first card next turn).
+const C01_DRAW: int = 0
+const C02_VANILLA: int = 1
+const C04_VANILLA: int = 3
+const C08_VANILLA: int = 7
+const C10_FREE_FIRST: int = 9
+## Match seeds searched for a c09 discard prompt (test_crew_flow.gd's search).
+const SEARCH_SEEDS: int = 100
 ## The bot may hold an engine, but only to ask its own previews.
 const FORBIDDEN_TOKENS: Array[String] = [
 	"MatchState",
@@ -110,8 +124,9 @@ func _is_commit_view(view: SeatView) -> bool:
 
 
 ## Plays `engine` (not started) out with two greedy bots; at every decision a tuned bot on
-## the same seed (default weights, k = FULL_K, level 20) must choose the greedy action.
-## Returns (decisions, prompts), or x = -1 after a failure.
+## the same seed (default weights, k = FULL_K, level 20) must choose the greedy action, but
+## on a Crew prompt (cycle 8 R56, R57: answered with the decline or by rule), which is not
+## compared. Returns (decisions, prompts), or x = -1 after a failure.
 func _compare_with_greedy(match_seed: int, engine: MatchEngine) -> Vector2i:
 	if not engine.start().ok:
 		fail("seed %d did not start" % match_seed)
@@ -125,7 +140,8 @@ func _compare_with_greedy(match_seed: int, engine: MatchEngine) -> Vector2i:
 		var view: SeatView = engine.view_for(seat)
 		var expected: EngineAction = greedy[seat].choose(view, engine)
 		var got: EngineAction = tuned[seat].choose(view, engine)
-		if got.to_dict() != expected.to_dict():
+		var crew_prompt: bool = Choice.crew_of(view.prompt) != ""
+		if not crew_prompt and got.to_dict() != expected.to_dict():
 			fail(
 				(
 					"seed %d action %d: tuned %s, greedy %s"
@@ -432,7 +448,7 @@ func test_a_set_prompt_previews_n_plus_one_sets() -> void:
 ## seeded pairing of the four shipped decks (Ruin, Drift, Bloom, Echo), a tuned bot at level
 ## 20 (seat 0) and one at level 3 (seat 1), both on the shipped weights through the
 ## registry, play full matches; the engine accepts every action, every match ends, and while
-## a bot chooses it calls nothing on the engine but the three previews. The pairings reach
+## a bot chooses it calls nothing on the engine but the four previews. The pairings reach
 ## every shipped deck.
 func test_engine_never_rejects_the_tuned_bot_over_four_decks() -> void:
 	var levels: Array[int] = [BotPlayer.FULL_LEVEL, LOW_LEVEL]
@@ -480,6 +496,7 @@ func test_engine_never_rejects_the_tuned_bot_over_four_decks() -> void:
 			return
 		assert_int(engine.other_calls).is_equal(0)
 		previews += engine.commit_previews + engine.choice_previews + engine.set_previews
+		previews += engine.decline_previews
 	assert_int(previews).is_greater(0)
 	assert_array(played.keys()).contains_exactly_in_any_order(decks.ids())
 
@@ -580,6 +597,218 @@ func test_the_hand_growth_prompt_is_answered_by_the_highest_flat_without_a_previ
 	assert_int(engine._state.memory_of(acorn).times).is_equal(25)
 
 
+# --- Cycle 8 milestone B (DC-11 T11): Crew prompts (R56, R57, P15) ---------------------
+
+
+func _ints(values: Array) -> Array[int]:
+	var out: Array[int] = []
+	out.assign(values)
+	return out
+
+
+## A fixture match paused on c09's discard prompt for its first committer, marked optional on
+## the live state (no card prompt is optional; Salvager's and Veil's are), as test_crew_flow
+## .gd finds it; null when no seed in the range gives the first committer c09 by turn 3.
+func _optional_walk_prompt() -> MatchEngine:
+	for match_seed: int in range(1, SEARCH_SEEDS + 1):
+		var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
+		if not engine.start().ok:
+			continue
+		while engine.energy() < 3:
+			if not engine.apply(EngineAction.commit(engine.awaited_seat(), _ints([]))).ok:
+				break
+		var first: int = engine.awaited_seat()
+		var c09: int = first * MatchRules.DECK_SIZE + C09_INDEX
+		var piles: MatchState.SeatPiles = engine._state.seats[first]
+		if engine.energy() != 3 or not piles.hand.has(c09):
+			continue
+		if not engine.apply(EngineAction.commit(first, _ints([c09]))).ok:
+			continue
+		if not engine.apply(EngineAction.commit(1 - first, _ints([]))).ok:
+			continue
+		if engine.open_prompt().is_empty():
+			continue
+		engine._state.prompt[Choice.KEY_OPTIONAL] = true
+		return engine
+	return null
+
+
+## The previewed own-minus-opponent value of `scores` for `seat`, failing on a missing pair.
+func _previewed(scores: Array[int], seat: int) -> int:
+	assert_int(scores.size()).is_equal(2)
+	return _value(scores, seat) if scores.size() == 2 else 0
+
+
+## R56, P15: on an optional walk prompt with n options the bot previews each option once and
+## the decline once (n + 1 previews, nothing else) at level 20 and level 3, for bot seeds
+## 1-50. At level 20 the answer is the best own-minus-opponent value over the options
+## (ascending) and the decline (last), ties by the greedy prompt seed, so it may be the
+## decline; the engine accepts a decline.
+func test_an_optional_prompt_previews_n_plus_one_and_may_decline() -> void:
+	var engine: MatchEngine = _optional_walk_prompt()
+	assert_object(engine).override_failure_message("no seed gives c09 by turn 3").is_not_null()
+	if engine == null:
+		return
+	var seat: int = engine.awaited_seat()
+	var view: SeatView = engine.view_for(seat)
+	assert_bool(Choice.is_optional_prompt(view.prompt)).is_true()
+	var options: Array[int] = Choice.options_of(view.prompt)
+	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	var answers: Array[EngineAction] = []
+	var values: Array[int] = []
+	for option: int in options:
+		answers.append(EngineAction.choose(seat, zone, option))
+		values.append(_previewed(engine.preview_choice(seat, option), seat))
+	answers.append(EngineAction.decline(seat))
+	values.append(_previewed(engine.preview_decline(seat), seat))
+	var top: int = values[0]
+	for value: int in values:
+		top = maxi(top, value)
+	var source: int = view.prompt.get("card", -1)
+	var parts: Array[int] = [view.round_number, view.turn, GreedyBot.PROMPT_TAG, source]
+	var counting: CountingEngine = CountingEngine.wrap(engine)
+	var declined: EngineAction = null
+	for level: int in [BotPlayer.FULL_LEVEL, LOW_LEVEL]:
+		for bot_seed: int in range(1, SWEEP_SEEDS + 1):
+			var bot: TunedBot = _tuned(bot_seed, engine.match_cards(), FULL_K, level)
+			counting.choice_previews = 0
+			counting.decline_previews = 0
+			counting.watching = true
+			var action: EngineAction = bot.choose(view, counting)
+			counting.watching = false
+			assert_int(counting.choice_previews).is_equal(options.size())
+			assert_int(counting.decline_previews).is_equal(1)
+			assert_int(counting.commit_previews + counting.set_previews).is_equal(0)
+			assert_int(counting.other_calls).is_equal(0)
+			assert_int(action.seat).is_equal(seat)
+			if action.kind == EngineAction.Kind.DECLINE:
+				declined = action
+			else:
+				assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
+				assert_bool(options.has(action.index)).is_true()
+			if level == BotPlayer.FULL_LEVEL:
+				var tie: MatchRng = MatchRng.new(MatchRng.derive_seed(bot_seed, parts))
+				var best: int = TunedBot.pick_best(PackedInt32Array(values), tie)
+				assert_dict(action.to_dict()).is_equal(answers[best].to_dict())
+	if values[values.size() - 1] == top:
+		assert_object(declined).override_failure_message("no seed declined").is_not_null()
+	var final: EngineAction = declined if declined != null else EngineAction.decline(seat)
+	assert_bool(engine.apply(final).ok).is_true()
+
+
+## A fixture deck "c01".."c20" named `deck_id` with the Crew `crew`.
+func _crew_deck(deck_id: String, crew: Array) -> Dictionary:
+	var cards: Array = []
+	for index: int in range(MatchRules.DECK_SIZE):
+		cards.append("c%02d" % (index + 1))
+	return {"id": deck_id, "name": deck_id, "theme": "", "cards": cards, "crew": crew}
+
+
+## A fixture match with live Crew (seat 0 Shade, Lookout, Navigator; seat 1 Navigator,
+## Gardener, Veil) paused on Shade's prompt at the start of its turn: seat 0's row is `own`
+## (seat 0 instances, revealed by the turn before's walk), seat 1's c02.
+func _shade_prompt(own: Array[int]) -> MatchEngine:
+	var first: Dictionary = _crew_deck("a", ["shade", "lookout", "navigator"])
+	var second: Dictionary = _crew_deck("b", ["navigator", "gardener", "veil"])
+	var root: Dictionary = {"version": DeckList.FORMAT_VERSION, "decks": [first, second]}
+	var decks: DeckList = DeckList.from_json(JSON.stringify(root))
+	var ids: Array[String] = ["a", "b"]
+	var crew: CrewPool = FixtureDecks.live_crew()
+	var engine: MatchEngine = MatchEngine.create(1, _db(), decks, ids, crew)
+	assert_bool(engine.start().ok).is_true()
+	engine._state.turn = crew.crew_of("shade").amount - 1
+	var theirs: Array[int] = [MatchRules.DECK_SIZE + C02_VANILLA]
+	assert_bool(FixtureDecks.play_table(engine, own, theirs)).is_true()
+	return engine
+
+
+## Seat 0's answer to `view` from a tuned bot asking `engine` (counted), which must make no
+## call at all on it.
+func _unpreviewed_answer(engine: MatchEngine, view: SeatView) -> EngineAction:
+	var counting: CountingEngine = CountingEngine.wrap(engine)
+	var bot: TunedBot = _tuned(1, engine.match_cards(), FULL_K, BotPlayer.FULL_LEVEL)
+	counting.watching = true
+	var action: EngineAction = bot.choose(view, counting)
+	counting.watching = false
+	assert_int(counting.commit_previews + counting.choice_previews).is_equal(0)
+	assert_int(counting.set_previews + counting.decline_previews).is_equal(0)
+	assert_int(counting.other_calls).is_equal(0)
+	return action
+
+
+## R57, P15: Shade's prompt over seat 0's revealed [c08 (flat 4, vanilla), c01 (flat 1, on
+## reveal), c10 (flat 3, on reveal)] takes c10 at position 2, the highest-flat own card with
+## an on-reveal effect, by rule with no preview; the engine accepts it and c10 is face down.
+## Ties go to the lower position; another Crew's turn-start prompt is declined; one that may
+## not be declined takes its first option.
+func test_shade_takes_the_highest_flat_card_with_an_on_reveal_effect() -> void:
+	var own: Array[int] = [C08_VANILLA, C01_DRAW, C10_FREE_FIRST]
+	var engine: MatchEngine = _shade_prompt(own)
+	assert_int(engine.awaited_seat()).is_equal(0)
+	var view: SeatView = engine.view_for(0)
+	assert_str(Choice.crew_of(view.prompt)).is_equal("shade")
+	assert_str(Choice.resume_of(view.prompt)).is_equal(Choice.RESUME_TURN_START)
+	assert_array(Choice.options_of(view.prompt)).is_equal(_ints([0, 1, 2]))
+	var action: EngineAction = _unpreviewed_answer(engine, view)
+	assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
+	assert_int(action.zone).is_equal(Choice.Zone.OWN_BOARD)
+	assert_int(action.index).is_equal(2)
+	assert_bool(engine.apply(action).ok).is_true()
+	var piles: MatchState.SeatPiles = engine._state.seats[0]
+	assert_bool(piles.is_revealed(C10_FREE_FIRST)).is_false()
+	assert_bool(piles.is_revealed(C08_VANILLA)).is_true()
+	# The rest on the same view, by rule alone.
+	var bot: TunedBot = _tuned(1, engine.match_cards(), FULL_K, BotPlayer.FULL_LEVEL)
+	var shown: Dictionary = view.own_row[2]
+	var flat: int = shown["flat"]
+	view.own_row[1]["flat"] = flat
+	assert_int(bot.shade_option(view)).is_equal(1)
+	view.prompt["verb"] = CrewDef.Verb.DRAW_EXTRA
+	assert_int(bot.answer_turn_start(view).kind).is_equal(EngineAction.Kind.DECLINE)
+	view.prompt[Choice.KEY_OPTIONAL] = false
+	var forced: EngineAction = bot.answer_turn_start(view)
+	assert_int(forced.kind).is_equal(EngineAction.Kind.CHOOSE)
+	assert_int(forced.index).is_equal(0)
+
+
+## R57: Shade's prompt with no on-reveal card up ([c02, c04], vanilla) is declined with no
+## preview, and the engine accepts the decline.
+func test_shade_with_no_on_reveal_card_up_declines() -> void:
+	var own: Array[int] = [C02_VANILLA, C04_VANILLA]
+	var engine: MatchEngine = _shade_prompt(own)
+	assert_int(engine.awaited_seat()).is_equal(0)
+	var view: SeatView = engine.view_for(0)
+	assert_str(Choice.crew_of(view.prompt)).is_equal("shade")
+	var action: EngineAction = _unpreviewed_answer(engine, view)
+	assert_int(action.kind).is_equal(EngineAction.Kind.DECLINE)
+	assert_bool(engine.apply(action).ok).is_true()
+	assert_dict(engine.open_prompt()).is_empty()
+
+
+## StubCrew's turn-start prompts over the hand (cycle 8 R54): the optional one in Shade's
+## slot is not Shade's rule (not the row), so it is declined; the one in Quartermaster's slot
+## may not be declined, so it takes its first option. The engine accepts every answer.
+func test_stub_turn_start_prompts_are_declined_or_take_the_first_option() -> void:
+	for slot: int in [StubCrew.SHADE_SLOT, StubCrew.QUARTERMASTER_SLOT]:
+		var stub: StubCrew = StubCrew.new(1, _ints([slot]))
+		var engine: MatchEngine = stub.engine(1)
+		assert_bool(engine.start().ok).is_true()
+		for _answer: int in range(MatchEngine.SEATS):
+			var seat: int = engine.awaited_seat()
+			var view: SeatView = engine.view_for(seat)
+			var optional: bool = Choice.is_optional_prompt(view.prompt)
+			assert_bool(optional).is_equal(slot == StubCrew.SHADE_SLOT)
+			var bot: TunedBot = _tuned(seat + 1, engine.match_cards(), FULL_K, LOW_LEVEL)
+			var action: EngineAction = bot.choose(view, null)
+			if optional:
+				assert_int(action.kind).is_equal(EngineAction.Kind.DECLINE)
+			else:
+				assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
+				assert_int(action.index).is_equal(0)
+			assert_bool(engine.apply(action).ok).is_true()
+		assert_dict(engine.open_prompt()).is_empty()
+
+
 # --- R2: the source -------------------------------------------------------------------
 
 
@@ -654,6 +883,7 @@ class CountingEngine:
 	var commit_previews: int = 0
 	var choice_previews: int = 0
 	var set_previews: int = 0
+	var decline_previews: int = 0
 	var other_calls: int = 0
 	var _inside: int = 0
 
@@ -687,6 +917,14 @@ class CountingEngine:
 			set_previews += 1
 		_inside += 1
 		var out: Array[int] = super(seat, indices)
+		_inside -= 1
+		return out
+
+	func preview_decline(seat: int) -> Array[int]:
+		if watching:
+			decline_previews += 1
+		_inside += 1
+		var out: Array[int] = super(seat)
 		_inside -= 1
 		return out
 

@@ -303,7 +303,8 @@ func _walk_pulses(before: Dictionary, action: EngineAction) -> int:
 ## the free first card when the seat holds it, and each card's cost reduction, both read
 ## from `state`, the full state the bot chose on), or, while a prompt is open (DC-05 T05), a
 ## choice: a set for a multi-select prompt (DC-07 P7, P13), with every index offered and
-## none repeated, else a single position.
+## none repeated, else a single position, or on an optional prompt the decline (cycle 8
+## R52, R56; counted in `declines`). A Crew prompt answered is counted in `crew_prompts`.
 func _check_commit(
 	run: FullMatchRun,
 	action: EngineAction,
@@ -327,6 +328,11 @@ func _check_commit(
 			run.rejections.append(where + ": set %s not offered" % [action.indices])
 	elif prompted:
 		kind = EngineAction.Kind.CHOOSE
+		if Choice.is_optional_prompt(prompt) and action.kind == EngineAction.Kind.DECLINE:
+			kind = EngineAction.Kind.DECLINE
+			run.declines += 1
+	if prompted and Choice.crew_of(prompt) != "":
+		run.crew_prompts += 1
 	if action.kind != kind or action.seat != seat:
 		run.rejections.append(where + ": not the awaited action kind for seat %d" % seat)
 	if prompted:
@@ -383,6 +389,7 @@ func _scan_leaks(
 				run.leaks.append(where + ": view names hidden card %d" % card)
 		if view.opponent_pending_count > 0:
 			run.face_down_seen += 1
+		_scan_prompt(run, view, where)
 		_scan_hidden_rows(run, view, where)
 		_scan_destroyed_pile(run, view, after, where)
 		var hidden_during: Dictionary = run.sets_before.hidden[opp].duplicate()
@@ -426,6 +433,24 @@ func _scan_leaks(
 				if _is_recovery_kind(event.kind) and own_after.has(card):
 					continue
 				run.leaks.append(where + ": event %d names hidden card %d" % [event.kind, card])
+
+
+## An open prompt as `view`'s seat sees it (cycle 8 R73, DC-11 T11): a prompt for the other
+## seat shows only {open, seat} (SeatView.prompt), so a Crew prompt's zone, options, verb and
+## Crew reach the asked seat alone; a Crew prompt the asked seat sees is counted
+## (crew_prompts_scanned). Its source card is -1 and its options are positions; the rest
+## of the view is scanned by _view_card_ids as for any prompt.
+func _scan_prompt(run: FullMatchRun, view: SeatView, where: String) -> void:
+	if view.prompt.is_empty():
+		return
+	var asked: int = view.prompt.get("seat", -1)
+	if asked != view.seat:
+		var only: bool = view.prompt.size() == 2 and view.prompt.has("open")
+		if not only:
+			run.leaks.append(where + ": the other seat's prompt shows %s" % [view.prompt.keys()])
+		return
+	if Choice.crew_of(view.prompt) != "":
+		run.crew_prompts_scanned += 1
 
 
 ## A face-down card on the opponent's row shows neither its id nor its stats (DC-06 R20: a

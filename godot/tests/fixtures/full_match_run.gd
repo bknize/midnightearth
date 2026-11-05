@@ -42,6 +42,11 @@ var hidden_recoveries_seen: int = 0
 var memory_hidden_seen: int = 0
 ## Multi-select prompts the bots answered with a set (DC-07 P13).
 var set_answers: int = 0
+## Crew prompts the bots answered, optional prompts they declined, and Crew prompts the
+## leak scan saw from the asked seat (cycle 8 R56, R57, R73; DC-11 T11).
+var crew_prompts: int = 0
+var declines: int = 0
+var crew_prompts_scanned: int = 0
 var rejections: Array[String] = []
 var hand_violations: Array[String] = []
 var energy_violations: Array[String] = []
