@@ -148,7 +148,8 @@ func _moved(seat: int, card: int, from_slot: int, to_slot: int) -> Dictionary:
 
 
 func _fired(seat: int, card: int, verb: String, trigger: String) -> Dictionary:
-	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger}
+	# Cycle 8 P7: every EFFECT_FIRED carries `uses_left`, -1 for an unlimited effect.
+	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger, "uses_left": -1}
 
 
 func _stats(seat: int, card: int, stats: Array, cause: String) -> Dictionary:
@@ -158,6 +159,9 @@ func _stats(seat: int, card: int, stats: Array, cause: String) -> Dictionary:
 		"flat": stats[0],
 		"times": stats[1],
 		"plus": stats[2],
+		# Cycle 8 P4: every STATS_CHANGED carries the effective cost and `permanent`.
+		"cost": _drift().def_of(card).cost,
+		"permanent": false,
 		"cause": cause,
 	}
 

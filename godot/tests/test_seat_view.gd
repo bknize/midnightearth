@@ -392,11 +392,13 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.MATCH_ENDED:
 			keys = ["winner", "reason", "wins", "rounds_played"]
 		MatchEvent.Kind.EFFECT_FIRED:
-			keys = ["seat", "card", "verb", "trigger"]
+			# Cycle 8 P7: the uses left after the firing (-1 unlimited).
+			keys = ["seat", "card", "verb", "trigger", "uses_left"]
 		MatchEvent.Kind.EFFECT_FIZZLED:
-			keys = ["seat", "card", "verb"]
+			keys = ["seat", "card", "verb", "reason"]
 		MatchEvent.Kind.STATS_CHANGED:
-			keys = ["seat", "card", "flat", "times", "plus", "cause"]
+			# Cycle 8 P4: the effective cost and whether the change is to the memory.
+			keys = ["seat", "card", "flat", "times", "plus", "cost", "permanent", "cause"]
 		MatchEvent.Kind.CARD_DESTROYED:
 			keys = ["seat", "card", "slot"]
 		MatchEvent.Kind.DESTROYED_CLEARED:

@@ -206,7 +206,8 @@ func _assert_event(event: MatchEvent, kind: int, payload: Dictionary, owner: int
 
 
 func _fired(seat: int, card: int, verb: String, trigger: String) -> Dictionary:
-	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger}
+	# Cycle 8 P7: every EFFECT_FIRED carries `uses_left`, -1 for an unlimited effect.
+	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger, "uses_left": -1}
 
 
 func _started(match_seed: int) -> MatchEngine:
@@ -444,7 +445,16 @@ func test_bonus_zero_is_spent_on_the_opponents_next_reveal() -> void:
 	_assert_event(
 		events[5],
 		STATS,
-		{"seat": 1, "card": hit, "flat": 1, "times": 100, "plus": 0, "cause": "bonus_zero"},
+		{
+			"seat": 1,
+			"card": hit,
+			"flat": 1,
+			"times": 100,
+			"plus": 0,
+			"cost": _defs().def_of(hit).cost,
+			"permanent": false,
+			"cause": "bonus_zero",
+		},
 		PUBLIC
 	)
 	# Applied before the card scores (DC-07 R14): c03 (1, ×1.25) scores 1 × 1.00; c07
@@ -528,9 +538,13 @@ func test_destroy_fizzles_on_an_empty_row_without_touching_the_stream() -> void:
 	var events: Array[MatchEvent] = recorder.events
 	assert_array(_kinds(events)).is_equal(_typed([REVEALED, FIRED, FIZZLED, SCORED]))
 	_assert_event(events[1], FIRED, _fired(0, card, "destroy_random_opponent", "on_reveal"), PUBLIC)
-	_assert_event(
-		events[2], FIZZLED, {"seat": 0, "card": card, "verb": "destroy_random_opponent"}, PUBLIC
-	)
+	var fizzled: Dictionary = {
+		"seat": 0,
+		"card": card,
+		"verb": "destroy_random_opponent",
+		"reason": "no_target",
+	}
+	_assert_event(events[2], FIZZLED, fizzled, PUBLIC)
 	assert_int(rng.state).is_equal(stream)
 
 
@@ -692,6 +706,8 @@ func test_flat_up_applies_after_each_scoring() -> void:
 				"flat": 2 + walk,
 				"times": 100,
 				"plus": 0,
+				"cost": _defs().def_of(card).cost,
+				"permanent": false,
 				"cause": "flat_up",
 			},
 			PUBLIC

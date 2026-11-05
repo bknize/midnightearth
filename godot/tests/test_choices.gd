@@ -338,7 +338,8 @@ func test_no_eligible_target_fizzles() -> void:
 	_walk(state, recorder)
 	var events: Array[MatchEvent] = recorder.events
 	assert_array(_kinds(events)).is_equal(_typed([REVEALED, FIRED, FIZZLED, SCORED]))
-	_assert_event(events[2], FIZZLED, {"seat": 0, "card": card, "verb": "swap_places"}, PUBLIC)
+	var fizzled: Dictionary = {"seat": 0, "card": card, "verb": "swap_places"}
+	_assert_event(events[2], FIZZLED, fizzled.merged({"reason": "no_target"}), PUBLIC)
 	assert_dict(state.prompt).is_empty()
 	assert_array(state.seats[0].board).is_equal(_typed([card]))
 

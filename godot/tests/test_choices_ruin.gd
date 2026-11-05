@@ -179,7 +179,12 @@ func test_no_eligible_target_fizzles() -> void:
 	_walk(state, recorder)
 	var events: Array[MatchEvent] = recorder.events
 	assert_array(_kinds(events)).is_equal(_typed([REVEALED, FIRED, FIZZLED, SCORED]))
-	var fizzled: Dictionary = {"seat": 0, "card": butcher, "verb": "destroy_own_then_draw"}
+	var fizzled: Dictionary = {
+		"seat": 0,
+		"card": butcher,
+		"verb": "destroy_own_then_draw",
+		"reason": "no_target",
+	}
 	_assert_event(events[2], FIZZLED, fizzled, PUBLIC)
 	var glutton: int = _id(0, R14_GLUTTON)
 	var lone: MatchState = _rows(_typed([glutton]), _none())

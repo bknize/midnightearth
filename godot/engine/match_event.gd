@@ -4,7 +4,8 @@ extends RefCounted
 ## the plan's event table. Private events (deal, draw, burn, commit, and the destroy of a
 ## face-down card, DC-05 T04; the discard, a face-down card's move and a choice of a hand or
 ## face-down card, DC-05 T05; the turn-end clear of a destroyed card never revealed, DC-06
-## R21) carry the owning seat; public events carry PUBLIC.
+## R21; a growth's STATS_CHANGED on a hand or face-down card, cycle 8 P4) carry the owning
+## seat; public events carry PUBLIC.
 ## redacted_for() gives each seat its copy (R29). A private CHOICE_MADE hides only its
 ## `target` (R34); every other private event hides its `card` and `cards`.
 
