@@ -9,43 +9,30 @@ extends GdUnitTestSuite
 ## DC-06 (T03, R25): the leak scan covers destroyed face-down cards (their redacted
 ## CARD_DESTROYED and DESTROYED_CLEARED, and their row entries in every view), and the sweep
 ## records the longest walk in pulses (the slots of both rows at walk start, DC-06 R4).
-## The sweep prints "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=..
-## slowest_decision_us=.. prompts=.. destroyed_hidden=.. pile_hidden=.. recoveries=..
-## recoveries_hidden=.." and, per deck pairing, one "Sweep pairing <a>/<b>: seeds=..
-## longest=.. seed=.. slowest_decision_us=.. seed=.." line (DC-07 T08, R38, NSC-74).
+## The sweep prints "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=.. slowest_us=..
+## prompts=.. destroyed_hidden=.. pile_hidden=.. recoveries=.. recoveries_hidden=.. sets=..
+## bot=.. p95_us=.. stamp=match|MISMATCH" and per pairing "Sweep pairing <a>/<b>: seeds=..
+## longest=.. seed=.. slowest_us=.. seed=.." (DC-07 T08; cycle 7 T05, R17, R19, R35, R56).
 ##
-## Matches are played exactly as main.gd plays its smoke run: the shipped pool and deck
-## list, each seat's deck the seed's own pairing (DeckList.seeded_pick, DC-07 R6, P14, C15),
-## one GreedyBot per seat on the engine's MatchCards, seeded GreedyBot.seed_for(match_seed,
-## seat), asked only for the awaited seat. A harness cap of MAX_ACTIONS fails a runaway
-## match instead of hanging the test stage. Every log names both decks and replays with
-## them (R7). DC-07 T08: the leak scan covers the destroyed piles (an opponent's entry whose
-## identity is not public never reaches a view or an event) and recoveries (a recovered card
-## that was hidden reaches only its new controller), and the sweep records the longest
-## match and the slowest bot decision per pairing.
+## Matches are played as main.gd plays its smoke run: the shipped pool and deck list, each
+## seat's deck the seed's own pairing (DeckList.seeded_pick, DC-07 R6, P14, C15), one
+## BotRegistry.default_name() bot per seat at full level on its shipped weights and the
+## engine's MatchCards, seeded BotRegistry.seed_for(match_seed, seat) (cycle 7 P15), asked
+## only for the awaited seat. A harness cap of MAX_ACTIONS fails a runaway match. Every log
+## names both decks and replays with them (R7). DC-07 T08: the leak scan covers the
+## destroyed piles and recoveries. Cycle 7 T05: every choose() is timed (the test reads the
+## clock, never a bot, R18) and the slowest must stay under DECISION_BUDGET_US (R17); the
+## shipped weights' stamp is checked against BotStamp.current() and printed, never asserted.
 
-# GOLDEN (re-pinned at DC-07 T13, 2026-11-04: the shipped Ruin and Drift decks under seed
-# 1's seeded pairing, from the boot log's "Engine smoke: seed=1 decks=ruin/ruin winner=1
-# wins=1-4 rounds=5 end=wins actions=88"; the DC-06 line was winner=0 wins=4-3 rounds=7
-# actions=120)
-# Seed 1's bot-vs-bot result, in the smoke line's terms: decks as "a/b", winner, round
-# wins as "a-b", rounds played, end reason, accepted actions. While GOLDEN_WINNER is
-# GOLDEN_UNPINNED the golden test is skipped with GOLDEN_SKIP_NOTE. Pin by replacing these
-# six literals.
-const GOLDEN_DECKS: String = "ruin/ruin"
-const GOLDEN_WINNER: int = 1
-const GOLDEN_WINS: String = "1-4"
-const GOLDEN_ROUNDS: int = 5
-const GOLDEN_REASON: String = "wins"
-const GOLDEN_ACTIONS: int = 88
+# GOLDEN (cycle 7 T05, R56: pinned by the orchestrator at verification)
+# The greedy bot's last pin (DC-07 T13), for reference: decks ruin/ruin, winner 1, wins
+# 1-4, rounds 5, end wins, actions 88 (DC-06: winner=0 wins=4-3 rounds=7 actions=120).
+# Seed 1's line under the default bot, as the golden case prints it after "Golden: "
+# ("seed=1 decks=a/b bot=.. winner=.. wins=a-b rounds=.. end=.. actions=.."). While empty
+# the case prints the line and compares nothing. Pin by pasting the printed line here.
+const GOLDEN_TUNED: String = ""
 # END GOLDEN
 
-## Sentinel winner meaning "not pinned yet".
-const GOLDEN_UNPINNED: int = -2
-const GOLDEN_SKIP_NOTE: String = (
-	"unpinned since DC-07 T01 (shipped decks at T08): pin GOLDEN_DECKS, GOLDEN_WINNER,"
-	+ " GOLDEN_WINS, GOLDEN_ROUNDS, GOLDEN_REASON and GOLDEN_ACTIONS from seed 1's smoke line"
-)
 ## The four pairings of the shipped decks, in the order the sweep prints them.
 const PAIRINGS: Array[String] = ["ruin/ruin", "ruin/drift", "drift/ruin", "drift/drift"]
 const SEED: int = 1
@@ -55,6 +42,13 @@ const SWEEP_LAST: int = 50
 ## end a turn (and the start). Lower it if the sweep outgrows the test stage's budget.
 const EVERY_STEP_SCAN_LAST: int = 50
 const MAX_ACTIONS: int = 2000
+## The slowest single decision the sweep allows, in microseconds (R17, NSC-74).
+const DECISION_BUDGET_US: int = 10000
+## The stamp check's two results (R35), and the stamp test's altered copy and stamp.
+const STAMP_MATCH: String = "match"
+const STAMP_MISMATCH: String = "MISMATCH"
+const ALTERED_WEIGHTS_PATH: String = "user://test_full_match_altered_weights.json"
+const ALTERED_STAMP: String = "r0-0000000000000000"
 const REASONS: Array[String] = [
 	MatchEngine.REASON_WINS,
 	MatchEngine.REASON_ROUNDS,
@@ -65,10 +59,15 @@ const REASONS: Array[String] = [
 ## The longest swept match in accepted actions, and its seed; set by the sweep test.
 static var longest_actions: int = 0
 static var longest_seed: int = 0
-## The slowest single GreedyBot.choose() call of the sweep, in microseconds, its seed, and
-## the prompts the sweep's bots answered; set by the sweep test (read at DC-05 T14).
-static var slowest_decision_us: int = 0
+## The slowest single bot choose() call of the sweep, in microseconds, its seed, the 95th
+## percentile of every decision (nearest rank), and the prompts the sweep's bots answered;
+## set by the sweep test (DC-05 T14; cycle 7 T05, R17).
+static var slowest_us: int = 0
 static var slowest_seed: int = 0
+static var p95_us: int = 0
+## The bot the sweep played and its stamp check, STAMP_MATCH or STAMP_MISMATCH (R19, R35).
+static var sweep_bot: String = ""
+static var sweep_stamp: String = ""
 static var sweep_prompts: int = 0
 ## The longest single walk of the sweep in pulses, and its seed (DC-06 T03, R25, NSC-74).
 static var longest_walk: int = 0
@@ -271,12 +270,17 @@ func _has_kind(result: ApplyResult, kind: int) -> bool:
 	return false
 
 
-## One bot per seat on the match's own definitions (each card through its origin's deck),
-## as main.gd's smoke builds them.
-func _new_bots(match_seed: int, engine: MatchEngine) -> Array[GreedyBot]:
-	var bots: Array[GreedyBot] = []
+## One shipped bot per seat on the match's own definitions (each card through its origin's
+## deck), as main.gd's smoke builds them: BotRegistry.default_name() at full level, null
+## weights so the registry reads the shipped file (cycle 7 P15). An entry is null when the
+## registry cannot build the bot (_play reports it).
+func _new_bots(match_seed: int, engine: MatchEngine) -> Array[BotPlayer]:
+	var bots: Array[BotPlayer] = []
+	var bot_name: String = BotRegistry.default_name()
+	var cards: MatchCards = engine.match_cards()
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(match_seed, seat), engine.match_cards()))
+		var bot_seed: int = BotRegistry.seed_for(match_seed, seat)
+		bots.append(BotRegistry.make(bot_name, bot_seed, cards, null, BotPlayer.FULL_LEVEL))
 	return bots
 
 
@@ -295,7 +299,11 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 		return run
 	var after: Dictionary = engine.full_state()
 	_check_step(run, before, after, result, true)
-	var bots: Array[GreedyBot] = _new_bots(match_seed, engine)
+	var bots: Array[BotPlayer] = _new_bots(match_seed, engine)
+	if bots.has(null):
+		run.rejections.append("BotRegistry built no %s bot" % BotRegistry.default_name())
+		return run
+	run.bot = bots[0].bot_name()
 	while not engine.is_over():
 		if run.actions >= MAX_ACTIONS:
 			run.capped = true
@@ -307,7 +315,9 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 		var view: SeatView = engine.view_for(seat)
 		var started_us: int = Time.get_ticks_usec()
 		var action: EngineAction = bots[seat].choose(view, engine)
-		run.slowest_decision_us = maxi(run.slowest_decision_us, Time.get_ticks_usec() - started_us)
+		var took_us: int = Time.get_ticks_usec() - started_us
+		run.decision_us.append(took_us)
+		run.slowest_us = maxi(run.slowest_us, took_us)
 		# The seat's budget, not the turn: a carry card raises it (DC-05 T04, R9), and the
 		# free first card makes the leftmost card free (R10).
 		var prompt: Dictionary = engine.open_prompt()
@@ -584,15 +594,16 @@ func _summary(run: MatchRun) -> Dictionary:
 	}
 
 
-func _golden() -> Dictionary:
-	return {
-		"decks": GOLDEN_DECKS,
-		"winner": GOLDEN_WINNER,
-		"wins": GOLDEN_WINS,
-		"rounds": GOLDEN_ROUNDS,
-		"reason": GOLDEN_REASON,
-		"actions": GOLDEN_ACTIONS,
-	}
+## The match result as one line in the smoke line's terms (GOLDEN_TUNED's format):
+## "seed=.. decks=a/b bot=<name> winner=.. wins=a-b rounds=.. end=<reason> actions=..";
+## empty when the match did not end.
+func _result_line(run: MatchRun) -> String:
+	var got: Dictionary = _summary(run)
+	if got.is_empty():
+		return ""
+	var fields: Array = [run.match_seed, got["decks"], run.bot, got["winner"], got["wins"]]
+	fields.append_array([got["rounds"], got["reason"], got["actions"]])
+	return "seed=%d decks=%s bot=%s winner=%d wins=%s rounds=%d end=%s actions=%d" % fields
 
 
 ## Writes the log to JSON, reads it back and replays it with the shipped pool and list
@@ -693,15 +704,18 @@ func test_seed_1_is_the_same_match_every_time() -> void:
 	assert_dict(_summary(second)).is_equal(_summary(first))
 
 
-## The pinned golden result: seed 1 under its own seeded pairing, decks included (C15,
-## R53). Skipped, with GOLDEN_SKIP_NOTE as the reason, until the orchestrator pins the
-## GOLDEN block at DC-07 T13.
-func test_seed_1_matches_the_golden_result(
-	_do_skip: bool = GOLDEN_WINNER == GOLDEN_UNPINNED, _skip_reason: String = GOLDEN_SKIP_NOTE
-) -> void:
-	var played: Dictionary = _summary(_play(SEED, false))
-	var message: String = "seed 1 played %s, golden is %s" % [played, _golden()]
-	assert_dict(played).override_failure_message(message).is_equal(_golden())
+## The pinned golden result: seed 1 under its own seeded pairing and the default bot, decks
+## and bot name included (C15, R53; cycle 7 R56). Prints "Golden: <line>" every run; while
+## GOLDEN_TUNED is empty the line is not compared, so the orchestrator pins it from this
+## print at verification.
+func test_seed_1_matches_the_golden_result() -> void:
+	var line: String = _result_line(_play(SEED, false))
+	print("Golden: %s" % line)
+	assert_str(line).override_failure_message("seed 1 did not end").is_not_empty()
+	if GOLDEN_TUNED == "":
+		return
+	var message: String = "seed 1 played %s, golden is %s" % [line, GOLDEN_TUNED]
+	assert_str(line).override_failure_message(message).is_equal(GOLDEN_TUNED)
 
 
 # --- 50-seed sweep --------------------------------------------------------------------
@@ -710,8 +724,11 @@ func test_seed_1_matches_the_golden_result(
 func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	longest_actions = 0
 	longest_seed = 0
-	slowest_decision_us = 0
+	slowest_us = 0
 	slowest_seed = 0
+	p95_us = 0
+	sweep_bot = BotRegistry.default_name()
+	sweep_stamp = stamp_status(BotRegistry.default_weights_path(sweep_bot))
 	sweep_prompts = 0
 	longest_walk = 0
 	longest_walk_seed = 0
@@ -727,9 +744,11 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	var redacted_seen: int = 0
 	var choices: int = 0
 	var ended: int = 0
+	var decisions: PackedInt32Array = PackedInt32Array()
 	for match_seed: int in range(SWEEP_FIRST, SWEEP_LAST + 1):
 		var run: MatchRun = _play(match_seed, match_seed <= EVERY_STEP_SCAN_LAST)
 		_assert_run(run)
+		decisions.append_array(run.decision_us)
 		face_down_seen += run.face_down_seen
 		redacted_seen += run.redacted_seen
 		choices += run.choices
@@ -747,36 +766,47 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 		if run.actions > longest_actions:
 			longest_actions = run.actions
 			longest_seed = match_seed
-		if run.slowest_decision_us > slowest_decision_us:
-			slowest_decision_us = run.slowest_decision_us
+		if run.slowest_us > slowest_us:
+			slowest_us = run.slowest_us
 			slowest_seed = match_seed
 	sweep_prompts = choices
-	# One line for the orchestrator to read at verification (DC-05 T14, DC-06 T09).
+	p95_us = _p95(decisions)
+	# One line for the orchestrator to read at verification (DC-05 T14, DC-06 T09; cycle 7
+	# T05: the bot, its decision times and the stamp check, R17, R19, R35, R56).
 	print(
 		(
 			(
 				"Sweep: longest=%d seed=%d longest_walk=%d walk_seed=%d"
-				+ " slowest_decision_us=%d prompts=%d destroyed_hidden=%d pile_hidden=%d"
-				+ " recoveries=%d recoveries_hidden=%d sets=%d"
+				+ " slowest_us=%d prompts=%d destroyed_hidden=%d pile_hidden=%d"
+				+ " recoveries=%d recoveries_hidden=%d sets=%d bot=%s p95_us=%d stamp=%s"
 			)
 			% [
 				longest_actions,
 				longest_seed,
 				longest_walk,
 				longest_walk_seed,
-				slowest_decision_us,
+				slowest_us,
 				sweep_prompts,
 				destroyed_hidden,
 				pile_hidden,
 				recoveries,
 				recoveries_hidden,
 				set_answers,
+				sweep_bot,
+				p95_us,
+				sweep_stamp,
 			]
 		)
 	)
 	_print_pairings()
 	_assert_pairings()
 	assert_int(ended).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
+	# R17 (NSC-74): every decision of the shipped bot at full strength within the budget.
+	var too_slow: String = (
+		"slowest decision %d us (seed %d) over the %d us budget"
+		% [slowest_us, slowest_seed, DECISION_BUDGET_US]
+	)
+	assert_int(slowest_us).override_failure_message(too_slow).is_less(DECISION_BUDGET_US)
 	assert_int(face_down_seen).is_greater(0)
 	assert_int(redacted_seen).is_greater(0)
 	# The sweep really answered prompts, so their leak scan and replay ran (DC-05 T05).
@@ -818,13 +848,13 @@ func _record_pairing(run: MatchRun) -> void:
 	if run.actions > longest:
 		record["longest"] = run.actions
 		record["longest_seed"] = run.match_seed
-	if run.slowest_decision_us > slowest:
-		record["slowest_us"] = run.slowest_decision_us
+	if run.slowest_us > slowest:
+		record["slowest_us"] = run.slowest_us
 		record["slowest_seed"] = run.match_seed
 
 
 ## One line per pairing for the orchestrator to read at verification (DC-07 T13, NSC-74):
-## "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=.. slowest_decision_us=.. seed=..".
+## "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=.. slowest_us=.. seed=..".
 func _print_pairings() -> void:
 	for pairing: String in PAIRINGS:
 		var record: Dictionary = pairing_records.get(pairing, _empty_record())
@@ -835,7 +865,7 @@ func _print_pairings() -> void:
 		var slowest_at: int = record["slowest_seed"]
 		print(
 			(
-				"Sweep pairing %s: seeds=%d longest=%d seed=%d slowest_decision_us=%d seed=%d"
+				"Sweep pairing %s: seeds=%d longest=%d seed=%d slowest_us=%d seed=%d"
 				% [pairing, seeds, longest, longest_at, slowest, slowest_at]
 			)
 		)
@@ -859,6 +889,55 @@ func _assert_pairings() -> void:
 	assert_int(total).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
 
 
+## The 95th percentile of `times` by nearest rank: the value at rank ceil(0.95 * n) of the
+## sorted times (integer arithmetic); 0 for no times. `times` is left unsorted.
+static func _p95(times: PackedInt32Array) -> int:
+	if times.is_empty():
+		return 0
+	var sorted: PackedInt32Array = times.duplicate()
+	sorted.sort()
+	return sorted[(95 * sorted.size() + 99) / 100 - 1]
+
+
+## The stamp check of R35, shared by the sweep and the stamp test: STAMP_MATCH when the
+## weights file at `weights_path` loads and carries the current engine's stamp
+## (BotStamp.current()), else STAMP_MISMATCH (a file that fails to load, or an empty stamp
+## on either side, never matches). It asserts and prints nothing: a mismatch is reported on
+## the sweep line, never failed (R35).
+static func stamp_status(weights_path: String) -> String:
+	var loaded: BotWeights = BotWeights.load(weights_path)
+	var current: String = BotStamp.current()
+	if loaded.load_error != "" or loaded.stamp == "" or loaded.stamp != current:
+		return STAMP_MISMATCH
+	return STAMP_MATCH
+
+
+# --- Stamp check ----------------------------------------------------------------------
+
+
+## R35: a copy of the shipped weights with another stamp reads as MISMATCH through the
+## sweep's own check, which reports it without failing anything.
+func test_stamp_check_reports_a_changed_stamp_as_mismatch() -> void:
+	var shipped: String = BotRegistry.default_weights_path(BotRegistry.default_name())
+	var copy: BotWeights = BotWeights.load(shipped)
+	assert_str(copy.load_error).is_empty()
+	copy.stamp = ALTERED_STAMP
+	var file: FileAccess = FileAccess.open(ALTERED_WEIGHTS_PATH, FileAccess.WRITE)
+	assert_object(file).is_not_null()
+	if file == null:
+		return
+	file.store_string(copy.to_json())
+	file.close()
+	var copied: BotWeights = BotWeights.load(ALTERED_WEIGHTS_PATH)
+	var status: String = stamp_status(ALTERED_WEIGHTS_PATH)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(ALTERED_WEIGHTS_PATH))
+	print("Stamp check (copied weights, stamp %s): stamp=%s" % [copied.stamp, status])
+	assert_str(copied.load_error).is_empty()
+	assert_str(copied.stamp).is_equal(ALTERED_STAMP)
+	assert_str(BotStamp.current()).is_not_equal(ALTERED_STAMP)
+	assert_str(status).is_equal(STAMP_MISMATCH)
+
+
 ## One played match and everything the harness saw on the way.
 class MatchRun:
 	extends RefCounted
@@ -879,8 +958,12 @@ class MatchRun:
 	var redacted_seen: int = 0
 	## Prompts the bots answered (DC-05 T05).
 	var choices: int = 0
-	## The slowest GreedyBot.choose() call, in microseconds (DC-05 T07).
-	var slowest_decision_us: int = 0
+	## The bot's registry name (BotPlayer.bot_name(); cycle 7 T05).
+	var bot: String = ""
+	## The slowest bot choose() call, in microseconds (DC-05 T07), and every call's time in
+	## play order (cycle 7 T05, R17).
+	var slowest_us: int = 0
+	var decision_us: PackedInt32Array = PackedInt32Array()
 	## The longest walk of the match in pulses (DC-06 T03).
 	var longest_walk: int = 0
 	## Destroyed face-down cards the leak scan saw: redacted CARD_DESTROYED and
