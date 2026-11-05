@@ -37,6 +37,17 @@ const STAT_FLAT: String = "flat"
 const STAT_TIMES: String = "times"
 const STAT_PLUS: String = "plus"
 const STAT_COST: String = "cost"
+## The seven grow verbs that fire with no target, through apply() (EffectResolver.apply's
+## membership test); GROW_OTHER_FLAT and GROW_HAND_ONE_TIMES prompt instead (P4, P8).
+const UNTARGETED_VERBS: Array[int] = [
+	CardEffect.Verb.GROW_SELF_FLAT,
+	CardEffect.Verb.GROW_SELF_TIMES,
+	CardEffect.Verb.GROW_SELF_PLUS,
+	CardEffect.Verb.GROW_SELF_TIMES_ONCE,
+	CardEffect.Verb.GROW_HAND_FLAT,
+	CardEffect.Verb.GROW_ROW_FLAT,
+	CardEffect.Verb.GROW_ROW_TIMES,
+]
 
 
 ## Fires one of the seven grow verbs that need no target, for `card` owned by `seat`:

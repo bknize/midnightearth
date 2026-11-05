@@ -9,7 +9,8 @@ extends RefCounted
 ## turn, the energy, the phase and the awaited seat. Each row also comes with every card's
 ## shown flat, ×-part and +-part and its revealed flag (own_row, opponent_row). Both
 ## destroyed piles in pile order (DC-07 P6): its own by id, the opponent's by id only where
-## the identity is public (own_destroyed, opponent_destroyed).
+## the identity is public (own_destroyed, opponent_destroyed), and what each of those known
+## pile cards shows, memory included (pile_entries, cycle 8 R7, R25).
 ##
 ## Never holds the match seed, the stream state, any deck order, or the id of any card in
 ## the opponent's hand, deck, face-down commit or burn pile, or of an opponent pile card that
@@ -59,6 +60,14 @@ var own_destroyed: Array[int] = []
 ## (`destroyed_known`: it was revealed when it left the row), else MatchEvent.HIDDEN_CARD.
 ## Its size is public either way.
 var opponent_destroyed: Array[int] = []
+## What each destroyed-pile card whose identity this seat knows shows (cycle 8 R7, R25;
+## DC-09 T06 review), for the recover strip: keyed by instance id, each value as an
+## `own_hand_row` entry {card, cost, flat, times, plus, grown, uses_left}, effective values
+## with memory. Every card of this seat's pile; of the opponent's only those whose identity
+## is public (`destroyed_known`), as `opponent_destroyed` shows them. A hidden pile card has
+## no entry, so its memory stays hidden (R8). to_dict() writes it as a list of the entries in
+## ascending id order.
+var pile_entries: Dictionary[int, Dictionary] = {}
 var opponent_hand_count: int = 0
 ## Size of the opponent's face-down commit while this seat is awaited second; else 0.
 var opponent_pending_count: int = 0
@@ -120,6 +129,7 @@ static func build(
 	view.opponent_row = _row(state, view.opponent, cards, false)
 	view.own_destroyed.assign(own.destroyed)
 	view.opponent_destroyed.assign(_shown_destroyed(other))
+	view.pile_entries = _pile_entries(state, view.own_destroyed, view.opponent_destroyed, cards)
 	view.opponent_hand_count = other.hand.size()
 	# `pending` belongs to the first committer while the second is awaited.
 	if state.phase == MatchState.Phase.AWAIT_SECOND:
@@ -231,18 +241,35 @@ static func _row(
 static func _hand_row(state: MatchState, hand: Array[int], cards: MatchCards) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for card: int in hand:
-		var stats: ScoreWalk.Effective = ScoreWalk.effective(card, state, cards)
-		var entry: Dictionary = {
-			"card": card,
-			"cost": maxi(ScoreWalk.effective_cost(card, state, cards), 0),
-			"flat": stats.flat,
-			"times": stats.times,
-			"plus": stats.plus,
-			"grown": ScoreWalk.is_grown(card, state),
-			"uses_left": ScoreWalk.uses_left(card, state, cards),
-		}
-		out.append(entry)
+		out.append(_card_entry(state, card, cards))
 	return out
+
+
+## `pile_entries` (see there): an entry for each id of `own_pile` and of `shown_pile` (the
+## opponent's pile as this seat sees it), never for MatchEvent.HIDDEN_CARD.
+static func _pile_entries(
+	state: MatchState, own_pile: Array[int], shown_pile: Array[int], cards: MatchCards
+) -> Dictionary[int, Dictionary]:
+	var out: Dictionary[int, Dictionary] = {}
+	for card: int in own_pile + shown_pile:
+		if card != MatchEvent.HIDDEN_CARD:
+			out[card] = _card_entry(state, card, cards)
+	return out
+
+
+## What `card` shows to a seat that knows it, off any row (see `own_hand_row`): {card, cost,
+## flat, times, plus, grown, uses_left}, the stats base plus memory.
+static func _card_entry(state: MatchState, card: int, cards: MatchCards) -> Dictionary:
+	var stats: ScoreWalk.Effective = ScoreWalk.effective(card, state, cards)
+	return {
+		"card": card,
+		"cost": maxi(ScoreWalk.effective_cost(card, state, cards), 0),
+		"flat": stats.flat,
+		"times": stats.times,
+		"plus": stats.plus,
+		"grown": ScoreWalk.is_grown(card, state),
+		"uses_left": ScoreWalk.uses_left(card, state, cards),
+	}
 
 
 ## An untyped copy of a String array, for to_dict().
@@ -256,6 +283,18 @@ static func _plain_strings(values: Array[String]) -> Array:
 static func _plain_row(row: Array[Dictionary]) -> Array:
 	var out: Array = []
 	for entry: Dictionary in row:
+		out.append(entry.duplicate(true))
+	return out
+
+
+## `pile_entries` for to_dict(): deep copies of its entries in ascending id order.
+static func _plain_entries(entries: Dictionary[int, Dictionary]) -> Array:
+	var ids: Array[int] = []
+	ids.assign(entries.keys())
+	ids.sort()
+	var out: Array = []
+	for card: int in ids:
+		var entry: Dictionary = entries[card]
 		out.append(entry.duplicate(true))
 	return out
 
@@ -290,6 +329,7 @@ func to_dict() -> Dictionary:
 		"opponent_row": _plain_row(opponent_row),
 		"own_destroyed": MatchState.plain(own_destroyed),
 		"opponent_destroyed": MatchState.plain(opponent_destroyed),
+		"pile_entries": _plain_entries(pile_entries),
 		"opponent_hand_count": opponent_hand_count,
 		"opponent_pending_count": opponent_pending_count,
 		"opponent_pending_slots": MatchState.plain(opponent_pending_slots),

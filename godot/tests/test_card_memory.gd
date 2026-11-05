@@ -43,15 +43,16 @@ func test_to_dict_from_dict_round_trips() -> void:
 	var kept: CardMemory = _grown()
 	var plain: Dictionary = kept.to_dict()
 	assert_dict(plain).is_equal({"flat": 2, "times": 50, "plus": 1, "cost": 3, "uses_left": 0})
-	var back: CardMemory = CardMemory.from_dict(plain)
+	# The reader is a test fixture since the DC-09 T06 review (MemoryFixture).
+	var back: CardMemory = MemoryFixture.from_dict(plain)
 	assert_dict(back.to_dict()).is_equal(plain)
 	# Through JSON, whose numbers come back as floats.
 	var parsed: Variant = JSON.parse_string(JSON.stringify(plain))
 	assert_bool(parsed is Dictionary).is_true()
 	var parsed_dict: Dictionary = parsed
-	assert_dict(CardMemory.from_dict(parsed_dict).to_dict()).is_equal(plain)
+	assert_dict(MemoryFixture.from_dict(parsed_dict).to_dict()).is_equal(plain)
 	# The empty memory round-trips to an empty one.
-	var empty: CardMemory = CardMemory.from_dict(CardMemory.new().to_dict())
+	var empty: CardMemory = MemoryFixture.from_dict(CardMemory.new().to_dict())
 	assert_bool(empty.is_empty()).is_true()
 
 

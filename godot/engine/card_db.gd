@@ -32,7 +32,8 @@ const ERR_FLAT: String = "flat out of range"
 const ERR_BONUS: String = "bonus out of range"
 const ERR_TRIGGER: String = "unknown trigger"
 const ERR_VERB: String = "unknown verb"
-## Cycle 8 R11 (plan P1): a `uses` not a whole number >= 0, a grow amount outside
+## Cycle 8 R11 (plan P1): a `uses` not a whole number >= 0 (or not > 0 on a
+## CardEffect.LIMITED_VERBS verb, DC-09 T06 review), a grow amount outside
 ## MatchRules.GROW_STEPS, a verb on a trigger CardEffect.is_allowed_pair refuses.
 const ERR_USES: String = "bad uses"
 const ERR_GROW: String = "grow amount out of range"
@@ -272,13 +273,22 @@ static func _effect_problem(value: Variant, i: int) -> String:
 	var verb_value: int = CardEffect.verb_from_name(verb_text)
 	if verb_value < 0:
 		return '%s: card %d has verb "%s"' % [ERR_VERB, i, verb_text]
-	return _rule_problem(trigger_value, verb_value, _as_int(d[CardEffect.KEY_AMOUNT]), i)
+	var uses: int = 0
+	if d.has(CardEffect.KEY_USES):
+		uses = _as_int(d[CardEffect.KEY_USES])
+	var amount: int = _as_int(d[CardEffect.KEY_AMOUNT])
+	return _rule_problem(trigger_value, verb_value, amount, uses, i)
 
 
-## An error message when a known verb sits on a trigger it may not use or names a grow
-## amount outside MatchRules.GROW_STEPS (cycle 8 R11, plan P1), else "".
-static func _rule_problem(trigger_value: int, verb_value: int, amount: int, i: int) -> String:
+## An error message when a known verb sits on a trigger it may not use, names a grow
+## amount outside MatchRules.GROW_STEPS (cycle 8 R11, plan P1) or is a limited verb
+## (CardEffect.LIMITED_VERBS) with no `uses` > 0, else "".
+static func _rule_problem(
+	trigger_value: int, verb_value: int, amount: int, uses: int, i: int
+) -> String:
 	var verb_text: String = CardEffect.verb_name(verb_value)
+	if CardEffect.LIMITED_VERBS.has(verb_value) and uses <= 0:
+		return '%s: card %d has verb "%s" with no uses (needs uses > 0)' % [ERR_USES, i, verb_text]
 	if not CardEffect.is_allowed_pair(trigger_value, verb_value):
 		return (
 			'%s: card %d has verb "%s" on trigger "%s"'

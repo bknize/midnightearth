@@ -280,8 +280,34 @@ func test_a_return_at_the_hand_cap_burns() -> void:
 	EchoEffects.mark_return(state, flicker)
 	var returned: Array[MatchEvent] = EffectResolver.resolve_returns(state)
 	assert_int(returned.size()).is_equal(1)
-	_assert_event(returned[0], BURNED, {"seat": 0, "card": flicker}, PUBLIC)
+	# The slot it left and its row's seat (DC-09 T06 review), so both boards can empty it.
+	var burned: Dictionary = {"seat": 0, "card": flicker, "slot": 0, "row_seat": 0}
+	_assert_event(returned[0], BURNED, burned, PUBLIC)
 	assert_array(state.seats[0].burned).is_equal(_typed([flicker]))
+
+
+## A face-down card marked to return (Recall may mark one) burns at the hand cap privately:
+## seat 1's copy hides the card but keeps the slot it left and the row's seat (DC-09 T06
+## review), so the opponent's board can still empty that slot.
+func test_a_face_down_return_at_the_hand_cap_burns_privately_with_its_slot() -> void:
+	var spark: int = _id(0, E02_SPARK)
+	var glint: int = _id(0, E04_GLINT)
+	var state: MatchState = _state(_typed([spark, glint]), _none())
+	_reveal(state, 0, _typed([spark]))
+	var full: Array[int] = []
+	for index: int in range(MatchRules.HAND_CAP):
+		full.append(_id(0, E11_CHIME + index))
+	state.seats[0].hand.assign(full)
+	EchoEffects.mark_return(state, glint)
+	var returned: Array[MatchEvent] = EffectResolver.resolve_returns(state)
+	assert_int(returned.size()).is_equal(1)
+	var burned: Dictionary = {"seat": 0, "card": glint, "slot": 1, "row_seat": 0}
+	_assert_event(returned[0], BURNED, burned, 0)
+	var theirs: Dictionary = {"seat": 0, "card": HIDDEN, "slot": 1, "row_seat": 0}
+	assert_dict(returned[0].redacted_for(1).payload).is_equal(theirs)
+	assert_dict(returned[0].redacted_for(0).payload).is_equal(burned)
+	assert_array(state.seats[0].burned).is_equal(_typed([glint]))
+	assert_array(state.seats[0].board).is_equal(_typed([spark]))
 
 
 ## A marked card destroyed by turn end does not return: the destroyed clear takes it to its
@@ -536,7 +562,10 @@ func test_tinker_reduces_the_card_to_its_right() -> void:
 	var cause: String = BloomEffects.CAUSE_COST
 	var hidden: Dictionary = _changed(0, encore, _typed([10, 100, 0, 6]), true, cause)
 	_assert_event(outcome.events[1], STATS, hidden, 0)
-	assert_int(_payload_int(outcome.events[1].redacted_for(1), "card")).is_equal(HIDDEN)
+	# Seat 1's copy names no card and shows neutral stats (R8, DC-09 T06 review): Encore's
+	# flat 10 and cost 6 would name it through the deck list.
+	var neutral: Dictionary = _changed(0, HIDDEN, _typed([0, 100, 0, 0]), false, cause)
+	assert_dict(outcome.events[1].redacted_for(1).payload).is_equal(neutral)
 	assert_int(state.memory_of(encore).cost).is_equal(1)
 	assert_int(ScoreWalk.effective_cost(encore, state, _defs())).is_equal(6)
 	_reveal(state, 0, _typed([encore]))

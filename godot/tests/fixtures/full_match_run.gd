@@ -52,6 +52,43 @@ var sets_before: StateSets = null
 var sets_after: StateSets = null
 
 
+## Every int under an event payload's `card`, `target` (CHOICE_MADE) or `cards` key. Moved
+## here from test_full_match.gd at the DC-09 T06 review, to keep the suite under 1000 lines.
+static func event_card_ids(event: MatchEvent) -> Array[int]:
+	var out: Array[int] = []
+	for key: String in [MatchEvent.KEY_CARD, MatchEvent.KEY_TARGET]:
+		var single: Variant = event.payload.get(key)
+		if single is int:
+			var card: int = single
+			out.append(card)
+	var many: Variant = event.payload.get(MatchEvent.KEY_CARDS)
+	if many is Array:
+		var items: Array = many
+		for item: Variant in items:
+			if item is int:
+				var listed: int = item
+				out.append(listed)
+	return out
+
+
+## The kinds that carry memory on a hidden card when private (cycle 8 R8, P4): a growth or
+## cost change (STATS_CHANGED) and a face-down card's turn-end return (CARD_RETURNED).
+static func is_memory_kind(kind: int) -> bool:
+	return kind == MatchEvent.Kind.STATS_CHANGED or kind == MatchEvent.Kind.CARD_RETURNED
+
+
+## A redacted private STATS_CHANGED the other seat received (cycle 8 R8, R73; DC-09 T06
+## review) must show MatchEvent.STATS_HIDDEN's neutral values, since a hidden card's
+## effective flat, bonus and cost would name it through the public deck list; any other
+## value is a leak, recorded on `leaks` at `where`. Other kinds pass.
+func check_neutral_stats(event: MatchEvent, where: String) -> void:
+	if event.kind != MatchEvent.Kind.STATS_CHANGED:
+		return
+	for key: Variant in MatchEvent.STATS_HIDDEN:
+		if event.payload.get(key) != MatchEvent.STATS_HIDDEN[key]:
+			leaks.append(where + ": redacted STATS_CHANGED shows its %s" % key)
+
+
 ## One full state's leak-scan sets, each indexed by seat: the ids hidden from the other
 ## seat (TestFullMatch._hidden_set) and the ids the seat holds itself (_own_set).
 class StateSets:

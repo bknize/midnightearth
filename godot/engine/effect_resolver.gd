@@ -19,11 +19,12 @@ extends RefCounted
 ##
 ## The Bloom grow verbs (cycle 8 P4, P8) are BloomEffects': GROW_OTHER_FLAT (OWN_BOARD) and
 ## GROW_HAND_ONE_TIMES (OWN_HAND) are prompt verbs whose consequence is
-## BloomEffects.apply_choice(); the other seven need no target.
+## BloomEffects.apply_choice(); the other seven (BloomEffects.UNTARGETED_VERBS) need no
+## target.
 ##
 ## The Echo verbs (cycle 8 P6, P8) are EchoEffects': RETURN_OWN_AT_TURN_END (OWN_BOARD) and
 ## RETURN_OPPONENT_AT_TURN_END (OPPONENT_BOARD) are prompt verbs whose consequence is a
-## return mark (EchoEffects.apply_choice); RETURN_SELF_AT_TURN_END, COST_DOWN_RIGHT,
+## return mark (EchoEffects.mark_return); RETURN_SELF_AT_TURN_END, COST_DOWN_RIGHT,
 ## COST_DOWN_SELF and ALLY_REVEAL_FLAT need no target; DRAW_ONCE draws as DRAW (its `uses` 1
 ## is the countdown's); UNREVEAL_AT_TURN_END never fires: flip_echoes() reads it at turn end.
 ##
@@ -233,26 +234,18 @@ static func apply(
 		CardEffect.Verb.GROW_OTHER_FLAT, CardEffect.Verb.GROW_HAND_ONE_TIMES:
 			# A card of the owner's row or hand (cycle 8 P8), then BloomEffects.apply_choice.
 			_ask(state, cards, rng, policy, seat, card, effect, outcome)
-		CardEffect.Verb.GROW_SELF_FLAT, CardEffect.Verb.GROW_SELF_TIMES:
-			BloomEffects.apply(state, cards, seat, card, effect, outcome)
-		CardEffect.Verb.GROW_SELF_PLUS, CardEffect.Verb.GROW_SELF_TIMES_ONCE:
-			BloomEffects.apply(state, cards, seat, card, effect, outcome)
-		CardEffect.Verb.GROW_HAND_FLAT, CardEffect.Verb.GROW_ROW_FLAT:
-			BloomEffects.apply(state, cards, seat, card, effect, outcome)
-		CardEffect.Verb.GROW_ROW_TIMES:
-			BloomEffects.apply(state, cards, seat, card, effect, outcome)
 		CardEffect.Verb.RETURN_OWN_AT_TURN_END, CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
-			# A card of either row (cycle 8 P8), then EchoEffects.apply_choice marks it.
+			# A card of either row (cycle 8 P8), then apply_choice() marks it.
 			_ask(state, cards, rng, policy, seat, card, effect, outcome)
-		CardEffect.Verb.RETURN_SELF_AT_TURN_END, CardEffect.Verb.COST_DOWN_RIGHT:
-			EchoEffects.apply(state, cards, seat, card, effect, outcome)
-		CardEffect.Verb.COST_DOWN_SELF, CardEffect.Verb.ALLY_REVEAL_FLAT:
-			EchoEffects.apply(state, cards, seat, card, effect, outcome)
 		_:
-			# UNREVEAL_INSTEAD (read by destroy()), NEIGHBOUR_TIMES and EDGE_LEFT_TIMES (read by
-			# ScoreWalk.effective()) and UNREVEAL_AT_TURN_END (read by flip_echoes()) never
-			# fire: EFFECT_FIRED and nothing else.
-			pass
+			# The Bloom and Echo verbs that need no target go to their family. Every other verb
+			# left here, UNREVEAL_INSTEAD (read by destroy()), NEIGHBOUR_TIMES and
+			# EDGE_LEFT_TIMES (read by ScoreWalk.effective()) and UNREVEAL_AT_TURN_END (read by
+			# flip_echoes()), never fires: EFFECT_FIRED and nothing else.
+			if BloomEffects.UNTARGETED_VERBS.has(effect.verb):
+				BloomEffects.apply(state, cards, seat, card, effect, outcome)
+			elif EchoEffects.UNTARGETED_VERBS.has(effect.verb):
+				EchoEffects.apply(state, cards, seat, card, effect, outcome)
 	return outcome
 
 
@@ -403,9 +396,8 @@ static func apply_choice(
 		CardEffect.Verb.GROW_OTHER_FLAT, CardEffect.Verb.GROW_HAND_ONE_TIMES:
 			var quiet: bool = policy != null
 			out.append_array(BloomEffects.apply_choice(state, cards, holder, source, target, quiet))
-		_:
-			if not EchoEffects.apply_choice(state, verb, target):
-				pass  # Any other verb has no consequence beyond CHOICE_MADE.
+		CardEffect.Verb.RETURN_OWN_AT_TURN_END, CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
+			EchoEffects.mark_return(state, target)
 	return out
 
 
@@ -490,9 +482,11 @@ static func _choice_owner(state: MatchState, seat: int, zone: int, holder: int, 
 ## order leaves the row (its modifiers go, its memory stays, cycle 8 R17) for that seat's
 ## hand (the row's seat is the card's controller), CARD_RETURNED {seat, card, slot}, public
 ## when the card was revealed. When that hand already holds HAND_CAP cards the card is
-## burned instead: CARD_BURNED {seat, card}, the draw's burn event, made public for the
-## same reason (both boards need to see the card leave its row). A card still face down
-## (cycle 8 P8 lets Recall mark one) keeps both events private to its seat. A marked card
+## burned instead: CARD_BURNED {seat, card, slot, row_seat}, the draw's burn event with the
+## slot it left and the seat whose row that was, made public for the same reason (both
+## boards need to see the card leave its row). A card still face down (cycle 8 P8 lets
+## Recall mark one) keeps both events private to its seat; redaction hides only `card`, so
+## the other board still sees which slot emptied (DC-09 T06 review). A marked card
 ## that is destroyed is skipped: clear_destroyed() discards it (DC-06 R19).
 static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
@@ -508,7 +502,9 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 			var owner: int = PUBLIC if state.take_from_row(seat, card) else seat
 			if piles.hand.size() >= MatchRules.HAND_CAP:
 				piles.burned.append(card)
-				var burned: Dictionary = {"seat": seat, "card": card}
+				var burned: Dictionary = {
+					"seat": seat, "card": card, "slot": slot, "row_seat": seat
+				}
 				out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, burned, owner))
 				continue
 			piles.hand.append(card)

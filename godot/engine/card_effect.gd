@@ -161,6 +161,9 @@ const ALLOWED_TRIGGERS: Dictionary[int, Array] = {
 ## The only verbs an ON_ALLY_REVEAL effect may carry (plan P1, P6): the round-scoped flat
 ## and the existing draw (Refrain and Relay).
 const ALLY_REVEAL_VERBS: Array[int] = [Verb.ALLY_REVEAL_FLAT, Verb.DRAW]
+## The verbs whose name says they are limited (once per match, cycle 8 R6, P4, P6): the
+## loader requires `uses` > 0 on them (CardDb.ERR_USES), so an unlimited "once" never loads.
+const LIMITED_VERBS: Array[int] = [Verb.GROW_SELF_TIMES_ONCE, Verb.DRAW_ONCE]
 ## The CardMemory stat a memory-writing verb grows, keyed by Verb (plan P1, P4, P6): its
 ## amount must be one of MatchRules.GROW_STEPS[stat] (cycle 8 R5, R11).
 const GROW_STAT: Dictionary[int, String] = {

@@ -222,6 +222,9 @@ func test_a_destroyed_card_flips_with_no_effect_no_mark_spent_and_no_score() -> 
 		"plus": stats.plus,
 		"order": 0,
 		"destroyed": true,
+		# DC-09 T06 review (cycle 8 R7, R25): the effective cost and the grown mark.
+		"cost": cards.def_of(wreck).cost,
+		"grown": false,
 	}
 	_assert_event(events[0], REVEALED, flipped, PUBLIC)
 	var live_flag: bool = events[2].payload["destroyed"]

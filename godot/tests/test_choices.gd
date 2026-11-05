@@ -608,8 +608,8 @@ func test_a_return_to_a_full_hand_burns_the_card() -> void:
 	_walk(state, Recorder.new())
 	var returned: Array[MatchEvent] = EffectResolver.resolve_returns(state)
 	assert_int(returned.size()).is_equal(1)
-	# The draw's burn event, public: the card was face up on the row.
-	_assert_event(returned[0], BURNED, {"seat": 1, "card": theirs}, PUBLIC)
+	var burned: Dictionary = {"seat": 1, "card": theirs, "slot": 0, "row_seat": 1}  # Public.
+	_assert_event(returned[0], BURNED, burned, PUBLIC)
 	assert_array(state.seats[1].hand).is_equal(full)
 	assert_array(state.seats[1].burned).is_equal(_typed([theirs]))
 	assert_array(state.seats[1].board).is_empty()

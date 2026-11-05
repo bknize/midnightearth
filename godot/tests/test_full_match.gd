@@ -18,6 +18,8 @@ extends GdUnitTestSuite
 ## bloom, echo); a commit's cost reads the card's memory (an ability's cost reduction); the
 ## leak scan covers memory on hidden cards (a private STATS_CHANGED or CARD_RETURNED never
 ## names one to the other seat, and a face-down row entry shows no cost, growth or uses).
+## DC-09 T06 review: the other seat's redacted STATS_CHANGED shows neutral stats
+## (FullMatchRun.check_neutral_stats) and the view's pile_entries name no hidden pile card.
 ##
 ## Matches are played as main.gd plays its smoke run: the shipped pool and deck list, each
 ## seat's deck the seed's own pairing (DeckList.seeded_pick, DC-07 R6, P14, C15), one
@@ -252,6 +254,8 @@ func _view_card_ids(view: SeatView) -> Array[int]:
 	out.append_array(view.opponent_board)
 	out.append_array(view.own_destroyed)
 	out.append_array(view.opponent_destroyed)
+	# The known pile faces (DC-09 T06 review): a hidden pile card must have no entry.
+	out.append_array(view.pile_entries.keys())
 	var entries: Array[Dictionary] = []
 	entries.append_array(view.own_row)
 	entries.append_array(view.opponent_row)
@@ -264,24 +268,6 @@ func _view_card_ids(view: SeatView) -> Array[int]:
 	if source is int:
 		var prompt_card: int = source
 		out.append(prompt_card)
-	return out
-
-
-## Every int under an event payload's `card`, `target` (CHOICE_MADE) or `cards` key.
-func _event_card_ids(event: MatchEvent) -> Array[int]:
-	var out: Array[int] = []
-	for key: String in [MatchEvent.KEY_CARD, MatchEvent.KEY_TARGET]:
-		var single: Variant = event.payload.get(key)
-		if single is int:
-			var card: int = single
-			out.append(card)
-	var many: Variant = event.payload.get(MatchEvent.KEY_CARDS)
-	if many is Array:
-		var items: Array = many
-		for item: Variant in items:
-			if item is int:
-				var listed: int = item
-				out.append(listed)
 	return out
 
 
@@ -450,7 +436,7 @@ func _scan_leaks(
 	var revealed: Dictionary = {}
 	for event: MatchEvent in result.events:
 		if event.kind == MatchEvent.Kind.CARD_REVEALED:
-			for card: int in _event_card_ids(event):
+			for card: int in FullMatchRun.event_card_ids(event):
 				revealed[card] = true
 		elif event.kind == MatchEvent.Kind.CARD_RECOVERED:
 			run.recoveries_seen += 1
@@ -495,10 +481,11 @@ func _scan_leaks(
 					run.destroyed_hidden_seen += 1
 				if event.kind == MatchEvent.Kind.CARD_RECOVERED:
 					run.hidden_recoveries_seen += 1
-				if _is_memory_kind(event.kind):
+				if FullMatchRun.is_memory_kind(event.kind):
 					run.memory_hidden_seen += 1
+					run.check_neutral_stats(event, where)
 			var exempt: bool = _may_name_public_card(event)
-			for card: int in _event_card_ids(event):
+			for card: int in FullMatchRun.event_card_ids(event):
 				if not hidden_during.has(card) or own_known.has(card):
 					continue
 				if exempt and public_before.has(card):
@@ -567,12 +554,6 @@ func _is_destroy_kind(kind: int) -> bool:
 	return kind == MatchEvent.Kind.CARD_DESTROYED or kind == MatchEvent.Kind.DESTROYED_CLEARED
 
 
-## The kinds that carry memory on a hidden card when private (cycle 8 R8, P4): a growth or
-## cost change (STATS_CHANGED) and a face-down card's turn-end return (CARD_RETURNED).
-func _is_memory_kind(kind: int) -> bool:
-	return kind == MatchEvent.Kind.STATS_CHANGED or kind == MatchEvent.Kind.CARD_RETURNED
-
-
 ## Whether `event` may name a card that was face up on the opponent's row before the step
 ## and is hidden after it (DC-05 T13): the on-row kinds that report that card in public
 ## (scored, revealed, stats, returned, a public burn), plus those the engine emits for a
@@ -598,7 +579,7 @@ func _may_name_public_card(event: MatchEvent) -> bool:
 			return not event.is_private()
 		MatchEvent.Kind.DESTROYED_CLEARED, MatchEvent.Kind.CARD_RECOVERED:
 			return not event.is_private()
-	return _is_memory_kind(event.kind) and not event.is_private()
+	return FullMatchRun.is_memory_kind(event.kind) and not event.is_private()
 
 
 ## The kinds a recovery emits for the recovering seat (DC-07 R19): the choice, the recovery
