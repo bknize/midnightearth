@@ -55,6 +55,11 @@ enum Kind {
 	## flips face down in its slot with printed stats and is not destroyed. Public, since the
 	## card was revealed; from then on the face-down rules hide it as any face-down card.
 	CARD_UNREVEALED,
+	# DC-11 (cycle-8-ramp-bounce-crew plan, event table). Appended so earlier ordinals hold.
+	## An optional prompt was declined (cycle 8 R52, plan P10): {seat, card, crew}, `card`
+	## the source card (-1 for a Crew prompt) and `crew` the Crew id ("" for a card prompt).
+	## Public; the ability does not apply and no use is counted.
+	CHOICE_DECLINED,
 }
 
 ## owner_seat of an event every seat may see in full.

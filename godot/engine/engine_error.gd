@@ -31,4 +31,7 @@ enum Code {
 	## create() named a deck id absent from the deck list, or not one id per seat; start()
 	## fails with it (DC-07 P2).
 	DECK_UNKNOWN,
+	## A decline (EngineAction.DECLINE) arrived on an open prompt that is not optional
+	## (cycle 8 R53, plan P10).
+	NOT_OPTIONAL,
 }
