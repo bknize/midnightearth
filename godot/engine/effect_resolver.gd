@@ -57,10 +57,12 @@ extends RefCounted
 ## - The prompt verbs (DC-05 T05; R20, R26, R28-R34, plan P9, P10). Choice.eligible() lists
 ##   the targets. With none the effect fizzles (EFFECT_FIZZLED {seat, card, verb, reason}); with one
 ##   it is chosen at once (CHOICE_MADE with `auto` true) and applied; with two or more the
-##   Outcome carries the prompt {seat, card, verb, zone, options, multi: false} and the
-##   event CHOICE_REQUESTED {seat, card, verb, text, zone, options, multi} (zone by name,
-##   options as positions: public). answer() applies the choice later. A preview (non-null
-##   policy) never prompts: it takes the first option at once (plan P12).
+##   Outcome carries the prompt {seat, card, verb, zone, options, multi: false, optional:
+##   false, resume: "walk", crew: ""} and the event CHOICE_REQUESTED {seat, card, verb,
+##   text, zone, options, multi, optional, resume, crew} (zone by name, options as
+##   positions: public; cycle 8 P9). answer() applies the choice later, or decline() closes
+##   an optional prompt (cycle 8 P10). A preview (non-null policy) never prompts: it takes
+##   the first option at once (plan P12).
 ## - The multi-select verb SACRIFICE_DESTROY (DC-07 P7, P12, R22-R25, R27): the same, but
 ##   the prompt and CHOICE_REQUESTED carry `multi` true, one eligible position still
 ##   prompts (the empty set is a legal answer), and answer_set() applies a set (apply_set).
@@ -366,6 +368,8 @@ static func apply_choice(
 		"auto": auto,
 	}
 	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_MADE, made, owner))
+	if Choice.crew_of(prompt) != "":
+		return out  # A Crew prompt's `verb` is a CrewDef.Verb; the Crew abilities are DC-11 T10's.
 	match verb:
 		CardEffect.Verb.DRAW_THEN_DISCARD:
 			out.append(_discard(state, holder, target))
@@ -775,7 +779,9 @@ static func _ask_set(
 	_open(prompt, effect, outcome)
 
 
-## The prompt dictionary (plan P9, DC-07 P7): {seat, card, verb, zone, options, multi}.
+## The prompt dictionary (plan P9, DC-07 P7; cycle 8 P9): {seat, card, verb, zone, options,
+## multi, optional, resume, crew}; a card prompt is never optional, resumes the walk and
+## names no Crew.
 static func _prompt(seat: int, card: int, verb: int, zone: int, options: Array[int]) -> Dictionary:
 	return {
 		KEY_SEAT: seat,
@@ -784,26 +790,55 @@ static func _prompt(seat: int, card: int, verb: int, zone: int, options: Array[i
 		Choice.KEY_ZONE: zone,
 		Choice.KEY_OPTIONS: MatchState.plain(options),
 		Choice.KEY_MULTI: Choice.is_multi(verb),
+		Choice.KEY_OPTIONAL: false,
+		Choice.KEY_RESUME: Choice.RESUME_WALK,
+		Choice.KEY_CREW: "",
 	}
 
 
-## Opens `prompt` on `outcome`: the walk pauses on it, and CHOICE_REQUESTED {seat, card,
-## verb, text, zone, options, multi} announces it (public: positions only).
+## Opens `prompt` on `outcome`: the walk pauses on it, and CHOICE_REQUESTED announces it.
 static func _open(prompt: Dictionary, effect: CardEffect, outcome: Outcome) -> void:
 	outcome.prompt = prompt
-	var seat: int = prompt[KEY_SEAT]
-	var card: int = prompt[KEY_CARD]
-	var zone: int = prompt[Choice.KEY_ZONE]
-	var requested: Dictionary = {
+	var verb: String = CardEffect.verb_name(effect.verb)
+	outcome.add(MatchEvent.Kind.CHOICE_REQUESTED, requested(prompt, verb, effect.text))
+
+
+## CHOICE_REQUESTED's payload for `prompt` (public: positions only): {seat, card, verb, text,
+## zone, options, multi, optional, resume, crew} (cycle 8 P9), `verb` its JSON name
+## `verb_name` and `text` the card's or the Crew's rules text.
+static func requested(prompt: Dictionary, verb_name: String, text: String) -> Dictionary:
+	var seat: int = prompt.get(KEY_SEAT, -1)
+	var card: int = prompt.get(KEY_CARD, -1)
+	var zone: int = prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	return {
 		"seat": seat,
 		"card": card,
-		"verb": CardEffect.verb_name(effect.verb),
-		"text": effect.text,
+		"verb": verb_name,
+		"text": text,
 		"zone": Choice.zone_name(zone),
 		"options": MatchState.plain(Choice.options_of(prompt)),
 		"multi": Choice.is_multi_prompt(prompt),
+		"optional": Choice.is_optional_prompt(prompt),
+		"resume": Choice.resume_of(prompt),
+		"crew": Choice.crew_of(prompt),
 	}
-	outcome.add(MatchEvent.Kind.CHOICE_REQUESTED, requested)
+
+
+## Declines the open optional prompt of `state` (cycle 8 R52, plan P10): the prompt closes
+## and its ability does not apply (no use counted), CHOICE_DECLINED {seat, card, crew},
+## public. The caller has checked the decline (MatchEngine) and resumes per the prompt's
+## `resume`. Empty when no prompt is open.
+static func decline(state: MatchState) -> Array[MatchEvent]:
+	var out: Array[MatchEvent] = []
+	var prompt: Dictionary = state.prompt
+	state.prompt = {}
+	if prompt.is_empty():
+		return out
+	var seat: int = prompt.get(KEY_SEAT, -1)
+	var card: int = prompt.get(KEY_CARD, -1)
+	var declined: Dictionary = {"seat": seat, "card": card, "crew": Choice.crew_of(prompt)}
+	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_DECLINED, declined))
+	return out
 
 
 ## Discards `card` from `seat`'s hand to its burn pile (out of play for the round, so every

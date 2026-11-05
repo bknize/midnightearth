@@ -57,6 +57,8 @@ var _accepted: Array[EngineAction] = []
 var _events: Array[MatchEvent] = []
 ## The decisions of every preview walk (stateless, so shared).
 var _policy: PreviewPolicy = PreviewPolicy.new()
+## The turn start's Crew and its pause (cycle 8 P11).
+var _turn_start: TurnStart = TurnStart.new()
 
 
 ## A match on `match_seed` where seat s plays the deck `deck_ids[s]` of `decks`, its cards
@@ -119,6 +121,8 @@ func apply(action: EngineAction) -> ApplyResult:
 		_choose(accepted.index)
 	elif accepted.kind == EngineAction.Kind.CHOOSE_SET:
 		_choose_set(accepted.indices)
+	elif accepted.kind == EngineAction.Kind.DECLINE:
+		_decline()
 	else:
 		_commit(accepted.seat, accepted.cards, accepted.slots)
 	_state.rng_state = _rng.state
@@ -137,9 +141,9 @@ func awaited_seat() -> int:
 	return -1
 
 
-## A copy of the open prompt (plan P9, P12: {seat, card, verb, zone, options, multi}; DC-07
-## P7), or {} when none is open. It names no hidden card: options are positions (Choice)
-## and the source is revealed.
+## A copy of the open prompt (plan P9, P12; DC-07 P7; cycle 8 P9: MatchState.prompt), or {}
+## when none is open. It names no hidden card: options are positions (Choice) and the
+## source is revealed (or a Crew, which is public).
 func open_prompt() -> Dictionary:
 	return _state.prompt.duplicate(true)
 
@@ -282,6 +286,23 @@ func preview_set(seat: int, indices: Array[int]) -> Array[int]:
 	return _finish_preview(clone)
 
 
+## The scores pair the walk would end on if `seat` declined the open optional prompt now
+## (cycle 8 R56, plan P15), or [] unless an optional prompt a walk paused on is open for
+## `seat` (a turn-start Crew prompt has no walk to preview). Pure, like preview_choice(): the
+## clone declines (EffectResolver.decline), marks the opponent's unrevealed row cards inert
+## (_hide_opponent) and finishes the paused walk under the PreviewPolicy.
+func preview_decline(seat: int) -> Array[int]:
+	var none: Array[int] = []
+	if _check(EngineAction.decline(seat)) != EngineError.Code.NONE or TurnStart.is_paused(_state):
+		return none
+	var clone: MatchState = _state.duplicate()
+	var declined: Array[MatchEvent] = EffectResolver.decline(clone)
+	declined.clear()  # A preview reports no events.
+	_hide_opponent(clone, seat)
+	clone.phase = MatchState.Phase.AWAIT_SECOND
+	return _finish_preview(clone)
+
+
 func is_over() -> bool:
 	return _state.phase == MatchState.Phase.OVER
 
@@ -379,6 +400,8 @@ func _check_kind(action: EngineAction) -> int:
 			return _check_choice(action)
 		EngineAction.Kind.CHOOSE_SET:
 			return _check_set(action)
+		EngineAction.Kind.DECLINE:
+			return _check_decline(action)
 	return _check_commit(action)
 
 
@@ -413,6 +436,18 @@ func _check_set(action: EngineAction) -> int:
 	return EngineError.Code.NONE
 
 
+## A well-formed decline (cycle 8 R52, R53, P10): a prompt is open (NO_PROMPT), the action
+## is the prompted seat's (WRONG_SEAT) and the prompt is optional (NOT_OPTIONAL).
+func _check_decline(action: EngineAction) -> int:
+	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _state.prompt.is_empty():
+		return EngineError.Code.NO_PROMPT
+	if action.seat != _prompt_seat():
+		return EngineError.Code.WRONG_SEAT
+	if not Choice.is_optional_prompt(_state.prompt):
+		return EngineError.Code.NOT_OPTIONAL
+	return EngineError.Code.NONE
+
+
 ## A well-formed commit: the awaited seat, then LegalPlays.validate_with over the hand's
 ## effective costs (cycle 8 R4, P3). While a prompt is open the engine awaits a choice, so
 ## every commit fails with WRONG_SEAT.
@@ -442,8 +477,8 @@ func _resolved_slots(action: EngineAction) -> Array[int]:
 	return LegalPlays.append_slots(piles.board.size(), action.cards.size())
 
 
-## Not null, a known kind, a seat of 0 or 1, no cards or slots on a concede or a (set)
-## choice, and no set on anything but a set choice.
+## Not null, a known kind, a seat of 0 or 1, no cards or slots on a concede, a decline or
+## a (set) choice, and no set on anything but a set choice.
 func _is_well_formed(action: EngineAction) -> bool:
 	if action == null or action.seat < 0 or action.seat >= SEATS:
 		return false
@@ -451,9 +486,11 @@ func _is_well_formed(action: EngineAction) -> bool:
 		return action.cards.is_empty() and action.slots.is_empty()
 	if not action.indices.is_empty():
 		return false
-	if action.kind == EngineAction.Kind.CONCEDE or action.kind == EngineAction.Kind.CHOOSE:
-		return action.cards.is_empty() and action.slots.is_empty()
-	return action.kind == EngineAction.Kind.COMMIT
+	if action.kind == EngineAction.Kind.COMMIT:
+		return true
+	var bare: bool = action.cards.is_empty() and action.slots.is_empty()
+	# What is left of the known kinds: CONCEDE, CHOOSE and DECLINE.
+	return bare and EngineAction.Kind.values().has(action.kind)
 
 
 # --- Rounds ---------------------------------------------------------------------------
@@ -576,7 +613,9 @@ func _after_round(winner: int) -> void:
 
 ## Turn start (R12, R13, R17, plan P14): set the first committer, clear this turn's
 ## spend, then draw 1 card per seat. `energy` is the base (the turn); `budgets` and
-## `free_first` are per seat.
+## `free_first` are per seat. Then the turn start's Crew fire (cycle 8 R45, R54, P11;
+## TurnStart): a Crew prompt pauses the turn before any commit (AWAIT_CHOICE, the walk
+## inactive) until its seat's choice or decline (_resume); else AWAIT_FIRST.
 func _begin_turn() -> void:
 	_state.turn += 1
 	if _state.turn > 1 and _state.last_turn_winner >= 0:
@@ -599,6 +638,7 @@ func _begin_turn() -> void:
 	)
 	for seat: int in range(SEATS):
 		_draw_card(seat)
+	_turn_start.begin(_state, _cards, _rng, _events)
 
 
 ## The two-step commit (R5, R7, R14, R15). `slots` are explicit (already resolved). The
@@ -702,21 +742,43 @@ func _run_walk() -> void:
 
 
 ## An accepted choice (R32, plan P3): the prompt closes, the choice applies (CHOICE_MADE and
-## the verb's events), and the walk resumes where it paused. The phase returns to the one a
-## walk runs in (AWAIT_SECOND) until the walk pauses again or the turn ends.
+## the verb's events), and the walk resumes where it paused (_resume: or the turn start, for
+## a Crew prompt it opened). The phase returns to the one a walk runs in (AWAIT_SECOND)
+## until the walk pauses again or the turn ends.
 func _choose(index: int) -> void:
+	var resume: String = Choice.resume_of(_state.prompt)
 	_state.phase = MatchState.Phase.AWAIT_SECOND
 	_events.append_array(EffectResolver.answer(_state, _cards, index, _rng, null))
-	_run_walk()
+	_resume(resume)
 
 
 ## An accepted set choice (DC-07 P7, R24), as _choose(): the prompt closes, the set applies
 ## (CHOICE_MADE with `indices`, then the verb's events, or EFFECT_FIZZLED for the empty set)
 ## with the engine stream for its random destroys (R35), and the walk resumes.
 func _choose_set(indices: Array[int]) -> void:
+	var resume: String = Choice.resume_of(_state.prompt)
 	_state.phase = MatchState.Phase.AWAIT_SECOND
 	_events.append_array(EffectResolver.answer_set(_state, _cards, _rng, null, indices))
-	_run_walk()
+	_resume(resume)
+
+
+## An accepted decline (cycle 8 R52, P10), as _choose(): the optional prompt closes without
+## its ability (CHOICE_DECLINED, no use counted) and what it paused resumes.
+func _decline() -> void:
+	var resume: String = Choice.resume_of(_state.prompt)
+	_state.phase = MatchState.Phase.AWAIT_SECOND
+	_events.append_array(EffectResolver.decline(_state))
+	_resume(resume)
+
+
+## Resumes after an answered prompt per its `resume` (cycle 8 P9-P11): the paused walk, or
+## the turn start's remaining Crew (TurnStart.run), which end by awaiting the first
+## committer unless another Crew prompt pauses the turn again.
+func _resume(resume: String) -> void:
+	if resume == Choice.RESUME_TURN_START:
+		_turn_start.run(_state, _cards, _rng, _events)
+	else:
+		_run_walk()
 
 
 ## The open prompt's seat, or -1 when none is open.

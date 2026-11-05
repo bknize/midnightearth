@@ -4,8 +4,8 @@ extends GdUnitTestSuite
 ## form the action log stores (R31; format 2 keys, plan "Interfaces and contracts"):
 ## {"k":"commit","s":0,"c":[3,7],"p":[0,2]}, {"k":"choose","s":1,"z":1,"i":0},
 ## {"k":"concede","s":1}, and DC-07's set choice {"k":"choose_set","s":0,"z":1,"i":[0,2]}
-## (P7). Moved out of test_turn.gd when DC-05 T02 grew that suite past the file-length
-## limit.
+## (P7), and DC-11's decline {"k":"decline","s":0} (cycle 8 P10). Moved out of
+## test_turn.gd when DC-05 T02 grew that suite past the file-length limit.
 
 
 func _typed(values: Array) -> Array[int]:
@@ -14,8 +14,9 @@ func _typed(values: Array) -> Array[int]:
 	return out
 
 
-func test_exactly_four_action_kinds() -> void:
-	assert_int(EngineAction.Kind.size()).is_equal(4)
+func test_exactly_five_action_kinds() -> void:
+	# DC-11 T09 (cycle 8 P10) appends DECLINE.
+	assert_int(EngineAction.Kind.size()).is_equal(5)
 	var cards: Array[int] = [3, 7]
 	var slots: Array[int] = [0, 2]
 	var commit: EngineAction = EngineAction.commit(0, cards, slots)
@@ -210,6 +211,52 @@ func test_choose_set_round_trips() -> void:
 		assert_array(floats.indices).is_equal(_typed([2, 0]))
 	# The other kinds carry no set.
 	assert_array(EngineAction.choose(0, 1, 2).indices).is_empty()
+
+
+## DC-11 T09 (cycle 8 R52, P10): the decline carries its seat only; it copies and its
+## dictionary form {"k":"decline","s":0} round-trips, JSON-style floats included.
+func test_decline_round_trips() -> void:
+	var declined: EngineAction = EngineAction.decline(1)
+	assert_int(declined.kind).is_equal(EngineAction.Kind.DECLINE)
+	assert_int(declined.seat).is_equal(1)
+	assert_array(declined.cards).is_empty()
+	assert_array(declined.slots).is_empty()
+	assert_array(declined.indices).is_empty()
+	var expected: Dictionary = {"k": "decline", "s": 1}
+	assert_dict(declined.to_dict()).is_equal(expected)
+	var back: EngineAction = EngineAction.from_dict(expected)
+	assert_object(back).is_not_null()
+	if back == null:
+		return
+	assert_int(back.kind).is_equal(EngineAction.Kind.DECLINE)
+	assert_int(back.seat).is_equal(1)
+	assert_dict(back.to_dict()).is_equal(expected)
+	var copied: EngineAction = declined.copy()
+	assert_int(copied.kind).is_equal(EngineAction.Kind.DECLINE)
+	assert_dict(copied.to_dict()).is_equal(expected)
+	var seat_zero: Dictionary = {"k": "decline", "s": 0}
+	assert_dict(EngineAction.decline(0).to_dict()).is_equal(seat_zero)
+	var floats: EngineAction = EngineAction.from_dict({"k": "decline", "s": 0.0})
+	assert_object(floats).is_not_null()
+	if floats != null:
+		assert_dict(floats.to_dict()).is_equal(seat_zero)
+
+
+func test_malformed_decline_dicts_give_null() -> void:
+	var bad: Array[Dictionary] = [
+		{"k": "decline"},
+		{"k": "decline", "s": 2},
+		{"k": "decline", "s": -1},
+		{"k": "decline", "s": 0.5},
+		{"k": "decline", "s": "0"},
+		{"k": "decline", "s": 0, "c": []},
+		{"k": "decline", "s": 0, "p": []},
+		{"k": "decline", "s": 0, "z": 0},
+		{"k": "decline", "s": 0, "i": 0},
+		{"k": "declined", "s": 0},
+	]
+	for d: Dictionary in bad:
+		assert_object(EngineAction.from_dict(d)).override_failure_message(str(d)).is_null()
 
 
 func test_malformed_choose_set_dicts_give_null() -> void:

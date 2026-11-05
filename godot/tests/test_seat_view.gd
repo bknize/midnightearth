@@ -429,8 +429,11 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.ENERGY_CARRIED:
 			keys = ["seat", "amount"]
 		MatchEvent.Kind.CHOICE_REQUESTED:
-			# DC-07 P7: "multi" says whether the prompt takes a set.
-			keys = ["seat", "card", "verb", "text", "zone", "options", "multi"]
+			# DC-07 P7: "multi" says whether the prompt takes a set; cycle 8 P9 (T09) adds
+			# "optional", "resume" and "crew" (public: Crew are face up, R42).
+			keys = [
+				"seat", "card", "verb", "text", "zone", "options", "multi", "optional", "resume", "crew"
+			]
 		MatchEvent.Kind.CHOICE_MADE:
 			keys = ["seat", "card", "zone", "index", "target", "auto"]
 		MatchEvent.Kind.CARD_MOVED:

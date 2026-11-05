@@ -395,6 +395,10 @@ func test_two_or_more_targets_pause_the_walk_on_a_prompt() -> void:
 		"zone": "own_board",
 		"options": [0, 2],
 		"multi": false,
+		# DC-11 T09 (cycle 8 P9): a card prompt is never optional and resumes the walk.
+		"optional": false,
+		"resume": "walk",
+		"crew": "",
 	}
 	_assert_event(events[3], REQUESTED, requested, PUBLIC)
 	var prompt: Dictionary = {
@@ -404,6 +408,9 @@ func test_two_or_more_targets_pause_the_walk_on_a_prompt() -> void:
 		"zone": Choice.Zone.OWN_BOARD,
 		"options": [0, 2],
 		"multi": false,
+		"optional": false,
+		"resume": "walk",
+		"crew": "",
 	}
 	assert_dict(state.prompt).is_equal(prompt)
 	assert_dict(state.to_dict()["prompt"]).is_equal(prompt)
@@ -992,6 +999,82 @@ func test_set_choice_errors_and_the_decline() -> void:
 	var kinds: Array[int] = _kinds(declined.events)
 	assert_array([kinds[0], kinds[1]]).is_equal([MADE, FIZZLED])
 	assert_array(_of_kind(declined.events, MatchEvent.Kind.CARD_DESTROYED)).is_empty()
+
+
+# --- The decline (DC-11 T09; cycle 8 R52, R53, P10) ------------------------------------
+
+
+## R53: a decline with no prompt open (NO_PROMPT), from the seat not prompted (WRONG_SEAT)
+## or on a prompt that is not optional (NOT_OPTIONAL; every card prompt) changes nothing:
+## state, accepted actions and log. A decline carrying cards or a set is MALFORMED.
+func test_decline_errors_leave_the_state_and_the_log_unchanged() -> void:
+	var fresh: MatchEngine = _started(SEED)
+	var awaited: int = fresh.awaited_seat()
+	_assert_rejected(fresh, EngineAction.decline(awaited), EngineError.Code.NO_PROMPT)
+	_assert_rejected(fresh, EngineAction.decline(1 - awaited), EngineError.Code.NO_PROMPT)
+	var engine: MatchEngine = _discard_prompt_engine()
+	assert_object(engine).override_failure_message("no seed gives c09 by turn 3").is_not_null()
+	if engine == null:
+		return
+	var asked: int = engine.awaited_seat()
+	assert_bool(Choice.is_optional_prompt(engine.open_prompt())).is_false()
+	var optional: bool = engine.view_for(asked).prompt["optional"]
+	assert_bool(optional).is_false()
+	_assert_rejected(engine, EngineAction.decline(1 - asked), EngineError.Code.WRONG_SEAT)
+	_assert_rejected(engine, EngineAction.decline(asked), EngineError.Code.NOT_OPTIONAL)
+	var carded: EngineAction = EngineAction.decline(asked)
+	carded.cards.append(_hand(engine, asked)[0])
+	_assert_rejected(engine, carded, EngineError.Code.MALFORMED)
+	var with_set: EngineAction = EngineAction.decline(asked)
+	with_set.indices.append(0)
+	_assert_rejected(engine, with_set, EngineError.Code.MALFORMED)
+	assert_int(_phase(engine)).is_equal(MatchState.Phase.AWAIT_CHOICE)
+	assert_array(engine.preview_decline(asked)).is_empty()
+	# A concede still ends it; a decline then meets the match's end.
+	assert_bool(engine.apply(EngineAction.concede(asked)).ok).is_true()
+	_assert_rejected(engine, EngineAction.decline(asked), EngineError.Code.MATCH_OVER)
+
+
+## R52: on an optional prompt the prompted seat's decline is accepted and logged like a
+## choice: the prompt closes with CHOICE_DECLINED {seat, card, crew: ""} (public), the
+## effect does not apply (no CHOICE_MADE, no discard) and the walk resumes in the same
+## pulse: c09 scores, the turn ends and turn 4 begins. No card prompt is optional before
+## the Crew (T10), so the test marks c09's discard prompt optional on the live state.
+func test_a_decline_on_an_optional_prompt_skips_the_effect_and_the_walk_resumes() -> void:
+	var engine: MatchEngine = _discard_prompt_engine()
+	assert_object(engine).override_failure_message("no seed gives c09 by turn 3").is_not_null()
+	if engine == null:
+		return
+	var asked: int = engine.awaited_seat()
+	var c09: int = _id(asked, C09_DRAW_DISCARD)
+	engine._state.prompt[Choice.KEY_OPTIONAL] = true
+	var view: SeatView = engine.view_for(asked)
+	var optional: bool = view.prompt["optional"]
+	var resume: String = view.prompt["resume"]
+	assert_bool(optional).is_true()
+	assert_str(resume).is_equal(Choice.RESUME_WALK)
+	_assert_rejected(engine, EngineAction.decline(1 - asked), EngineError.Code.WRONG_SEAT)
+	var hand: Array[int] = _hand(engine, asked)
+	assert_int(hand.size()).is_equal(MatchRules.HAND_CAP)
+	var count: int = engine.accepted_action_count()
+	var result: ApplyResult = engine.apply(EngineAction.decline(asked))
+	assert_bool(result.ok).is_true()
+	var declined: Dictionary = {"seat": asked, "card": c09, "crew": ""}
+	_assert_event(result.events[0], MatchEvent.Kind.CHOICE_DECLINED, declined, PUBLIC)
+	var kinds: Array[int] = _kinds(result.events)
+	assert_bool(kinds.has(MADE)).is_false()
+	assert_bool(kinds.has(DISCARDED)).is_false()
+	assert_bool(_cards_of(result.events, SCORED).has(c09)).is_true()
+	assert_int(kinds.find(MatchEvent.Kind.TURN_ENDED)).is_greater(kinds.find(SCORED))
+	# Nothing was discarded; turn 4's draw burns at the cap.
+	assert_array(_hand(engine, asked)).is_equal(hand)
+	assert_dict(engine.open_prompt()).is_empty()
+	assert_int(engine.energy()).is_equal(4)
+	assert_int(_phase(engine)).is_equal(MatchState.Phase.AWAIT_FIRST)
+	assert_int(engine.accepted_action_count()).is_equal(count + 1)
+	var entry: String = '{"k":"decline","s":%d}' % asked
+	var text: String = engine.action_log().to_json()
+	assert_bool(text.contains(entry)).override_failure_message(text).is_true()
 
 
 ## Records what a walk sends to its sink, with each event's owner.

@@ -9,7 +9,9 @@ extends GdUnitTestSuite
 ## DC-05 R39, R40: format 2 (commits carry their slots as "p"; a choice entry), round trip
 ## and replay with slots, and a format-1 or rules-1 log fails replay on its version.
 ## DC-07 R7, P2 (T02): format 3, the header's `decks` (the resolved deck ids, rebuilt by
-## replay); rules 5 since DC-09 T01, so a format-2, rules-3/4 or deck-less log fails replay.
+## replay); rules 5 since DC-09 T01. DC-11 T09 (cycle 8 R52, R55, P10): format 4 and rules
+## 6 for the decline entry, so a format-2 or -3, rules-3/4/5 or deck-less log fails replay,
+## and a log with a decline replays.
 ## Every match here plays the fixture deck on both seats.
 ##
 ## Matches are driven by scripted actions on known seeds: the "player" seat commits the
@@ -630,13 +632,15 @@ func test_rules_mismatch_fails_replay() -> void:
 		assert_object(replayed.engine).is_null()
 
 
-## DC-07 R7 (T02): the format is 3; the rules version is 5 since DC-09 T01 (cycle 8 R29,
-## card memory). A DC-06 log (format 2, rules 3, no `decks`) still parses, and replay
-## refuses it on the format before running anything; a format-3 log under rules 3 or 4
-## fails on the rules version; a format-3 header without `decks` is a format mismatch.
-func test_a_format_2_or_rules_3_or_deckless_log_fails_replay() -> void:
-	assert_int(MatchRules.RULES_VERSION).is_equal(5)
-	assert_int(MatchRules.LOG_FORMAT).is_equal(3)
+## DC-07 R7 (T02): the header names the decks. The format is 4 and the rules version 6
+## since DC-11 T09 (cycle 8 R55, P10: the decline; rules 5 was DC-09 T01's card memory). A
+## DC-06 log (format 2, rules 3, no `decks`) still parses, and replay refuses it on the
+## format before running anything; so does every format-3 log, whatever its rules (the
+## format is checked first); a format-4 log under rules 3, 4 or 5 fails on the rules
+## version; a format-4 header without `decks` is a format mismatch.
+func test_a_format_2_or_3_or_old_rules_or_deckless_log_fails_replay() -> void:
+	assert_int(MatchRules.RULES_VERSION).is_equal(6)
+	assert_int(MatchRules.LOG_FORMAT).is_equal(4)
 	var commit: String = '{"k": "commit", "s": 0, "c": [], "p": []}'
 	var actions: String = ' "actions": [' + commit + ', {"k": "concede", "s": 1}]}'
 	var decks: String = ' "decks": ["fixture", "fixture"],'
@@ -644,14 +648,20 @@ func test_a_format_2_or_rules_3_or_deckless_log_fails_replay() -> void:
 		'{"format": 2, "rules": 3, "seed": "1",' + actions,
 		'{"format": 2, "rules": 3, "seed": "1",' + decks + actions,
 		'{"format": 3, "rules": 3, "seed": "1",' + decks + actions,
-		'{"format": 3, "rules": 5, "seed": "1",' + actions,
-		'{"format": 3, "rules": 4, "seed": "1",' + decks + actions,
+		'{"format": 3, "rules": 5, "seed": "1",' + decks + actions,
+		'{"format": 3, "rules": 6, "seed": "1",' + decks + actions,
+		'{"format": 4, "rules": 6, "seed": "1",' + actions,
+		'{"format": 4, "rules": 4, "seed": "1",' + decks + actions,
+		'{"format": 4, "rules": 5, "seed": "1",' + decks + actions,
 	]
 	var reasons: Array[int] = [
 		ReplayResult.Reason.FORMAT_MISMATCH,
 		ReplayResult.Reason.FORMAT_MISMATCH,
-		ReplayResult.Reason.RULES_MISMATCH,
 		ReplayResult.Reason.FORMAT_MISMATCH,
+		ReplayResult.Reason.FORMAT_MISMATCH,
+		ReplayResult.Reason.FORMAT_MISMATCH,
+		ReplayResult.Reason.FORMAT_MISMATCH,
+		ReplayResult.Reason.RULES_MISMATCH,
 		ReplayResult.Reason.RULES_MISMATCH,
 	]
 	for i: int in range(texts.size()):
@@ -679,6 +689,20 @@ func test_a_format_2_or_rules_3_or_deckless_log_fails_replay() -> void:
 		_db(), FixtureDecks.decks(), FixtureDecks.crew()
 	)
 	assert_int(rules_4.reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
+	the_log.rules_version = 5  # Cycle 8 R55: before the decline.
+	var rules_5: ReplayResult = _through_json(the_log).replay(
+		_db(), FixtureDecks.decks(), FixtureDecks.crew()
+	)
+	assert_int(rules_5.reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
+	# The same match written as a format-3 log fails on the format (R55).
+	the_log.rules_version = MatchRules.RULES_VERSION
+	the_log.format_version = 3
+	var format_3: ReplayResult = _through_json(the_log).replay(
+		_db(), FixtureDecks.decks(), FixtureDecks.crew()
+	)
+	assert_bool(format_3.ok).is_false()
+	assert_int(format_3.reason).is_equal(ReplayResult.Reason.FORMAT_MISMATCH)
+	assert_object(format_3.engine).is_null()
 	var deckless: ActionLog = _scripted(SEED, 0, 6).action_log()
 	deckless.deck_ids.clear()
 	assert_bool(deckless.to_json().contains('"decks"')).is_false()
@@ -742,21 +766,22 @@ func test_bad_slots_fail_replay_at_their_index() -> void:
 		_assert_rejected_at(SEED, actions, BAD_INDEX, bad, EngineError.Code.BAD_SLOTS, true)
 
 
-# --- DC-05 R39, R40: slots and choices; DC-07: format 3 -------------------------------
+# --- DC-05 R39, R40: slots and choices; DC-07 format 3; cycle 8 T09 format 4 ---
 
 
-func test_format_3_round_trips_with_decks_slots_and_choices() -> void:
+func test_format_4_round_trips_with_decks_slots_and_choices() -> void:
 	var the_log: ActionLog = _log_of(SEED, _sample_actions())
 	var text: String = the_log.to_json()
-	# Format 3 since DC-07 T02 (the header names both decks), rules 5 since DC-09 T01.
-	var header: String = '{"format":3,"rules":5,"seed":"1","decks":["fixture","fixture"]'
+	# The header names both decks (format 3, DC-07 T02); format 4 and rules 6 since cycle 8
+	# T09 (the decline action).
+	var header: String = '{"format":4,"rules":6,"seed":"1","decks":["fixture","fixture"]'
 	assert_bool(text.begins_with(header)).override_failure_message(text).is_true()
 	assert_bool(text.contains('{"k":"commit","s":0,"c":[3,7],"p":[0,2]}')).is_true()
 	assert_bool(text.contains('{"k":"commit","s":1,"c":[],"p":[]}')).is_true()
 	assert_bool(text.contains('{"k":"choose","s":0,"z":1,"i":2}')).is_true()
 	var parsed: ActionLog = _through_json(the_log)
-	assert_int(parsed.format_version).is_equal(3)
-	assert_int(parsed.rules_version).is_equal(5)
+	assert_int(parsed.format_version).is_equal(4)
+	assert_int(parsed.rules_version).is_equal(6)
 	assert_array(parsed.deck_ids).is_equal(FixtureDecks.ids())
 	assert_array(_dicts(parsed.actions)).is_equal(_dicts(the_log.actions))
 	assert_str(parsed.to_json()).is_equal(text)
@@ -1003,8 +1028,8 @@ func test_valid_hand_written_log_parses_and_replays() -> void:
 	for entry: Variant in entries:
 		parts.append(JSON.stringify(entry, "  "))
 	var text: String = (
-		'{\n  "seed": "-42",\n  "decks": ["fixture", "fixture"],\n  "rules": 5,\n'
-		+ '  "format": 3,\n  "actions": [\n'
+		'{\n  "seed": "-42",\n  "decks": ["fixture", "fixture"],\n  "rules": 6,\n'
+		+ '  "format": 4,\n  "actions": [\n'
 		+ ",\n".join(parts)
 		+ "\n  ]\n}"
 	)
@@ -1013,3 +1038,55 @@ func test_valid_hand_written_log_parses_and_replays() -> void:
 	var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks(), FixtureDecks.crew())
 	assert_bool(replayed.ok).is_true()
 	assert_dict(replayed.engine.full_state()).is_equal(engine.full_state())
+
+
+## DC-11 T09 (cycle 8 R52, R55, P10): a decline is logged like a choice, {"k":"decline",
+## "s":n}, and a log holding one replays to an equal state. The optional prompts are
+## turn-start Crew prompts from StubCrew (the Crew abilities are T10's), so the replay
+## installs the stub too (StubCrew.replay); ActionLog.replay() without it stops at the
+## decline, which then finds no prompt open.
+func test_a_log_with_a_decline_replays_to_an_equal_state() -> void:
+	var stub: StubCrew = StubCrew.new(1, _typed([StubCrew.SHADE_SLOT]))
+	var engine: MatchEngine = stub.engine(SEED)
+	assert_bool(engine.start().ok).is_true()
+	var first: int = engine.awaited_seat()
+	assert_bool(engine.apply(EngineAction.decline(first)).ok).is_true()
+	var second: int = engine.awaited_seat()
+	assert_int(second).is_equal(1 - first)
+	var hand_zone: int = Choice.Zone.OWN_HAND
+	assert_bool(engine.apply(EngineAction.choose(second, hand_zone, 1)).ok).is_true()
+	# Turn 1's commits: both seats pass.
+	assert_bool(engine.apply(EngineAction.commit(engine.awaited_seat(), _typed([]))).ok).is_true()
+	assert_bool(engine.apply(EngineAction.commit(engine.awaited_seat(), _typed([]))).ok).is_true()
+	var text: String = engine.action_log().to_json()
+	var entry: String = '{"k":"decline","s":%d}' % first
+	assert_bool(text.contains(entry)).override_failure_message(text).is_true()
+	var parsed: ActionLog = ActionLog.from_json(text)
+	assert_object(parsed).is_not_null()
+	if parsed == null:
+		return
+	assert_int(parsed.format_version).is_equal(MatchRules.LOG_FORMAT)
+	assert_int(parsed.actions.size()).is_equal(4)
+	assert_int(parsed.actions[0].kind).is_equal(EngineAction.Kind.DECLINE)
+	assert_int(parsed.actions[0].seat).is_equal(first)
+	var replayed: MatchEngine = stub.replay(parsed)
+	assert_object(replayed).is_not_null()
+	if replayed == null:
+		return
+	assert_dict(replayed.full_state()).is_equal(engine.full_state())
+	assert_str(replayed.action_log().to_json()).is_equal(text)
+	# Mid-pause too: the log up to the decline replays to the second seat's open prompt.
+	var paused: ActionLog = ActionLog.from_json(text)
+	paused.actions.resize(1)
+	var at_prompt: MatchEngine = stub.replay(paused)
+	assert_object(at_prompt).is_not_null()
+	if at_prompt != null:
+		assert_int(at_prompt.awaited_seat()).is_equal(second)
+		assert_bool(Choice.is_optional_prompt(at_prompt.open_prompt())).is_true()
+	var plain: ReplayResult = parsed.replay(
+		CardDb.load_default(), DeckList.load_default(), CrewPool.load_default()
+	)
+	assert_bool(plain.ok).is_false()
+	assert_int(plain.reason).is_equal(ReplayResult.Reason.ACTION_REJECTED)
+	assert_int(plain.failed_index).is_equal(0)
+	assert_int(plain.error).is_equal(EngineError.Code.NO_PROMPT)

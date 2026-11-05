@@ -2,11 +2,13 @@ class_name EngineAction
 extends RefCounted
 ## One seat's action (R5, R31): a commit naming zero or more of its hand's cards with the
 ## row slot each will occupy, a choice answering an open prompt, a set choice answering an
-## open multi-select prompt (DC-07 P7, R22-R25), or a concede. The dictionary form is the
-## action log's entry (plan, action log format 3):
+## open multi-select prompt (DC-07 P7, R22-R25), a decline of an open optional prompt
+## (cycle 8 R52, P10), or a concede. The dictionary form is the action log's entry (cycle 8
+## plan, action log format 4):
 ## {"k": "commit", "s": 0, "c": [3, 7], "p": [0, 2]}, {"k": "choose", "s": 1, "z": 1,
-## "i": 0}, {"k": "choose_set", "s": 0, "z": 1, "i": [0, 2]} or {"k": "concede", "s": 1}.
-## A set choice's `i` is a list of positions, possibly empty (the decline).
+## "i": 0}, {"k": "choose_set", "s": 0, "z": 1, "i": [0, 2]}, {"k": "decline", "s": 0} or
+## {"k": "concede", "s": 1}. A set choice's `i` is a list of positions, possibly empty (a
+## multi-select's own decline; DECLINE answers an optional prompt instead).
 ##
 ## Slots are final-row indices (plan P1): `slots[i]` is where `cards[i]` sits once every
 ## committed card is in place; strictly increasing; each within 0 .. row + cards - 1.
@@ -16,7 +18,7 @@ extends RefCounted
 ## when it validates the commit and stores the resolved slots in its state and its log,
 ## so an accepted commit is always logged with explicit slots and replays the same.
 
-enum Kind { COMMIT, CONCEDE, CHOOSE, CHOOSE_SET }
+enum Kind { COMMIT, CONCEDE, CHOOSE, CHOOSE_SET, DECLINE }
 
 const KEY_KIND: String = "k"
 const KEY_SEAT: String = "s"
@@ -28,6 +30,7 @@ const KIND_COMMIT: String = "commit"
 const KIND_CONCEDE: String = "concede"
 const KIND_CHOOSE: String = "choose"
 const KIND_CHOOSE_SET: String = "choose_set"
+const KIND_DECLINE: String = "decline"
 ## 2^53. Larger whole floats cannot be told apart from their neighbours, and int() of a
 ## float beyond the int64 range is platform-defined, so they are rejected. ActionLog
 ## shares this bound for its header numbers.
@@ -35,10 +38,11 @@ const MAX_SAFE_FLOAT: float = 9007199254740992.0
 
 var kind: int = Kind.COMMIT
 var seat: int = 0
-## Card instance ids in commit order; always empty for a concede or a (set) choice.
+## Card instance ids in commit order; always empty for a concede, a decline or a (set)
+## choice.
 var cards: Array[int] = []
 ## Final-row slot of each card in `cards`; empty means the compatibility default (append).
-## Always empty for a concede or a (set) choice.
+## Always empty for a concede, a decline or a (set) choice.
 var slots: Array[int] = []
 ## A choice's zone (relative to the choosing seat) and its position in that zone (R30). A
 ## set choice uses `zone` and `indices`; its `index` stays 0.
@@ -88,6 +92,14 @@ static func choose_set(p_seat: int, p_zone: int, p_indices: Array[int]) -> Engin
 	return action
 
 
+## A decline of the open optional prompt (cycle 8 R52, P10): it carries the seat only.
+static func decline(p_seat: int) -> EngineAction:
+	var action: EngineAction = EngineAction.new()
+	action.kind = Kind.DECLINE
+	action.seat = p_seat
+	return action
+
+
 ## An independent copy, so a caller mutating its action cannot alter the engine's record.
 func copy() -> EngineAction:
 	var action: EngineAction = EngineAction.new()
@@ -104,6 +116,8 @@ func copy() -> EngineAction:
 func to_dict() -> Dictionary:
 	if kind == Kind.CONCEDE:
 		return {KEY_KIND: KIND_CONCEDE, KEY_SEAT: seat}
+	if kind == Kind.DECLINE:
+		return {KEY_KIND: KIND_DECLINE, KEY_SEAT: seat}
 	if kind == Kind.CHOOSE:
 		return {KEY_KIND: KIND_CHOOSE, KEY_SEAT: seat, KEY_ZONE: zone, KEY_INDEX: index}
 	if kind == Kind.CHOOSE_SET:
@@ -123,9 +137,10 @@ func to_dict() -> Dictionary:
 
 ## Parses the dictionary form, accepting JSON floats with no fractional part as ints.
 ## Returns null when malformed: missing or mistyped keys, an unknown kind, a seat other
-## than 0 or 1, a commit without a card list, a concede or choice that carries cards or
-## slots, a choice without its zone and index, a set choice without its zone or with an
-## `i` that is not a list of whole numbers, a concede with either, or a float number
+## than 0 or 1, a commit without a card list, a concede, decline or choice that carries
+## cards or slots, a choice without its zone and index, a set choice without its zone or
+## with an `i` that is not a list of whole numbers, a concede or decline with either, or a
+## float number
 ## whose magnitude exceeds MAX_SAFE_FLOAT. A commit's `p` is optional (missing reads as
 ## the empty, append default) so that a format-1 log still parses and then fails replay
 ## on its version (R40). Slots are not checked against the cards here: the engine
@@ -151,7 +166,11 @@ static func from_dict(d: Dictionary) -> EngineAction:
 		return _choose_from_dict(d, parsed_seat)
 	if kind_name == KIND_CHOOSE_SET:
 		return _choose_set_from_dict(d, parsed_seat)
-	if kind_name != KIND_CONCEDE or d.has(KEY_ZONE) or d.has(KEY_INDEX):
+	if d.has(KEY_ZONE) or d.has(KEY_INDEX):
+		return null
+	if kind_name == KIND_DECLINE:
+		return decline(parsed_seat)
+	if kind_name != KIND_CONCEDE:
 		return null
 	return concede(parsed_seat)
 

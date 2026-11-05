@@ -62,11 +62,19 @@ var walk: WalkState = WalkState.new()
 ## a bool, so setting it again before it is spent does not stack. Cleared at round start
 ## (MatchEngine).
 var bonus_zero_pending: Array[bool] = [false, false]
-## The open prompt (plan P9): {seat, card, verb, zone, options, multi}, with `verb` a
-## CardEffect.Verb, `zone` a Choice.Zone, `options` a plain Array of positions in that
-## zone (Choice) and `multi` true when it takes a set (EngineAction.CHOOSE_SET, DC-07 P7)
-## rather than one position. Empty when no prompt is open.
+## The open prompt (plan P9): {seat, card, verb, zone, options, multi, optional, resume,
+## crew}, with `verb` a CardEffect.Verb (a CrewDef.Verb for a Crew prompt), `zone` a
+## Choice.Zone, `options` a plain Array of positions in that zone (Choice), `multi` true
+## when it takes a set (EngineAction.CHOOSE_SET, DC-07 P7) rather than one position,
+## `optional` true when it may be declined (EngineAction.DECLINE), `resume` what its answer
+## resumes (Choice.RESUME_WALK or RESUME_TURN_START) and `crew` the Crew id ("" for a card
+## prompt, whose `card` is then the source; cycle 8 P9). Empty when no prompt is open.
 var prompt: Dictionary = {}
+## The turn start's Crew cursor (cycle 8 R54, plan P11; TurnStart): the position, in
+## first-committer order (the first seat's slots 0..2, then the other seat's), of the next
+## Crew to consider, so a Crew prompt that pauses the turn start resumes with the Crew after
+## it. TurnStart.DONE (-1) outside the turn start.
+var turn_start_at: int = -1
 ## Per seat, the uses left of each of its Crew in slot order (cycle 8 R43, plan P13):
 ## CrewDef.UNLIMITED (-1) for a Crew of scope NONE, else the uses its ability has left.
 ## Empty per seat until the first round starts; reset_crew_uses() fills it then and resets
@@ -128,6 +136,7 @@ func to_dict() -> Dictionary:
 		"walk": walk.to_dict(),
 		"bonus_zero_pending": _plain_flags(bonus_zero_pending),
 		"prompt": prompt.duplicate(true),
+		"turn_start_at": turn_start_at,
 		"crew_uses": _crew_uses_list(),
 	}
 
@@ -164,6 +173,7 @@ func duplicate() -> MatchState:
 	out.walk = walk.copy()
 	out.bonus_zero_pending.assign(bonus_zero_pending)
 	out.prompt = prompt.duplicate(true)
+	out.turn_start_at = turn_start_at
 	out.crew_uses.assign(_crew_uses_list())
 	return out
 
