@@ -10,6 +10,8 @@ const MATCH_SEEDS: Array[int] = [1, 2, 3, 4, 5]
 const MAX_ACTIONS: int = 60
 ## The pre-cycle-7 GreedyBot.SEED_TAG ("bot" in ASCII).
 const OLD_SEED_TAG: int = 0x626F74
+## A level below full strength, for the bots that take one.
+const LOW_LEVEL: int = 3
 
 var _cached_db: CardDb = null
 var _cached_defs: MatchCards = null
@@ -128,8 +130,40 @@ func test_names_and_default_name() -> void:
 	var expected: Array[String] = ["greedy", "greedy_v1", "random", "tuned", "matrix"]
 	assert_array(BotRegistry.NAMES).is_equal(expected)
 	assert_bool(BotRegistry.NAMES.has(BotRegistry.default_name())).is_true()
+	assert_str(BotRegistry.default_name()).is_equal("tuned")
 	var bot: BotPlayer = _make(BotRegistry.default_name(), 1, BotPlayer.FULL_LEVEL)
 	assert_object(bot).is_not_null()
+	assert_bool(bot is TunedBot).is_true()
+
+
+## The tuned bot (T04, R13): built at every level 0..20 with the weights given; with none,
+## the shipped file's (no load error); refused outside 0..20.
+func test_make_tuned_is_a_tuned_bot_at_levels_0_and_20() -> void:
+	for level: int in [0, LOW_LEVEL, BotPlayer.FULL_LEVEL]:
+		var bot: BotPlayer = _make("tuned", 7, level)
+		assert_object(bot).is_not_null()
+		assert_bool(bot is TunedBot).is_true()
+		assert_str(bot.bot_name()).is_equal("tuned")
+		assert_int(bot.level).is_equal(level)
+		assert_str(bot.weights.bot).is_equal("tuned")
+	var shipped: BotPlayer = BotRegistry.make("tuned", 7, _defs(), null, 0)
+	assert_object(shipped).is_not_null()
+	assert_str(shipped.weights.load_error).is_equal("")
+	assert_str(shipped.weights.stamp).is_not_empty()
+	assert_object(_make("tuned", 7, 21)).is_null()
+	assert_object(_make("tuned", 7, -1)).is_null()
+
+
+## default_weights(): the defaults for a bot without an evaluator, the shipped file for one
+## with an evaluator.
+func test_default_weights_by_name() -> void:
+	var plain: BotWeights = BotRegistry.default_weights("greedy")
+	assert_str(plain.bot).is_equal("greedy")
+	assert_dict(plain.weights).is_equal({"score_diff": 100})
+	var tuned: BotWeights = BotRegistry.default_weights("tuned")
+	var shipped: BotWeights = BotWeights.load(BotRegistry.default_weights_path("tuned"))
+	assert_str(tuned.load_error).is_equal("")
+	assert_str(tuned.to_json()).is_equal(shipped.to_json())
 
 
 func test_seed_for_equals_greedy_bot_seed_for() -> void:
