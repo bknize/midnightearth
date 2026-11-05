@@ -588,3 +588,6 @@ func test_a_salvaged_clear_is_a_return_and_a_pile_clear_is_not() -> void:
 	var cleared: BoardStep = _one(_event(MatchEvent.Kind.DESTROYED_CLEARED, piled))
 	assert_int(cleared.kind).is_equal(BoardStep.Kind.CLEAR_DESTROYED)
 	assert_bool(cleared.pile).is_true()
+	var bare: BoardStep = _one(_event(MatchEvent.Kind.DESTROYED_CLEARED, {"seat": 0, "card": 7}))
+	assert_int(bare.kind).is_equal(BoardStep.Kind.CLEAR_DESTROYED)
+	assert_bool(bare.pile).is_true()

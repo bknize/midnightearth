@@ -121,3 +121,24 @@ func test_the_strip_dresses_a_pile_card_from_its_entry() -> void:
 	assert_bool(_label(made[0], "GrownMark").visible).is_true()
 	assert_str(_label(made[0], "BonusLabel").text).is_equal("×1.75")
 	strip.hide(0.0)
+
+
+func test_veil_on_your_own_destroyed_card_clears_the_destroyed_look() -> void:
+	var row: CardCollection3D = CardCollection3D.new()
+	auto_free(row)
+	add_child(row)
+	var node: Node = CARD_SCENE.instantiate()
+	var card: BoardCard = node as BoardCard
+	row.append_card(card)
+	card.instance_id = 7
+	card.set_destroyed(true, 0, 0.0)
+	assert_bool(card.is_destroyed()).is_true()
+	var player: EffectPlayer = EffectPlayer.new()
+	player.player_row = row
+	var payload: Dictionary = {"seat": 0, "card": 7, "slot": 0}
+	var steps: Array[BoardStep] = _steps(MatchEvent.Kind.CARD_UNREVEALED, payload, 0)
+	assert_int(steps.size()).is_equal(1)
+	assert_int(steps[0].kind).is_equal(BoardStep.Kind.UNREVEAL)
+	player.unreveal(steps[0])
+	assert_bool(card.is_destroyed()).is_false()
+	assert_bool(player.face_down_ids.has(7)).is_true()

@@ -140,7 +140,7 @@ static func _cleared(event: MatchEvent) -> BoardStep:
 	var kind: int = BoardStep.Kind.CLEAR_DESTROYED if to_pile else BoardStep.Kind.RETURN
 	var step: BoardStep = _card_step(kind, event)
 	step.slot = payload.get("slot", -1)
-	step.pile = payload.get("pile", false)
+	step.pile = to_pile
 	step.duration = CLEAR_DESTROYED_TIME if to_pile else RETURN_TIME
 	return step
 
