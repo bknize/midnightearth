@@ -39,6 +39,8 @@ const VIEW_KEYS: Array[String] = [
 	"opponent",
 	"deck_ids",
 	"own_hand",
+	"own_hand_row",
+	"own_hand_costs",
 	"own_pending",
 	"own_board",
 	"opponent_board",
@@ -1037,14 +1039,42 @@ func test_row_entries_carry_times_and_plus() -> void:
 	var budgets: Array[int] = [1, 1]
 	var view: SeatView = SeatView.build(state, 0, 0, budgets, _defs())
 	assert_array(view.mults).is_equal([100, 100])
+	# Cycle 8 (DC-09 T01): every entry also carries cost, grown and uses_left; a hidden one
+	# shows 0, false and -1.
 	var own: Array[Dictionary] = [
-		{"card": 10, "flat": 3, "times": 125, "plus": 0, "revealed": false, "destroyed": false},
-		{"card": 7, "flat": 2, "times": 100, "plus": 1, "revealed": false, "destroyed": false},
+		_printed(
+			{"card": 10, "flat": 3, "times": 125, "plus": 0, "revealed": false, "destroyed": false},
+			3
+		),
+		_printed(
+			{"card": 7, "flat": 2, "times": 100, "plus": 1, "revealed": false, "destroyed": false},
+			2
+		),
 	]
 	var hidden: int = MatchEvent.HIDDEN_CARD
 	var theirs: Array[Dictionary] = [
-		{"card": c04_1, "flat": 3, "times": 100, "plus": 0, "revealed": true, "destroyed": false},
-		{"card": hidden, "flat": 0, "times": 100, "plus": 0, "revealed": false, "destroyed": false},
+		_printed(
+			{
+				"card": c04_1,
+				"flat": 3,
+				"times": 100,
+				"plus": 0,
+				"revealed": true,
+				"destroyed": false
+			},
+			1
+		),
+		_printed(
+			{
+				"card": hidden,
+				"flat": 0,
+				"times": 100,
+				"plus": 0,
+				"revealed": false,
+				"destroyed": false
+			},
+			0
+		),
 	]
 	assert_int(view.own_row.size()).is_equal(own.size())
 	assert_int(view.opponent_row.size()).is_equal(theirs.size())
@@ -1054,6 +1084,114 @@ func test_row_entries_carry_times_and_plus() -> void:
 	var plain: Array = view.to_dict()["own_row"]
 	var first: Dictionary = plain[0]
 	assert_dict(first).is_equal(own[0])
+
+
+## `entry` with the cycle 8 keys of a card with no memory and an unlimited (or no) effect:
+## cost `cost`, grown false, uses_left -1.
+func _printed(entry: Dictionary, cost: int) -> Dictionary:
+	var out: Dictionary = entry.duplicate()
+	out["cost"] = cost
+	out["grown"] = false
+	out["uses_left"] = -1
+	return out
+
+
+# --- Cycle 8 (DC-09 T01): card memory in the views (R7, R8, plan P3) -------------------
+
+
+## own_hand_row carries, per hand card in hand order, its effective cost and stats and the
+## grown mark; own_hand_costs is parallel to own_hand. A reduction and a growth on a hand
+## card show at once.
+func test_own_hand_row_carries_cost() -> void:
+	var engine: MatchEngine = _started(SEED)
+	var seat: int = 0
+	var hand: Array[int] = _hand(engine, seat)
+	assert_int(hand.size()).is_greater(1)
+	var view: SeatView = engine.view_for(seat)
+	assert_array(view.own_hand).is_equal(hand)
+	assert_int(view.own_hand_row.size()).is_equal(hand.size())
+	assert_int(view.own_hand_costs.size()).is_equal(hand.size())
+	for i: int in range(hand.size()):
+		var entry: Dictionary = view.own_hand_row[i]
+		var keys: Array = entry.keys()
+		keys.sort()
+		assert_array(keys).is_equal(["card", "cost", "flat", "grown", "plus", "times", "uses_left"])
+		var card: int = entry["card"]
+		var cost: int = entry["cost"]
+		var grown: bool = entry["grown"]
+		assert_int(card).is_equal(hand[i])
+		assert_int(cost).is_equal(_cost(hand[i]))
+		assert_int(view.own_hand_costs[i]).is_equal(_cost(hand[i]))
+		assert_bool(grown).is_false()
+	var target: int = hand[0]
+	var kept: CardMemory = engine._state.memory_for(target)
+	kept.cost = 1
+	kept.flat = 2
+	var grown_view: SeatView = engine.view_for(seat)
+	var grown_entry: Dictionary = grown_view.own_hand_row[0]
+	var shown_cost: int = grown_entry["cost"]
+	var shown_flat: int = grown_entry["flat"]
+	var shown_grown: bool = grown_entry["grown"]
+	var expected_cost: int = maxi(_cost(target) - 1, 0)
+	assert_int(shown_cost).is_equal(expected_cost)
+	assert_int(grown_view.own_hand_costs[0]).is_equal(expected_cost)
+	assert_int(shown_flat).is_equal(_db().card_at(target % MatchRules.DECK_SIZE).flat + 2)
+	assert_bool(shown_grown).is_true()
+	var plain: Dictionary = grown_view.to_dict()
+	var plain_row: Array = plain["own_hand_row"]
+	assert_dict(plain_row[0]).is_equal(grown_entry)
+
+
+## R8: a memory on a card in seat 0's hand reaches nothing in seat 1's view: no entry names
+## the card, no cost or grown mark of it shows, and the view is the same as before the
+## memory was written. A revealed row card's memory is public on both sides.
+func test_the_opponents_view_holds_no_entry_for_a_hand_cards_memory() -> void:
+	var engine: MatchEngine = _started(SEED)
+	var hand: Array[int] = _hand(engine, 0)
+	var before: Dictionary = engine.view_for(1).to_dict()
+	var target: int = hand[0]
+	var kept: CardMemory = engine._state.memory_for(target)
+	kept.flat = 2
+	kept.times = 50
+	kept.cost = 1
+	var after: SeatView = engine.view_for(1)
+	assert_dict(after.to_dict()).is_equal(before)
+	for entry: Dictionary in after.own_hand_row:
+		var card: int = entry["card"]
+		assert_int(card).is_not_equal(target)
+	var named: Array[int] = []
+	_card_ids(after.to_dict(), "", named)
+	assert_bool(named.has(target)).is_false()
+	# A hidden row card's entry stays blank too; once revealed its memory is public.
+	var state: MatchState = MatchState.new(SEED)
+	var c11: int = 10
+	state.seats[0].board.assign([c11])
+	state.memory_for(c11).times = 25
+	var budgets: Array[int] = [1, 1]
+	var theirs: SeatView = SeatView.build(state, 1, 0, budgets, _defs())
+	var blank: Dictionary = theirs.opponent_row[0]
+	(
+		assert_dict(blank)
+		. is_equal(
+			_printed(
+				{
+					"card": MatchEvent.HIDDEN_CARD,
+					"flat": 0,
+					"times": 100,
+					"plus": 0,
+					"revealed": false,
+					"destroyed": false,
+				},
+				0
+			)
+		)
+	)
+	state.seats[0].revealed[c11] = true
+	var revealed_entry: Dictionary = SeatView.build(state, 1, 0, budgets, _defs()).opponent_row[0]
+	var times: int = revealed_entry["times"]
+	var shown_grown: bool = revealed_entry["grown"]
+	assert_int(times).is_equal(150)
+	assert_bool(shown_grown).is_true()
 
 
 # --- R30: the full-state read ---------------------------------------------------------

@@ -118,7 +118,9 @@ static func next_card(state: MatchState) -> int:
 
 
 ## `card`'s shown stats (DC-07 P5, R13, R14): the base (the definition's, or the CardState's
-## `base_*` once a copy stored one), then the positional ×-parts (DC-07 T07, R28: ×amount
+## `base_*` once a copy stored one), plus the card's match memory (cycle 8 R3, P3:
+## CardMemory `flat`, `times` added to the ×-part in hundredths, `plus`), then the
+## positional ×-parts (DC-07 T07, R28: ×amount
 ## for each adjacent revealed, live card carrying the ongoing NEIGHBOUR_TIMES, Lodestone;
 ## ×amount when the card itself carries the ongoing EDGE_LEFT_TIMES, Herald, and holds slot
 ## 0 of its row), each step times_hundredths(); then `flat_delta` adds to the flat and
@@ -147,6 +149,11 @@ static func effective(card: int, state: MatchState, cards: MatchCards) -> Effect
 			out.times = def.bonus
 		elif def.bonus_kind == CardDef.BonusKind.PLUS:
 			out.plus = def.bonus
+	var kept: CardMemory = state.memory_of(card)
+	if kept != null:
+		out.flat += kept.flat
+		out.times += kept.times
+		out.plus += kept.plus
 	if _has_positional(cards):
 		out.times = _positional_times(card, state, cards, def, out.times)
 	if held != null:
@@ -156,6 +163,46 @@ static func effective(card: int, state: MatchState, cards: MatchCards) -> Effect
 			out.times = MatchRules.MULT_ONE
 			out.plus = 0
 	return out
+
+
+## `card`'s effective cost (cycle 8 R4, P3): its printed cost less its memory's cost
+## reduction, never below MatchRules.MIN_COST; -1 when the card has no definition (an
+## unpriced card, as LegalPlays.cost_of reports it). Every budget check reads this.
+static func effective_cost(card: int, state: MatchState, cards: MatchCards) -> int:
+	var def: CardDef = _definition(card, cards)
+	if def == null:
+		return -1
+	var kept: CardMemory = state.memory_of(card) if state != null else null
+	if kept == null:
+		return def.cost
+	return maxi(def.cost - kept.cost, MatchRules.MIN_COST)
+
+
+## The effective costs of `hand`, in its order (effective_cost each; P3).
+static func effective_costs(hand: Array[int], state: MatchState, cards: MatchCards) -> Array[int]:
+	var out: Array[int] = []
+	for card: int in hand:
+		out.append(effective_cost(card, state, cards))
+	return out
+
+
+## The uses `card`'s limited ability has left, as a view shows them (cycle 8 R6, P7): -1
+## when its effect is unlimited (or it has none), the effect's `uses` until the memory has
+## read them, then the memory's `uses_left`.
+static func uses_left(card: int, state: MatchState, cards: MatchCards) -> int:
+	var def: CardDef = _definition(card, cards)
+	if def == null or def.effect == null or def.effect.uses <= 0:
+		return -1
+	var kept: CardMemory = state.memory_of(card)
+	if kept == null or kept.uses_left < 0:
+		return def.effect.uses
+	return kept.uses_left
+
+
+## Whether `card` carries a memory that is not empty (cycle 8 R7: the grown mark).
+static func is_grown(card: int, state: MatchState) -> bool:
+	var kept: CardMemory = state.memory_of(card)
+	return kept != null and not kept.is_empty()
 
 
 ## Whether some definition of the match carries a positional ×-part (the ongoing

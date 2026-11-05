@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "cards": [
     {"id": "r01", "name": "Scrap", "cost": 1, "flat": 2, "bonus": null, "effect": null},
     {"id": "r02", "name": "Tinder", "cost": 1, "flat": 1, "bonus": {"x": 125}, "effect": null},

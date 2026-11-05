@@ -174,7 +174,8 @@ func preview(seat: int, action: EngineAction) -> Array[int]:
 	var piles: MatchState.SeatPiles = clone.seats[seat]
 	for card: int in cards:
 		piles.hand.erase(card)
-	var cost: int = LegalPlays.commit_cost(cards, clone.energy.free_first[seat], _cards)
+	var costs: Array[int] = ScoreWalk.effective_costs(cards, clone, _cards)
+	var cost: int = LegalPlays.commit_cost_with(cards, costs, clone.energy.free_first[seat])
 	clone.energy.spent[seat] = maxi(cost, 0)
 	clone.energy.free_first[seat] = false
 	_hide_opponent(clone, seat)
@@ -371,20 +372,21 @@ func _check_set(action: EngineAction) -> int:
 	return EngineError.Code.NONE
 
 
-## A well-formed commit: the awaited seat, then LegalPlays.validate. While a prompt is
-## open the engine awaits a choice, so every commit fails with WRONG_SEAT.
+## A well-formed commit: the awaited seat, then LegalPlays.validate_with over the hand's
+## effective costs (cycle 8 R4, P3). While a prompt is open the engine awaits a choice, so
+## every commit fails with WRONG_SEAT.
 func _check_commit(action: EngineAction) -> int:
 	if _state.phase == MatchState.Phase.AWAIT_CHOICE or action.seat != awaited_seat():
 		return EngineError.Code.WRONG_SEAT
 	var piles: MatchState.SeatPiles = _state.seats[action.seat]
-	return LegalPlays.validate(
+	return LegalPlays.validate_with(
 		action.cards,
 		_resolved_slots(action),
 		piles.hand,
+		ScoreWalk.effective_costs(piles.hand, _state, _cards),
 		piles.board.size(),
 		budget_for(action.seat),
-		_state.energy.free_first[action.seat],
-		_cards
+		_state.energy.free_first[action.seat]
 	)
 
 
@@ -431,6 +433,7 @@ func _begin_round() -> void:
 	_state.pending_slots.clear()
 	# The boards clear, so every card leaves them: their modifiers go too (plan, card_states).
 	_state.card_states.clear()
+	# Card memory is for the match (cycle 8 R2, P2): `_state.memory` is kept.
 	_state.walk = MatchState.WalkState.new()
 	_state.prompt = {}
 	# Effects do not reach across rounds (see the class comment).
@@ -569,7 +572,10 @@ func _commit(seat: int, cards: Array[int], slots: Array[int]) -> void:
 	var piles: MatchState.SeatPiles = _state.seats[seat]
 	for card: int in committed:
 		piles.hand.erase(card)
-	var cost: int = LegalPlays.commit_cost(committed, _state.energy.free_first[seat], _cards)
+	# Effective costs (cycle 8 R4, P3): memory follows the card, so leaving the hand first
+	# changes nothing.
+	var costs: Array[int] = ScoreWalk.effective_costs(committed, _state, _cards)
+	var cost: int = LegalPlays.commit_cost_with(committed, costs, _state.energy.free_first[seat])
 	_state.energy.spent[seat] = maxi(cost, 0)
 	_state.energy.free_first[seat] = false
 	_emit(
