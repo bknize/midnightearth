@@ -58,9 +58,23 @@ const C08: int = 7
 const C14: int = 13
 
 ## PINS: fixture label ("seed_01".."seed_12", "set_prompt") -> GreedyV1Bot's action as
-## action_text() renders it. Empty until the orchestrator pastes the `GreedyV1 pin:` lines
+## action_text() renders it. Pasted by the orchestrator from the `GreedyV1 pin:` lines
 ## printed by test_pinned_actions after the first gate run; then never edited (R21).
-const PINS: Dictionary = {}
+const PINS: Dictionary = {
+	"seed_01": "commit s1 c[30] p[0]",
+	"seed_02": "commit s1 c[29] p[0]",
+	"seed_03": "commit s1 c[] p[]",
+	"seed_04": "commit s1 c[22, 25] p[1, 2]",
+	"seed_05": "commit s1 c[28] p[2]",
+	"seed_06": "commit s1 c[21, 24] p[2, 3]",
+	"seed_07": "commit s1 c[25] p[0]",
+	"seed_08": "commit s1 c[22, 21] p[0, 1]",
+	"seed_09": "commit s1 c[26] p[0]",
+	"seed_10": "commit s1 c[30] p[2]",
+	"seed_11": "commit s1 c[26] p[0]",
+	"seed_12": "commit s0 c[4] p[1]",
+	"set_prompt": "choose_set s0 z1 i[0, 2]",
+}
 
 var _cached_db: CardDb = null
 
