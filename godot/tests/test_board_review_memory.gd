@@ -65,6 +65,20 @@ func test_an_opponent_reveal_entry_shows_the_mark_and_bonus() -> void:
 	assert_str(_label(card, "CostLabel").text).is_equal("2")
 
 
+func test_an_own_reveal_entry_shows_the_mark_and_reduced_cost() -> void:
+	var payload: Dictionary = {
+		"seat": 0, "card": 7, "slot": 1, "order": 0, "cost": 2, "grown": true, "flat": 2,
+		"times": 100, "plus": 0,
+	}
+	var steps: Array[BoardStep] = _steps(MatchEvent.Kind.CARD_REVEALED, payload, 0)
+	assert_int(steps.size()).is_equal(1)
+	assert_int(steps[0].seat).is_equal(0)
+	var card: BoardCard = _card()
+	card.show_entry(_def(), EffectPlayer.reveal_entry(steps[0]))
+	assert_bool(_label(card, "GrownMark").visible).is_true()
+	assert_str(_label(card, "CostLabel").text).is_equal("2")
+
+
 func test_a_redacted_row_burn_keeps_its_row_and_slot() -> void:
 	var payload: Dictionary = {"seat": 1, "card": -1, "slot": 2, "row_seat": 1}
 	var steps: Array[BoardStep] = _steps(MatchEvent.Kind.CARD_BURNED, payload)
