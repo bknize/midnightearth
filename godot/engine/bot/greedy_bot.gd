@@ -1,7 +1,9 @@
 class_name GreedyBot
-extends RefCounted
+extends BotPlayer
 ## The greedy bot (R35-R38, C8, plan P13; Phase 3 R7): a pure decision function over one
-## seat's redacted SeatView, its own seed and the engine's pure previews.
+## seat's redacted SeatView, its own seed and the engine's pure previews. A BotPlayer (cycle
+## 7 P1) whose search is unchanged by that cycle (R5); it has no evaluator, so it reads
+## neither `level` nor `weights`.
 ##
 ## Commits (R36): for each legal set of the view's hand and budget (LegalPlays, ascending
 ## bitmask order) the bot lists up to four candidates: the set in two orders (bonus desc
@@ -62,8 +64,6 @@ extends RefCounted
 ## reject, and such a candidate is dropped), so the engine accepts the returned action. It
 ## never writes output, halts or reports errors itself.
 
-## Separates bot seeds from any other derivation of the match seed ("bot" in ASCII).
-const SEED_TAG: int = 0x626F74
 ## Separates a prompt decision's seed from the commit decision of the same turn ("ask").
 const PROMPT_TAG: int = 0x61736B
 
@@ -71,29 +71,30 @@ const PROMPT_TAG: int = 0x61736B
 ## the test stage outgrow its budget (plan, risks). True is the specified search.
 var search_flat_first: bool = true
 
-var _bot_seed: int = 0
-var _cards: MatchCards = null
 
-
-## `cards` supplies card stats and costs: the MatchCards of the match the bot plays in
-## (MatchEngine.match_cards(), DC-07 P3), so a card is read through its origin's deck.
-##
-## Null, or a MatchCards whose build failed (is_valid() false), is kept, not reported:
-## every card then has cost -1, the only legal set is the empty one, and choose() always
-## commits nothing, so a bot built on it passes every turn. The bot does not signal this
-## itself, since engine code never reports errors out of band (R27). It cannot happen
-## through the engine: the engine never builds a bot, and a match cannot start without
-## valid cards and decks (CARD_DATA_INVALID, DECK_UNKNOWN), so callers that pass the
-## match's own MatchCards always give the bot valid data.
+## `cards` as BotPlayer._init: null or an invalid MatchCards leaves the empty set the only
+## legal one, so choose() always commits nothing and the bot passes every turn.
 func _init(bot_seed: int, cards: MatchCards) -> void:
-	_bot_seed = bot_seed
-	_cards = cards if cards != null else MatchCards.new()
+	super(bot_seed, cards)
 
 
-## The seed a caller should give the bot playing `seat` in a match seeded `match_seed`.
+## The seed a caller should give the bot playing `seat` in a match seeded `match_seed`:
+## BotRegistry.seed_for, the derivation that moved there (cycle 7 P1), so the value and
+## every golden built on it are unchanged.
 static func seed_for(match_seed: int, seat: int) -> int:
-	var parts: Array[int] = [SEED_TAG, seat]
-	return MatchRng.derive_seed(match_seed, parts)
+	return BotRegistry.seed_for(match_seed, seat)
+
+
+## Every candidate commit for `view` as a greedy bot over `cards` lists them (candidates()),
+## for bots that share the enumeration (RandomBot) until CandidateGen owns it (cycle 7 T03).
+static func candidates_for(view: SeatView, cards: MatchCards) -> Array[EngineAction]:
+	var enumerator: GreedyBot = GreedyBot.new(0, cards)
+	return enumerator.candidates(view)
+
+
+## The registry name (one of BotRegistry.NAMES).
+func bot_name() -> String:
+	return "greedy"
 
 
 ## The action for `view.seat`: while a prompt is open for that seat, its best answer

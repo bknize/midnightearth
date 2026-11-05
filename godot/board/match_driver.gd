@@ -1,12 +1,12 @@
 class_name MatchDriver
 extends RefCounted
 ## Owns one match for the board (R2, R5, R6): the card data, the engine, the bots, the seed,
-## both deck ids (DC-07 P14) and the MATCH_ENDED payload. Seat 1 is always a GreedyBot;
-## seat 0 is too under autoplay.
+## both deck ids (DC-07 P14) and the MATCH_ENDED payload. Seat 1 is always the named bot
+## at the given level (BotRegistry); seat 0 is too under autoplay.
 ##
-## Bots are seeded GreedyBot.seed_for(seed, seat), exactly as main.gd's smoke run, so the
-## seed-1 autoplay match is the smoke match. Only seat 0's redacted events leave the driver
-## (R6); only the bots read another seat's view, and only their own.
+## Bots are seeded BotRegistry.seed_for(seed, seat), exactly as main.gd's smoke run, so the
+## seed-1 autoplay match is the smoke match under the same bot. Only seat 0's redacted
+## events leave the driver (R6); only the bots read another seat's view, and only their own.
 
 ## The human's seat.
 const PLAYER_SEAT: int = 0
@@ -26,7 +26,8 @@ var _autoplay: bool = false
 var _cards: CardDb = null
 var _engine: MatchEngine = null
 ## One entry per seat; null for a seat a human drives.
-var _bots: Array[GreedyBot] = []
+var _bots: Array[BotPlayer] = []
+var _bot_name: String = ""
 ## Seat 0's redacted events of the last accepted call (start, submit_player or play_bot).
 var _last_events: Array[MatchEvent] = []
 ## The MATCH_ENDED payload, empty until the match is over.
@@ -35,21 +36,34 @@ var _end_payload: Dictionary = {}
 
 ## A match on `p_seed` where seat s plays `deck_ids[s]` of `decks` over the pool `cards`;
 ## an empty id takes the seed's own pairing (DC-07 R6, P14; MatchEngine.create). An
-## unknown id or failed data makes start() return no events.
+## unknown id or failed data makes start() return no events. The bots come from
+## BotRegistry.make(`bot_name`, level); null when it cannot build one (the caller reports).
 static func create(
-	p_seed: int, cards: CardDb, decks: DeckList, ids: Array[String], p_autoplay: bool
+	p_seed: int,
+	cards: CardDb,
+	decks: DeckList,
+	ids: Array[String],
+	p_autoplay: bool,
+	p_bot_name: String,
+	level: int
 ) -> MatchDriver:
 	var driver: MatchDriver = MatchDriver.new()
 	driver._seed = p_seed
 	driver._autoplay = p_autoplay
+	driver._bot_name = p_bot_name
 	driver._cards = cards
 	driver._engine = MatchEngine.create(p_seed, cards, decks, ids)
 	var defs: MatchCards = driver._engine.match_cards()
 	for seat: int in MatchEngine.SEATS:
 		if seat == PLAYER_SEAT and not p_autoplay:
 			driver._bots.append(null)
-		else:
-			driver._bots.append(GreedyBot.new(GreedyBot.seed_for(p_seed, seat), defs))
+			continue
+		var bot: BotPlayer = BotRegistry.make(
+			p_bot_name, BotRegistry.seed_for(p_seed, seat), defs, null, level
+		)
+		if bot == null:
+			return null
+		driver._bots.append(bot)
 	return driver
 
 
@@ -132,7 +146,7 @@ func play_bot() -> ApplyResult:
 	if not bot_turn_due():
 		return ApplyResult.failure(EngineError.Code.WRONG_SEAT)
 	var seat: int = _engine.awaited_seat()
-	var bot: GreedyBot = _bots[seat]
+	var bot: BotPlayer = _bots[seat]
 	var action: EngineAction = bot.choose(_engine.view_for(seat), _engine)
 	var result: ApplyResult = _engine.apply(action)
 	_take(result)
@@ -171,11 +185,12 @@ func result_line() -> String:
 	wins.assign(raw_wins)
 	var decks: Array[String] = _engine.deck_ids()
 	return (
-		"Board: match ended seed=%d decks=%s/%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
+		"Board: match ended seed=%d decks=%s/%s bot=%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
 		% [
 			_seed,
 			decks[0],
 			decks[1],
+			_bot_name,
 			winner,
 			wins[0],
 			wins[1],

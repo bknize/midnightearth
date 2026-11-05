@@ -84,6 +84,10 @@ waive the screenshot for an engine- or tooling-only cycle (DC-01 C12): then the 
 the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
 
 1. `scripts/check.sh` on `<cycle branch>`: must exit 0. Paste the stage summary.
+1b. Bot rerun provision (cycle 7 R36): if this cycle changed `RULES_VERSION`, the card
+   pool JSON or the deck list JSON, run `make bot-eval`; on FAIL or `stamp=MISMATCH` run
+   `make bot-train` and commit the promoted weights on the cycle branch before the merge.
+   Record the outcome in the cycle's row and in `docs/planning/bot-ladder.md`.
 2. Point the editor at the cycle branch: `scripts/godot-editor.sh switch <cycle branch>`.
    It closes any open editor (the MCP port takes one at a time), opens the cycle
    worktree's `godot/` and waits for the MCP plugin. `get_godot_status` must report that
