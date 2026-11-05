@@ -136,9 +136,10 @@ static func from_json(text: String) -> ActionLog:
 
 ## Replays the log from a fresh match (R33, R34; DC-07 R7): checks both versions and that
 ## the header names both decks, creates the engine from the seed, the pool `cards`, the
-## list `decks` and the logged deck ids, starts it and applies every action in order.
-## Stops at the first rejected action. Never runs the bot.
-func replay(cards: CardDb, decks: DeckList) -> ReplayResult:
+## list `decks`, the logged deck ids and the Crew pool `crew` (each seat's Crew derive from
+## its deck id, so the header carries none: cycle 8 P12), starts it and applies every
+## action in order. Stops at the first rejected action. Never runs the bot.
+func replay(cards: CardDb, decks: DeckList, crew: CrewPool) -> ReplayResult:
 	if format_version != MatchRules.LOG_FORMAT or deck_ids.size() != MatchEngine.SEATS:
 		return ReplayResult.failed(
 			ReplayResult.Reason.FORMAT_MISMATCH, null, -1, EngineError.Code.MALFORMED
@@ -147,7 +148,7 @@ func replay(cards: CardDb, decks: DeckList) -> ReplayResult:
 		return ReplayResult.failed(
 			ReplayResult.Reason.RULES_MISMATCH, null, -1, EngineError.Code.MALFORMED
 		)
-	var engine: MatchEngine = MatchEngine.create(match_seed, cards, decks, deck_ids)
+	var engine: MatchEngine = MatchEngine.create(match_seed, cards, decks, deck_ids, crew)
 	var started: ApplyResult = engine.start()
 	if not started.ok:
 		return ReplayResult.failed(ReplayResult.Reason.START_FAILED, engine, -1, started.error)

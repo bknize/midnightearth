@@ -201,7 +201,11 @@ static func decks() -> DeckList:
 	var root: Dictionary = parsed
 	var listed: Array = root["decks"]
 	var bloom: Dictionary = {
-		"id": DECK_ID, "name": "Bloom", "theme": THEME, "cards": FixtureDecks.table_ids(TABLE)
+		"id": DECK_ID,
+		"name": "Bloom",
+		"theme": THEME,
+		"cards": FixtureDecks.table_ids(TABLE),
+		"crew": ["gardener", "tallyman", "quartermaster"],  # The plan's Bloom Crew (P12).
 	}
 	listed.append(bloom)
 	return DeckList.from_json(JSON.stringify(root))
@@ -215,9 +219,9 @@ static func ids() -> Array[String]:
 
 ## The definitions of a Bloom-vs-Bloom match: instance id = seat * 20 + the B* index.
 static func defs() -> MatchCards:
-	return MatchCards.build(cards(), decks(), ids())
+	return MatchCards.build(cards(), decks(), ids(), FixtureDecks.crew())
 
 
 ## A Bloom-vs-Bloom match on `match_seed` (not started).
 static func engine(match_seed: int) -> MatchEngine:
-	return MatchEngine.create(match_seed, cards(), decks(), ids())
+	return MatchEngine.create(match_seed, cards(), decks(), ids(), FixtureDecks.crew())

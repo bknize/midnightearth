@@ -8,6 +8,8 @@ const WINS_TO_TAKE: int = 4
 const OPENING_HAND: int = 3
 const HAND_CAP: int = 7
 const DECK_SIZE: int = 20
+## Each deck names exactly this many distinct Crew (cycle 8 R40, C4, plan P12).
+const CREW_SIZE: int = 3
 ## 4 and 3 since DC-07 T02: decks per seat, `decks` in the log header (R7, P2). Rules 5
 ## since DC-09 T01: card memory and effective costs (cycle 8 R29); the log format is unchanged.
 const RULES_VERSION: int = 5

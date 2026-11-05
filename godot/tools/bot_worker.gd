@@ -34,6 +34,7 @@ var _out_path: String = ""
 var _budget_us: int = DEFAULT_BUDGET_US
 var _cards: CardDb = null
 var _decks: DeckList = null
+var _crew: CrewPool = null  # Each deck's three Crew (cycle 8 R42).
 var _file: FileAccess = null
 var _games: int = 0
 var _rejected: int = 0
@@ -55,8 +56,9 @@ func _run() -> int:
 		return EXIT_ARGS
 	_cards = CardDb.load_default()
 	_decks = DeckList.load_default()
-	if not _cards.is_valid() or not _decks.is_valid():
-		printerr("bot_worker: card or deck data failed to load")
+	_crew = CrewPool.load_default()
+	if not _cards.is_valid() or not _decks.is_valid() or _decks.validate(_cards, _crew) != "":
+		printerr("bot_worker: card, deck or crew data failed to load")
 		return EXIT_ENGINE
 	problem = _check_decks()
 	if problem != "":
@@ -224,7 +226,7 @@ func _play_seed(match_seed: int) -> int:
 func _play_game(
 	match_seed: int, game_index: int, a_seat: int, deck_ids: Array[String]
 ) -> Dictionary:
-	var engine: MatchEngine = MatchEngine.create(match_seed, _cards, _decks, deck_ids)
+	var engine: MatchEngine = MatchEngine.create(match_seed, _cards, _decks, deck_ids, _crew)
 	var started: ApplyResult = engine.start()
 	if not started.ok:
 		printerr("bot_worker: seed %d failed to start, code %d" % [match_seed, started.error])
@@ -338,7 +340,7 @@ func _replays(engine: MatchEngine) -> bool:
 	var parsed: ActionLog = ActionLog.from_json(engine.action_log().to_json())
 	if parsed == null:
 		return false
-	var replayed: ReplayResult = parsed.replay(_cards, _decks)
+	var replayed: ReplayResult = parsed.replay(_cards, _decks, _crew)
 	return replayed.ok and replayed.engine.full_state() == engine.full_state()
 
 

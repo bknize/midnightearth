@@ -8,8 +8,9 @@ extends GdUnitTestSuite
 
 const FIXTURE_CARDS: String = "res://tests/fixtures/dc05_cards.json"
 const FIXTURE_DECKS: String = "res://tests/fixtures/dc05_decks.json"
-## The first 16 hex digits of SHA-256 over the two fixtures, cards first (shasum -a 256).
-const PINNED_DIGEST: String = "c5eb3b461a81e9be"
+## The first 16 hex digits of SHA-256 over the two fixtures, cards first (shasum -a 256);
+## re-pinned at DC-11 T08 when the fixture deck list moved to version 2 with its Crew.
+const PINNED_DIGEST: String = "4cb8728fa00d5b9f"
 
 
 func test_shape_is_rules_version_and_16_hex() -> void:

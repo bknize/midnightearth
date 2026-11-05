@@ -41,7 +41,7 @@ func _seeded() -> Array[String]:
 
 ## A match on `match_seed` under its seeded pairing (not started).
 func _new_engine(match_seed: int) -> MatchEngine:
-	return MatchEngine.create(match_seed, _db(), _decks(), _seeded())
+	return MatchEngine.create(match_seed, _db(), _decks(), _seeded(), CrewPool.load_default())
 
 
 ## The pairing of a match as "a/b" (seat 0's deck, then seat 1's).
@@ -571,7 +571,8 @@ func _replay_problem(engine: MatchEngine) -> String:
 	var parse_problem: String = _parsed_problem(parsed, engine)
 	if parse_problem != "":
 		return parse_problem
-	var replayed: ReplayResult = parsed.replay(_db(), _decks())
+	var crew: CrewPool = CrewPool.load_default()
+	var replayed: ReplayResult = parsed.replay(_db(), _decks(), crew)
 	if not replayed.ok:
 		return (
 			"replay failed: reason %d at index %d, code %d"

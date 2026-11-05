@@ -60,13 +60,13 @@ var _policy: PreviewPolicy = PreviewPolicy.new()
 
 
 ## A match on `match_seed` where seat s plays the deck `deck_ids[s]` of `decks`, its cards
-## from the pool `cards` (DC-07 R5, P2, P3). An empty id resolves to
-## DeckList.seeded_pick(match_seed, seat) (R6, P14), so deck_ids() and the log hold the
-## resolved ids. Never fails here: a bad pool or list makes start() fail with
-## CARD_DATA_INVALID, and an id the list does not hold (or a `deck_ids` other than one id
-## per seat) with DECK_UNKNOWN.
+## from the pool `cards` and its three Crew from the Crew pool `crew` (DC-07 R5, P2, P3;
+## cycle 8 R42, P12). An empty id resolves to DeckList.seeded_pick(match_seed, seat) (R6,
+## P14), so deck_ids() and the log hold the resolved ids. Never fails here: a bad pool,
+## Crew pool or list makes start() fail with CARD_DATA_INVALID, and an id the list does not
+## hold (or a `deck_ids` other than one id per seat) with DECK_UNKNOWN.
 static func create(
-	match_seed: int, cards: CardDb, decks: DeckList, ids: Array[String]
+	match_seed: int, cards: CardDb, decks: DeckList, ids: Array[String], crew: CrewPool
 ) -> MatchEngine:
 	var engine: MatchEngine = MatchEngine.new()
 	engine._rng = MatchRng.new(match_seed)
@@ -74,16 +74,17 @@ static func create(
 	engine._state.rng_state = engine._rng.state
 	var resolved: Array[String] = _resolved_deck_ids(match_seed, decks, ids)
 	engine._state.deck_ids.assign(resolved)
-	engine._setup_error = _deck_problem(cards, decks, ids.size(), resolved)
+	engine._setup_error = _deck_problem(cards, decks, crew, ids.size(), resolved)
 	if engine._setup_error == EngineError.Code.NONE:
-		engine._cards = MatchCards.build(cards, decks, resolved)
+		engine._cards = MatchCards.build(cards, decks, resolved, crew)
 		if not engine._cards.is_valid():
 			engine._setup_error = EngineError.Code.CARD_DATA_INVALID
 	return engine
 
 
 ## Deals round 1 and runs to the first decision point. Not logged: it is fully determined
-## by the seed and the deck ids. Its first event is MATCH_STARTED {decks} (DC-07). Fails
+## by the seed and the deck ids. Its first event is MATCH_STARTED {decks, crew} (DC-07;
+## cycle 8 R42: `crew` is both seats' Crew ids in slot order, seat 0's first). Fails
 ## with CARD_DATA_INVALID on a failed pool or deck list (R8, R3), DECK_UNKNOWN on a deck id
 ## the list does not hold (DC-07 P2), and MALFORMED when the match has already started;
 ## either way nothing changes.
@@ -94,7 +95,8 @@ func start() -> ApplyResult:
 		return ApplyResult.failure(EngineError.Code.MALFORMED)
 	_events.clear()
 	# The seed stays out of every event: it would predict each shuffle (R28, R29).
-	_emit(MatchEvent.Kind.MATCH_STARTED, {"decks": _plain_strings(_state.deck_ids)})
+	var crew: Array = [_cards.crew_ids(0), _cards.crew_ids(1)]
+	_emit(MatchEvent.Kind.MATCH_STARTED, {"decks": _plain_strings(_state.deck_ids), "crew": crew})
 	_begin_round()
 	_begin_turn()
 	_state.rng_state = _rng.state
@@ -479,6 +481,7 @@ func _begin_round() -> void:
 	_state.energy = MatchState.EnergyState.new()
 	_state.bonus_zero_pending[0] = false
 	_state.bonus_zero_pending[1] = false
+	_state.reset_crew_uses(_cards)  # Per round resets, per match keeps (cycle 8 R43, P13).
 	for seat: int in range(SEATS):
 		var piles: MatchState.SeatPiles = _state.seats[seat]
 		piles.deck.clear()
@@ -905,15 +908,15 @@ static func _resolved_deck_ids(
 
 
 ## Why a match on these inputs cannot start (an EngineError.Code), or NONE: a failed or
-## missing pool, or a deck list that failed to load or to validate against it, is
-## CARD_DATA_INVALID (R3, R8); a `deck_ids` that does not name one deck per seat, or
-## names one the list does not hold, is DECK_UNKNOWN (DC-07 P2).
+## missing pool, or a deck list that failed to load or to validate against it and the Crew
+## pool `crew` (cycle 8 R41), is CARD_DATA_INVALID (R3, R8); a `deck_ids` that does not
+## name one deck per seat, or names one the list does not hold, is DECK_UNKNOWN (DC-07 P2).
 static func _deck_problem(
-	cards: CardDb, decks: DeckList, requested: int, resolved: Array[String]
+	cards: CardDb, decks: DeckList, crew: CrewPool, requested: int, resolved: Array[String]
 ) -> int:
 	if cards == null or not cards.is_valid() or decks == null:
 		return EngineError.Code.CARD_DATA_INVALID
-	if decks.validate(cards) != "":
+	if decks.validate(cards, crew) != "":
 		return EngineError.Code.CARD_DATA_INVALID
 	if requested != SEATS:
 		return EngineError.Code.DECK_UNKNOWN

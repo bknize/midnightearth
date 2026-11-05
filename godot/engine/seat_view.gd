@@ -104,6 +104,12 @@ var sudden_death: bool = false
 ## `multi` is true for EngineAction.choose_set(seat, zone, a subset) (DC-07 P7). For the
 ## other seat only {open: true, seat}.
 var prompt: Dictionary = {}
+## Both seats' Crew ids in slot order, indexed by seat (cycle 8 R42, plan P12): public, as
+## MATCH_STARTED `crew` names them. Empty per seat for a view built without definitions.
+var crew: Array[Array] = [[], []]
+## Both seats' Crew uses left, as MatchState.crew_uses (cycle 8 R43): public;
+## CrewDef.UNLIMITED (-1) for a Crew of scope NONE.
+var crew_uses: Array[Array] = [[], []]
 
 
 ## The view of `state` for `p_seat` (0 or 1). `p_awaited` and `p_budgets` come from the
@@ -154,6 +160,11 @@ static func build(
 	view.first_seat = state.first_seat
 	view.sudden_death = state.sudden_death
 	view.prompt = _prompt(state, view.seat, cards)
+	for index: int in range(2):
+		var uses: Array = state.crew_uses[index]
+		view.crew_uses[index] = uses.duplicate()
+		if cards != null:
+			view.crew[index] = cards.crew_ids(index)
 	return view
 
 
@@ -347,4 +358,6 @@ func to_dict() -> Dictionary:
 		"first_seat": first_seat,
 		"sudden_death": sudden_death,
 		"prompt": prompt.duplicate(true),
+		"crew": crew.duplicate(true),
+		"crew_uses": crew_uses.duplicate(true),
 	}

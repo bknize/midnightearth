@@ -211,8 +211,9 @@ func test_membership_checked_before_budget() -> void:
 
 
 func test_failed_card_db_prices_nothing() -> void:
+	var crew: CrewPool = FixtureDecks.crew()
 	var bad: MatchCards = MatchCards.build(
-		CardDb.from_json("{}"), FixtureDecks.decks(), FixtureDecks.ids()
+		CardDb.from_json("{}"), FixtureDecks.decks(), FixtureDecks.ids(), crew
 	)
 	assert_bool(bad.is_valid()).is_false()
 	var hand: Array[int] = [0, 1]

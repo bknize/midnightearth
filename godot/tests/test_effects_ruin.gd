@@ -383,7 +383,8 @@ func test_the_log_replays_the_set() -> void:
 	assert_object(parsed).is_not_null()
 	if parsed == null:
 		return
-	var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks())
+	var crew: CrewPool = FixtureDecks.crew()
+	var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks(), crew)
 	assert_bool(replayed.ok).is_true()
 	if not replayed.ok:
 		return
