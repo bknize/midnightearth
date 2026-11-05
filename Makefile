@@ -22,4 +22,4 @@ bot-selftest: ; @python3 -I scripts/bot/driver.py selftest
 HOURS ?= 8
 LABEL ?=
 bot-train:  ; @scripts/bot-train.sh --bot $(BOT) --hours $(HOURS) --label "$(LABEL)"
-bot-calibrate: ; @python3 -I scripts/bot/driver.py calibrate $(if $(LEVELS),--levels $(LEVELS))
+bot-calibrate: ; @python3 -I scripts/bot/driver.py calibrate $(if $(LEVELS),--levels $(LEVELS)) $(if $(NO_LEDGER),--no-ledger)

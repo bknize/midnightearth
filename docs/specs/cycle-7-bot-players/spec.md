@@ -4,7 +4,7 @@ tags: [spec, cycle-7-bot-players, engine, bot, tooling]
 status: approved
 related: ["[[specs/cycle-7-bot-players/plan]]", "[[specs/cycle-7-bot-players/tasks]]", "[[specs/cycle-6-constructed-decks/spec]]", "[[specs/cycle-4-card-effects/spec]]", "[[specs/cycle-1-match-engine/spec]]", "[[planning/phase-3-game-loop]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-04
-updated: 2026-11-04
+updated: 2026-11-05
 uid: 9586d342-7d13-4094-b199-d93b9f7d6a9a
 linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
@@ -227,8 +227,11 @@ orchestrator exactly which two commands to run before merging.
   started again with the same label.
 - R41. When a generation ends, the driver shall take its best individual as a candidate and
   shall run the gainer test (R28) against the frozen greedy bot and against best-so-far; only
-  a candidate that passes both with zero rejected actions and zero decisions over budget
-  shall be promoted.
+  a candidate that passes both, with zero rejected actions, zero replay mismatches and its
+  99th-percentile decision (side a's, the R17 measure) under the 10 ms budget, shall be
+  promoted (amended by C16; it read "zero decisions over budget", which an eval run on all
+  cores can never meet). The summary line prints `p99_us=` and the counts of overruns, and
+  names the failed condition as `reason=p99`, `reason=rejected` or `reason=replay`.
 - R42. When a candidate is promoted, the driver shall write it as the weights file with the
   current stamp, keep the previous file beside it under `godot/reports/bot/`, and print a
   ledger-ready line; it shall not commit.
@@ -302,6 +305,7 @@ orchestrator exactly which two commands to run before merging.
 | C13 | Round 3 defaults, no objection | The frozen reference is cycle 6's final GreedyBot copied after its T08, never edited beyond R22; the random bot is the floor; best-so-far is the committed weights file |
 | C14 | DC-08 run, latency (2026-11-04) | 1a: the shipped cap is k = 24 (the built-in default too): it chose as `greedy_v1` in every game of a 111-pair non-regression `bot-eval` (PASS), quiet-run p99 7.0 ms; k = 48 barely pruned (13–77 candidates a position). 2a: the sweep asserts the 99th percentile under 10 ms and prints the slowest without asserting it, since one OS stall on a shared machine decides the slowest (46–393 ms seen); R17 amended |
 | C15 | DC-08 T11, test budget (2026-11-04) | 1b: the test stage's budget is 30 s of gdUnit time, up from 15 s (cycle 6 C23), and every test is kept: gdUnit ran about 25 s, the 50-seed tuned sweep about 8 s and `test_tuned_bot` about 9 s (its 20-seed full-search parity check about 4.7 s). Rejected: trimming the parity and repeat checks to reach about 19 s (a), or also halving the sweep to hold 15 s (c) |
+| C16 | DC-10 T17 review (2026-11-05) | 1a: R41 amended: a candidate is promoted only if it passes the gainer test against the frozen greedy bot and against best-so-far, with zero rejected actions, zero replay mismatches and its 99th-percentile decision under the 10 ms budget (the R17 p99 measure), instead of "zero decisions over budget"; under a parallel eval on all cores the shipped tuned bot itself ran 241-389 overruns per eval (OS contention), so the zero-overrun rule could never promote anything. 2a: the matrix bot ships k 6, k_opp 4, samples 2, rm_iterations 50 (measured p99 was 59 ms at 12/12/4/200 against 10 ms); the trainer caps k at 6 and k_opp at 4 (samples and rm_iterations are not tunable); latency is measured at T18 (Verification B), and if 2a still misses 10 ms the orchestrator brings the next step down back to Ben. 3a: every review finding fixed in one pass: the default train label is `<bot>-<stamp>` and a checkpoint of another stamp is refused; a pending candidate survives a crash and is re-promoted on resume; a rejected action in the candidate eval is a candidate FAIL, not a run abort; the R38 mismatch repeats in the final lines; `bot-calibrate` writes the ledger (R55); the rerun provision covers the matrix weights. Nits are recorded in tasks.md, not fixed |
 
 ## Scenarios
 

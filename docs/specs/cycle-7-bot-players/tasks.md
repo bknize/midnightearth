@@ -4,7 +4,7 @@ tags: [tasks, cycle-7-bot-players, engine, bot, tooling]
 status: approved
 related: ["[[specs/cycle-7-bot-players/spec]]", "[[specs/cycle-7-bot-players/plan]]", "[[decisions/0002-one-branch-per-cycle]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-04
-updated: 2026-11-04
+updated: 2026-11-05
 uid: 27b7fad5-c575-47db-a846-43c4dbc1e707
 linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
@@ -51,10 +51,10 @@ wave (`match_driver.gd` only in T07; `test_full_match.gd` only in T05).
 | # | Task | Area | Depends on | Acceptance check | Who |
 |---|---|---|---|---|---|
 | 12 | Joint preview (P10): `MatchEngine.preview_pair`, hypothesis validation against the public budget and the pending count and slots, hidden-pile independence | engine | 11 | `test_preview_pair.gd`: a pair preview equals `preview()` when the hypothesis is empty; with the opponent committed first, a hypothesis of the wrong count or slots returns `[]`; two engines with the same view, one holding hypothesis card X in the opponent's hand and the other in its deck, return equal scores; the real pending cards never score (a hypothesis of weak cards against a strong real pending gives the weak result); `preview_pair` changes no state, log, event or stream (`full_state()` equal before and after) | implementer-engine |
-| 13 | `HandSampler`, `RegretMatching`, `MatrixBot` (P11–P14), `data/matrix_weights.json` (defaults: `k` 12, `k_opp` 12, `samples` 4, `rm_iterations` 200), registry `matrix` | engine | 12 | `test_hand_sampler.gd`: `unseen` excludes every id the view shows and includes the rest of the opponent's 20; samples have `opponent_hand_count` distinct ids; the same seed gives the same samples. `test_regret_matching.gd`: matching pennies converges to within 0.05 of uniform; a dominant row gets above 0.95; `sample_index` is deterministic per seed. `test_matrix_bot.gd`: as second committer every opponent hypothesis has the observed count and slots (a stub engine records `preview_pair` arguments); the bot asks only the preview functions; every action over 50 seeds is accepted; same seed and view give the same action; previews per decision ≤ `k · k_opp` + options | implementer-engine |
+| 13 | `HandSampler`, `RegretMatching`, `MatrixBot` (P11–P14), `data/matrix_weights.json` (defaults: `k` 6, `k_opp` 4, `samples` 2, `rm_iterations` 50 after C16; first written as 12 / 12 / 4 / 200), registry `matrix` | engine | 12 | `test_hand_sampler.gd`: `unseen` excludes every id the view shows and includes the rest of the opponent's 20; samples have `opponent_hand_count` distinct ids; the same seed gives the same samples. `test_regret_matching.gd`: matching pennies converges to within 0.05 of uniform; a dominant row gets above 0.95; `sample_index` is deterministic per seed. `test_matrix_bot.gd`: as second committer every opponent hypothesis has the observed count and slots (a stub engine records `preview_pair` arguments); the bot asks only the preview functions; every action over 50 seeds is accepted; same seed and view give the same action; previews per decision ≤ `k · k_opp` + options | implementer-engine |
 | 14 | Driver train (P20, P22): `evolve.py`, `driver.py train` with checkpoints, resume, `--hours`, `--run-seed`, promotion through two `eval` runs, weights write with the stamp and a copy of the previous file, the `PROMOTED` / exit 2 lines; `scripts/bot-train.sh`, Makefile `bot-train`; the worker's `--weights-a/-b` already accept candidate files (T06) | tooling | 8 | `scripts/bot/test_evolve.py`: a generation of 16 from a run seed is reproducible; mutation stays within bounds and `k ≤ k_max`; a resumed run from `gen-3.json` continues at generation 4; promotion is refused when either `eval` is FAIL (stubbed). Orchestrator at T18: `make bot-train HOURS=0.2 LABEL=smoke` runs at least one generation, writes checkpoints and exits 0 or 2 with a summary | implementer |
 | 15 | Driver calibrate (P21): `driver.py calibrate`, Makefile `bot-calibrate`, the Markdown table and tier suggestion | tooling | 8 | `test_calibrate.py`: the table is built from fixture results with intervals and the band mapping; orchestrator at T18: `make bot-calibrate` prints the table for the grid | implementer |
-| 16 | The training run: `make bot-train` overnight on the tuned bot, then on the matrix bot; promote; commit the weights (`dc-NN: T16 trained weights <stamp>`); ledger rows with the `PROMOTED` lines; if the first night promotes nothing, record the best candidate's result and run a second night with a wider σ | tooling | 13, 14 | At least one promotion per bot or a recorded reason; `make check` green with the new weights; the ledger rows cite the SPRT lines | orchestrator |
+| 16 | (Moved to the end of DC-11, decision 1a; DC-10 verifies the loop with short runs only.) The training run: `make bot-train` overnight on the tuned bot, then on the matrix bot; promote; commit the weights (`dc-NN: T16 trained weights <stamp>`); ledger rows with the `PROMOTED` lines; if the first night promotes nothing, record the best candidate's result and run a second night with a wider σ | tooling | 13, 14 | At least one promotion per bot or a recorded reason; `make check` green with the new weights; the ledger rows cite the SPRT lines | orchestrator |
 | 17 | Review of T12–T16 against the spec and the Constitution Check, with attention to hidden information through `preview_pair` (R48, R49), the sampler's exclusions (R50), float confinement in the regret solver (P13), the promotion rule (R41) and the rerun provision end to end (R36, R38) | all | 12–16 | Ranked findings; blockers fixed before T18 | reviewer |
 | 18 | Verification B (below) | all | 12–17 | All boxes checked | orchestrator |
 
@@ -91,14 +91,18 @@ Owned by the orchestrator, on `cycle-7-bot-players`, editor opened on the cycle 
 
 Owned by the orchestrator, on `cycle-7b-bot-players`.
 
-- [ ] `make check` exits 0 with the trained weights; the sweep line for `--bot=matrix`
-      (run once by hand through the sweep's bot name override) is under 10 ms.
+- [ ] `make check` exits 0; `make sweep` and `make sweep BOT=matrix` each print their line
+      with `p99_us` under 10000 (the sweep left the gate, NSC-133, decision 2b). The
+      matrix defaults are k 6, k_opp 4, samples 2, rm_iterations 50 (C16); if the p99 still
+      misses 10 ms, the orchestrator brings the next step down back to Ben.
 - [ ] `make bot-eval` (tuned, trained weights, vs greedy_v1) PASS as a gainer; `make
       bot-eval BOT=matrix` vs greedy_v1 PASS and vs the tuned best-so-far PASS (R54); the
       three lines in the ledger and the cycles row.
 - [ ] One match from the training run replays from its log to an equal state (the driver's
       sample check, re-run by hand on one file).
-- [ ] `make bot-train HOURS=0.2` resumes from a checkpoint after an interruption.
+- [ ] `make bot-train HOURS=0.2 LABEL=smoke` resumes from a checkpoint after an
+      interruption (the default label is `<bot>-<stamp>` and a checkpoint of another stamp
+      is refused, C16); a candidate pending at the interruption is re-promoted first.
 - [ ] The calibration table is in the ledger (R55).
 - [ ] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new.
 
@@ -132,3 +136,15 @@ with `git merge --no-ff`. Milestone B is a second cycle with no spec of its own:
 `cycle-7b-bot-players` from `master` at its `/cycle plan`, carries T12–T18 the same way (the
 trained weights are T16's commit) and merges at its `/cycle test`. Nothing is committed
 directly on `master`.
+
+## Review nits (deferred)
+
+Recorded at DC-10 T17 (Ben's 3a, 2026-11-05); the orchestrator files them in Linear.
+
+- `match_engine.gd` is about 927 lines with 19-20 public methods: past the size where a
+  split would pay.
+- Winner's curse: the best of a generation is picked by its noisy fitness, so its fitness
+  is biased upward (the promotion eval is the real test).
+- `write_json` in `evolve.py` indents with a tab by default (the checkpoints pass
+  `indent=2`): one convention would be tidier.
+- `--hours` is per invocation, not cumulative across resumes.

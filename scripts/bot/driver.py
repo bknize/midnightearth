@@ -28,6 +28,7 @@ import sprt  # noqa: E402
 
 DEFAULT_GODOT = "/Applications/Godot 4.6.app/Contents/MacOS/Godot"
 BATCH_SEEDS = 25
+P99_BUDGET_US = 10000  # R17: the 99th-percentile decision stays under 10 ms
 EXIT_PASS, EXIT_FAIL, EXIT_CAP, EXIT_ERROR = 0, 1, 2, 3
 
 WorkerFactory = Callable[[str, str, int, int, str], List[str]]
@@ -148,6 +149,7 @@ def eval_report(args: argparse.Namespace,
     fed: List[str] = []            # output paths fed to the SPRT, in seed order
     consumed: List[Dict[str, Any]] = []  # the fed batches' records up to the stopping pair
     failures: List[str] = []
+    fail_codes: List[int] = []
     running: Dict[Any, int] = {}
     next_i = 0
     next_feed = 0
@@ -169,6 +171,7 @@ def eval_report(args: argparse.Namespace,
                 s, e = plan[i]
                 out = os.path.join(out_dir, "batch-%d-%d.jsonl" % (s, e))
                 if code != 0:
+                    fail_codes.append(code)
                     failures.append("worker seeds %d-%d exit %d: %s"
                                     % (s, e, code, tail.replace("\n", " | ")))
                     if os.path.exists(out):
@@ -183,7 +186,9 @@ def eval_report(args: argparse.Namespace,
     if failures:
         for f in failures:
             print("bot-eval: " + f, file=sys.stderr)
-        return EXIT_ERROR, {}
+        # worker exit codes, so a caller can tell a candidate's own failure (1: rejected
+        # action or replay mismatch) from infrastructure (2, 3, 127)
+        return EXIT_ERROR, {"worker_exit_codes": sorted(set(fail_codes))}
 
     agg = records.aggregate(consumed)
     state = test.state()
@@ -196,14 +201,22 @@ def eval_report(args: argparse.Namespace,
         print("bot-eval: invariant counts rejected=%d replay_mismatches=%d"
               % (agg["rejected"], agg["replay_mismatches"]), file=sys.stderr)
     reason = ""
-    if args.gainer and agg["overruns_a"] > 0 and result == "PASS":
-        result, code, reason = "FAIL", EXIT_FAIL, " reason=overrun"
+    if args.gainer and result == "PASS":
+        # R41 as amended by C16: p99 of side a's decisions under the budget, not zero overruns
+        if agg["p99_us"] >= P99_BUDGET_US:
+            reason = " reason=p99"
+        elif agg["rejected"] > 0:
+            reason = " reason=rejected"
+        elif agg["replay_mismatches"] > 0:
+            reason = " reason=replay"
+        if reason:
+            result, code = "FAIL", EXIT_FAIL
     summary = ("bot-eval: a=%s b=%s result=%s bound=%s pairs=%d games=%d "
-               "winrate=%.3f±%.3f first_committer=%.2f p95_us=%d slowest_us=%d "
+               "winrate=%.3f±%.3f first_committer=%.2f p95_us=%d p99_us=%d slowest_us=%d "
                "overruns_a=%d overruns_b=%d stamp=%s exit=%d%s"
                % (args.a, args.b, result, bound, agg["pairs"], agg["games"], agg["winrate"],
                   agg["winrate_ci95"], agg["first_committer"], agg["p95_us"],
-                  agg["slowest_us"], agg["overruns_a"], agg["overruns_b"],
+                  agg["p99_us"], agg["slowest_us"], agg["overruns_a"], agg["overruns_b"],
                   "MISMATCH" if mismatch else "match", code, reason))
     report = {"a": args.a, "b": args.b, "mode": mode, "label": label, "seeds": args.seeds,
               "cap": args.cap, "result": result, "bound": bound, "llr": test.llr(),
