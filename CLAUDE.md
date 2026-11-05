@@ -28,6 +28,9 @@ gdUnit4 exit 0 or 101 is a pass. A cycle's only acceptance criterion is "buildab
 testable", which means `make check` is green plus one screenshot per feature from the
 Godot MCP (P7). If `make` itself fails on the Xcode license, use `scripts/check.sh`.
 
+`make sweep` runs the 50-seed bot sweep (`godot/tests/sweep/`) outside the gate, at
+`/cycle test` and for bot reruns; `make sweep BOT=<name>` sweeps another bot.
+
 Single stages: `make import|lint|parse|boot|test`. `parse` promotes the typed-GDScript
 warnings to errors, so every project `.gd` is fully typed; test suites are exempt from
 `return_value_discarded` only.

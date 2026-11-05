@@ -37,8 +37,9 @@ far" is the weights file committed in the repository (R23); nothing else counts.
 Any cycle that changes `MatchRules.RULES_VERSION`, the card pool JSON or the deck list
 JSON (anything that moves the stamp) does this before its `/cycle test` merge (R36):
 
-1. `make check`. The sweep line prints `stamp=MISMATCH` when the shipped weights were
-   measured under another stamp; the gate stays green either way.
+1. `make sweep` (the 50-seed sweep, outside the gate since NSC-133; `make sweep BOT=matrix`
+   sweeps another bot). The sweep line prints `stamp=MISMATCH` when the shipped weights were
+   measured under another stamp; the sweep stays green either way.
 2. `make bot-eval` (the shipped bot against `greedy_v1`, non-regression, about ten minutes
    on all cores). Its first line says when a stamp does not match.
 3. On FAIL or `stamp=MISMATCH`: `make bot-train` (overnight by default; `HOURS=` to bound

@@ -14,5 +14,8 @@ parse:      ; @scripts/check.sh parse
 boot:       ; @scripts/check.sh boot
 test:       ; @scripts/check.sh test
 bootstrap:  ; @scripts/bootstrap.sh
+# The 50-seed sweep (NSC-133), outside `check`. `make sweep BOT=matrix` sweeps that bot.
+.PHONY: sweep
+sweep:      ; @$(if $(filter command line,$(origin BOT)),SWEEP_BOT=$(BOT) )scripts/check.sh sweep
 bot-eval:   ; @scripts/bot-eval.sh --a $(BOT) --b $(REF) --seeds $(SEEDS)
 bot-selftest: ; @python3 -I scripts/bot/driver.py selftest

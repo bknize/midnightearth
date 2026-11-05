@@ -2,7 +2,8 @@
 # check.sh - the build gate (cycle-0 R12-R17, decision D5).
 #
 #   scripts/check.sh            # all stages: import -> lint -> parse -> boot -> test
-#   scripts/check.sh <stage>    # one of: import lint parse boot test
+#   scripts/check.sh <stage>    # one of: import lint parse boot test sweep
+#   scripts/check.sh sweep      # the 50-seed sweep; not part of `all` (SWEEP_BOT=<name> = other bot)
 #   GODOT_BIN=/path/to/Godot scripts/check.sh
 #
 # Exit codes: 0 pass, 1 a stage failed, 2 a required tool is missing.
@@ -104,18 +105,34 @@ stage_boot() {
   return 0
 }
 
-stage_test() {
-  local log="$LOG_DIR/test.log"
+# Runs gdUnit4 with the given extra args, then applies the shared error grep and pass rule
+# (exit 0 or 101). $1 = stage name (log file and output prefix), $2 = grep -E pattern of the
+# lines to print on a pass, rest = gdUnit4 args.
+run_gdunit() {
+  local name="$1" show="$2"
+  shift 2
+  local log="$LOG_DIR/$name.log"
   "$GODOT_BIN" --headless --path . -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd \
-    --ignoreHeadlessMode --continue --add res://tests >"$log" 2>&1
+    --ignoreHeadlessMode --continue "$@" >"$log" 2>&1
   local code=$?
   if grep -qE 'SCRIPT ERROR|Parse Error|Failed to load script' "$log"; then
-    fail "test: script errors while loading suites:"; show_errors "$log"; return 1
+    fail "$name: script errors while loading suites:"; show_errors "$log"; return 1
   fi
   case "$code" in
-    0|101) grep -E 'Statistics:' "$log" | sed 's/\x1b\[[0-9;]*m//g' | sed 's/^/check: test: /'; return 0 ;;
-    *) fail "test: gdUnit4 exit $code"; grep -E 'FAILED|ERROR|Statistics' "$log" | sed 's/\x1b\[[0-9;]*m//g' | head -n 20 >&2; return 1 ;;
+    0|101) grep -E "$show" "$log" | sed 's/\x1b\[[0-9;]*m//g' | sed "s/^/check: $name: /"; return 0 ;;
+    *) fail "$name: gdUnit4 exit $code"; grep -E 'FAILED|ERROR|Statistics' "$log" | sed 's/\x1b\[[0-9;]*m//g' | head -n 20 >&2; return 1 ;;
   esac
+}
+
+# The gate's suites: all of res://tests except the 50-seed sweep (res://tests/sweep, NSC-133).
+stage_test() {
+  run_gdunit test 'Statistics:' --add res://tests --ignore res://tests/sweep
+}
+
+# The 50-seed sweep (NSC-133), outside `all`: SWEEP_BOT=<name> sweeps another bot than
+# BotRegistry.default_name() (make sweep BOT=matrix). Prints the sweep's summary lines.
+stage_sweep() {
+  run_gdunit sweep 'Sweep:|Sweep pairing|Statistics:' --add res://tests/sweep
 }
 
 run_stage() {
@@ -129,11 +146,11 @@ run_stage() {
 
 stage="${1:-all}"
 case "$stage" in
-  import|lint|parse|boot|test) run_stage "$stage"; exit $? ;;
+  import|lint|parse|boot|test|sweep) run_stage "$stage"; exit $? ;;
   all)
     t0=$(date +%s)
     for s in import lint parse boot test; do run_stage "$s" || exit $?; done
     say "all stages passed in $(( $(date +%s) - t0 ))s"
     ;;
-  *) echo "usage: scripts/check.sh [import|lint|parse|boot|test]" >&2; exit 2 ;;
+  *) echo "usage: scripts/check.sh [import|lint|parse|boot|test|sweep]" >&2; exit 2 ;;
 esac
