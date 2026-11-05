@@ -1,0 +1,6 @@
+{"t": "p", "seed": 4, "decks": "ruin/drift", "points_a": 1.5}
+{"t": "g", "seed": 4, "game": 0, "a_seat": 0, "decks": "ruin/drift", "winner": 1, "rounds": 4, "margins": [-1], "first_seat": 0, "first_won": false, "actions": 30, "replay_ok": true}
+{"t": "g", "seed": 4, "game": 1, "a_seat": 1, "decks": "ruin/drift", "winner": 1, "rounds": 4, "margins": [-1], "first_seat": 0, "first_won": false, "actions": 30, "replay_ok": true}
+{"t": "d", "seed": 4, "game": 0, "round": 1, "turn": 1, "seat": 0, "bot": "tuned", "level": 20, "legal": 3, "previewed": 3, "action": {}, "best": 1, "second": 0, "chosen": 1, "push": 0, "us": 3000}
+{"t": "d", "seed": 4, "game": 0, "round": 1, "turn": 1, "seat": 0, "bot": "tuned", "level": 20, "legal": 3, "previewed": 3, "action": {}, "best": 1, "second": 0, "chosen": 1, "push": 0, "us": 50}
+{"t": "end", "games": 2, "rejected": 1, "overruns": 2, "replay_mismatches": 3, "p95_us": 3000, "slowest_us": 3000, "stamp": "r4-0123456789abcdef"}
