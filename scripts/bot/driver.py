@@ -75,6 +75,23 @@ def run_worker(argv: List[str]) -> Tuple[int, str]:
     return proc.returncode, tail
 
 
+def feed_until_decided(test: sprt.Sprt,
+                       recs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Feed a batch's pair records to `test` in order and stop at the first pair that
+    decides it (R28: the stopping rule is checked per pair, never per batch). Returns the
+    batch's records for the seeds fed: their pairs, games and decisions, plus the batch's
+    own `end` record, whose counts (rejected, overruns) cover the whole batch."""
+    seeds = set()
+    for r in recs:
+        if r.get("t") != "p":
+            continue
+        test.add(float(r["points_a"]))
+        seeds.add(r.get("seed"))
+        if test.decided():
+            break
+    return [r for r in recs if r.get("t") == "end" or r.get("seed") in seeds]
+
+
 def run_eval(args: argparse.Namespace,
              factory: Optional[WorkerFactory] = None,
              workers: Optional[int] = None) -> int:
@@ -108,6 +125,7 @@ def run_eval(args: argparse.Namespace,
     n_workers = max(1, workers or os.cpu_count() or 1)
     done: Dict[int, str] = {}      # batch index -> output path, finished and ok
     fed: List[str] = []            # output paths fed to the SPRT, in seed order
+    consumed: List[Dict[str, Any]] = []  # the fed batches' records up to the stopping pair
     failures: List[str] = []
     running: Dict[Any, int] = {}
     next_i = 0
@@ -139,17 +157,14 @@ def run_eval(args: argparse.Namespace,
             while not failures and next_feed in done and not test.decided():
                 path = done[next_feed]
                 fed.append(path)
-                for r in records.read_records(path):
-                    if r.get("t") == "p":
-                        test.add(float(r["points_a"]))
+                consumed.extend(feed_until_decided(test, records.read_records(path)))
                 next_feed += 1
     if failures:
         for f in failures:
             print("bot-eval: " + f, file=sys.stderr)
         return EXIT_ERROR
 
-    recs = records.merge(fed)
-    agg = records.aggregate(recs)
+    agg = records.aggregate(consumed)
     state = test.state()
     result = {"H1": "PASS", "H0": "FAIL"}.get(state or "", "CAP")
     bound = state if state in ("H0", "H1") else "cap"

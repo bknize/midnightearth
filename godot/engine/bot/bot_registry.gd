@@ -19,6 +19,8 @@ const SEED_TAG: int = 0x626F74
 ## Every name the registry knows, in a fixed order (R1); make() builds those whose class
 ## exists.
 const NAMES: Array[String] = ["greedy", "greedy_v1", "random", "tuned", "matrix"]
+## The names known but not buildable yet (milestone B); the launcher rejects them up front.
+const PENDING: Array[String] = ["matrix"]
 ## The names whose bots have no evaluator and so take only the full level (P2).
 const NO_LEVEL: Array[String] = ["greedy", "greedy_v1", "random"]
 ## Where a bot's shipped weights live: WEIGHTS_DIR + name + WEIGHTS_SUFFIX (P7).

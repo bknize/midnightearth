@@ -102,7 +102,8 @@ func test_non_integer_weight_sets_load_error() -> void:
 
 
 ## Every other fault: bad JSON, not an object, a wrong or missing version, a non-integer
-## or out-of-range cap, a weights entry that is not an object, a stamp that is not a string.
+## or out-of-range cap, a weights entry that is not an object, a stamp that is not a string,
+## a weight beyond BotWeights.MAX_WEIGHT either way (DC-08 T10).
 func test_other_faults_set_load_error() -> void:
 	var faults: Array[String] = [
 		"{not json",
@@ -114,6 +115,8 @@ func test_other_faults_set_load_error() -> void:
 		'{"version": 1, "push_unit": -1}',
 		'{"version": 1, "weights": [100]}',
 		'{"version": 1, "stamp": 4}',
+		'{"version": 1, "weights": {"score_diff": 100000000000}}',
+		'{"version": 1, "weights": {"score_diff": -1000001}}',
 	]
 	for text: String in faults:
 		var weights: BotWeights = BotWeights.from_json(text)

@@ -242,6 +242,13 @@ did not change, except R17 (spec C14).
   previewed nearly every candidate and the sweep's slowest decision reached 46 ms. P15's
   sweep asserts `p99_us < 10000` and prints `p95_us`, `p99_us` and `slowest_us`; the
   slowest is not asserted (R17 amended).
+- **T10 review fixes.** P18: the driver feeds the SPRT pair by pair and stops at the
+  deciding pair (R28); the report aggregates only the pairs, games and decisions fed, while
+  a batch's `end` counts (rejected, overruns) still cover the whole batch. P7: a feature
+  weight beyond ±1,000,000 hundredths is a load fault, so values fit the int32 the tuned
+  bot packs. P16: `matrix` is rejected by the launcher before any weights warning, and the
+  board guards a driver that cannot build its bot. Kept as designed: a worker failing
+  after the test decided still exits 3, and the per-seat deck stays in the pair variance.
 
 ## Open questions
 

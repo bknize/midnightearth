@@ -194,8 +194,7 @@ func _setup_effects() -> void:
 	_prompt.spawn = _spawn_card
 
 
-## Starts a fresh match: new driver, empty table, the opening events as steps.
-## `deck_ids` are the two seats' deck ids; "" takes the seeded pick for that seat.
+## Starts a fresh match (new driver, empty table, opening steps); a "" deck id = seeded pick.
 func start_match(new_seed: int, deck_ids: Array[String]) -> void:
 	_serial += 1
 	_end_wait()
@@ -208,6 +207,9 @@ func start_match(new_seed: int, deck_ids: Array[String]) -> void:
 	_queue.clear()
 	_close_prompt()
 	driver = MatchDriver.create(new_seed, _cards, _decks, deck_ids, _autoplay, bot, level)
+	if driver == null:
+		push_error("Board: cannot build bot '%s' at level %d" % [bot, level])
+		return
 	_deck_ids = driver.deck_ids()
 	_fx.match_cards = driver.match_cards()
 	_prompt.driver = driver
@@ -223,9 +225,8 @@ func start_match(new_seed: int, deck_ids: Array[String]) -> void:
 	_run()
 
 
-## Applies the player's action through the driver and queues its steps. Returns false,
-## changing nothing, while input is locked or when the engine rejects the action (the
-## engine's error code is then in `_last_error`).
+## Applies the player's action through the driver and queues its steps. False, changing
+## nothing, while input is locked or the engine rejects it (its code is in `_last_error`).
 func submit_player(action: EngineAction) -> bool:
 	if _input_locked or driver == null or driver.is_over() or _halted:
 		return false
@@ -244,8 +245,7 @@ func may_act() -> bool:
 	return _awaited
 
 
-## A turn starts (R15, R16): staging is emptied for the turn's energy and Commit waits for
-## the player to be awaited.
+## A turn starts (R15, R16): staging is emptied for the turn's energy; Commit waits for seat 0.
 func _on_turn_started(step: BoardStep) -> void:
 	_turn_energy = step.budget
 	_free_first = step.free_first

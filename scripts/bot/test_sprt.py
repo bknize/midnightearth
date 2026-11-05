@@ -153,6 +153,21 @@ class DriverTest(unittest.TestCase):
 
 
 
+class StoppingRuleTest(unittest.TestCase):
+    """R28: the driver stops at the pair that decides the test, not at the batch's end."""
+
+    def test_feed_stops_at_the_deciding_pair(self) -> None:
+        recs = [{"t": "p", "seed": i, "points_a": 1.0} for i in range(1, 121)]
+        recs += [{"t": "g", "seed": 50, "game": 0}, {"t": "g", "seed": 120, "game": 0},
+                 {"t": "end", "overruns_a": 2}]
+        test = sprt.Sprt("nonreg")
+        kept = driver.feed_until_decided(test, recs)
+        self.assertEqual(test.pairs, 100)
+        self.assertEqual(test.result(), "PASS")
+        agg = records.aggregate(kept)
+        self.assertEqual((agg["pairs"], agg["games"], agg["overruns_a"]), (100, 1, 2))
+
+
 class IdenticalBotsTest(unittest.TestCase):
     """Identical deterministic bots split every pair 1-1: zero raw variance."""
 

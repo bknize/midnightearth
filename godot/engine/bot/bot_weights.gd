@@ -24,6 +24,9 @@ const INT_FIELDS: Array[String] = ["k", "k_opp", "samples", "rm_iterations", "pu
 const INT_MINIMUMS: Array[int] = [1, 1, 1, 0, 0]
 ## JSON numbers arrive as floats: a whole number is exact up to here.
 const MAX_SAFE_FLOAT: float = 9007199254740992.0
+## The largest feature weight accepted either way, in hundredths (10000 times a feature), so
+## a candidate's value stays inside the int32 the tuned bot packs it into (DC-08 T10).
+const MAX_WEIGHT: int = 1000000
 
 ## The bot these weights are for (the registry name), "" when unnamed.
 var bot: String = ""
@@ -163,7 +166,10 @@ static func _read_weights(root: Dictionary, out: BotWeights) -> String:
 		var weight: Variant = table[key]
 		if not _is_whole_number(weight):
 			return "weight of %s is not a whole number: %s" % [name, JSON.stringify(weight)]
-		read[name] = _as_int(weight)
+		var whole: int = _as_int(weight)
+		if absi(whole) > MAX_WEIGHT:
+			return "weight of %s out of range: %d (limit %d)" % [name, whole, MAX_WEIGHT]
+		read[name] = whole
 	out.weights = read
 	return ""
 

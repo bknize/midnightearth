@@ -96,6 +96,9 @@ func _read_bot_args(args: PackedStringArray) -> bool:
 	if not BotRegistry.NAMES.has(_bot_name):
 		push_error("Unknown bot: '%s' (known: %s)" % [_bot_name, ", ".join(BotRegistry.NAMES)])
 		return false
+	if BotRegistry.PENDING.has(_bot_name):
+		push_error("Bot '%s' is not built yet (cycle 7 milestone B)" % _bot_name)
+		return false
 	if _bot_level < 0 or _bot_level > BotPlayer.FULL_LEVEL:
 		push_error("Bot level %d is outside 0..%d" % [_bot_level, BotPlayer.FULL_LEVEL])
 		return false
