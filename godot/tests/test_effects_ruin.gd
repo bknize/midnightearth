@@ -438,11 +438,22 @@ func _assert_event(event: MatchEvent, kind: int, payload: Dictionary, owner: int
 
 
 func _fired(seat: int, card: int, verb: String, trigger: String) -> Dictionary:
-	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger}
+	# Cycle 8 P7: every EFFECT_FIRED carries `uses_left`, -1 for an unlimited effect.
+	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger, "uses_left": -1}
 
 
 func _stats(seat: int, card: int, flat: int, times: int, cause: String) -> Dictionary:
-	return {"seat": seat, "card": card, "flat": flat, "times": times, "plus": 0, "cause": cause}
+	# Cycle 8 P4: every STATS_CHANGED carries the effective cost and `permanent`.
+	return {
+		"seat": seat,
+		"card": card,
+		"flat": flat,
+		"times": times,
+		"plus": 0,
+		"cost": _ruin().def_of(card).cost,
+		"permanent": false,
+		"cause": cause,
+	}
 
 
 func _made(seat: int, card: int, zone: String, target: int, auto: bool) -> Dictionary:
@@ -730,7 +741,13 @@ func test_a_discard_with_an_empty_hand_fizzles_and_the_card_scores() -> void:
 	_walk(state, MatchRng.new(SEED), recorder)
 	var events: Array[MatchEvent] = recorder.events
 	assert_array(_kinds(events)).is_equal(_typed([REVEALED, FIRED, FIZZLED, SCORED]))
-	_assert_event(events[2], FIZZLED, {"seat": 0, "card": ember, "verb": "discard_own"}, PUBLIC)
+	var fizzled: Dictionary = {
+		"seat": 0,
+		"card": ember,
+		"verb": "discard_own",
+		"reason": "no_target",
+	}
+	_assert_event(events[2], FIZZLED, fizzled, PUBLIC)
 	assert_int(_payload_int(events[3], "card")).is_equal(ember)
 	assert_int(_payload_int(events[3], "added")).is_equal(4)
 
@@ -760,7 +777,12 @@ func test_tallow_with_no_other_card_fizzles() -> void:
 	_walk(state, MatchRng.new(SEED), recorder)
 	var events: Array[MatchEvent] = recorder.events
 	assert_array(_kinds(events)).is_equal(_typed([REVEALED, FIRED, FIZZLED, SCORED]))
-	var fizzled: Dictionary = {"seat": 0, "card": tallow, "verb": "destroy_leftmost_own"}
+	var fizzled: Dictionary = {
+		"seat": 0,
+		"card": tallow,
+		"verb": "destroy_leftmost_own",
+		"reason": "no_target",
+	}
 	_assert_event(events[2], FIZZLED, fizzled, PUBLIC)
 	# Only destroyed cards beside it: fizzles too (P12).
 	var wreck: int = _id(0, R15_WRECK)

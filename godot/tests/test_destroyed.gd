@@ -161,7 +161,8 @@ func _cleared(seat: int, card: int, slot: int) -> Dictionary:
 
 
 func _fired(seat: int, card: int, verb: String, trigger: String) -> Dictionary:
-	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger}
+	# Cycle 8 P7: every EFFECT_FIRED carries `uses_left`, -1 for an unlimited effect.
+	return {"seat": seat, "card": card, "verb": verb, "trigger": trigger, "uses_left": -1}
 
 
 func _pass(engine: MatchEngine) -> ApplyResult:
@@ -264,9 +265,13 @@ func test_destroy_with_only_destroyed_cards_opposite_fizzles() -> void:
 	var events: Array[MatchEvent] = recorder.events
 	var expected: Array[int] = [REVEALED, FIRED, FIZZLED, SCORED, REVEALED, REVEALED]
 	assert_array(_kinds(events)).is_equal(expected)
-	_assert_event(
-		events[2], FIZZLED, {"seat": 0, "card": card, "verb": "destroy_random_opponent"}, PUBLIC
-	)
+	var fizzled: Dictionary = {
+		"seat": 0,
+		"card": card,
+		"verb": "destroy_random_opponent",
+		"reason": "no_target",
+	}
+	_assert_event(events[2], FIZZLED, fizzled, PUBLIC)
 	assert_int(rng.state).is_equal(stream)
 	assert_array(_of_kind(events, DESTROYED)).is_empty()
 	assert_array(state.seats[1].board).is_equal(wrecks)

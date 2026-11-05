@@ -141,11 +141,7 @@ const HANDLED_VERBS: Array[String] = [
 	"reverse_opponent_row",
 	"swap_opponent_right",
 	"plus_on_moved",
-]
-## The Bloom and Echo verbs (cycle 8 P4, P6): known to the loader since DC-09 T01, in no
-## shipped deck yet; DC-09 T02 (Bloom) and T03 (Echo) implement them and move each into
-## HANDLED_VERBS, and T04 ships the decks.
-const PENDING_VERBS: Array[String] = [
+	# DC-09 T02: the Bloom grow verbs (cycle 8 P4), BloomEffects' via EffectResolver.
 	"grow_self_flat",
 	"grow_self_times",
 	"grow_self_plus",
@@ -155,6 +151,11 @@ const PENDING_VERBS: Array[String] = [
 	"grow_hand_one_times",
 	"grow_row_flat",
 	"grow_row_times",
+]
+## The Echo verbs (cycle 8 P6): known to the loader since DC-09 T01, in no shipped deck yet;
+## DC-09 T03 implements them and moves each into HANDLED_VERBS, and T04 ships the decks.
+## The Bloom grow verbs moved to HANDLED_VERBS with DC-09 T02.
+const PENDING_VERBS: Array[String] = [
 	"return_self_at_turn_end",
 	"return_own_at_turn_end",
 	"return_opponent_at_turn_end",
@@ -169,6 +170,7 @@ const RESOLVER_SOURCES: Array[String] = [
 	"res://engine/effect_resolver.gd",
 	"res://engine/ruin_effects.gd",
 	"res://engine/drift_effects.gd",
+	"res://engine/bloom_effects.gd",
 	"res://engine/score_walk.gd",
 ]
 
