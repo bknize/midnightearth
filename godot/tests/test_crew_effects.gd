@@ -480,6 +480,125 @@ func test_salvager_is_silent_once_spent_this_round() -> void:
 	assert_int(engine.energy()).is_equal(3)
 
 
+## The queued cards of `state`'s Crew queue, head first.
+func _queued_cards(state: MatchState) -> Array[int]:
+	var out: Array[int] = []
+	for entry: Dictionary in state.crew_queue:
+		var card: int = entry[CrewEffects.KEY_CARD]
+		out.append(card)
+	return out
+
+
+## Puts `row` (instance ids, all face up) on `seat`'s row, out of its deck and hand.
+func _face_up_row(state: MatchState, seat: int, row: Array[int]) -> void:
+	var piles: MatchState.SeatPiles = state.seats[seat]
+	for card: int in row:
+		piles.deck.erase(card)
+		piles.hand.erase(card)
+		piles.revealed[card] = true
+	piles.board.assign(row)
+
+
+## One effect destroying the opponent's slot 2 and then slot 0 (a random multi-destroy's
+## order) queues them in that order, but the queue fires in row order (R45; DC-11 T13
+## review, C13): the once-per-round Salvager is offered slot 0's card, and accepting
+## salvages that card, not slot 2's.
+func test_a_multi_destroy_fires_its_crew_in_row_order() -> void:
+	var engine: MatchEngine = _fixture_engine(
+		["navigator", "gardener", "lookout"], ["salvager", "navigator", "gardener"]
+	)
+	var state: MatchState = engine._state
+	var cards: MatchCards = engine.match_cards()
+	var theirs: Array[int] = []
+	for index: int in [C02, C04, C08]:
+		theirs.append(MatchRules.DECK_SIZE + index)
+	_face_up_row(state, 1, theirs)
+	var piles: MatchState.SeatPiles = state.seats[1]
+	assert_bool(piles.hand.is_empty()).is_false()
+	var outcome: EffectResolver.Outcome = EffectResolver.Outcome.new()
+	assert_bool(EffectResolver.destroy(state, cards, theirs[2], outcome)).is_true()
+	assert_bool(EffectResolver.destroy(state, cards, theirs[0], outcome)).is_true()
+	assert_array(_queued_cards(state)).is_equal(_typed([theirs[2], theirs[0]]))
+	var drained: EffectResolver.Outcome = EffectResolver.Outcome.new()
+	assert_bool(CrewEffects.drain(state, cards, null, true, drained)).is_true()
+	assert_array(_queued_cards(state)).is_equal(_typed([theirs[0], theirs[2]]))
+	assert_str(Choice.crew_of(state.prompt)).is_equal("salvager")
+	var discard: int = piles.hand[0]
+	var chosen: Array[MatchEvent] = CrewEffects.apply_choice(
+		state, cards, state.prompt, discard, null
+	)
+	assert_array(_kinds(chosen)).is_equal(_typed([CREW_FIRED, DISCARDED]))
+	assert_bool(state.card_state_for(theirs[0]).salvaged).is_true()
+	assert_bool(state.card_state_for(theirs[2]).salvaged).is_false()
+	# The rest of the batch: Salvager is spent, so slot 2's card is offered nothing.
+	state.prompt = {}
+	var rest: EffectResolver.Outcome = EffectResolver.Outcome.new()
+	assert_bool(CrewEffects.drain(state, cards, null, true, rest)).is_false()
+	assert_array(rest.events).is_empty()
+	assert_array(state.crew_queue).is_empty()
+
+
+## The same out-of-order destroys, replayed on a copy of the state, drain in the same order
+## (the sort reads only the state).
+func test_the_row_order_is_the_same_on_a_copy() -> void:
+	var engine: MatchEngine = _fixture_engine(
+		["navigator", "gardener", "lookout"], ["salvager", "navigator", "gardener"]
+	)
+	var state: MatchState = engine._state
+	var cards: MatchCards = engine.match_cards()
+	var theirs: Array[int] = []
+	for index: int in [C02, C04, C08]:
+		theirs.append(MatchRules.DECK_SIZE + index)
+	_face_up_row(state, 1, theirs)
+	var outcome: EffectResolver.Outcome = EffectResolver.Outcome.new()
+	assert_bool(EffectResolver.destroy(state, cards, theirs[1], outcome)).is_true()
+	assert_bool(EffectResolver.destroy(state, cards, theirs[0], outcome)).is_true()
+	var copy: MatchState = state.duplicate()
+	for held: MatchState in [state, copy]:
+		var drained: EffectResolver.Outcome = EffectResolver.Outcome.new()
+		assert_bool(CrewEffects.drain(held, cards, null, true, drained)).is_true()
+		assert_array(_queued_cards(held)).is_equal(_typed([theirs[0], theirs[1]]))
+	assert_dict(copy.to_dict()).is_equal(state.to_dict())
+
+
+## Salvager at the hand cap (R51, R65; DC-11 T13 review, C13): the salvaged card burns from
+## its row as a return at the cap does, CARD_BURNED {seat, card, slot, row_seat} alone with
+## no DESTROYED_CLEARED before it; public for a revealed card, private to its seat (its id
+## hidden from the other seat, its slot kept) for a face-down one.
+func test_a_salvaged_card_at_the_hand_cap_burns_from_its_row() -> void:
+	var engine: MatchEngine = _fixture_engine(
+		["salvager", "navigator", "gardener"], ["navigator", "gardener", "lookout"]
+	)
+	var state: MatchState = engine._state
+	var cards: MatchCards = engine.match_cards()
+	var row: Array[int] = [C02, C04, C08]
+	_face_up_row(state, 0, row)
+	var piles: MatchState.SeatPiles = state.seats[0]
+	assert_bool(piles.revealed.erase(C02)).is_true()  # C02 face down.
+	while piles.hand.size() < MatchRules.HAND_CAP and not piles.deck.is_empty():
+		piles.hand.append(piles.deck.pop_back())
+	assert_int(piles.hand.size()).is_equal(MatchRules.HAND_CAP)
+	for card: int in [C02, C08]:
+		state.card_state_for(card).destroyed = true
+		state.card_state_for(card).salvaged = true
+	var events: Array[MatchEvent] = EffectResolver.clear_destroyed(state, cards)
+	assert_array(_kinds(events)).is_equal(_typed([BURNED, BURNED]))
+	var hidden: Dictionary = {"seat": 0, "card": C02, "slot": 0, "row_seat": 0}
+	_assert_event(events[0], BURNED, hidden, 0)
+	var shown: Dictionary = {"seat": 0, "card": C08, "slot": 1, "row_seat": 0}
+	_assert_event(events[1], BURNED, shown, PUBLIC)
+	var redacted: Dictionary = events[0].redacted_for(1).payload
+	var masked: Dictionary = {"seat": 0, "card": MatchEvent.HIDDEN_CARD, "slot": 0, "row_seat": 0}
+	assert_dict(redacted).is_equal(masked)
+	assert_dict(events[1].redacted_for(1).payload).is_equal(shown)
+	assert_array(piles.board).is_equal(_typed([C04]))
+	assert_bool(piles.burned.has(C02)).is_true()
+	assert_bool(piles.burned.has(C08)).is_true()
+	assert_array(piles.destroyed).is_empty()
+	assert_int(piles.hand.size()).is_equal(MatchRules.HAND_CAP)
+	assert_array(state.crew_queue).is_empty()
+
+
 ## With an empty hand Salvager has no target: it does not fire or count, and the walk goes
 ## on to the turn end.
 func test_salvager_does_not_fire_with_an_empty_hand() -> void:

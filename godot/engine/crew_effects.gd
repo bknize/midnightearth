@@ -10,7 +10,9 @@ extends RefCounted
 ## (EffectResolver.resolve_returns, a salvaged clear) or un-reveals one (EffectResolver
 ## .unreveal: a destroy un-revealed instead, the echo flip, Shade, Veil) pushes {trigger,
 ## seat, card, slot} for the card's controller, when one of that seat's Crew sits on the
-## trigger. The queue drains only once the causing effect has resolved (R46): in the walk
+## trigger. The entries one effect queued fire per seat in row order of their cards (R45;
+## DC-11 T13 review, C13: a random multi-destroy pushes in destroy order; drain() sorts).
+## The queue drains only once the causing effect has resolved (R46): in the walk
 ## after each firing and before each resumed step (ScoreWalk), at turn start after each
 ## Crew (TurnStart), at turn end after the returns, the clear and the echo flip, and at round
 ## end (MatchEngine). Each entry fires the matching Crew of its seat in slot order; a Crew
@@ -109,9 +111,12 @@ static func turn_start(
 
 
 ## Drains the queue (see the class comment) onto `outcome`, which is quiet under a preview
-## policy. True when a Crew prompt opened (state.prompt set, CHOICE_REQUESTED on `outcome`):
-## only when `may_prompt` and on a live walk (`policy` null); otherwise an optional Crew
-## with targets is declined unasked.
+## policy. A drain that starts on a fresh queue (its head not yet begun) first puts each
+## seat's entries in row order (_order_by_row); one resumed after a Crew prompt keeps the
+## order it set, so the head entry the prompt opened over stays the head. True when a Crew
+## prompt opened (state.prompt set, CHOICE_REQUESTED on `outcome`): only when `may_prompt`
+## and on a live walk (`policy` null); otherwise an optional Crew with targets is declined
+## unasked.
 static func drain(
 	state: MatchState,
 	cards: MatchCards,
@@ -122,6 +127,11 @@ static func drain(
 	if cards == null:
 		state.crew_queue.clear()
 		return false
+	if not state.crew_queue.is_empty():
+		var head: Dictionary = state.crew_queue[0]
+		var started: int = head.get(KEY_SLOT, 0)
+		if started == 0:
+			_order_by_row(state)
 	while not state.crew_queue.is_empty():
 		var entry: Dictionary = state.crew_queue[0]
 		var slot: int = entry.get(KEY_SLOT, MatchRules.CREW_SIZE)
@@ -229,19 +239,27 @@ static func apply_choice(
 	return outcome.events
 
 
-## A salvaged destroyed `card` leaving `seat`'s row at turn end (EffectResolver
-## .clear_destroyed, after its DESTROYED_CLEARED {pile: false, salvaged: true}): it goes to
-## its controller's hand and queues OWN_RETURNED, or at the hand cap is burned (CARD_BURNED
-## {seat, card} with `owner`, the clear's owner). The events.
+## A salvaged destroyed `card` that left `seat`'s row from `slot` at turn end
+## (EffectResolver.clear_destroyed; `owner` the clear's owner: PUBLIC when it was revealed,
+## else `seat`, so the other seat's copy hides `card`): it goes to its controller's hand,
+## DESTROYED_CLEARED {seat, card, slot, pile: false, salvaged: true}, and queues
+## OWN_RETURNED; at the hand cap it is burned from the row as a return at the cap is
+## (EffectResolver.resolve_returns): CARD_BURNED {seat, card, slot, row_seat} alone, no
+## clear before it (DC-11 T13 review, C13, R51, R65). The events.
 static func salvage(
-	state: MatchState, cards: MatchCards, seat: int, card: int, owner: int
+	state: MatchState, cards: MatchCards, seat: int, card: int, slot: int, owner: int
 ) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	if piles.hand.size() >= MatchRules.HAND_CAP:
 		piles.burned.append(card)
-		out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, {"seat": seat, "card": card}, owner))
+		var burned: Dictionary = {"seat": seat, "card": card, "slot": slot, "row_seat": seat}
+		out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, burned, owner))
 		return out
+	var cleared: Dictionary = {
+		"seat": seat, "card": card, "slot": slot, "pile": false, "salvaged": true
+	}
+	out.append(MatchEvent.new(MatchEvent.Kind.DESTROYED_CLEARED, cleared, owner))
 	piles.hand.append(card)
 	push(state, cards, CrewDef.Trigger.OWN_RETURNED, seat, card)
 	return out
@@ -479,6 +497,35 @@ static func _is_destroyed_on_row(state: MatchState, seat: int, card: int) -> boo
 	if not piles.board.has(card) or not state.is_destroyed(card):
 		return false
 	return not state.card_state_for(card).salvaged
+
+
+## Puts each seat's queue entries in row order of their cards (R45), in place: the queue
+## positions a seat's entries hold keep holding that seat's entries, so the interleaving
+## of seats stays as pushed. Stable: entries whose cards share a position (a card no longer
+## on the row, -1, as a returned one) keep their pushed order. Deterministic.
+static func _order_by_row(state: MatchState) -> void:
+	var queue: Array[Dictionary] = state.crew_queue
+	var size: int = queue.size()
+	for seat: int in range(state.seats.size()):
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		var at: Array[int] = []
+		var ranks: Array[int] = []
+		for index: int in range(size):
+			var entry: Dictionary = queue[index]
+			var held: int = entry.get(KEY_SEAT, -1)
+			if held != seat:
+				continue
+			var card: int = entry.get(KEY_CARD, -1)
+			ranks.append((piles.board.find(card) + 1) * size + index)
+			at.append(index)
+		if at.size() < 2:
+			continue
+		ranks.sort()
+		var entries: Array[Dictionary] = []
+		for rank: int in ranks:
+			entries.append(queue[rank % size])
+		for put: int in range(at.size()):
+			queue[at[put]] = entries[put]
 
 
 ## The card of the queue's head entry when it is an OWN_DESTROYED one (the destroyed card a
