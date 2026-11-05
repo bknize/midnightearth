@@ -37,12 +37,14 @@ func test_game_record_has_every_field() -> void:
 
 
 func test_end_record_has_the_fields_records_py_reads() -> void:
-	var record: Dictionary = BotWorkerRecords.end(20, 0, 1, 2, 300, 900, "r4-0123456789abcdef")
+	var record: Dictionary = BotWorkerRecords.end(20, 0, 1, 2, 3, 300, 900, "r4-0123456789abcdef")
 	assert_array(_keys(record)).contains_exactly_in_any_order(BotWorkerRecords.END_FIELDS)
 	assert_str(record["t"]).is_equal("end")
 	assert_int(record["rejected"]).is_equal(0)
-	assert_int(record["overruns"]).is_equal(1)
-	assert_int(record["replay_mismatches"]).is_equal(2)
+	assert_int(record["overruns"]).is_equal(3)
+	assert_int(record["overruns_a"]).is_equal(1)
+	assert_int(record["overruns_b"]).is_equal(2)
+	assert_int(record["replay_mismatches"]).is_equal(3)
 	assert_int(record["slowest_us"]).is_equal(900)
 	assert_str(record["stamp"]).is_equal("r4-0123456789abcdef")
 

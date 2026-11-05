@@ -156,15 +156,19 @@ def run_eval(args: argparse.Namespace,
     code = {"PASS": EXIT_PASS, "FAIL": EXIT_FAIL, "CAP": EXIT_CAP}[result]
     if mismatch or any(s != stamp for s in agg["stamps"]):
         mismatch = True
-    if agg["rejected"] or agg["overruns"] or agg["replay_mismatches"]:
-        print("bot-eval: invariant counts rejected=%d overruns=%d replay_mismatches=%d"
-              % (agg["rejected"], agg["overruns"], agg["replay_mismatches"]), file=sys.stderr)
+    if agg["rejected"] or agg["replay_mismatches"]:
+        print("bot-eval: invariant counts rejected=%d replay_mismatches=%d"
+              % (agg["rejected"], agg["replay_mismatches"]), file=sys.stderr)
+    reason = ""
+    if args.gainer and agg["overruns_a"] > 0 and result == "PASS":
+        result, code, reason = "FAIL", EXIT_FAIL, " reason=overrun"
     summary = ("bot-eval: a=%s b=%s result=%s bound=%s pairs=%d games=%d "
                "winrate=%.3f±%.3f first_committer=%.2f p95_us=%d slowest_us=%d "
-               "stamp=%s exit=%d"
+               "overruns_a=%d overruns_b=%d stamp=%s exit=%d%s"
                % (args.a, args.b, result, bound, agg["pairs"], agg["games"], agg["winrate"],
                   agg["winrate_ci95"], agg["first_committer"], agg["p95_us"],
-                  agg["slowest_us"], "MISMATCH" if mismatch else "match", code))
+                  agg["slowest_us"], agg["overruns_a"], agg["overruns_b"],
+                  "MISMATCH" if mismatch else "match", code, reason))
     report = {"a": args.a, "b": args.b, "mode": mode, "label": label, "seeds": args.seeds,
               "cap": args.cap, "result": result, "bound": bound, "llr": test.llr(),
               "pentanomial": test.counts, "stamp": stamp, "stamp_mismatch": mismatch,

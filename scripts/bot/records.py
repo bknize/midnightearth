@@ -100,6 +100,8 @@ def aggregate(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "slowest_us": slowest,
         "rejected": sum(int(e.get("rejected", 0)) for e in ends),
         "overruns": sum(int(e.get("overruns", 0)) for e in ends),
+        "overruns_a": sum(int(e.get("overruns_a", 0)) for e in ends),
+        "overruns_b": sum(int(e.get("overruns_b", 0)) for e in ends),
         "replay_mismatches": sum(int(e.get("replay_mismatches", 0)) for e in ends),
         "stamps": sorted({str(e["stamp"]) for e in ends if "stamp" in e}),
     }
