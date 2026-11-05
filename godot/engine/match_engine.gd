@@ -171,15 +171,54 @@ func preview(seat: int, action: EngineAction) -> Array[int]:
 	var cards: Array[int] = []
 	cards.assign(action.cards)
 	var slots: Array[int] = _resolved_slots(action)
-	var piles: MatchState.SeatPiles = clone.seats[seat]
-	for card: int in cards:
-		piles.hand.erase(card)
-	var costs: Array[int] = ScoreWalk.effective_costs(cards, clone, _cards)
-	var cost: int = LegalPlays.commit_cost_with(cards, costs, clone.energy.free_first[seat])
-	clone.energy.spent[seat] = maxi(cost, 0)
-	clone.energy.free_first[seat] = false
+	_stage_commit(clone, seat, cards)
 	_hide_opponent(clone, seat)
 	_merge_row(clone, seat, cards, slots)
+	clone.phase = MatchState.Phase.AWAIT_SECOND
+	ScoreWalk.begin(clone)
+	return _finish_preview(clone)
+
+
+## The scores pair [seat 0, seat 1] the walk would end on if `seat` made the commit `own` now
+## and its opponent the hypothetical commit `opp` (cycle 7 R47-R49, plan P10), or [] when
+## `own` is not a commit the engine would accept from `seat` now (as preview()) or `opp` is
+## not an acceptable hypothesis (PairPreview.accepts: unseen cards of the opponent's deck,
+## legal for its public budget, and when it committed first of the public count and slots).
+## Pure, like preview(): no state, accepted action, log, event or stream changes.
+##
+## On a MatchState.duplicate(): `own` is staged as preview() stages it; the opponent's real
+## face-down commit is dropped and each hypothesis card leaves whichever hidden place holds
+## it, as the printed card (PairPreview.place), then is staged the same way; the opponent's
+## unrevealed row cards go inert (_hide_opponent); both commits merge, first committer first,
+## and ScoreWalk runs to the end under the PreviewPolicy. With an empty hypothesis it scores
+## what preview() scores. Hidden information (R49): the real face-down commit never scores,
+## and an unseen card scores the same wherever it really sits.
+func preview_pair(seat: int, own: EngineAction, opp: EngineAction) -> Array[int]:
+	var none: Array[int] = []
+	if own == null or own.kind != EngineAction.Kind.COMMIT or own.seat != seat:
+		return none
+	if _check(own) != EngineError.Code.NONE:
+		return none
+	var opponent: int = 1 - seat
+	if not PairPreview.accepts(_state, opponent, opp, budget_for(opponent), _cards):
+		return none
+	var own_cards: Array[int] = []
+	own_cards.assign(own.cards)
+	var opp_cards: Array[int] = []
+	opp_cards.assign(opp.cards)
+	var own_slots: Array[int] = _resolved_slots(own)
+	var opp_slots: Array[int] = PairPreview.slots_of(_state, opp)
+	var clone: MatchState = _state.duplicate()
+	_stage_commit(clone, seat, own_cards)
+	PairPreview.place(clone, opponent, opp_cards, _cards)
+	_stage_commit(clone, opponent, opp_cards)
+	_hide_opponent(clone, seat)
+	if clone.first_seat == seat:
+		_merge_row(clone, seat, own_cards, own_slots)
+		_merge_row(clone, opponent, opp_cards, opp_slots)
+	else:
+		_merge_row(clone, opponent, opp_cards, opp_slots)
+		_merge_row(clone, seat, own_cards, own_slots)
 	clone.phase = MatchState.Phase.AWAIT_SECOND
 	ScoreWalk.begin(clone)
 	return _finish_preview(clone)
@@ -741,6 +780,18 @@ static func _hide_opponent(clone: MatchState, seat: int) -> void:
 		if piles.is_revealed(card):
 			continue
 		clone.card_state_for(card).destroyed = true
+
+
+## Takes `seat`'s commit `cards` out of its hand on `clone` (a preview's copy) and spends its
+## effective cost, the free first card consumed, as _commit does to the live state.
+func _stage_commit(clone: MatchState, seat: int, cards: Array[int]) -> void:
+	var piles: MatchState.SeatPiles = clone.seats[seat]
+	for card: int in cards:
+		piles.hand.erase(card)
+	var costs: Array[int] = ScoreWalk.effective_costs(cards, clone, _cards)
+	var cost: int = LegalPlays.commit_cost_with(cards, costs, clone.energy.free_first[seat])
+	clone.energy.spent[seat] = maxi(cost, 0)
+	clone.energy.free_first[seat] = false
 
 
 ## Runs a preview's walk on `clone` to its end under the policy (no sink, no stream) and
