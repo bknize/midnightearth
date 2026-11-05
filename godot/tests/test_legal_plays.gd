@@ -380,3 +380,79 @@ func test_commit_cost_with_and_without_the_free_first_card() -> void:
 	assert_int(LegalPlays.commit_cost([], true, db)).is_equal(0)
 	var single: Array[int] = [11]
 	assert_int(LegalPlays.commit_cost(single, true, db)).is_equal(0)
+
+
+# --- Cycle 8 (DC-09 T01): the cost-array variants (R4, R21, plan P3) -------------------
+
+
+## The effective costs of `hand` with `reductions` (card -> cost reduction) written into a
+## fresh state's memory.
+func _effective(hand: Array[int], reductions: Dictionary) -> Array[int]:
+	var state: MatchState = MatchState.new(1)
+	for card: int in reductions:
+		var amount: int = reductions[card]
+		state.memory_for(card).cost = amount
+	return ScoreWalk.effective_costs(hand, state, _defs())
+
+
+## A budget-2 commit of c09 (printed cost 3) passes with a reduction of 1 and fails
+## OVER_BUDGET with none; enumerate_masks_with lists it at energy 2 only when reduced.
+func test_a_budget_2_commit_of_a_cost_3_card_needs_its_reduction() -> void:
+	var hand: Array[int] = [8, 0]
+	var proposal: Array[int] = [8]
+	var slots: Array[int] = LegalPlays.append_slots(0, 1)
+	var reduced: Array[int] = _effective(hand, {8: 1})
+	assert_array(reduced).is_equal(_typed([2, 1]))
+	assert_int(LegalPlays.validate_with(proposal, slots, hand, reduced, 0, 2, false)).is_equal(
+		EngineError.Code.NONE
+	)
+	var printed: Array[int] = _effective(hand, {})
+	assert_array(printed).is_equal(_typed([3, 1]))
+	assert_int(LegalPlays.validate_with(proposal, slots, hand, printed, 0, 2, false)).is_equal(
+		EngineError.Code.OVER_BUDGET
+	)
+	# The printed-cost function, which the frozen bot uses, still rejects it.
+	assert_int(LegalPlays.validate(proposal, slots, hand, 0, 2, false, _defs())).is_equal(
+		EngineError.Code.OVER_BUDGET
+	)
+	# Mask 1 is {8}: listed at energy 2 with the reduction, not without.
+	assert_bool(LegalPlays.enumerate_masks_with(hand, reduced, 2).has(1)).is_true()
+	assert_bool(LegalPlays.enumerate_masks_with(hand, printed, 2).has(1)).is_false()
+
+
+## With printed costs the `_with` functions equal the printed-cost ones (no rule change).
+func test_with_variants_equal_the_printed_ones_on_printed_costs() -> void:
+	var db: MatchCards = _defs()
+	var hand: Array[int] = [0, 4, 8, 11, 14, 18, 22]
+	var costs: Array[int] = LegalPlays.printed_costs(hand, db)
+	for energy: int in range(0, 12):
+		assert_array(LegalPlays.enumerate_masks_with(hand, costs, energy)).is_equal(
+			LegalPlays.enumerate_masks(hand, energy, db)
+		)
+	var proposals: Array[Array] = [[18, 0], [8], [], [4, 11]]
+	for raw: Array in proposals:
+		var proposal: Array[int] = _typed(raw)
+		var proposal_costs: Array[int] = LegalPlays.printed_costs(proposal, db)
+		var slots: Array[int] = LegalPlays.append_slots(0, proposal.size())
+		for free_first: bool in [false, true]:
+			var with_cost: int = LegalPlays.commit_cost_with(proposal, proposal_costs, free_first)
+			assert_int(with_cost).is_equal(LegalPlays.commit_cost(proposal, free_first, db))
+			for budget: int in [0, 3, 8, 13]:
+				var got: int = LegalPlays.validate_with(
+					proposal, slots, hand, costs, 0, budget, free_first
+				)
+				var want: int = LegalPlays.validate(
+					proposal, slots, hand, 0, budget, free_first, db
+				)
+				assert_int(got).is_equal(want)
+
+
+## The free first card discounts the leftmost card's effective cost; a negative or missing
+## cost is unpriced (-1).
+func test_commit_cost_with_free_first_and_unpriced() -> void:
+	var cards: Array[int] = [18, 0]
+	assert_int(LegalPlays.commit_cost_with(cards, _typed([5, 1]), false)).is_equal(6)
+	assert_int(LegalPlays.commit_cost_with(cards, _typed([5, 1]), true)).is_equal(1)
+	assert_int(LegalPlays.commit_cost_with(cards, _typed([5, -1]), false)).is_equal(-1)
+	assert_int(LegalPlays.commit_cost_with(cards, _typed([5]), false)).is_equal(-1)
+	assert_int(LegalPlays.commit_cost_with(_typed([]), _typed([]), true)).is_equal(0)

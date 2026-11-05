@@ -32,7 +32,7 @@ var _cached_defs: MatchCards = null
 # --- Helpers --------------------------------------------------------------------------
 
 
-## The fixture pool with EDITS applied (format 3).
+## The fixture pool with EDITS applied (the current pool format, 4 since DC-09 T01).
 func _db() -> CardDb:
 	if _cached_db == null:
 		var entries: Array = []
@@ -41,7 +41,8 @@ func _db() -> CardDb:
 			if EDITS.has(def.id):
 				entry["bonus"] = EDITS[def.id]
 			entries.append(entry)
-		_cached_db = CardDb.from_json(JSON.stringify({"version": 3, "cards": entries}))
+		var root: Dictionary = {"version": CardDb.FORMAT_VERSION, "cards": entries}
+		_cached_db = CardDb.from_json(JSON.stringify(root))
 	return _cached_db
 
 

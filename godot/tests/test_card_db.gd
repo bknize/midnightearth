@@ -1,11 +1,13 @@
 # gdlint: disable=max-public-methods
 class_name TestCardDb
 extends GdUnitTestSuite
-## CardDb, CardDef and CardEffect, card pool format 3 (DC-07 T01; R1, R3, plan P1, P8):
-## a card has a flat, at most one bonus (×1.25 / ×1.5 / ×2 in hundredths or +1 / +2) and
-## at most one effect; the loader checks unique ids, cost 1..7, flat 0..cost+4, the bonus
-## values and the trigger and verb names, with no card count and no cost mix. The DC-05
-## fixture (tests/fixtures/dc05_cards.json) is the 20 DC-05 cards converted (C5, C20).
+## CardDb, CardDef and CardEffect, card pool format 4 (DC-07 T01; R1, R3, plan P1, P8;
+## cycle 8 DC-09 T01, R9, R11, plan P1): a card has a flat, at most one bonus (×1.25 / ×1.5
+## / ×2 in hundredths or +1 / +2) and at most one effect, which may carry a `uses` count;
+## the loader checks unique ids, cost 1..7, flat 0..cost+4, the bonus values, the trigger
+## and verb names, a whole `uses`, grow amounts in MatchRules.GROW_STEPS and each verb on a
+## trigger it may use, with no card count and no cost mix. The DC-05 fixture
+## (tests/fixtures/dc05_cards.json) is the 20 DC-05 cards converted (C5, C20), format 4.
 
 const FIXTURE_CARDS: String = "res://tests/fixtures/dc05_cards.json"
 ## The fixture table, in file order c01..c20 (c13 vanilla flat 5 since C20).
@@ -81,6 +83,7 @@ const TRIGGER_JSON: Array[String] = [
 	"ongoing",
 	"on_opponent_score",
 	"on_moved",
+	"on_ally_reveal",
 ]
 const VERB_JSON: Array[String] = [
 	"draw",
@@ -110,6 +113,23 @@ const VERB_JSON: Array[String] = [
 	"reverse_opponent_row",
 	"swap_opponent_right",
 	"plus_on_moved",
+	"grow_self_flat",
+	"grow_self_times",
+	"grow_self_plus",
+	"grow_self_times_once",
+	"grow_other_flat",
+	"grow_hand_flat",
+	"grow_hand_one_times",
+	"grow_row_flat",
+	"grow_row_times",
+	"return_self_at_turn_end",
+	"return_own_at_turn_end",
+	"return_opponent_at_turn_end",
+	"unreveal_at_turn_end",
+	"cost_down_right",
+	"cost_down_self",
+	"draw_once",
+	"ally_reveal_flat",
 ]
 
 
@@ -156,7 +176,7 @@ func _table() -> Array[Dictionary]:
 	return out
 
 
-func _json(cards: Array[Dictionary], version: int = 3) -> String:
+func _json(cards: Array[Dictionary], version: int = 4) -> String:
 	return JSON.stringify({"version": version, "cards": cards})
 
 
@@ -339,9 +359,30 @@ func test_a_malformed_bonus_fails_as_shape() -> void:
 # --- CardEffect: every trigger and verb name round-trips ------------------------------
 
 
+## A trigger `verb` may use (cycle 8 R11): the first CardEffect.ALLOWED_TRIGGERS lists for
+## it, else on_reveal.
+func _legal_trigger(verb: int) -> String:
+	if CardEffect.ALLOWED_TRIGGERS.has(verb):
+		var allowed: Array = CardEffect.ALLOWED_TRIGGERS[verb]
+		var first: int = allowed[0]
+		return CardEffect.trigger_name(first)
+	return "on_reveal"
+
+
+## An amount `verb` may name (cycle 8 R5, R11): 2, or for a grow verb the largest step of
+## its stat in MatchRules.GROW_STEPS.
+func _legal_amount(verb: int) -> int:
+	if not CardEffect.GROW_STAT.has(verb):
+		return 2
+	var stat: String = CardEffect.GROW_STAT[verb]
+	var steps: Array = MatchRules.GROW_STEPS[stat]
+	var last: int = steps[steps.size() - 1]
+	return last
+
+
 func test_every_trigger_name_round_trips() -> void:
 	assert_int(CardEffect.TRIGGER_NAMES.size()).is_equal(CardEffect.Trigger.size())
-	assert_int(CardEffect.Trigger.size()).is_equal(6)
+	assert_int(CardEffect.Trigger.size()).is_equal(7)
 	for value: int in CardEffect.Trigger.values():
 		var json_name: String = CardEffect.trigger_name(value)
 		assert_str(json_name).is_equal(TRIGGER_JSON[value])
@@ -359,20 +400,22 @@ func test_every_trigger_name_round_trips() -> void:
 
 func test_every_verb_name_round_trips() -> void:
 	assert_int(CardEffect.VERB_NAMES.size()).is_equal(CardEffect.Verb.size())
-	# Nine DC-05 verbs (the switch retired) and the eighteen Ruin and Drift verbs (P8).
-	assert_int(CardEffect.Verb.size()).is_equal(27)
+	# Nine DC-05 verbs (the switch retired), the eighteen Ruin and Drift verbs (P8) and the
+	# seventeen Bloom and Echo verbs (cycle 8 P4, P6).
+	assert_int(CardEffect.Verb.size()).is_equal(44)
 	for value: int in CardEffect.Verb.values():
 		var json_name: String = CardEffect.verb_name(value)
 		assert_str(json_name).is_equal(VERB_JSON[value])
 		assert_int(CardEffect.verb_from_name(json_name)).is_equal(value)
+		var amount: int = _legal_amount(value)
 		var source: Dictionary = {
-			"trigger": "on_reveal", "verb": json_name, "amount": 2, "text": "Some text."
+			"trigger": _legal_trigger(value), "verb": json_name, "amount": amount, "text": "Some."
 		}
 		var effect: CardEffect = CardEffect.from_dict(source)
 		assert_object(effect).is_not_null()
 		assert_int(effect.verb).is_equal(value)
-		assert_int(effect.amount).is_equal(2)
-		assert_str(effect.text).is_equal("Some text.")
+		assert_int(effect.amount).is_equal(amount)
+		assert_str(effect.text).is_equal("Some.")
 		assert_dict(effect.to_dict()).is_equal(source)
 		var db: CardDb = CardDb.from_json(_with_effect(0, source))
 		assert_bool(db.is_valid()).override_failure_message(db.load_error()).is_true()
@@ -534,6 +577,106 @@ func test_unknown_verb_fails() -> void:
 	)
 
 
+# --- Cycle 8 R9, R11 (DC-09 T01): uses, grow steps and verb/trigger pairs ----------------
+
+
+func _effect(trigger: String, verb: String, amount: Variant) -> Dictionary:
+	return {"trigger": trigger, "verb": verb, "amount": amount, "text": "x"}
+
+
+## `uses` is optional; a whole number >= 0 loads (0 is unlimited) and round-trips, anything
+## else fails with the uses error (1.5, -1, a string).
+func test_uses_must_be_a_whole_number() -> void:
+	var limited: Dictionary = _effect("on_score", "grow_self_times_once", 50)
+	limited["uses"] = 1
+	var db: CardDb = CardDb.from_json(_with_effect(0, limited))
+	assert_bool(db.is_valid()).override_failure_message(db.load_error()).is_true()
+	assert_int(db.card_at(0).effect.uses).is_equal(1)
+	assert_dict(db.card_at(0).effect.to_dict()).is_equal(limited)
+	var unlimited: Dictionary = _effect("on_reveal", "draw", 1)
+	unlimited["uses"] = 0
+	var zero: CardDb = CardDb.from_json(_with_effect(0, unlimited))
+	assert_bool(zero.is_valid()).override_failure_message(zero.load_error()).is_true()
+	assert_int(zero.card_at(0).effect.uses).is_equal(0)
+	# An unlimited effect writes no `uses` key, so a format-3 effect reads the same.
+	assert_bool(zero.card_at(0).effect.to_dict().has("uses")).is_false()
+	assert_int(_fixture().card_at(0).effect.uses).is_equal(0)
+	for bad: Variant in [1.5, -1, "1", null]:
+		var effect: Dictionary = _effect("on_reveal", "draw_once", 2)
+		effect["uses"] = bad
+		_assert_fails_with(_with_effect(0, effect), CardDb.ERR_USES)
+		assert_object(CardEffect.from_dict(effect)).is_null()
+
+
+## A grow verb names one of MatchRules.GROW_STEPS for its stat: grow_self_times 25 and 50
+## load, 30 fails; the flat, plus and cost steps likewise.
+func test_grow_amounts_are_the_fixed_steps() -> void:
+	var expected: Dictionary = {"flat": [1, 2], "times": [25, 50], "plus": [1], "cost": [1, 2]}
+	assert_int(MatchRules.GROW_STEPS.size()).is_equal(expected.size())
+	for stat: String in expected:
+		var steps: Array = MatchRules.GROW_STEPS[stat]
+		assert_array(steps).override_failure_message(stat).is_equal(expected[stat])
+	_assert_loads(_with_effect(0, _effect("on_score", "grow_self_times", 25)))
+	_assert_loads(_with_effect(0, _effect("on_score", "grow_self_times", 50)))
+	_assert_fails_with(_with_effect(0, _effect("on_score", "grow_self_times", 30)), CardDb.ERR_GROW)
+	_assert_loads(_with_effect(0, _effect("on_reveal", "grow_hand_flat", 2)))
+	_assert_fails_with(_with_effect(0, _effect("on_reveal", "grow_hand_flat", 3)), CardDb.ERR_GROW)
+	_assert_fails_with(_with_effect(0, _effect("on_score", "grow_self_plus", 2)), CardDb.ERR_GROW)
+	_assert_loads(_with_effect(0, _effect("on_reveal", "cost_down_self", 2)))
+	_assert_fails_with(_with_effect(0, _effect("on_reveal", "cost_down_right", 0)), CardDb.ERR_GROW)
+	# A verb outside the grow family keeps any amount (Messenger draws 2, Refrain +1).
+	_assert_loads(_with_effect(0, _effect("on_reveal", "draw_once", 3)))
+	_assert_loads(_with_effect(0, _effect("on_ally_reveal", "ally_reveal_flat", 5)))
+
+
+## Each verb only on the triggers the plan allows: unreveal_at_turn_end is ongoing only,
+## grow_self_times on on_score or on_reveal, on_ally_reveal takes ally_reveal_flat or draw.
+func test_a_verb_on_a_trigger_it_may_not_use_fails() -> void:
+	_assert_fails_with(
+		_with_effect(0, _effect("on_reveal", "unreveal_at_turn_end", 0)), CardDb.ERR_PAIR
+	)
+	_assert_loads(_with_effect(0, _effect("ongoing", "unreveal_at_turn_end", 0)))
+	_assert_loads(_with_effect(0, _effect("on_reveal", "grow_self_times", 25)))
+	_assert_fails_with(_with_effect(0, _effect("ongoing", "grow_self_times", 25)), CardDb.ERR_PAIR)
+	_assert_fails_with(
+		_with_effect(0, _effect("on_reveal", "ally_reveal_flat", 1)), CardDb.ERR_PAIR
+	)
+	_assert_loads(_with_effect(0, _effect("on_ally_reveal", "draw", 1)))
+	_assert_fails_with(_with_effect(0, _effect("on_ally_reveal", "burst", 0)), CardDb.ERR_PAIR)
+	# The verbs of earlier cycles keep every other trigger they had.
+	_assert_loads(_with_effect(0, _effect("on_opponent_reveal", "draw", 1)))
+	(
+		assert_bool(
+			CardEffect.is_allowed_pair(
+				CardEffect.Trigger.ON_SCORE, CardEffect.Verb.FLAT_UP_ON_SCORE
+			)
+		)
+		. is_true()
+	)
+
+
+## The shipped pool and the fixture are format 4 (the fixture's cards unchanged); a
+## format-3 file fails with the version error.
+func test_format_3_fails_with_the_version_error() -> void:
+	assert_int(CardDb.FORMAT_VERSION).is_equal(4)
+	_assert_fails_with(_json(_table(), 3), CardDb.ERR_VERSION)
+	_assert_loads(_json(_table(), 4))
+	for path: String in [FIXTURE_CARDS, CardDb.DEFAULT_PATH]:
+		var db: CardDb = CardDb.load_from_path(path)
+		assert_bool(db.is_valid()).override_failure_message(path + db.load_error()).is_true()
+		var text: String = FileAccess.get_file_as_string(path)
+		assert_bool(text.contains('"version": 4')).override_failure_message(path).is_true()
+
+
+## A failed R11 check refuses to start a match (CARD_DATA_INVALID).
+func test_an_r11_failure_refuses_to_start_a_match() -> void:
+	var db: CardDb = CardDb.from_json(_with_effect(0, _effect("on_score", "grow_self_times", 30)))
+	assert_bool(db.is_valid()).is_false()
+	var started: ApplyResult = FixtureDecks.engine(1, db).start()
+	assert_bool(started.ok).is_false()
+	assert_int(started.error).is_equal(EngineError.Code.CARD_DATA_INVALID)
+
+
 func test_bad_effect_shape_fails() -> void:
 	# Not an object or null.
 	_assert_fails_with(_with_effect(0, "draw"), CardDb.ERR_SHAPE)
@@ -569,16 +712,16 @@ func test_bad_effect_shape_fails() -> void:
 
 
 func test_bad_json_fails() -> void:
-	_assert_fails_with('{"version": 3, "cards": [', CardDb.ERR_JSON)
+	_assert_fails_with('{"version": 4, "cards": [', CardDb.ERR_JSON)
 	_assert_fails_with("not json at all", CardDb.ERR_JSON)
 	_assert_fails_with("", CardDb.ERR_JSON)
 
 
 func test_wrong_top_level_shape_fails() -> void:
 	_assert_fails_with("[1, 2, 3]", CardDb.ERR_SHAPE)
-	_assert_fails_with('{"version": 3}', CardDb.ERR_SHAPE)
+	_assert_fails_with('{"version": 4}', CardDb.ERR_SHAPE)
 	_assert_fails_with('{"cards": []}', CardDb.ERR_SHAPE)
-	_assert_fails_with('{"version": 3, "cards": {}}', CardDb.ERR_SHAPE)
+	_assert_fails_with('{"version": 4, "cards": {}}', CardDb.ERR_SHAPE)
 
 
 func test_bad_card_entry_fails() -> void:
@@ -604,7 +747,7 @@ func test_bad_card_entry_fails() -> void:
 	format_one[3] = {"id": "c04", "name": "Placeholder 04", "cost": 1, "power": 3}
 	_assert_fails_with(_json(format_one), CardDb.ERR_SHAPE)
 
-	_assert_fails_with('{"version": 3, "cards": [7]}', CardDb.ERR_SHAPE)
+	_assert_fails_with('{"version": 4, "cards": [7]}', CardDb.ERR_SHAPE)
 
 
 ## A format-2 file (the DC-05 card data) fails on its version before any entry is read.
@@ -615,8 +758,9 @@ func test_a_format_2_file_fails_with_the_version_error() -> void:
 	_assert_fails_with(_json(format_two, 2), CardDb.ERR_VERSION)
 	_assert_fails_with(_json(_table(), 2), CardDb.ERR_VERSION)
 	_assert_fails_with(_json(_table(), 1), CardDb.ERR_VERSION)
-	_assert_fails_with(_json(_table(), 4), CardDb.ERR_VERSION)
-	assert_int(CardDb.FORMAT_VERSION).is_equal(3)
+	_assert_fails_with(_json(_table(), 3), CardDb.ERR_VERSION)
+	_assert_fails_with(_json(_table(), 5), CardDb.ERR_VERSION)
+	assert_int(CardDb.FORMAT_VERSION).is_equal(4)
 
 
 func test_missing_file_fails() -> void:
@@ -657,7 +801,7 @@ func test_failures_log_no_errors() -> void:
 	var dup_ids: Array[Dictionary] = _table()
 	dup_ids[1]["id"] = "c01"
 	var texts: Array[String] = [
-		'{"version": 3, "cards": [',
+		'{"version": 4, "cards": [',
 		"",
 		"[1, 2, 3]",
 		_json(dup_ids),

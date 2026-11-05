@@ -4,8 +4,18 @@ extends RefCounted
 ##
 ## A card set is legal when every card is in the hand, no card appears twice, and the
 ## total cost is at most the energy given (enumeration) or the seat's budget with the
-## free first card (validate, R9, R10). Costs come from MatchCards by instance id
-## (MatchCards.def_of: origin * DECK_SIZE + index into the origin's deck, DC-07 P3).
+## free first card (validate, R9, R10).
+##
+## Two families (cycle 8 R4, R21, plan P3). The `_with` functions (enumerate_masks_with,
+## validate_with, commit_cost_with) take the costs as an array parallel to the cards: the
+## engine and the shipped bots pass effective costs (ScoreWalk.effective_cost, the view's
+## `own_hand_costs`), so a card whose cost an ability reduced is priced as the engine
+## accepts it. The printed-cost functions (cost_of, total_cost, enumerate_masks, enumerate,
+## validate, commit_cost) read the definition's cost from MatchCards by instance id
+## (MatchCards.def_of: origin * DECK_SIZE + index into the origin's deck, DC-07 P3) and stay
+## for the frozen GreedyV1Bot (cycle 7 R21, R22), whose printed costs are never below the
+## effective ones, so its commits stay legal. They are the `_with` functions over printed
+## costs, so both families agree whenever no cost is reduced.
 ##
 ## Enumeration order is deterministic and part of the contract (the bot's seeded
 ## tie-break depends on it): subsets are listed by ascending bitmask over the hand's
@@ -13,7 +23,8 @@ extends RefCounted
 ## empty set (mask 0) always comes first, then {hand[0]}, {hand[1]}, {hand[0], hand[1]},
 ## {hand[2]}, and so on. A hand holds at most HAND_CAP = 7 cards, so at most 128 subsets.
 ##
-## Nothing here prints, asserts or pushes an error; failures are EngineError codes.
+## Nothing here prints, asserts or pushes an error; failures are EngineError codes. Static
+## and pure.
 
 
 ## The cost of one card instance, or -1 when the id maps to no definition.
@@ -41,18 +52,29 @@ static func total_cost(card_ids: Array[int], cards: MatchCards) -> int:
 ## set, a pass) is always included, even if energy is negative. A subset containing a
 ## card with no definition is never legal.
 static func enumerate_masks(hand: Array[int], energy: int, cards: MatchCards) -> Array[int]:
-	var costs: Array[int] = []
-	for instance_id: int in hand:
-		costs.append(cost_of(instance_id, cards))
+	return enumerate_masks_with(hand, printed_costs(hand, cards), energy)
+
+
+## The printed cost of each card of `card_ids`, in order (cost_of; -1 for an unpriced one).
+static func printed_costs(card_ids: Array[int], cards: MatchCards) -> Array[int]:
+	var out: Array[int] = []
+	for instance_id: int in card_ids:
+		out.append(cost_of(instance_id, cards))
+	return out
+
+
+## enumerate_masks() over `costs`, parallel to `hand` (cycle 8 P3): a negative cost marks an
+## unpriced card, never legal; a cost missing from a short array counts as unpriced.
+static func enumerate_masks_with(hand: Array[int], costs: Array[int], energy: int) -> Array[int]:
 	var out: Array[int] = [0]
 	var subset_count: int = 1 << hand.size()
 	for mask: int in range(1, subset_count):
 		var total: int = 0
 		var priced: bool = true
-		for i: int in range(costs.size()):
+		for i: int in range(hand.size()):
 			if (mask & (1 << i)) == 0:
 				continue
-			if costs[i] < 0:
+			if i >= costs.size() or costs[i] < 0:
 				priced = false
 				break
 			total += costs[i]
@@ -100,6 +122,23 @@ static func validate(
 	free_first: bool,
 	cards: MatchCards
 ) -> int:
+	return validate_with(
+		proposal, slots, hand, printed_costs(hand, cards), row_size, budget, free_first
+	)
+
+
+## validate() with the hand's costs given by `costs`, parallel to `hand` (cycle 8 P3): the
+## engine passes effective costs, so a budget-2 commit of a card printed at 3 and reduced
+## by 1 is legal. Same order of checks and codes as validate().
+static func validate_with(
+	proposal: Array[int],
+	slots: Array[int],
+	hand: Array[int],
+	costs: Array[int],
+	row_size: int,
+	budget: int,
+	free_first: bool
+) -> int:
 	var seen: Dictionary[int, bool] = {}
 	for instance_id: int in proposal:
 		if seen.has(instance_id):
@@ -111,7 +150,7 @@ static func validate(
 		return EngineError.Code.BAD_SLOTS
 	if proposal.is_empty():
 		return EngineError.Code.NONE
-	var total: int = commit_cost(proposal, free_first, cards)
+	var total: int = commit_cost_with(proposal, costs_in_hand(proposal, hand, costs), free_first)
 	if total < 0:
 		return EngineError.Code.CARD_DATA_INVALID
 	if total > budget:
@@ -145,7 +184,32 @@ static func append_slots(row_size: int, count: int) -> Array[int]:
 ## What a commit of `proposal` (in slot order) costs: the summed cost, less the leftmost
 ## card's when `free_first` is true (R10). -1 when any card maps to no definition.
 static func commit_cost(proposal: Array[int], free_first: bool, cards: MatchCards) -> int:
-	var total: int = total_cost(proposal, cards)
-	if total < 0 or proposal.is_empty() or not free_first:
+	return commit_cost_with(proposal, printed_costs(proposal, cards), free_first)
+
+
+## commit_cost() over `proposal_costs`, parallel to `proposal` (cycle 8 P3): the summed cost,
+## less the first card's when `free_first` is true. -1 when any cost is negative (an
+## unpriced card) or missing.
+static func commit_cost_with(
+	proposal: Array[int], proposal_costs: Array[int], free_first: bool
+) -> int:
+	if proposal_costs.size() < proposal.size():
+		return -1
+	var total: int = 0
+	for i: int in range(proposal.size()):
+		if proposal_costs[i] < 0:
+			return -1
+		total += proposal_costs[i]
+	if proposal.is_empty() or not free_first:
 		return total
-	return total - cost_of(proposal[0], cards)
+	return total - proposal_costs[0]
+
+
+## The costs of `picked` read from `costs`, parallel to `hand` (cycle 8 P3): each card's
+## entry at its hand position, -1 for a card not in the hand or with no entry.
+static func costs_in_hand(picked: Array[int], hand: Array[int], costs: Array[int]) -> Array[int]:
+	var out: Array[int] = []
+	for card: int in picked:
+		var at: int = hand.find(card)
+		out.append(costs[at] if at >= 0 and at < costs.size() else -1)
+	return out

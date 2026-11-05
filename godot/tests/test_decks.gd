@@ -142,6 +142,28 @@ const HANDLED_VERBS: Array[String] = [
 	"swap_opponent_right",
 	"plus_on_moved",
 ]
+## The Bloom and Echo verbs (cycle 8 P4, P6): known to the loader since DC-09 T01, in no
+## shipped deck yet; DC-09 T02 (Bloom) and T03 (Echo) implement them and move each into
+## HANDLED_VERBS, and T04 ships the decks.
+const PENDING_VERBS: Array[String] = [
+	"grow_self_flat",
+	"grow_self_times",
+	"grow_self_plus",
+	"grow_self_times_once",
+	"grow_other_flat",
+	"grow_hand_flat",
+	"grow_hand_one_times",
+	"grow_row_flat",
+	"grow_row_times",
+	"return_self_at_turn_end",
+	"return_own_at_turn_end",
+	"return_opponent_at_turn_end",
+	"unreveal_at_turn_end",
+	"cost_down_right",
+	"cost_down_self",
+	"draw_once",
+	"ally_reveal_flat",
+]
 ## The engine sources that resolve a verb: each shipped verb's enum name appears in one.
 const RESOLVER_SOURCES: Array[String] = [
 	"res://engine/effect_resolver.gd",
@@ -355,7 +377,11 @@ func test_every_verb_in_the_pool_is_one_the_resolver_handles() -> void:
 		var token: String = "CardEffect.Verb.%s" % key
 		assert_bool(sources.contains(token)).override_failure_message(token).is_true()
 	assert_int(effects).is_equal(23)
-	# HANDLED_VERBS is the engine's whole verb list (no retired verb lingers in the enum).
+	# HANDLED_VERBS and the pending cycle 8 verbs are the engine's whole verb list (no
+	# retired verb lingers in the enum).
 	var all_names: Array[String] = []
 	all_names.assign(CardEffect.VERB_NAMES)
-	assert_array(all_names).is_equal(HANDLED_VERBS)
+	var known: Array[String] = []
+	known.append_array(HANDLED_VERBS)
+	known.append_array(PENDING_VERBS)
+	assert_array(all_names).is_equal(known)

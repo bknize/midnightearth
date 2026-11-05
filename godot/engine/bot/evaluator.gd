@@ -51,7 +51,8 @@ const PUSH_DENOMINATOR: int = 128
 
 ## The features of `action` for `view.seat` (FEATURES order): `scores` is the candidate's
 ## preview, indexed by seat ([0, 0] when it is not two scores). The cost, cards and row
-## counts are those of `action.cards` (none for a prompt answer); `row_len_diff` is the own
+## counts are those of `action.cards` (none for a prompt answer), the cost at the effective
+## costs the engine checks (cycle 8 R21, P3: `energy_left`); `row_len_diff` is the own
 ## row after the commit less the opponent's row with its face-down commit, as the view
 ## counts them.
 static func features_of(
@@ -66,7 +67,8 @@ static func features_of(
 		committed = action.cards
 	var cost: int = 0
 	if cards != null:
-		cost = maxi(LegalPlays.commit_cost(committed, view.free_first, cards), 0)
+		var committed_costs: Array[int] = _costs_of(view, committed, cards)
+		cost = maxi(LegalPlays.commit_cost_with(committed, committed_costs, view.free_first), 0)
 	var opp_row: int = view.opponent_board.size() + view.opponent_pending_count
 	var out: Array[int] = [
 		own_score - opp_score,
@@ -84,6 +86,18 @@ static func features_of(
 		view.own_board.size() + committed.size() - opp_row,
 	]
 	return PackedInt32Array(out)
+
+
+## The cost of each card of `committed` (cycle 8 R21, P3): its effective cost from the view's
+## `own_hand_costs` (GreedyBot.hand_costs, printed when the view carries none), or its
+## printed cost for a card not in the view's hand.
+static func _costs_of(view: SeatView, committed: Array[int], cards: MatchCards) -> Array[int]:
+	var costs: Array[int] = GreedyBot.hand_costs(view, cards)
+	var out: Array[int] = []
+	for card: int in committed:
+		var at: int = view.own_hand.find(card)
+		out.append(costs[at] if at >= 0 else LegalPlays.cost_of(card, cards))
+	return out
 
 
 ## The weighted sum of `features` (FEATURES order) under `weights` (the built-in defaults

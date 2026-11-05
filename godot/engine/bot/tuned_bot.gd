@@ -87,10 +87,17 @@ func best_commit(view: SeatView, engine: MatchEngine) -> EngineAction:
 
 ## The candidates the bot previews for `view`: the first `weights.k` of CandidateGen.all()
 ## by CandidateGen.ranked(), listed in all()'s (the greedy bot's) search order. All of them
-## when `k` is at least their count.
+## when `k` is at least their count. all() prices the hand at the view's effective costs
+## (`own_hand_costs`, cycle 8 R21, P3).
 func candidates(view: SeatView) -> Array[EngineAction]:
 	var listed: Array[EngineAction] = CandidateGen.all(
-		view.own_hand, view.energy, view.own_board.size(), view.free_first, view.seat, _cards
+		view.own_hand,
+		view.energy,
+		view.own_board.size(),
+		view.free_first,
+		view.seat,
+		_cards,
+		view.own_hand_costs
 	)
 	var k: int = _weights().k
 	if k >= listed.size():

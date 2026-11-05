@@ -102,6 +102,48 @@ func test_default_weights_value_is_score_diff() -> void:
 				assert_int(Evaluator.value(f, null)).is_equal(f[0])
 
 
+## Cycle 8 R21 (DC-09 T01, plan P3): `energy_left` reads the view's effective costs
+## (`own_hand_costs`), and the printed costs when the view carries none.
+func test_energy_left_uses_the_effective_cost() -> void:
+	var cards: MatchCards = FixtureDecks.defs(_db())
+	var view: SeatView = SeatView.new()
+	# c09 (instance 8) is printed at 3, c01 (instance 0) at 1.
+	var hand: Array[int] = [8, 0]
+	view.own_hand.assign(hand)
+	view.energy = 2
+	var one: Array[int] = [8]
+	var action: EngineAction = EngineAction.commit(0, one, LegalPlays.append_slots(0, 1))
+	var scores: Array[int] = [0, 0]
+	var printed: PackedInt32Array = Evaluator.features_of(view, scores, action, cards)
+	assert_int(printed[3]).is_equal(2 - 3)
+	var reduced: Array[int] = [2, 1]
+	view.own_hand_costs.assign(reduced)
+	var effective: PackedInt32Array = Evaluator.features_of(view, scores, action, cards)
+	assert_int(effective[3]).is_equal(0)
+	view.free_first = true
+	var free: PackedInt32Array = Evaluator.features_of(view, scores, action, cards)
+	assert_int(free[3]).is_equal(2)
+
+
+## The same through a live view: a reduction written into a hand card's memory reaches
+## `own_hand_costs` and `energy_left`.
+func test_energy_left_reads_a_live_reduction() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(1, _db())
+	assert_bool(engine.start().ok).is_true()
+	var seat: int = engine.awaited_seat()
+	var card: int = engine.view_for(seat).own_hand[0]
+	var printed_cost: int = LegalPlays.cost_of(card, engine.match_cards())
+	engine._state.memory_for(card).cost = 1
+	var view: SeatView = engine.view_for(seat)
+	var effective_cost: int = maxi(printed_cost - 1, 0)
+	assert_int(view.own_hand_costs[0]).is_equal(effective_cost)
+	var one: Array[int] = [card]
+	var action: EngineAction = EngineAction.commit(seat, one, LegalPlays.append_slots(0, 1))
+	var scores: Array[int] = [0, 0]
+	var f: PackedInt32Array = Evaluator.features_of(view, scores, action, engine.match_cards())
+	assert_int(f[3]).is_equal(view.energy - effective_cost)
+
+
 ## Weights in hundredths, a missing feature weighing 0, the sum floored to whole points.
 func test_value_weighs_in_hundredths_and_floors() -> void:
 	var weights: BotWeights = BotWeights.defaults("tuned")
