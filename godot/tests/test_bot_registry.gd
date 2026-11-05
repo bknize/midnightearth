@@ -77,6 +77,20 @@ func test_make_random_is_a_random_bot() -> void:
 	assert_str(bot.bot_name()).is_equal("random")
 
 
+## The frozen reference (T02, R21): `greedy_v1` builds a GreedyV1Bot at full level only.
+func test_make_greedy_v1_is_a_greedy_v1_bot_at_full_level_only() -> void:
+	var bot: BotPlayer = _make("greedy_v1", 7, BotPlayer.FULL_LEVEL)
+	assert_object(bot).is_not_null()
+	assert_bool(bot is GreedyV1Bot).is_true()
+	assert_bool(bot is GreedyBot).is_false()
+	assert_str(bot.bot_name()).is_equal("greedy_v1")
+	assert_int(bot.level).is_equal(BotPlayer.FULL_LEVEL)
+	assert_object(bot.weights).is_not_null()
+	assert_object(_make("greedy_v1", 7, 0)).is_null()
+	assert_object(_make("greedy_v1", 7, 19)).is_null()
+	assert_object(_make("greedy_v1", 7, 21)).is_null()
+
+
 func test_make_unknown_name_is_null() -> void:
 	assert_object(_make("nope", 1, BotPlayer.FULL_LEVEL)).is_null()
 	assert_object(_make("", 1, BotPlayer.FULL_LEVEL)).is_null()
