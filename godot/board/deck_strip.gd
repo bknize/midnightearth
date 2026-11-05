@@ -33,7 +33,7 @@ func is_up() -> bool:
 ## Lays `entries` out under `parent`, sliding in over `seconds`. `eligible` lists the entry
 ## indices that may be chosen (they glow); `make_card` returns a fresh BoardCard; `def_of`
 ## takes an instance id and returns its CardDef; `on_choose` takes the chosen entry index.
-## `piles` optionally names, per entry, the pile `[seat, position]` it came from. `entry_of`
+## `piles` optionally names, per entry, the pile `[seat, position]` it came from. `memory_of`
 ## optionally takes an instance id and returns its view entry (cost, stats, grown: card
 ## memory, cycle 8 R25), so the strip's faces carry the mark; without it they show printed.
 func show(
@@ -46,7 +46,7 @@ func show(
 	on_choose: Callable,
 	seconds: float = 0.0,
 	piles: Array[Vector2i] = [],
-	entry_of: Callable = Callable()
+	memory_of: Callable = Callable()
 ) -> void:
 	hide(0.0)
 	_eligible = eligible.duplicate()
@@ -75,7 +75,7 @@ func show(
 		if index < piles.size():
 			card.set_meta(META_SEAT, piles[index].x)
 			card.set_meta(META_POSITION, piles[index].y)
-		_dress(card, entries[index], def_of, entry_of)
+		_dress(card, entries[index], def_of, memory_of)
 		if _eligible.has(index) and glow != null:
 			card.set_glow(glow, GLOW_ALPHA)
 	_slide(made, ORIGIN, seconds, false)
@@ -132,7 +132,7 @@ func choose(index: int) -> bool:
 	return true
 
 
-static func _dress(card: BoardCard, entry: int, def_of: Callable, entry_of: Callable) -> void:
+static func _dress(card: BoardCard, entry: int, def_of: Callable, memory_of: Callable) -> void:
 	if entry == MatchEvent.HIDDEN_CARD:
 		card.face_down = true
 		return
@@ -142,8 +142,8 @@ static func _dress(card: BoardCard, entry: int, def_of: Callable, entry_of: Call
 	if def == null:
 		return
 	var memory: Dictionary = {}
-	if entry_of.is_valid():
-		var found: Variant = entry_of.call(entry)
+	if memory_of.is_valid():
+		var found: Variant = memory_of.call(entry)
 		if found is Dictionary:
 			memory = found
 	card.show_entry(def, memory)

@@ -35,7 +35,10 @@ extends GdUnitTestSuite
 # Seed 1's line under the default bot (tuned, k 24), pinned at DC-08 T11 (the greedy game
 # of DC-07 T13): "seed=1 decks=ruin/ruin bot=tuned winner=1 wins=1-4 rounds=5 end=wins
 # actions=88". Emptied at DC-09 T04 (Bloom and Echo shipped); re-pinned at T07.
-const GOLDEN_TUNED: String = ""
+# Seed 1 under the four-deck seeded pairing (Bloom and Echo shipped), pinned at DC-09 T07.
+const GOLDEN_TUNED: String = (
+	"seed=1 decks=bloom/ruin bot=tuned winner=0 wins=4-0 rounds=4 end=wins actions=64"
+)
 # END GOLDEN
 
 ## The shipped decks (cycle 8 R10); the sweep's pairings are every "a/b" of them, in the
