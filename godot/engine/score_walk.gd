@@ -436,6 +436,8 @@ static func _clear_temp_plus(
 ## CARD_REVEALED for `card`, which has just been revealed on `seat`'s row. `order` counts
 ## the reveals of this walk from 0 (the board still reads it until DC-05 T08 and T11);
 ## `destroyed` is true when the card was destroyed before the cursor reached it (DC-06 R14).
+## `cost` is its effective cost and `grown` whether its memory is not empty (cycle 8 R7,
+## R25): public, as the card now is.
 static func _emit_reveal(
 	state: MatchState, cards: MatchCards, sink: Callable, seat: int, card: int, destroyed: bool
 ) -> void:
@@ -457,6 +459,8 @@ static func _emit_reveal(
 		"plus": stats.plus,
 		"order": state.walk.reveals,
 		"destroyed": destroyed,
+		"cost": maxi(effective_cost(card, state, cards), 0),
+		"grown": is_grown(card, state),
 	}
 	sink.call(MatchEvent.Kind.CARD_REVEALED, revealed)
 

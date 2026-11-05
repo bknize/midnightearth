@@ -411,6 +411,9 @@ func test_every_verb_name_round_trips() -> void:
 		var source: Dictionary = {
 			"trigger": _legal_trigger(value), "verb": json_name, "amount": amount, "text": "Some."
 		}
+		# A limited verb loads only with uses > 0 (DC-09 T06 review).
+		if CardEffect.LIMITED_VERBS.has(value):
+			source["uses"] = 1
 		var effect: CardEffect = CardEffect.from_dict(source)
 		assert_object(effect).is_not_null()
 		assert_int(effect.verb).is_equal(value)
@@ -608,6 +611,27 @@ func test_uses_must_be_a_whole_number() -> void:
 		assert_object(CardEffect.from_dict(effect)).is_null()
 
 
+## The two limited verbs (CardEffect.LIMITED_VERBS) need uses > 0 (DC-09 T06 review): absent
+## or 0 fails with the uses error, 1 loads; an unlimited verb still loads with uses 0 (R11).
+func test_a_limited_verb_needs_uses() -> void:
+	assert_array(CardEffect.LIMITED_VERBS).is_equal(
+		[CardEffect.Verb.GROW_SELF_TIMES_ONCE, CardEffect.Verb.DRAW_ONCE]
+	)
+	var oak: Dictionary = _effect("on_score", "grow_self_times_once", 50)
+	var messenger: Dictionary = _effect("on_reveal", "draw_once", 2)
+	for effect: Dictionary in [oak, messenger]:
+		_assert_fails_with(_with_effect(0, effect), CardDb.ERR_USES)
+		var spent: Dictionary = effect.duplicate()
+		spent["uses"] = 0
+		_assert_fails_with(_with_effect(0, spent), CardDb.ERR_USES)
+		var once: Dictionary = effect.duplicate()
+		once["uses"] = 1
+		_assert_loads(_with_effect(0, once))
+	var draw: Dictionary = _effect("on_reveal", "draw", 2)
+	draw["uses"] = 0
+	_assert_loads(_with_effect(0, draw))
+
+
 ## A grow verb names one of MatchRules.GROW_STEPS for its stat: grow_self_times 25 and 50
 ## load, 30 fails; the flat, plus and cost steps likewise.
 func test_grow_amounts_are_the_fixed_steps() -> void:
@@ -625,7 +649,9 @@ func test_grow_amounts_are_the_fixed_steps() -> void:
 	_assert_loads(_with_effect(0, _effect("on_reveal", "cost_down_self", 2)))
 	_assert_fails_with(_with_effect(0, _effect("on_reveal", "cost_down_right", 0)), CardDb.ERR_GROW)
 	# A verb outside the grow family keeps any amount (Messenger draws 2, Refrain +1).
-	_assert_loads(_with_effect(0, _effect("on_reveal", "draw_once", 3)))
+	var messenger: Dictionary = _effect("on_reveal", "draw_once", 3)
+	messenger["uses"] = 1
+	_assert_loads(_with_effect(0, messenger))
 	_assert_loads(_with_effect(0, _effect("on_ally_reveal", "ally_reveal_flat", 5)))
 
 

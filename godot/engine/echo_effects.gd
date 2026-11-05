@@ -14,7 +14,8 @@ extends RefCounted
 ## - RETURN_OWN_AT_TURN_END (prompt, OWN_BOARD: live, not return-marked, the source excluded)
 ##   and RETURN_OPPONENT_AT_TURN_END (prompt, OPPONENT_BOARD: revealed, live, not
 ##   return-marked) are prompt verbs (Choice, P8): EffectResolver opens the prompt or
-##   auto-chooses the one option, and apply_choice() marks the chosen card.
+##   auto-chooses the one option, and its apply_choice() marks the chosen card
+##   (mark_return).
 ## - UNREVEAL_AT_TURN_END (ongoing marker): never fires; EffectResolver.flip_echoes() un-reveals
 ##   every revealed live carrier at turn end (flippers(), R18).
 ## - COST_DOWN_RIGHT (on_reveal): the card at slot + 1 of the source's row, in any state,
@@ -29,6 +30,14 @@ extends RefCounted
 
 ## STATS_CHANGED `cause` of ALLY_REVEAL_FLAT (cycle 8 P6).
 const CAUSE_ALLY_REVEAL: String = "ally_reveal"
+## The Echo verbs that fire with no target, through apply() (EffectResolver.apply's
+## membership test, P6).
+const UNTARGETED_VERBS: Array[int] = [
+	CardEffect.Verb.RETURN_SELF_AT_TURN_END,
+	CardEffect.Verb.COST_DOWN_RIGHT,
+	CardEffect.Verb.COST_DOWN_SELF,
+	CardEffect.Verb.ALLY_REVEAL_FLAT,
+]
 
 
 ## Fires one of the Echo verbs that need no target, for `card` owned by `seat` (see the class
@@ -53,19 +62,9 @@ static func apply(
 			_ally_flat(state, cards, seat, card, effect.amount, outcome)
 
 
-## A prompt return verb's consequence (P6, P8): `target` is marked to return at turn end.
-## True when `verb` is one of the two prompt return verbs (the mark was set), else false.
-static func apply_choice(state: MatchState, verb: int, target: int) -> bool:
-	if (
-		verb != CardEffect.Verb.RETURN_OWN_AT_TURN_END
-		and verb != CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END
-	):
-		return false
-	mark_return(state, target)
-	return true
-
-
-## Marks `card` to return to its controller's hand at turn end (R17).
+## Marks `card` to return to its controller's hand at turn end (R17): RETURN_SELF_AT_TURN_END
+## on its source, and the consequence of the two prompt return verbs on the chosen card
+## (EffectResolver.apply_choice; P6, P8).
 static func mark_return(state: MatchState, card: int) -> void:
 	state.card_state_for(card).return_marked = true
 

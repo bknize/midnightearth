@@ -51,27 +51,3 @@ func to_dict() -> Dictionary:
 		"cost": cost,
 		"uses_left": uses_left,
 	}
-
-
-## The memory to_dict() wrote; a missing or non-integer key keeps its default.
-static func from_dict(d: Dictionary) -> CardMemory:
-	var out: CardMemory = CardMemory.new()
-	out.flat = _int_or(d, "flat", out.flat)
-	out.times = _int_or(d, "times", out.times)
-	out.plus = _int_or(d, "plus", out.plus)
-	out.cost = _int_or(d, "cost", out.cost)
-	out.uses_left = _int_or(d, "uses_left", out.uses_left)
-	return out
-
-
-## `d[key]` as an int (a whole float included, as JSON gives it), else `fallback`.
-static func _int_or(d: Dictionary, key: String, fallback: int) -> int:
-	var value: Variant = d.get(key)
-	if value is int:
-		var whole: int = value
-		return whole
-	if value is float:
-		var number: float = value
-		if is_finite(number) and number == floorf(number):
-			return int(number)
-	return fallback

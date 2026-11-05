@@ -307,6 +307,9 @@ func test_an_unrevealed_card_is_revealed_then_scored_and_a_revealed_one_only_sco
 	assert_int(_payload_int(reveal, "times")).is_equal(_times_of(def))
 	assert_int(_payload_int(reveal, "plus")).is_equal(_plus_of(def))
 	assert_int(_payload_int(reveal, "order")).is_equal(0)
+	# DC-09 T06 review (cycle 8 R7, R25): the effective cost and the grown mark, public.
+	assert_int(_payload_int(reveal, "cost")).is_equal(def.cost)
+	assert_bool(reveal.payload["grown"]).is_false()
 	assert_bool(state.seats[0].is_revealed(row[1])).is_true()
 
 
