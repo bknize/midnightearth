@@ -24,9 +24,19 @@ const LINE_UNPINNED: String = ""
 ## rounds=7 end=wins actions=120", the DC-05 line "... wins=4-2 rounds=6 ... actions=114".
 ## While it is LINE_UNPINNED the pinned-line test is skipped with LINE_SKIP_NOTE; the
 ## autoplay test still compares against a direct bot-vs-bot engine run.
+## DC-08 T07 (R5): the line gains `bot=<name>` after the decks and the greedy bot is
+## unchanged, so this pin is built with "greedy" explicitly. The pre-bot literal was
+## "Board: match ended seed=1 decks=ruin/ruin winner=1 wins=1-4 rounds=5 end=wins actions=88".
 const EXPECTED_LINE: String = (
-	"Board: match ended seed=1 decks=ruin/ruin winner=1 wins=1-4 rounds=5 end=wins actions=88"
+	"Board: match ended seed=1 decks=ruin/ruin bot=greedy winner=1 wins=1-4 rounds=5 end=wins"
+	+ " actions=88"
 )
+## Seed 1's result line under the default bot (tuned, level 20); the orchestrator pins it at
+## verification. While it is empty the test prints the line and checks only `bot=tuned`.
+const GOLDEN_TUNED: String = ""
+## The bot the helpers build: the greedy bot, whose play the goldens pin (R5).
+const GREEDY: String = "greedy"
+const FULL_LEVEL: int = 20
 const LINE_SKIP_NOTE: String = (
 	"unpinned at DC-07 T01 (card data format 3): pin EXPECTED_LINE from seed 1's"
 	+ " 'Board: match ended' line"
@@ -60,7 +70,9 @@ func _defs() -> MatchCards:
 
 ## A driver for `match_seed` with the fixture deck on both seats.
 func _driver(match_seed: int, autoplay: bool) -> MatchDriver:
-	return MatchDriver.create(match_seed, _db(), FixtureDecks.decks(), FixtureDecks.ids(), autoplay)
+	return MatchDriver.create(
+		match_seed, _db(), FixtureDecks.decks(), FixtureDecks.ids(), autoplay, GREEDY, FULL_LEVEL
+	)
 
 
 ## Every int under an event payload's `card` or `cards` key.
@@ -126,8 +138,11 @@ func _smoke_line() -> String:
 	wins.assign(raw_wins)
 	var decks: Array[String] = engine.deck_ids()
 	return (
-		"Board: match ended seed=%d decks=%s/%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
-		% [SEED, decks[0], decks[1], winner, wins[0], wins[1], rounds, reason, actions]
+		(
+			"Board: match ended seed=%d decks=%s/%s bot=%s winner=%d wins=%d-%d rounds=%d end=%s"
+			+ " actions=%d"
+		)
+		% [SEED, decks[0], decks[1], GREEDY, winner, wins[0], wins[1], rounds, reason, actions]
 	)
 
 
@@ -203,7 +218,7 @@ func test_seed_1_autoplay_prints_the_pinned_line(
 	# The board's own match: the shipped pool and list, seed 1's seeded pairing.
 	var seeded: Array[String] = ["", ""]
 	var driver: MatchDriver = MatchDriver.create(
-		SEED, CardDb.load_default(), DeckList.load_default(), seeded, true
+		SEED, CardDb.load_default(), DeckList.load_default(), seeded, true, GREEDY, FULL_LEVEL
 	)
 	driver.start()
 	var steps: int = 0
@@ -223,16 +238,18 @@ func test_result_line_names_both_decks_after_the_seed() -> void:
 	driver.start()
 	assert_bool(driver.submit_player(EngineAction.concede(0)).ok).is_true()
 	var line: String = driver.result_line()
-	var head: String = "Board: match ended seed=%d decks=fixture/fixture winner=" % SEED
+	var head: String = "Board: match ended seed=%d decks=fixture/fixture bot=greedy winner=" % SEED
 	assert_bool(line.begins_with(head)).override_failure_message(line).is_true()
 	var seeded: Array[String] = ["", ""]
 	var decks: DeckList = FixtureDecks.decks()
-	var picked: MatchDriver = MatchDriver.create(7, _db(), decks, seeded, true)
+	var picked: MatchDriver = MatchDriver.create(7, _db(), decks, seeded, true, GREEDY, FULL_LEVEL)
 	var expected: Array[String] = [decks.seeded_pick(7, 0), decks.seeded_pick(7, 1)]
 	assert_array(picked.deck_ids()).is_equal(expected)
 	assert_bool(picked.start().is_empty()).is_false()
 	var unknown: Array[String] = ["fixture", "nope"]
-	var refused: MatchDriver = MatchDriver.create(SEED, _db(), decks, unknown, true)
+	var refused: MatchDriver = MatchDriver.create(
+		SEED, _db(), decks, unknown, true, GREEDY, FULL_LEVEL
+	)
 	assert_array(refused.start()).is_empty()
 
 
@@ -370,7 +387,13 @@ func test_submit_choice_answers_the_open_player_prompt() -> void:
 ## source fails with BAD_SET, and a valid set is accepted with CHOICE_MADE `indices`.
 func test_submit_set_answers_the_open_multi_prompt() -> void:
 	var driver: MatchDriver = MatchDriver.create(
-		SEED, FixtureDecks.sacrifice_cards(), FixtureDecks.decks(), FixtureDecks.ids(), false
+		SEED,
+		FixtureDecks.sacrifice_cards(),
+		FixtureDecks.decks(),
+		FixtureDecks.ids(),
+		false,
+		GREEDY,
+		FULL_LEVEL
 	)
 	driver.start()
 	var own: Array[int] = [3, 7, FixtureDecks.C02_SACRIFICE]
@@ -392,3 +415,54 @@ func test_submit_set_answers_the_open_multi_prompt() -> void:
 		if event.kind == MatchEvent.Kind.CHOICE_MADE:
 			indices = event.payload["indices"]
 	assert_array(indices).is_equal([1])
+
+
+## DC-08 T07 (R4): the default bot is tuned at level 20. Seed 1 autoplays on the shipped pool
+## under it and the result line carries `bot=tuned`; the line is printed for pinning and
+## compared with GOLDEN_TUNED once that is set.
+func test_default_bot_is_tuned_and_named_in_the_result_line() -> void:
+	assert_str(BotRegistry.default_name()).is_equal("tuned")
+	var seeded: Array[String] = ["", ""]
+	var driver: MatchDriver = MatchDriver.create(
+		SEED,
+		CardDb.load_default(),
+		DeckList.load_default(),
+		seeded,
+		true,
+		BotRegistry.default_name(),
+		FULL_LEVEL
+	)
+	assert_object(driver).is_not_null()
+	if driver == null:
+		return
+	driver.start()
+	var steps: int = 0
+	while driver.bot_turn_due() and steps < MAX_ACTIONS:
+		if not driver.play_bot().ok:
+			break
+		steps += 1
+	var line: String = driver.result_line()
+	print("TUNED_LINE %s" % line)
+	assert_bool(line.contains(" bot=tuned ")).override_failure_message(line).is_true()
+	if GOLDEN_TUNED != "":
+		assert_str(line).is_equal(GOLDEN_TUNED)
+
+
+## DC-08 T07 (R4, R16): the random bot takes only the full level; a lower level makes create
+## return null, and level 20 builds a driver whose bots play.
+func test_create_with_random_accepts_only_the_full_level() -> void:
+	var full: MatchDriver = MatchDriver.create(
+		SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), true, "random", FULL_LEVEL
+	)
+	assert_object(full).is_not_null()
+	if full != null:
+		assert_bool(full.start().is_empty()).is_false()
+		assert_bool(full.bot_turn_due()).is_true()
+	var low: MatchDriver = MatchDriver.create(
+		SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), true, "random", 5
+	)
+	assert_object(low).is_null()
+	var unknown: MatchDriver = MatchDriver.create(
+		SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), true, "nope", FULL_LEVEL
+	)
+	assert_object(unknown).is_null()

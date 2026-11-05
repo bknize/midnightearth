@@ -12,6 +12,8 @@ const PICKER_PATH: String = "res://picker/deck_picker.tscn"
 const AUTOPLAY_ARG: String = "--autoplay"
 const DECK_ARG: String = "--deck="
 const BOT_DECK_ARG: String = "--bot-deck="
+const BOT_ARG: String = "--bot="
+const BOT_LEVEL_ARG: String = "--bot-level="
 
 var _cards: CardDb = null
 var _decks: DeckList = null
@@ -22,6 +24,8 @@ var _picker: DeckPicker = null
 var _seed: int = 0
 var _seed_fixed: bool = false
 var _autoplay: bool = false
+var _bot_name: String = BotRegistry.default_name()
+var _bot_level: int = BotPlayer.FULL_LEVEL
 
 
 func _ready() -> void:
@@ -33,6 +37,12 @@ func _ready() -> void:
 	if not _decks.is_valid():
 		push_error("Deck list failed to load: %s" % _decks.load_error())
 		return
+	var args: PackedStringArray = OS.get_cmdline_user_args()
+	if not _read_bot_args(args):
+		return
+	var weights: BotWeights = BotRegistry.default_weights(_bot_name)
+	if weights.load_error != "":
+		print("Bot weights: %s; using defaults" % weights.load_error)
 	if not _run_smoke(_cards):
 		return
 	_board_scene = load(BOARD_PATH) as PackedScene
@@ -40,7 +50,6 @@ func _ready() -> void:
 	if _board_scene == null or _picker_scene == null:
 		push_error("Board or picker scene failed to load")
 		return
-	var args: PackedStringArray = OS.get_cmdline_user_args()
 	var flagged: int = BoardSeeds.from_args(args)
 	_seed_fixed = flagged != 0
 	_seed = flagged if _seed_fixed else BoardSeeds.clock_seed()
@@ -70,12 +79,40 @@ func _ready() -> void:
 	print("Main ready")
 
 
+## Reads --bot=<name> and --bot-level=<0..20> (R4: default tuned at 20). Returns false after
+## a push_error for an unknown name, a bad level, or a level on a bot without an evaluator.
+func _read_bot_args(args: PackedStringArray) -> bool:
+	for arg: String in args:
+		if arg.begins_with(BOT_ARG):
+			_bot_name = arg.substr(BOT_ARG.length())
+		elif arg.begins_with(BOT_LEVEL_ARG):
+			var text: String = arg.substr(BOT_LEVEL_ARG.length())
+			if not text.is_valid_int():
+				push_error(
+					"Bad bot level: '%s' (use a whole number 0..%d)" % [text, BotPlayer.FULL_LEVEL]
+				)
+				return false
+			_bot_level = text.to_int()
+	if not BotRegistry.NAMES.has(_bot_name):
+		push_error("Unknown bot: '%s' (known: %s)" % [_bot_name, ", ".join(BotRegistry.NAMES)])
+		return false
+	if _bot_level < 0 or _bot_level > BotPlayer.FULL_LEVEL:
+		push_error("Bot level %d is outside 0..%d" % [_bot_level, BotPlayer.FULL_LEVEL])
+		return false
+	if _bot_level != BotPlayer.FULL_LEVEL and BotRegistry.NO_LEVEL.has(_bot_name):
+		push_error("Bot '%s' has no levels: only level %d" % [_bot_name, BotPlayer.FULL_LEVEL])
+		return false
+	return true
+
+
 ## Instances the board for the given ids ("" = the seeded pick) and starts the match.
 func _start_board(deck_ids: Array[String]) -> void:
 	_board = _board_scene.instantiate() as Board
 	if _seed_fixed:
 		_board.fixed_seed = _seed
 	_board.autoplay = _autoplay
+	_board.bot = _bot_name
+	_board.level = _bot_level
 	add_child(_board)
 	var err: int = _board.decks_requested.connect(_on_decks_requested)
 	if err != OK:
@@ -111,9 +148,9 @@ func _on_decks_requested() -> void:
 	_show_picker(last_ids)
 
 
-## Plays seed 1 to the end under its seeded deck pairing (DC-07 P14) with one GreedyBot per
-## seat and prints the summary line, the deck ids right after the seed. Returns false after
-## a push_error: a rejected action, the action cap or a start failure.
+## Plays seed 1 to the end under its seeded deck pairing (DC-07 P14) with the chosen
+## bot (BotRegistry) per seat and prints the summary line, the deck ids right after the seed.
+## Returns false after a push_error: a rejected action, the action cap or a start failure.
 func _run_smoke(cards: CardDb) -> bool:
 	var seeded: Array[String] = ["", ""]
 	var engine: MatchEngine = MatchEngine.create(SMOKE_SEED, cards, DeckList.load_default(), seeded)
@@ -122,9 +159,19 @@ func _run_smoke(cards: CardDb) -> bool:
 		push_error("Engine smoke: start rejected, code %d" % started.error)
 		return false
 	var decks: Array[String] = engine.deck_ids()
-	var bots: Array[GreedyBot] = []
+	var bots: Array[BotPlayer] = []
 	for seat: int in MatchEngine.SEATS:
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SMOKE_SEED, seat), engine.match_cards()))
+		var bot: BotPlayer = BotRegistry.make(
+			_bot_name,
+			BotRegistry.seed_for(SMOKE_SEED, seat),
+			engine.match_cards(),
+			null,
+			_bot_level
+		)
+		if bot == null:
+			push_error("Engine smoke: cannot build bot '%s' at level %d" % [_bot_name, _bot_level])
+			return false
+		bots.append(bot)
 	var actions: int = 0
 	var last: ApplyResult = started
 	while not engine.is_over():
@@ -150,7 +197,7 @@ func _run_smoke(cards: CardDb) -> bool:
 		wins.assign(raw_wins)
 		print(
 			(
-				"Engine smoke: seed=%d decks=%s/%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
+				"Engine smoke: seed=%d decks=%s/%s bot=%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
 				% [
 					SMOKE_SEED,
 					decks[0],
