@@ -45,6 +45,16 @@ def weights_stamp(bot: str, weights_dir: str = WEIGHTS_DIR) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
+def file_stamp(path: str) -> Optional[str]:
+    """The stamp field of the weights file at `path`, or None when absent or unreadable."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            value = json.load(f).get("stamp")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return value if isinstance(value, str) else None
+
+
 def read_records(path: str) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     with open(path, "r", encoding="utf-8") as f:
