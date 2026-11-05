@@ -202,6 +202,7 @@ func _run_smoke(cards: CardDb) -> bool:
 					SMOKE_SEED,
 					decks[0],
 					decks[1],
+					_bot_name,
 					winner,
 					wins[0],
 					wins[1],
