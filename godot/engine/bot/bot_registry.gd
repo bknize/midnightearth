@@ -4,11 +4,11 @@ extends RefCounted
 ## harness build their bots here, so one name picks one policy everywhere.
 ##
 ## make() returns null on anything it cannot build: an unknown name, a name whose class has
-## not landed yet (`matrix`, milestone B), a level outside 0..20, and a level below full
-## strength for a bot without an evaluator (`greedy`, `greedy_v1`, `random`). It never
-## prints; the launcher reports the error (P16).
+## not landed yet (PENDING), a level outside 0..20, and a level below full strength for a
+## bot without an evaluator (`greedy`, `greedy_v1`, `random`). It never prints; the
+## launcher reports the error (P16).
 ##
-## A bot with an evaluator (`tuned`) given no weights reads its shipped file
+## A bot with an evaluator (`tuned`, `matrix`) given no weights reads its shipped file
 ## (default_weights_path); when that fails to load it gets the built-in defaults for its
 ## name, with the file's `load_error` kept so the launcher can print its `Bot weights:`
 ## warning (R11).
@@ -16,11 +16,11 @@ extends RefCounted
 ## Separates bot seeds from any other derivation of the match seed ("bot" in ASCII). Moved
 ## from GreedyBot with its value, so seed_for() is unchanged (cycle 7 P1, R5).
 const SEED_TAG: int = 0x626F74
-## Every name the registry knows, in a fixed order (R1); make() builds those whose class
-## exists.
+## Every name the registry knows, in a fixed order (R1); make() builds every one of them.
 const NAMES: Array[String] = ["greedy", "greedy_v1", "random", "tuned", "matrix"]
-## The names known but not buildable yet (milestone B); the launcher rejects them up front.
-const PENDING: Array[String] = ["matrix"]
+## The names known but not buildable yet; the launcher rejects them up front. Empty since
+## the matrix bot landed (DC-10 T13).
+const PENDING: Array[String] = []
 ## The names whose bots have no evaluator and so take only the full level (P2).
 const NO_LEVEL: Array[String] = ["greedy", "greedy_v1", "random"]
 ## Where a bot's shipped weights live: WEIGHTS_DIR + name + WEIGHTS_SUFFIX (P7).
@@ -46,6 +46,8 @@ static func make(
 		bot = RandomBot.new(bot_seed, cards)
 	elif name == "tuned":
 		bot = TunedBot.new(bot_seed, cards)
+	elif name == "matrix":
+		bot = MatrixBot.new(bot_seed, cards)
 	if bot == null:
 		return null
 	bot.level = level
