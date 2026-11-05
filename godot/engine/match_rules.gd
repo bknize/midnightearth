@@ -8,10 +8,14 @@ const WINS_TO_TAKE: int = 4
 const OPENING_HAND: int = 3
 const HAND_CAP: int = 7
 const DECK_SIZE: int = 20
+## Each deck names exactly this many distinct Crew (cycle 8 R40, C4, plan P12).
+const CREW_SIZE: int = 3
 ## 4 and 3 since DC-07 T02: decks per seat, `decks` in the log header (R7, P2). Rules 5
 ## since DC-09 T01: card memory and effective costs (cycle 8 R29); the log format is unchanged.
-const RULES_VERSION: int = 5
-const LOG_FORMAT: int = 3
+## Rules 6 and format 4 since DC-11 T09: Crew, optional prompts and the decline action
+## (cycle 8 R55, plan P10), so a format-3 log fails replay with FORMAT_MISMATCH.
+const RULES_VERSION: int = 6
+const LOG_FORMAT: int = 4
 ## ×1.00 in hundredths: the running mult's start and the neutral ×-part (DC-07 P4).
 const MULT_ONE: int = 100
 ## The legal ×-bonuses, in hundredths (×1.25, ×1.5, ×2; C6, plan P1).

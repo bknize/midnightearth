@@ -51,6 +51,10 @@ extends RefCounted
 ## every prompt carries the key, false for a single-target one. is_valid_set() checks a set
 ## answer against the prompt.
 ##
+## Optional prompts (cycle 8 R49, R52, plan P9): every prompt also carries `optional` (false
+## for every card prompt), `resume` (RESUME_WALK, or RESUME_TURN_START for a Crew prompt the
+## turn start opened) and `crew` (the Crew id, "" for a card prompt).
+##
 ## Events name zones by ZONE_NAMES (as they name verbs and triggers by their JSON names);
 ## MatchState.prompt, SeatView.prompt and EngineAction.choose use the enum value.
 
@@ -65,6 +69,17 @@ const KEY_OPTIONS: String = "options"
 ## Whether a prompt takes a set (DC-07 P7): MatchState.prompt, SeatView.prompt and
 ## CHOICE_REQUESTED all carry it.
 const KEY_MULTI: String = "multi"
+## Whether a prompt may be declined (cycle 8 R52, plan P9): every prompt carries it, false
+## for every card prompt; EngineAction.DECLINE is legal only while it is true.
+const KEY_OPTIONAL: String = "optional"
+## What an answered prompt resumes (cycle 8 P9, P11): RESUME_WALK for a prompt a walk paused
+## on, RESUME_TURN_START for a Crew prompt the turn start paused on.
+const KEY_RESUME: String = "resume"
+## The Crew id of a Crew prompt (cycle 8 P9), "" for a card prompt (whose `card` is the
+## source; a Crew prompt's `card` is -1).
+const KEY_CREW: String = "crew"
+const RESUME_WALK: String = "walk"
+const RESUME_TURN_START: String = "turn_start"
 const NO_ZONE: int = -1
 
 
@@ -118,6 +133,34 @@ static func is_multi_prompt(prompt: Dictionary) -> bool:
 		return false
 	var multi: bool = raw
 	return multi
+
+
+## Whether the prompt dictionary `prompt` may be declined (its `optional` flag; P9).
+static func is_optional_prompt(prompt: Dictionary) -> bool:
+	var raw: Variant = prompt.get(KEY_OPTIONAL, false)
+	if not raw is bool:
+		return false
+	var optional: bool = raw
+	return optional
+
+
+## What answering `prompt` resumes (its `resume`; P9): RESUME_TURN_START, else RESUME_WALK
+## (also for a prompt without the key).
+static func resume_of(prompt: Dictionary) -> String:
+	var raw: Variant = prompt.get(KEY_RESUME, RESUME_WALK)
+	if not raw is String:
+		return RESUME_WALK
+	var resume: String = raw
+	return RESUME_TURN_START if resume == RESUME_TURN_START else RESUME_WALK
+
+
+## The Crew id of `prompt` (its `crew`; P9), "" for a card prompt.
+static func crew_of(prompt: Dictionary) -> String:
+	var raw: Variant = prompt.get(KEY_CREW, "")
+	if not raw is String:
+		return ""
+	var crew: String = raw
+	return crew
 
 
 ## Whether `indices` is a valid answer to the multi-select `prompt` in `zone` (R23, P7): the

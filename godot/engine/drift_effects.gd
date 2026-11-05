@@ -175,8 +175,10 @@ static func rewrite_row(
 		var card: int = new_order[slot]
 		if card != before[slot] and card != lead:
 			moved.append(card)
-	if not outcome.quiet:
-		for card: int in moved:
+	for card: int in moved:
+		# Each moved card is the row's seat's: its Crew may fire on it (DC-11 T10, P13).
+		CrewEffects.push(state, cards, CrewDef.Trigger.OWN_MOVED, seat, card)
+		if not outcome.quiet:
 			var from_slot: int = before.find(card)
 			var to_slot: int = new_order.find(card)
 			outcome.events.append(_moved_event(piles, seat, card, from_slot, to_slot))

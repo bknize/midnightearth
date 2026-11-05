@@ -37,6 +37,9 @@ var temp_plus: int = 0
 var return_marked: bool = false
 ## The card is destroyed (DC-06 R12): it stays in its slot until the turn ends.
 var destroyed: bool = false
+## Salvager was accepted for this destroyed card (cycle 8 R51, P14; DC-11 T10); at turn end
+## EffectResolver.clear_destroyed() sends it to its controller's hand, not to the pile.
+var salvaged: bool = false
 
 
 ## True when every field is at its default, so the entry changes nothing.
@@ -48,6 +51,7 @@ func is_default() -> bool:
 		and temp_plus == 0
 		and not return_marked
 		and not destroyed
+		and not salvaged
 	)
 
 
@@ -63,6 +67,7 @@ func copy() -> CardState:
 	out.temp_plus = temp_plus
 	out.return_marked = return_marked
 	out.destroyed = destroyed
+	out.salvaged = salvaged
 	return out
 
 
@@ -78,4 +83,5 @@ func to_dict() -> Dictionary:
 		"temp_plus": temp_plus,
 		"return_marked": return_marked,
 		"destroyed": destroyed,
+		"salvaged": salvaged,
 	}

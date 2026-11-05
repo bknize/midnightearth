@@ -67,6 +67,9 @@ const VIEW_KEYS: Array[String] = [
 	"first_seat",
 	"sudden_death",
 	"prompt",
+	# DC-11 T08 (cycle 8 R42, R43): both seats' Crew and their uses, public.
+	"crew",
+	"crew_uses",
 ]
 ## Full-state keys that carry what the views omit.
 const HIDDEN_STATE_KEYS: Array[String] = ["seed", "rng_state", "deck", "hand", "pending", "burned"]
@@ -417,8 +420,9 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.CARD_DESTROYED:
 			keys = ["seat", "card", "slot"]
 		MatchEvent.Kind.DESTROYED_CLEARED:
-			# DC-07 P6: the card went to its seat's destroyed pile.
-			keys = ["seat", "card", "slot", "pile"]
+			# DC-07 P6: the card went to its seat's destroyed pile; DC-11 T10 (cycle 8 R51):
+			# or, salvaged, to its hand.
+			keys = ["seat", "card", "slot", "pile", "salvaged"]
 		MatchEvent.Kind.CARD_RECOVERED:
 			keys = ["seat", "card", "from_seat", "position"]
 		MatchEvent.Kind.BONUS_ZERO_SET, MatchEvent.Kind.FREE_FIRST_SET:
@@ -426,8 +430,11 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.ENERGY_CARRIED:
 			keys = ["seat", "amount"]
 		MatchEvent.Kind.CHOICE_REQUESTED:
-			# DC-07 P7: "multi" says whether the prompt takes a set.
-			keys = ["seat", "card", "verb", "text", "zone", "options", "multi"]
+			# DC-07 P7: "multi" says whether the prompt takes a set; cycle 8 P9 (T09) adds
+			# "optional", "resume" and "crew" (public: Crew are face up, R42).
+			keys = [
+				"seat", "card", "verb", "text", "zone", "options", "multi", "optional", "resume", "crew"
+			]
 		MatchEvent.Kind.CHOICE_MADE:
 			keys = ["seat", "card", "zone", "index", "target", "auto"]
 		MatchEvent.Kind.CARD_MOVED:
@@ -437,8 +444,15 @@ func _payload_keys(kind: int) -> Array:
 		MatchEvent.Kind.CARD_DISCARDED:
 			keys = ["seat", "card"]
 		MatchEvent.Kind.MATCH_STARTED:
-			# DC-07: the deck ids only; the seed would predict every shuffle.
-			keys = ["decks"]
+			# DC-07: the deck ids only; the seed would predict every shuffle. DC-11 T08
+			# (cycle 8 R42): both seats' Crew ids.
+			keys = ["decks", "crew"]
+		MatchEvent.Kind.CHOICE_DECLINED:
+			# DC-11 T09 (cycle 8 P10): public.
+			keys = ["seat", "card", "crew"]
+		MatchEvent.Kind.CREW_FIRED:
+			# DC-11 T10 (cycle 8 P13): public; names no card.
+			keys = ["seat", "slot", "crew", "verb", "trigger", "uses_left"]
 	return keys
 
 

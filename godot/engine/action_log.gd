@@ -4,13 +4,16 @@ extends RefCounted
 ## rules version, the match seed and both seats' deck ids, then every accepted action in
 ## order. Nothing derived.
 ##
-## JSON form (DC-07 plan, action log format 3, P2):
-## {"format": 3, "rules": 4, "seed": "9007199254740993", "decks": ["ruin", "drift"],
+## JSON form (cycle 8 plan, action log format 4, P10; DC-07 P2 for the header):
+## {"format": 4, "rules": 6, "seed": "9007199254740993", "decks": ["ruin", "drift"],
 ##  "actions": [{"k": "commit", "s": 0, "c": [3, 7], "p": [0, 1]},
 ##              {"k": "choose", "s": 0, "z": 1, "i": 2},
-##              {"k": "choose_set", "s": 1, "z": 1, "i": [0, 2]}, {"k": "concede", "s": 1}]}
+##              {"k": "choose_set", "s": 1, "z": 1, "i": [0, 2]}, {"k": "decline", "s": 1},
+##              {"k": "concede", "s": 1}]}
 ## A set choice (DC-07 P7) is logged with its indices as given, so replay applies the same
-## set and draws the same random destroys from the stream.
+## set and draws the same random destroys from the stream. A decline (cycle 8 R52) is
+## logged like a choice, so replay closes the same optional prompt. A format-3 log (before
+## the decline) parses and fails replay with FORMAT_MISMATCH (R55).
 ##
 ## `decks` holds the resolved ids (a seeded pick already applied, MatchEngine.deck_ids()),
 ## so replay() rebuilds the same decks without drawing a pairing. A header without `decks`
@@ -136,9 +139,10 @@ static func from_json(text: String) -> ActionLog:
 
 ## Replays the log from a fresh match (R33, R34; DC-07 R7): checks both versions and that
 ## the header names both decks, creates the engine from the seed, the pool `cards`, the
-## list `decks` and the logged deck ids, starts it and applies every action in order.
-## Stops at the first rejected action. Never runs the bot.
-func replay(cards: CardDb, decks: DeckList) -> ReplayResult:
+## list `decks`, the logged deck ids and the Crew pool `crew` (each seat's Crew derive from
+## its deck id, so the header carries none: cycle 8 P12), starts it and applies every
+## action in order. Stops at the first rejected action. Never runs the bot.
+func replay(cards: CardDb, decks: DeckList, crew: CrewPool) -> ReplayResult:
 	if format_version != MatchRules.LOG_FORMAT or deck_ids.size() != MatchEngine.SEATS:
 		return ReplayResult.failed(
 			ReplayResult.Reason.FORMAT_MISMATCH, null, -1, EngineError.Code.MALFORMED
@@ -147,7 +151,7 @@ func replay(cards: CardDb, decks: DeckList) -> ReplayResult:
 		return ReplayResult.failed(
 			ReplayResult.Reason.RULES_MISMATCH, null, -1, EngineError.Code.MALFORMED
 		)
-	var engine: MatchEngine = MatchEngine.create(match_seed, cards, decks, deck_ids)
+	var engine: MatchEngine = MatchEngine.create(match_seed, cards, decks, deck_ids, crew)
 	var started: ApplyResult = engine.start()
 	if not started.ok:
 		return ReplayResult.failed(ReplayResult.Reason.START_FAILED, engine, -1, started.error)

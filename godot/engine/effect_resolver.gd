@@ -57,10 +57,12 @@ extends RefCounted
 ## - The prompt verbs (DC-05 T05; R20, R26, R28-R34, plan P9, P10). Choice.eligible() lists
 ##   the targets. With none the effect fizzles (EFFECT_FIZZLED {seat, card, verb, reason}); with one
 ##   it is chosen at once (CHOICE_MADE with `auto` true) and applied; with two or more the
-##   Outcome carries the prompt {seat, card, verb, zone, options, multi: false} and the
-##   event CHOICE_REQUESTED {seat, card, verb, text, zone, options, multi} (zone by name,
-##   options as positions: public). answer() applies the choice later. A preview (non-null
-##   policy) never prompts: it takes the first option at once (plan P12).
+##   Outcome carries the prompt {seat, card, verb, zone, options, multi: false, optional:
+##   false, resume: "walk", crew: ""} and the event CHOICE_REQUESTED {seat, card, verb,
+##   text, zone, options, multi, optional, resume, crew} (zone by name, options as
+##   positions: public; cycle 8 P9). answer() applies the choice later, or decline() closes
+##   an optional prompt (cycle 8 P10). A preview (non-null policy) never prompts: it takes
+##   the first option at once (plan P12).
 ## - The multi-select verb SACRIFICE_DESTROY (DC-07 P7, P12, R22-R25, R27): the same, but
 ##   the prompt and CHOICE_REQUESTED carry `multi` true, one eligible position still
 ##   prompts (the empty set is a legal answer), and answer_set() applies a set (apply_set).
@@ -119,6 +121,10 @@ extends RefCounted
 ## redaction hides `card` from the other seat while `seat` and `slot` stay visible. A
 ## revealed card's destroy is public. The card stays face down until the cursor reaches it,
 ## and DESTROYED_CLEARED follows the same rule at turn end: private while never revealed.
+##
+## The Crew (DC-11 T10, CrewEffects): destroy() queues OWN_DESTROYED for a card it marks,
+## unreveal() and a return to a hand queue OWN_RETURNED, and a Crew prompt's answer is
+## CrewEffects.apply_choice(); the queue drains in ScoreWalk, TurnStart and MatchEngine.
 ##
 ## Preview seam (orchestrator, DC-05 T04): a null `policy` is a live walk, which always picks
 ## the destroyed card with MatchRng.pick_index on the engine stream at the moment the effect
@@ -366,6 +372,10 @@ static func apply_choice(
 		"auto": auto,
 	}
 	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_MADE, made, owner))
+	if Choice.crew_of(prompt) != "":
+		# A Crew prompt's `verb` is a CrewDef.Verb (DC-11 T10).
+		out.append_array(CrewEffects.apply_choice(state, cards, prompt, target, policy))
+		return out
 	match verb:
 		CardEffect.Verb.DRAW_THEN_DISCARD:
 			out.append(_discard(state, holder, target))
@@ -487,8 +497,9 @@ static func _choice_owner(state: MatchState, seat: int, zone: int, holder: int, 
 ## boards need to see the card leave its row). A card still face down (cycle 8 P8 lets
 ## Recall mark one) keeps both events private to its seat; redaction hides only `card`, so
 ## the other board still sees which slot emptied (DC-09 T06 review). A marked card
-## that is destroyed is skipped: clear_destroyed() discards it (DC-06 R19).
-static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
+## that is destroyed is skipped: clear_destroyed() discards it (DC-06 R19). A card back in
+## its hand queues OWN_RETURNED for the Crew of `cards` (DC-11 T10; none when null).
+static func resolve_returns(state: MatchState, cards: MatchCards = null) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	for seat: int in range(state.seats.size()):
 		var piles: MatchState.SeatPiles = state.seats[seat]
@@ -508,6 +519,7 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 				out.append(MatchEvent.new(MatchEvent.Kind.CARD_BURNED, burned, owner))
 				continue
 			piles.hand.append(card)
+			CrewEffects.push(state, cards, CrewDef.Trigger.OWN_RETURNED, seat, card)
 			var returned: Dictionary = {"seat": seat, "card": card, "slot": slot}
 			out.append(MatchEvent.new(MatchEvent.Kind.CARD_RETURNED, returned, owner))
 	return out
@@ -517,12 +529,14 @@ static func resolve_returns(state: MatchState) -> Array[MatchEvent]:
 ## resolve and before energy settles: for each seat in turn, each destroyed card on its row
 ## in slot order leaves the row (its modifiers and the mark go) for the end of that seat's
 ## destroyed pile (DC-07 R16, P6; the row's seat is the card's controller), DESTROYED_CLEARED
-## {seat, card, slot, pile: true}, `slot` the card's slot as it leaves. The event is public
-## when the card was revealed, and its identity in the pile is public too
+## {seat, card, slot, pile: true, salvaged: false}, `slot` the card's slot as it leaves. The
+## event is public when the card was revealed, and its identity in the pile is public too
 ## (`destroyed_known`, R18); it is private to its seat when the card never was, so the
-## other seat sees the slot and not the card. Round end burns the piles
+## other seat sees the slot and not the card. A salvaged card (cycle 8 R51, DC-11 T10) goes
+## to its controller's hand instead through CrewEffects.salvage(): {pile: false, salvaged:
+## true}, or at the hand cap a row burn alone (T13 review). Round end burns the piles
 ## (MatchState.burn_destroyed_piles).
-static func clear_destroyed(state: MatchState) -> Array[MatchEvent]:
+static func clear_destroyed(state: MatchState, cards: MatchCards = null) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	for seat: int in range(state.seats.size()):
 		var piles: MatchState.SeatPiles = state.seats[seat]
@@ -532,20 +546,26 @@ static func clear_destroyed(state: MatchState) -> Array[MatchEvent]:
 			if not state.is_destroyed(card):
 				continue
 			var slot: int = piles.board.find(card)
+			var salvaged: bool = state.card_state_for(card).salvaged
 			var was_revealed: bool = state.take_from_row(seat, card)
+			var owner: int = PUBLIC if was_revealed else seat
+			if salvaged:
+				out.append_array(CrewEffects.salvage(state, cards, seat, card, slot, owner))
+				continue
+			var cleared: Dictionary = {
+				"seat": seat, "card": card, "slot": slot, "pile": true, "salvaged": false
+			}
+			out.append(MatchEvent.new(MatchEvent.Kind.DESTROYED_CLEARED, cleared, owner))
 			piles.destroyed.append(card)
 			if was_revealed:
 				piles.destroyed_known[card] = true
-			var cleared: Dictionary = {"seat": seat, "card": card, "slot": slot, "pile": true}
-			var owner: int = PUBLIC if was_revealed else seat
-			out.append(MatchEvent.new(MatchEvent.Kind.DESTROYED_CLEARED, cleared, owner))
 	return out
 
 
 ## Turn end's echo flip (cycle 8 R18, P6), after clear_destroyed() and before
 ## settle_energy(): for each seat in turn, each revealed live card carrying the ongoing
 ## UNREVEAL_AT_TURN_END (EchoEffects.flippers), in slot order, un-reveals in its slot as
-## destroy()'s un-reveal does (_unreveal: board changes go, memory stays; STATS_CHANGED cause
+## destroy()'s un-reveal does (unreveal(): board changes go, memory stays; STATS_CHANGED cause
 ## unreveal when that changed its shown stats), then CARD_UNREVEALED {seat, card, slot},
 ## public. The next walk reveals it in full again.
 static func flip_echoes(state: MatchState, cards: MatchCards) -> Array[MatchEvent]:
@@ -554,7 +574,7 @@ static func flip_echoes(state: MatchState, cards: MatchCards) -> Array[MatchEven
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		for card: int in EchoEffects.flippers(state, cards, seat):
 			var payload: Dictionary = {"seat": seat, "card": card, "slot": piles.board.find(card)}
-			_unreveal(state, cards, seat, card, outcome)
+			unreveal(state, cards, seat, card, outcome)
 			outcome.add(MatchEvent.Kind.CARD_UNREVEALED, payload)
 	return outcome.events
 
@@ -639,20 +659,23 @@ static func destroy(state: MatchState, cards: MatchCards, card: int, outcome: Ou
 	var payload: Dictionary = {"seat": seat, "card": card, "slot": slot}
 	var revealed: bool = piles.is_revealed(card)
 	if revealed and RuinEffects.carries(card, cards, CardEffect.Verb.UNREVEAL_INSTEAD):
-		_unreveal(state, cards, seat, card, outcome)
+		unreveal(state, cards, seat, card, outcome)
 		outcome.add(MatchEvent.Kind.CARD_UNREVEALED, payload)
 		return true
 	state.card_state_for(card).destroyed = true
+	CrewEffects.push(state, cards, CrewDef.Trigger.OWN_DESTROYED, seat, card)  # DC-11 T10.
 	outcome.add(MatchEvent.Kind.CARD_DESTROYED, payload, PUBLIC if revealed else seat)
 	return true
 
 
 ## The un-reveal's state change (P9, R30, C9): `card`'s CardState goes, so it shows its
 ## printed stats with no marks (STATS_CHANGED, cause unreveal, while it is still face up and
-## only when that changed its shown stats), then it leaves `seat`'s revealed set.
-static func _unreveal(
+## only when that changed its shown stats), then it leaves `seat`'s revealed set, and it
+## counts as flipped face down for the Crew (OWN_RETURNED queued; DC-11 T10, CrewEffects).
+static func unreveal(
 	state: MatchState, cards: MatchCards, seat: int, card: int, outcome: Outcome
 ) -> void:
+	CrewEffects.push(state, cards, CrewDef.Trigger.OWN_RETURNED, seat, card)
 	var before: Dictionary = ScoreWalk.effective(card, state, cards).to_dict()
 	if state.clear_card_state(card):
 		var after: Dictionary = ScoreWalk.effective(card, state, cards).to_dict()
@@ -775,7 +798,9 @@ static func _ask_set(
 	_open(prompt, effect, outcome)
 
 
-## The prompt dictionary (plan P9, DC-07 P7): {seat, card, verb, zone, options, multi}.
+## The prompt dictionary (plan P9, DC-07 P7; cycle 8 P9): {seat, card, verb, zone, options,
+## multi, optional, resume, crew}; a card prompt is never optional, resumes the walk and
+## names no Crew.
 static func _prompt(seat: int, card: int, verb: int, zone: int, options: Array[int]) -> Dictionary:
 	return {
 		KEY_SEAT: seat,
@@ -784,26 +809,55 @@ static func _prompt(seat: int, card: int, verb: int, zone: int, options: Array[i
 		Choice.KEY_ZONE: zone,
 		Choice.KEY_OPTIONS: MatchState.plain(options),
 		Choice.KEY_MULTI: Choice.is_multi(verb),
+		Choice.KEY_OPTIONAL: false,
+		Choice.KEY_RESUME: Choice.RESUME_WALK,
+		Choice.KEY_CREW: "",
 	}
 
 
-## Opens `prompt` on `outcome`: the walk pauses on it, and CHOICE_REQUESTED {seat, card,
-## verb, text, zone, options, multi} announces it (public: positions only).
+## Opens `prompt` on `outcome`: the walk pauses on it, and CHOICE_REQUESTED announces it.
 static func _open(prompt: Dictionary, effect: CardEffect, outcome: Outcome) -> void:
 	outcome.prompt = prompt
-	var seat: int = prompt[KEY_SEAT]
-	var card: int = prompt[KEY_CARD]
-	var zone: int = prompt[Choice.KEY_ZONE]
-	var requested: Dictionary = {
+	var verb: String = CardEffect.verb_name(effect.verb)
+	outcome.add(MatchEvent.Kind.CHOICE_REQUESTED, requested(prompt, verb, effect.text))
+
+
+## CHOICE_REQUESTED's payload for `prompt` (public: positions only): {seat, card, verb, text,
+## zone, options, multi, optional, resume, crew} (cycle 8 P9), `verb` its JSON name
+## `verb_name` and `text` the card's or the Crew's rules text.
+static func requested(prompt: Dictionary, verb_name: String, text: String) -> Dictionary:
+	var seat: int = prompt.get(KEY_SEAT, -1)
+	var card: int = prompt.get(KEY_CARD, -1)
+	var zone: int = prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	return {
 		"seat": seat,
 		"card": card,
-		"verb": CardEffect.verb_name(effect.verb),
-		"text": effect.text,
+		"verb": verb_name,
+		"text": text,
 		"zone": Choice.zone_name(zone),
 		"options": MatchState.plain(Choice.options_of(prompt)),
 		"multi": Choice.is_multi_prompt(prompt),
+		"optional": Choice.is_optional_prompt(prompt),
+		"resume": Choice.resume_of(prompt),
+		"crew": Choice.crew_of(prompt),
 	}
-	outcome.add(MatchEvent.Kind.CHOICE_REQUESTED, requested)
+
+
+## Declines the open optional prompt of `state` (cycle 8 R52, plan P10): the prompt closes
+## and its ability does not apply (no use counted), CHOICE_DECLINED {seat, card, crew},
+## public. The caller has checked the decline (MatchEngine) and resumes per the prompt's
+## `resume`. Empty when no prompt is open.
+static func decline(state: MatchState) -> Array[MatchEvent]:
+	var out: Array[MatchEvent] = []
+	var prompt: Dictionary = state.prompt
+	state.prompt = {}
+	if prompt.is_empty():
+		return out
+	var seat: int = prompt.get(KEY_SEAT, -1)
+	var card: int = prompt.get(KEY_CARD, -1)
+	var declined: Dictionary = {"seat": seat, "card": card, "crew": Choice.crew_of(prompt)}
+	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_DECLINED, declined))
+	return out
 
 
 ## Discards `card` from `seat`'s hand to its burn pile (out of play for the round, so every

@@ -773,7 +773,9 @@ func test_bot_choices_replay_identically_for_a_fixed_match_seed() -> void:
 ## * 20 + the FixtureDecks R*/D* index).
 func _ruin_drift_defs() -> MatchCards:
 	var pair: Array[String] = [FixtureDecks.RUIN_DECK_ID, FixtureDecks.DRIFT_DECK_ID]
-	return MatchCards.build(CardDb.load_default(), DeckList.load_default(), pair)
+	return MatchCards.build(
+		CardDb.load_default(), DeckList.load_default(), pair, CrewPool.load_default()
+	)
 
 
 ## P13, R36: bonus first is +-part desc, then ×-part desc, then flat desc. Vane (+1, flat
@@ -871,7 +873,7 @@ func test_the_set_answer_previews_n_plus_one_candidates() -> void:
 func test_a_ruin_bot_and_a_drift_bot_play_seed_1_out() -> void:
 	var pair: Array[String] = [FixtureDecks.RUIN_DECK_ID, FixtureDecks.DRIFT_DECK_ID]
 	var engine: MatchEngine = MatchEngine.create(
-		SEED, CardDb.load_default(), DeckList.load_default(), pair
+		SEED, CardDb.load_default(), DeckList.load_default(), pair, CrewPool.load_default()
 	)
 	assert_bool(engine.start().ok).is_true()
 	var bots: Array[GreedyBot] = []

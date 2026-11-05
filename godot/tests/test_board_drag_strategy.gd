@@ -49,3 +49,12 @@ func _strategy(role: BoardDragStrategy.Role) -> BoardDragStrategy:
 	strategy.is_played = _in_played
 	strategy.is_staged = _in_staged
 	return strategy
+
+
+func test_a_crew_never_drags() -> void:
+	var crew: BoardDragStrategy = _strategy(BoardDragStrategy.Role.CREW)
+	assert_bool(crew.can_drag(3)).is_false()
+	assert_bool(crew.can_select_card(3, null)).is_false()
+	assert_bool(crew.can_remove_card(3, null)).is_false()
+	assert_bool(crew.can_reorder_card(3, null)).is_false()
+	assert_bool(crew.can_insert_card(3, null, null)).is_false()

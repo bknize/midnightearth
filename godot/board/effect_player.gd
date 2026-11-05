@@ -61,6 +61,8 @@ func pulse(step: BoardStep) -> void:
 		var own: BoardCard = _player_card(step.card)
 		if own == null:
 			return
+		# The public payload dresses the face: a row card is not in the hand row's entries.
+		show(own, step, reveal_entry(step))
 		if lift:
 			_lift_and_settle(own, step.duration)
 		if face_down_ids.erase(step.card):
@@ -274,6 +276,7 @@ func unreveal(step: BoardStep) -> void:
 		return
 	flip_down(card, step.duration)
 	if step.seat == 0:
+		card.set_destroyed(false)  # Veil makes a destroyed card live again (cycle 8 R65).
 		face_down_ids[step.card] = true
 		return
 	card.instance_id = -1
@@ -322,6 +325,7 @@ func return_card(step: BoardStep) -> void:
 		push_warning("Board: a return found no card on seat %d's row" % step.seat)
 		return
 	var hand: CardCollection3D = _hand_of(step.seat)
+	card.set_destroyed(false)  # A salvaged card leaves the row still marked (cycle 8 R65).
 	move_card(card, _row_of(step.seat), hand, step.duration)
 	if step.seat == 0:
 		_forget_flags(card.instance_id)

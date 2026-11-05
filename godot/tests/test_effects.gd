@@ -646,7 +646,9 @@ func test_destroying_a_revealed_card_is_public_and_it_clears_at_turn_end() -> vo
 	# modifiers with it.
 	var cleared: Array[MatchEvent] = EffectResolver.clear_destroyed(state)
 	assert_int(cleared.size()).is_equal(1)
-	var payload: Dictionary = {"seat": 1, "card": target, "slot": 0, "pile": true}
+	var payload: Dictionary = {
+		"seat": 1, "card": target, "slot": 0, "pile": true, "salvaged": false
+	}
 	_assert_event(cleared[0], MatchEvent.Kind.DESTROYED_CLEARED, payload, PUBLIC)
 	assert_object(state.card_state(target)).is_null()
 	assert_bool(state.is_destroyed(target)).is_false()

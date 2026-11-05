@@ -62,11 +62,31 @@ var walk: WalkState = WalkState.new()
 ## a bool, so setting it again before it is spent does not stack. Cleared at round start
 ## (MatchEngine).
 var bonus_zero_pending: Array[bool] = [false, false]
-## The open prompt (plan P9): {seat, card, verb, zone, options, multi}, with `verb` a
-## CardEffect.Verb, `zone` a Choice.Zone, `options` a plain Array of positions in that
-## zone (Choice) and `multi` true when it takes a set (EngineAction.CHOOSE_SET, DC-07 P7)
-## rather than one position. Empty when no prompt is open.
+## The open prompt (plan P9): {seat, card, verb, zone, options, multi, optional, resume,
+## crew}, with `verb` a CardEffect.Verb (a CrewDef.Verb for a Crew prompt), `zone` a
+## Choice.Zone, `options` a plain Array of positions in that zone (Choice), `multi` true
+## when it takes a set (EngineAction.CHOOSE_SET, DC-07 P7) rather than one position,
+## `optional` true when it may be declined (EngineAction.DECLINE), `resume` what its answer
+## resumes (Choice.RESUME_WALK or RESUME_TURN_START) and `crew` the Crew id ("" for a card
+## prompt, whose `card` is then the source; cycle 8 P9). Empty when no prompt is open.
 var prompt: Dictionary = {}
+## The turn start's Crew cursor (cycle 8 R54, plan P11; TurnStart): the position, in
+## first-committer order (the first seat's slots 0..2, then the other seat's), of the next
+## Crew to consider, so a Crew prompt that pauses the turn start resumes with the Crew after
+## it. TurnStart.DONE (-1) outside the turn start.
+var turn_start_at: int = -1
+## Per seat, the uses left of each of its Crew in slot order (cycle 8 R43, plan P13):
+## CrewDef.UNLIMITED (-1) for a Crew of scope NONE, else the uses its ability has left.
+## Empty per seat until the first round starts; reset_crew_uses() fills it then and resets
+## each ROUND Crew at every round start, keeping MATCH Crew. Public: SeatView shows it.
+var crew_uses: Array[Array] = [[], []]
+## The Crew trigger queue (cycle 8 R45, R46, plan P13; DC-11 T10, CrewEffects): each entry
+## {trigger: a CrewDef.Trigger, seat: the card's controller, card: its instance id, slot:
+## the next of that seat's Crew slots to consider}, in the order the causes happened. An
+## effect appends (a destroy, a move, a return, an un-reveal) and the queue drains once
+## that effect has resolved, so a Crew never fires inside one; a Crew prompt opened by the
+## drain leaves its entry at the head until it is answered. Empty between drains.
+var crew_queue: Array[Dictionary] = []
 
 
 func _init(p_match_seed: int = 0) -> void:
@@ -123,6 +143,9 @@ func to_dict() -> Dictionary:
 		"walk": walk.to_dict(),
 		"bonus_zero_pending": _plain_flags(bonus_zero_pending),
 		"prompt": prompt.duplicate(true),
+		"turn_start_at": turn_start_at,
+		"crew_uses": _crew_uses_list(),
+		"crew_queue": _crew_queue_list(),
 	}
 
 
@@ -158,6 +181,9 @@ func duplicate() -> MatchState:
 	out.walk = walk.copy()
 	out.bonus_zero_pending.assign(bonus_zero_pending)
 	out.prompt = prompt.duplicate(true)
+	out.turn_start_at = turn_start_at
+	out.crew_uses.assign(_crew_uses_list())
+	out.crew_queue.assign(_crew_queue_list())
 	return out
 
 
@@ -188,6 +214,25 @@ func memory_for(card: int) -> CardMemory:
 	if not memory.has(card):
 		memory[card] = CardMemory.new()
 	return memory[card]
+
+
+## Round start (cycle 8 R43, plan P13): each seat's Crew uses from `cards`. A seat with no
+## counts yet (the first round) takes each Crew's CrewDef.initial_uses(); after that a
+## ROUND Crew is reset to its `uses`, a MATCH Crew keeps what it has left and a NONE Crew
+## stays CrewDef.UNLIMITED.
+func reset_crew_uses(cards: MatchCards) -> void:
+	for seat: int in range(crew_uses.size()):
+		var defs: Array[CrewDef] = cards.crew_for(seat)
+		var held: Array = crew_uses[seat]
+		var fresh: bool = held.size() != defs.size()
+		var out: Array = []
+		for slot: int in range(defs.size()):
+			var def: CrewDef = defs[slot]
+			var left: int = def.initial_uses()
+			if not fresh and def.scope == CrewDef.Scope.MATCH:
+				left = held[slot]
+			out.append(left)
+		crew_uses[seat] = out
 
 
 ## Drops `card`'s modifiers: call whenever the card leaves the board. True when it had any.
@@ -259,6 +304,22 @@ func _memory_dict() -> Dictionary:
 	for card: int in memory:
 		var kept: CardMemory = memory[card]
 		out[card] = kept.to_dict()
+	return out
+
+
+## The Crew uses per seat as plain, copied lists (to_dict() and duplicate()).
+func _crew_uses_list() -> Array:
+	var out: Array = []
+	for seat_uses: Array in crew_uses:
+		out.append(seat_uses.duplicate())
+	return out
+
+
+## The Crew queue as plain, deep-copied entries (to_dict() and duplicate()).
+func _crew_queue_list() -> Array:
+	var out: Array = []
+	for entry: Dictionary in crew_queue:
+		out.append(entry.duplicate(true))
 	return out
 
 

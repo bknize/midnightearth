@@ -4,7 +4,7 @@ tags: [spec, cycle-8-ramp-bounce-crew, engine, board, cards]
 status: approved
 related: ["[[specs/cycle-8-ramp-bounce-crew/plan]]", "[[specs/cycle-8-ramp-bounce-crew/tasks]]", "[[specs/cycle-6-constructed-decks/spec]]", "[[specs/cycle-7-bot-players/spec]]", "[[specs/cycle-5-walk-cursor/spec]]", "[[specs/cycle-4-card-effects/spec]]", "[[planning/phase-3-game-loop]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-04
-updated: 2026-11-04
+updated: 2026-11-05
 uid: 919b9406-6aea-4411-95d3-dac408f59245
 linear: https://linear.app/night-science-llc/project/cycle-8-ramp-bounce-crew-c3fe684d879f
 supersedes:
@@ -356,6 +356,7 @@ Requirements R1–R38 are milestone A; R39–R70 are milestone B; R71–R74 are 
 | C10 | Round 3 Q3: where ramp growth reaches | 3a: a card on your row (itself or another) or cards in your hand (one chosen, or all), never the deck; hand faces refresh at once (R13, R24) |
 | C12 | Reconciliation with DC-08 as merged (2026-11-04), Ben 1a: "reconcile with DC-08 before /exercise" | The notes are aligned with cycle 7 milestone A as shipped (merged as fbb0d38; this branch re-based onto it): the 30 s gdUnit budget (C15 there) replaces C8's 20 s (R33); the sweep's latency check is the 99th percentile (R31); `make bot-train` does not exist until cycle 7 milestone B, so milestone A's rerun provision is `make bot-eval` plus a hand re-stamp of the untrained default weights with a ledger row (R32); `BotStamp`, `CandidateGen`, `TunedBot`, `GreedyBot` and `Evaluator` exist and are extended, never created, the frozen `greedy_v1` is not edited (R21); the golden is DC-08's `GOLDEN_TUNED` line and the stamp pin lives on frozen fixtures (R58); milestone numbering decided by Ben in the change list (1a): this spec's milestone A takes DC-09, cycle 7 milestone B becomes DC-10 and this spec's milestone B DC-11; the orchestrator amends the DC-08 cycles row and the ledger sentence at our `/cycle plan`. Change list approved by Ben 2026-11-04 ("1a") |
 | C11 | Round 2 Q4 and the round 3 defaults, no objection | The bounce toolkit of R16 with the enemy bounce; working names Bloom and Echo; rules version 5 in A and 6 in B, log format 4 in B; Crew are not cards; a memory travels hidden with a hidden card; the bot previews an optional prompt's options plus the decline and answers a turn-start Crew prompt by rule (R42, R55–R57) |
+| C13 | DC-11 T13 review (2026-11-05) | Ben 1a: fix the three should-fixes (Veil on an own destroyed card keeps the board's destroyed look, R65; the Crew queue fires in destroy order rather than row order, R45; Salvager at the hand cap emits a pile-less clear and a slotless burn instead of a row burn, R51, R65) and the `board_steps` pile-count nit; record the `CrewPool.fires` replay nit as a follow-up. Ben 2c: with live Crew the matrix bot measured p99 10.43 and 10.46 ms (at k 6, k_opp 3, samples 2, rm_iterations 50), so it is exempt from the 10 ms budget (cycle 7 R17) until the training run (cycle 7 T16); the tuned bot, the shipped opponent, keeps the budget (p99 9.47 ms). Rejected: k 5 (2a), one sample (2b) |
 
 ## Scenarios
 

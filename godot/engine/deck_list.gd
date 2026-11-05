@@ -1,24 +1,29 @@
 class_name DeckList
 extends RefCounted
-## Loads the deck list (R2, R3, R6, plan P2):
-## {"version": 1, "decks": [{"id", "name", "theme", "cards": [20 card ids]}, ...]}.
+## Loads the deck list (R2, R3, R6, plan P2; cycle 8 R40, R41, plan P12):
+## {"version": 2, "decks": [{"id", "name", "theme", "cards": [20 card ids],
+## "crew": [3 Crew ids]}, ...]}.
 ##
 ## Loading checks the shape and that deck ids are unique; validate() checks each deck
-## against a card pool: exactly MatchRules.DECK_SIZE ids, no id twice, every id in the
-## pool (no cost mix, C3). seeded_pick() draws a seat's deck from the match seed with its
-## own derived stream (MatchRng.derive_seed(seed, [DECK_TAG, seat])), so the pairing never
-## touches the engine stream and the same seed always pairs the same decks (C15).
+## against a card pool and a Crew pool: exactly MatchRules.DECK_SIZE card ids, no id twice,
+## every id in the pool (no cost mix, C3), and exactly MatchRules.CREW_SIZE distinct Crew
+## ids, each in the Crew pool (a Crew may serve more than one deck). Version 2 adds `crew`;
+## a version-1 list fails on its version. seeded_pick() draws a seat's deck from the match
+## seed with its own derived stream (MatchRng.derive_seed(seed, [DECK_TAG, seat])), so the
+## pairing never touches the engine stream and the same seed always pairs the same decks
+## (C15).
 ##
 ## Like CardDb, loading never prints, asserts or pushes an error: failures are reported
 ## through load_error(), and a failed list holds no decks.
 
 const DEFAULT_PATH: String = "res://engine/data/decks.json"
-const FORMAT_VERSION: int = 1
+const FORMAT_VERSION: int = 2
 
 const KEY_ID: String = "id"
 const KEY_NAME: String = "name"
 const KEY_THEME: String = "theme"
 const KEY_CARDS: String = "cards"
+const KEY_CREW: String = "crew"
 
 # Error prefixes, stable so tests and callers can match on them.
 const ERR_FILE: String = "deck list file"
@@ -30,8 +35,14 @@ const ERR_POOL: String = "card pool invalid"
 const ERR_COUNT: String = "wrong deck size"
 const ERR_REPEAT: String = "repeated card id"
 const ERR_UNKNOWN: String = "unknown card id"
+## Cycle 8 R40, R41: a missing or failed Crew pool, other than CREW_SIZE Crew, a Crew twice,
+## a Crew the pool does not hold.
+const ERR_CREW_POOL: String = "crew pool invalid"
+const ERR_CREW_COUNT: String = "wrong crew size"
+const ERR_CREW_REPEAT: String = "repeated crew id"
+const ERR_CREW_UNKNOWN: String = "unknown crew id"
 
-## The decks in file order: {id, name, theme, cards: Array[String]}.
+## The decks in file order: {id, name, theme, cards: Array[String], crew: Array[String]}.
 var _decks: Array[Dictionary] = []
 var _index_by_id: Dictionary[String, int] = {}
 var _error: String = ""
@@ -79,7 +90,7 @@ static func from_json(text: String) -> DeckList:
 			return _failed(
 				(
 					"%s: deck %d needs non-empty string id and name, a string theme %s"
-					% [ERR_SHAPE, i, "and a cards array of strings"]
+					% [ERR_SHAPE, i, "and cards and crew arrays of strings"]
 				)
 			)
 		var deck_id: String = parsed[KEY_ID]
@@ -118,8 +129,8 @@ func has_deck(deck_id: String) -> bool:
 	return _index_by_id.has(deck_id)
 
 
-## A copy of the deck with this id, {id, name, theme, cards: Array[String]}, or an empty
-## Dictionary when absent.
+## A copy of the deck with this id, {id, name, theme, cards: Array[String],
+## crew: Array[String]}, or an empty Dictionary when absent.
 func deck(deck_id: String) -> Dictionary:
 	if not _index_by_id.has(deck_id):
 		return {}
@@ -138,15 +149,31 @@ func card_ids(deck_id: String) -> Array[String]:
 	return out
 
 
+## The Crew ids of the deck with this id, in list order (its slots 0..2); empty when absent.
+func crew_ids(deck_id: String) -> Array[String]:
+	var out: Array[String] = []
+	if not _index_by_id.has(deck_id):
+		return out
+	var found: Dictionary = _decks[_index_by_id[deck_id]]
+	var listed: Array = found[KEY_CREW]
+	out.assign(listed)
+	return out
+
+
 ## "" when the list loaded and every deck holds exactly MatchRules.DECK_SIZE distinct ids
-## that `cards` holds (R2, R3); otherwise the first problem found.
-func validate(cards: CardDb) -> String:
+## that `cards` holds (R2, R3) and exactly MatchRules.CREW_SIZE distinct ids that `crew`
+## holds (cycle 8 R40, R41); otherwise the first problem found.
+func validate(cards: CardDb, crew: CrewPool) -> String:
 	if not is_valid():
 		return _error
 	if cards == null or not cards.is_valid():
 		return "%s: the decks cannot be checked against it" % ERR_POOL
+	if crew == null or not crew.is_valid():
+		return "%s: the decks cannot be checked against it" % ERR_CREW_POOL
 	for deck_entry: Dictionary in _decks:
 		var problem: String = _deck_problem(deck_entry, cards)
+		if problem == "":
+			problem = _crew_problem(deck_entry, crew)
 		if problem != "":
 			return problem
 	return ""
@@ -191,32 +218,47 @@ static func _version_problem(root: Dictionary) -> String:
 	return ""
 
 
-## One deck entry as {id, name, theme, cards: Array[String]}, or an empty Dictionary when
-## its shape is wrong. Sizes, repeats and pool membership are validate()'s.
+## One deck entry as {id, name, theme, cards: Array[String], crew: Array[String]}, or an
+## empty Dictionary when its shape is wrong. Sizes, repeats and pool membership are
+## validate()'s.
 static func _parse_deck(entry: Variant) -> Dictionary:
 	if not entry is Dictionary:
 		return {}
 	var d: Dictionary = entry
-	for key: String in [KEY_ID, KEY_NAME, KEY_THEME, KEY_CARDS]:
+	for key: String in [KEY_ID, KEY_NAME, KEY_THEME, KEY_CARDS, KEY_CREW]:
 		if not d.has(key):
 			return {}
 	if not (d[KEY_ID] is String and d[KEY_NAME] is String and d[KEY_THEME] is String):
-		return {}
-	if not d[KEY_CARDS] is Array:
 		return {}
 	var deck_id: String = d[KEY_ID]
 	var deck_name: String = d[KEY_NAME]
 	var theme: String = d[KEY_THEME]
 	if deck_id == "" or deck_name == "":
 		return {}
-	var raw_cards: Array = d[KEY_CARDS]
 	var card_list: Array[String] = []
-	for raw: Variant in raw_cards:
+	var crew_list: Array[String] = []
+	if not (_strings_into(d[KEY_CARDS], card_list) and _strings_into(d[KEY_CREW], crew_list)):
+		return {}
+	return {
+		KEY_ID: deck_id,
+		KEY_NAME: deck_name,
+		KEY_THEME: theme,
+		KEY_CARDS: card_list,
+		KEY_CREW: crew_list,
+	}
+
+
+## Appends `value`'s strings to `out`; false when `value` is not an array of strings.
+static func _strings_into(value: Variant, out: Array[String]) -> bool:
+	if not value is Array:
+		return false
+	var raw_list: Array = value
+	for raw: Variant in raw_list:
 		if not raw is String:
-			return {}
-		var card_id: String = raw
-		card_list.append(card_id)
-	return {KEY_ID: deck_id, KEY_NAME: deck_name, KEY_THEME: theme, KEY_CARDS: card_list}
+			return false
+		var text: String = raw
+		out.append(text)
+	return true
 
 
 ## The first problem of one parsed deck against `cards`, or "".
@@ -237,4 +279,27 @@ static func _deck_problem(deck_entry: Dictionary, cards: CardDb) -> String:
 		seen[card_id] = true
 		if not cards.has_id(card_id):
 			return "%s: %s lists %s, absent from the pool" % [ERR_UNKNOWN, deck_id, card_id]
+	return ""
+
+
+## The first Crew problem of one parsed deck against `crew` (cycle 8 R40, R41), or "".
+static func _crew_problem(deck_entry: Dictionary, crew: CrewPool) -> String:
+	var deck_id: String = deck_entry[KEY_ID]
+	var listed: Array[String] = []
+	var raw_crew: Array = deck_entry[KEY_CREW]
+	listed.assign(raw_crew)
+	if listed.size() != MatchRules.CREW_SIZE:
+		return (
+			"%s: %s has %d crew (expected %d)"
+			% [ERR_CREW_COUNT, deck_id, listed.size(), MatchRules.CREW_SIZE]
+		)
+	var seen: Dictionary[String, bool] = {}
+	for crew_id: String in listed:
+		if seen.has(crew_id):
+			return "%s: %s lists %s twice" % [ERR_CREW_REPEAT, deck_id, crew_id]
+		seen[crew_id] = true
+		if not crew.has_id(crew_id):
+			return (
+				"%s: %s lists %s, absent from the crew pool" % [ERR_CREW_UNKNOWN, deck_id, crew_id]
+			)
 	return ""

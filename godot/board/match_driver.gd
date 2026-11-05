@@ -34,9 +34,10 @@ var _last_events: Array[MatchEvent] = []
 var _end_payload: Dictionary = {}
 
 
-## A match on `p_seed` where seat s plays `deck_ids[s]` of `decks` over the pool `cards`;
-## an empty id takes the seed's own pairing (DC-07 R6, P14; MatchEngine.create). An
-## unknown id or failed data makes start() return no events. The bots come from
+## A match on `p_seed` where seat s plays `deck_ids[s]` of `decks` over the pool `cards`
+## and its deck's Crew from `crew` (cycle 8 R42, P12). An empty id takes the seed's own
+## pairing (DC-07 R6, P14; MatchEngine.create). An unknown id or failed data makes start()
+## return no events. The bots come from
 ## BotRegistry.make(`bot_name`, level); null when it cannot build one (the caller reports).
 static func create(
 	p_seed: int,
@@ -45,14 +46,15 @@ static func create(
 	ids: Array[String],
 	p_autoplay: bool,
 	p_bot_name: String,
-	level: int
+	level: int,
+	crew: CrewPool
 ) -> MatchDriver:
 	var driver: MatchDriver = MatchDriver.new()
 	driver._seed = p_seed
 	driver._autoplay = p_autoplay
 	driver._bot_name = p_bot_name
 	driver._cards = cards
-	driver._engine = MatchEngine.create(p_seed, cards, decks, ids)
+	driver._engine = MatchEngine.create(p_seed, cards, decks, ids, crew)
 	var defs: MatchCards = driver._engine.match_cards()
 	for seat: int in MatchEngine.SEATS:
 		if seat == PLAYER_SEAT and not p_autoplay:
@@ -114,6 +116,12 @@ func submit_choice(zone: int, index: int) -> ApplyResult:
 ## the result.
 func submit_set(zone: int, indices: Array[int]) -> ApplyResult:
 	return submit_player(EngineAction.choose_set(PLAYER_SEAT, zone, indices))
+
+
+## Declines seat 0's open optional prompt (cycle 8 R52, P10): the Skip button. Rejected like
+## any action when no prompt is open or the prompt is not optional.
+func submit_decline() -> ApplyResult:
+	return submit_player(EngineAction.decline(PLAYER_SEAT))
 
 
 ## Seat 0's open prompt (`{seat, card, verb, zone, options, multi}`), or `{}` when none is

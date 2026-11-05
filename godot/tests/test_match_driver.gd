@@ -35,13 +35,17 @@ const LINE_UNPINNED: String = ""
 ## Re-pinned at DC-09 T07 (headless --fixed-fps 60 autoplay agrees, greedy and tuned alike).
 const EXPECTED_LINE: String = (
 	"Board: match ended seed=1 decks=bloom/ruin bot=greedy winner=0 wins=4-0 rounds=4 end=wins"
-	+ " actions=64"
+	+ " actions=72"
 )
-## Seed 1's result line under the default bot (tuned, level 20, k 24); pinned at DC-08 T11.
+## Seed 1's result line under the default bot (tuned, level 20, k 24); pinned at DC-08 T11,
+## moved at DC-11 T10 (live Crew: actions 64 -> 72, same result: "Board: match ended seed=1
+## decks=bloom/ruin bot=tuned winner=0 wins=4-0 rounds=4 end=wins actions=72"). Emptied at
+## DC-11 T11 (the tuned bot may decline an optional Crew prompt and answers Shade by rule,
+## cycle 8 R56, R57); re-pinned at DC-11 T14.
 ## While empty the test prints the line and checks only `bot=tuned`.
 const GOLDEN_TUNED: String = (
 	"Board: match ended seed=1 decks=bloom/ruin bot=tuned winner=0 wins=4-0 rounds=4 end=wins"
-	+ " actions=64"
+	+ " actions=74"
 )
 ## The bot the helpers build: the greedy bot, whose play the goldens pin (R5).
 const GREEDY: String = "greedy"
@@ -80,7 +84,14 @@ func _defs() -> MatchCards:
 ## A driver for `match_seed` with the fixture deck on both seats.
 func _driver(match_seed: int, autoplay: bool) -> MatchDriver:
 	return MatchDriver.create(
-		match_seed, _db(), FixtureDecks.decks(), FixtureDecks.ids(), autoplay, GREEDY, FULL_LEVEL
+		match_seed,
+		_db(),
+		FixtureDecks.decks(),
+		FixtureDecks.ids(),
+		autoplay,
+		GREEDY,
+		FULL_LEVEL,
+		FixtureDecks.crew()
 	)
 
 
@@ -227,7 +238,14 @@ func test_seed_1_autoplay_prints_the_pinned_line(
 	# The board's own match: the shipped pool and list, seed 1's seeded pairing.
 	var seeded: Array[String] = ["", ""]
 	var driver: MatchDriver = MatchDriver.create(
-		SEED, CardDb.load_default(), DeckList.load_default(), seeded, true, GREEDY, FULL_LEVEL
+		SEED,
+		CardDb.load_default(),
+		DeckList.load_default(),
+		seeded,
+		true,
+		GREEDY,
+		FULL_LEVEL,
+		CrewPool.load_default()
 	)
 	driver.start()
 	var steps: int = 0
@@ -251,13 +269,15 @@ func test_result_line_names_both_decks_after_the_seed() -> void:
 	assert_bool(line.begins_with(head)).override_failure_message(line).is_true()
 	var seeded: Array[String] = ["", ""]
 	var decks: DeckList = FixtureDecks.decks()
-	var picked: MatchDriver = MatchDriver.create(7, _db(), decks, seeded, true, GREEDY, FULL_LEVEL)
+	var picked: MatchDriver = MatchDriver.create(
+		7, _db(), decks, seeded, true, GREEDY, FULL_LEVEL, FixtureDecks.crew()
+	)
 	var expected: Array[String] = [decks.seeded_pick(7, 0), decks.seeded_pick(7, 1)]
 	assert_array(picked.deck_ids()).is_equal(expected)
 	assert_bool(picked.start().is_empty()).is_false()
 	var unknown: Array[String] = ["fixture", "nope"]
 	var refused: MatchDriver = MatchDriver.create(
-		SEED, _db(), decks, unknown, true, GREEDY, FULL_LEVEL
+		SEED, _db(), decks, unknown, true, GREEDY, FULL_LEVEL, FixtureDecks.crew()
 	)
 	assert_array(refused.start()).is_empty()
 
@@ -402,7 +422,8 @@ func test_submit_set_answers_the_open_multi_prompt() -> void:
 		FixtureDecks.ids(),
 		false,
 		GREEDY,
-		FULL_LEVEL
+		FULL_LEVEL,
+		FixtureDecks.crew()
 	)
 	driver.start()
 	var own: Array[int] = [3, 7, FixtureDecks.C02_SACRIFICE]
@@ -439,7 +460,8 @@ func test_default_bot_is_tuned_and_named_in_the_result_line() -> void:
 		seeded,
 		true,
 		BotRegistry.default_name(),
-		FULL_LEVEL
+		FULL_LEVEL,
+		CrewPool.load_default()
 	)
 	assert_object(driver).is_not_null()
 	if driver == null:
@@ -461,17 +483,38 @@ func test_default_bot_is_tuned_and_named_in_the_result_line() -> void:
 ## return null, and level 20 builds a driver whose bots play.
 func test_create_with_random_accepts_only_the_full_level() -> void:
 	var full: MatchDriver = MatchDriver.create(
-		SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), true, "random", FULL_LEVEL
+		SEED,
+		_db(),
+		FixtureDecks.decks(),
+		FixtureDecks.ids(),
+		true,
+		"random",
+		FULL_LEVEL,
+		FixtureDecks.crew()
 	)
 	assert_object(full).is_not_null()
 	if full != null:
 		assert_bool(full.start().is_empty()).is_false()
 		assert_bool(full.bot_turn_due()).is_true()
 	var low: MatchDriver = MatchDriver.create(
-		SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), true, "random", 5
+		SEED,
+		_db(),
+		FixtureDecks.decks(),
+		FixtureDecks.ids(),
+		true,
+		"random",
+		5,
+		FixtureDecks.crew()
 	)
 	assert_object(low).is_null()
 	var unknown: MatchDriver = MatchDriver.create(
-		SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), true, "nope", FULL_LEVEL
+		SEED,
+		_db(),
+		FixtureDecks.decks(),
+		FixtureDecks.ids(),
+		true,
+		"nope",
+		FULL_LEVEL,
+		FixtureDecks.crew()
 	)
 	assert_object(unknown).is_null()
