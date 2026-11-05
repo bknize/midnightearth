@@ -1,7 +1,7 @@
 # Midnight Earth build gate. Every target dispatches to scripts/check.sh (see cycle-0 R12-R19).
 # Exit 0 = buildable and testable. GODOT_BIN overrides the Godot 4.6 binary.
 # bot-eval and bot-selftest (cycle 7) are never part of `check`.
-.PHONY: check import lint parse boot test bootstrap bot-eval bot-selftest
+.PHONY: check import lint parse boot test bootstrap bot-eval bot-selftest bot-train
 
 BOT   ?= tuned
 REF   ?= greedy_v1
@@ -16,3 +16,6 @@ test:       ; @scripts/check.sh test
 bootstrap:  ; @scripts/bootstrap.sh
 bot-eval:   ; @scripts/bot-eval.sh --a $(BOT) --b $(REF) --seeds $(SEEDS)
 bot-selftest: ; @python3 -I scripts/bot/driver.py selftest
+HOURS ?= 8
+LABEL ?=
+bot-train:  ; @scripts/bot-train.sh --bot $(BOT) --hours $(HOURS) --label "$(LABEL)"

@@ -4,7 +4,8 @@
   driver.py eval --a tuned --b greedy_v1 [--gainer|--nonreg] [--seeds 1-5000]
                  [--cap 20000] [--label L]
   driver.py selftest
-  driver.py train | calibrate        (milestone B: not yet implemented, exit 3)
+  driver.py train --bot tuned [--hours 8] [--label L] [--run-seed N]   (see evolve.py)
+  driver.py calibrate                (milestone B: not yet implemented, exit 3)
 
 Exit codes: 0 PASS, 1 FAIL, 2 CAP (cap or seed range ended the run), 3 error.
 PASS is the H1 bound in both modes (see sprt.py). Summary bound is H1, H0 or cap.
@@ -53,12 +54,16 @@ def weights_path(bot: str) -> Optional[str]:
     return p if os.path.isfile(p) else None
 
 
-def godot_worker(a: str, b: str, lo: int, hi: int, out: str, label: str) -> List[str]:
+def godot_worker(a: str, b: str, lo: int, hi: int, out: str, label: str,
+                 weights_a: Optional[str] = None,
+                 weights_b: Optional[str] = None) -> List[str]:
+    """The worker's argv. A side's weights file is the given one, none when "" and the
+    committed `<bot>_weights.json` (when there is one) when None."""
     cmd = [godot_bin(), "--headless", "--path", "godot", "-s", "res://tools/bot_worker.gd",
            "--", "--a=%s" % a, "--b=%s" % b, "--seeds=%d-%d" % (lo, hi),
            "--decks=seeded", "--out=%s" % out, "--label=%s" % label]
-    for flag, bot in (("--weights-a=", a), ("--weights-b=", b)):
-        w = weights_path(bot)
+    for flag, bot, given in (("--weights-a=", a, weights_a), ("--weights-b=", b, weights_b)):
+        w = weights_path(bot) if given is None else given
         if w:
             cmd.append(flag + w)
     return cmd
@@ -95,23 +100,34 @@ def feed_until_decided(test: sprt.Sprt,
 def run_eval(args: argparse.Namespace,
              factory: Optional[WorkerFactory] = None,
              workers: Optional[int] = None) -> int:
+    return eval_report(args, factory, workers)[0]
+
+
+def eval_report(args: argparse.Namespace,
+                factory: Optional[WorkerFactory] = None,
+                workers: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
+    """run_eval's body: (exit code, the report dict; empty when the run errored).
+    `args.weights_a` / `args.weights_b` (optional paths) replace a side's committed file."""
+    wa = getattr(args, "weights_a", "") or None
+    wb = getattr(args, "weights_b", "") or None
     try:
         lo, hi = parse_seeds(args.seeds)
     except ValueError as e:
         print("bot-eval: %s" % e, file=sys.stderr)
-        return EXIT_ERROR
+        return EXIT_ERROR, {}
     mode = "gainer" if args.gainer else "nonreg"
     label = args.label or "%s-vs-%s" % (args.a, args.b)
     if factory is None:
         if not os.path.isfile(godot_bin()):
             print("bot-eval: Godot not found at %s (set GODOT_BIN)" % godot_bin(),
                   file=sys.stderr)
-            return EXIT_ERROR
-        factory = lambda a, b, s, e, out: godot_worker(a, b, s, e, out, label)  # noqa: E731
+            return EXIT_ERROR, {}
+        factory = lambda a, b, s, e, out: godot_worker(  # noqa: E731
+            a, b, s, e, out, label, wa, wb)
     stamp = records.current_stamp()
     mismatch = False
-    for bot in (args.a, args.b):
-        ws = records.weights_stamp(bot)
+    for bot, given in ((args.a, wa), (args.b, wb)):
+        ws = records.file_stamp(given) if given else records.weights_stamp(bot)
         if ws is not None and ws != stamp:
             print("bot-eval: %s weights stamp %s differs from current %s; retrain (R38)"
                   % (bot, ws, stamp))
@@ -162,7 +178,7 @@ def run_eval(args: argparse.Namespace,
     if failures:
         for f in failures:
             print("bot-eval: " + f, file=sys.stderr)
-        return EXIT_ERROR
+        return EXIT_ERROR, {}
 
     agg = records.aggregate(consumed)
     state = test.state()
@@ -192,7 +208,7 @@ def run_eval(args: argparse.Namespace,
     with open(os.path.join(out_dir, "report.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, sort_keys=True)
     print(summary)
-    return code
+    return code, report
 
 
 def run_selftest() -> int:
@@ -215,8 +231,11 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--cap", type=int, default=sprt.DEFAULT_CAP, help="max pairs")
     ev.add_argument("--label", default="")
     ev.add_argument("--reports-dir", default="", help=argparse.SUPPRESS)
+    ev.add_argument("--weights-a", default="", help="weights file for A (default: committed)")
+    ev.add_argument("--weights-b", default="", help="weights file for B (default: committed)")
     sub.add_parser("selftest", help="run the unit tests")
-    sub.add_parser("train", help="not yet implemented (milestone B)")
+    import evolve  # noqa: E402  (evolve imports this module; only its parser is needed)
+    evolve.add_train_parser(sub)
     sub.add_parser("calibrate", help="not yet implemented (milestone B)")
     return p
 
@@ -227,6 +246,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         return run_eval(args)
     if args.cmd == "selftest":
         return run_selftest()
+    if args.cmd == "train":
+        import evolve
+        return evolve.run_train(args)
     print("driver.py %s: not yet implemented" % args.cmd, file=sys.stderr)
     return EXIT_ERROR
 
