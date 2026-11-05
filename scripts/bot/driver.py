@@ -5,7 +5,8 @@
                  [--cap 20000] [--label L]
   driver.py selftest
   driver.py train --bot tuned [--hours 8] [--label L] [--run-seed N]   (see evolve.py)
-  driver.py calibrate                (milestone B: not yet implemented, exit 3)
+  driver.py calibrate [--levels 0,4,8,12,16,20] [--pairings a/b,...] [--seeds 200]
+                                     (see calibrate.py)
 
 Exit codes: 0 PASS, 1 FAIL, 2 CAP (cap or seed range ended the run), 3 error.
 PASS is the H1 bound in both modes (see sprt.py). Summary bound is H1, H0 or cap.
@@ -56,12 +57,16 @@ def weights_path(bot: str) -> Optional[str]:
 
 def godot_worker(a: str, b: str, lo: int, hi: int, out: str, label: str,
                  weights_a: Optional[str] = None,
-                 weights_b: Optional[str] = None) -> List[str]:
+                 weights_b: Optional[str] = None, decks: str = "seeded",
+                 level_a: Optional[int] = None) -> List[str]:
     """The worker's argv. A side's weights file is the given one, none when "" and the
-    committed `<bot>_weights.json` (when there is one) when None."""
+    committed `<bot>_weights.json` (when there is one) when None. `decks` is `seeded` or
+    `<id>/<id>`; `level_a` (when given) is A's difficulty level."""
     cmd = [godot_bin(), "--headless", "--path", "godot", "-s", "res://tools/bot_worker.gd",
            "--", "--a=%s" % a, "--b=%s" % b, "--seeds=%d-%d" % (lo, hi),
-           "--decks=seeded", "--out=%s" % out, "--label=%s" % label]
+           "--decks=%s" % decks, "--out=%s" % out, "--label=%s" % label]
+    if level_a is not None:
+        cmd.append("--level-a=%d" % level_a)
     for flag, bot, given in (("--weights-a=", a, weights_a), ("--weights-b=", b, weights_b)):
         w = weights_path(bot) if given is None else given
         if w:
@@ -236,7 +241,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("selftest", help="run the unit tests")
     import evolve  # noqa: E402  (evolve imports this module; only its parser is needed)
     evolve.add_train_parser(sub)
-    sub.add_parser("calibrate", help="not yet implemented (milestone B)")
+    import calibrate  # noqa: E402  (calibrate imports this module; only its parser is needed)
+    calibrate.add_calibrate_parser(sub)
     return p
 
 
@@ -249,6 +255,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.cmd == "train":
         import evolve
         return evolve.run_train(args)
+    if args.cmd == "calibrate":
+        import calibrate
+        return calibrate.run_calibrate(args)
     print("driver.py %s: not yet implemented" % args.cmd, file=sys.stderr)
     return EXIT_ERROR
 
