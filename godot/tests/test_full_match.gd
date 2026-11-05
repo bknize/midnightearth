@@ -11,8 +11,13 @@ extends GdUnitTestSuite
 ## records the longest walk in pulses (the slots of both rows at walk start, DC-06 R4).
 ## The sweep prints "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=.. slowest_us=..
 ## prompts=.. destroyed_hidden=.. pile_hidden=.. recoveries=.. recoveries_hidden=.. sets=..
-## bot=.. p95_us=.. p99_us=.. stamp=match|MISMATCH" and per pairing "Sweep pairing <a>/<b>: seeds=..
-## longest=.. seed=.. slowest_us=.. seed=.." (DC-07 T08; cycle 7 T05, R17, R19, R35, R56).
+## memory_hidden=.. bot=.. p95_us=.. p99_us=.. stamp=match|MISMATCH" and per pairing played
+## "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=.. slowest_us=.. seed=.." (DC-07 T08;
+## cycle 7 T05, R17, R19, R35, R56).
+## Cycle 8 (DC-09 T04; R8, R10, R31): the seeded pairing draws from four decks (ruin, drift,
+## bloom, echo); a commit's cost reads the card's memory (an ability's cost reduction); the
+## leak scan covers memory on hidden cards (a private STATS_CHANGED or CARD_RETURNED never
+## names one to the other seat, and a face-down row entry shows no cost, growth or uses).
 ##
 ## Matches are played as main.gd plays its smoke run: the shipped pool and deck list, each
 ## seat's deck the seed's own pairing (DeckList.seeded_pick, DC-07 R6, P14, C15), one
@@ -25,16 +30,15 @@ extends GdUnitTestSuite
 ## slowest is printed (R17, DC-08); the weights' stamp is printed, never asserted (R35).
 
 # GOLDEN (cycle 7 T05, R56: pinned by the orchestrator at verification)
-# The greedy bot's last pin (DC-07 T13), for reference: decks ruin/ruin, winner 1, wins
-# 1-4, rounds 5, end wins, actions 88 (DC-06: winner=0 wins=4-3 rounds=7 actions=120).
-# Seed 1's line under the default bot (tuned, k 24), pinned at DC-08 T11: the greedy game.
-const GOLDEN_TUNED: String = (
-	"seed=1 decks=ruin/ruin bot=tuned winner=1 wins=1-4 rounds=5 end=wins actions=88"
-)
+# Seed 1's line under the default bot (tuned, k 24), pinned at DC-08 T11 (the greedy game
+# of DC-07 T13): "seed=1 decks=ruin/ruin bot=tuned winner=1 wins=1-4 rounds=5 end=wins
+# actions=88". Emptied at DC-09 T04 (Bloom and Echo shipped); re-pinned at T07.
+const GOLDEN_TUNED: String = ""
 # END GOLDEN
 
-## The four pairings of the shipped decks, in the order the sweep prints them.
-const PAIRINGS: Array[String] = ["ruin/ruin", "ruin/drift", "drift/ruin", "drift/drift"]
+## The shipped decks (cycle 8 R10); the sweep's pairings are every "a/b" of them, in the
+## order _pairings() lists them.
+const DECKS: Array[String] = ["ruin", "drift", "bloom", "echo"]
 const SEED: int = 1
 const SWEEP_FIRST: int = 1
 const SWEEP_LAST: int = 50
@@ -73,7 +77,7 @@ static var sweep_prompts: int = 0
 ## The longest single walk of the sweep in pulses, and its seed (DC-06 T03, R25, NSC-74).
 static var longest_walk: int = 0
 static var longest_walk_seed: int = 0
-## Per pairing ("a/b", PAIRINGS): {seeds, longest, longest_seed, slowest_us, slowest_seed};
+## Per pairing ("a/b", _pairings()): {seeds, longest, longest_seed, slowest_us, slowest_seed};
 ## set by the sweep test (DC-07 T08, R38; read at T13 for NSC-74).
 static var pairing_records: Dictionary = {}
 
@@ -83,14 +87,14 @@ var _cached_decks: DeckList = null
 # --- Helpers --------------------------------------------------------------------------
 
 
-## The shipped pool (DC-07 T08: the Ruin and Drift cards).
+## The shipped pool (DC-07 T08: the Ruin and Drift cards; DC-09 T04: Bloom and Echo too).
 func _db() -> CardDb:
 	if _cached_db == null:
 		_cached_db = CardDb.load_default()
 	return _cached_db
 
 
-## The shipped deck list (`ruin`, `drift`).
+## The shipped deck list (DECKS).
 func _decks() -> DeckList:
 	if _cached_decks == null:
 		_cached_decks = DeckList.load_default()
@@ -116,6 +120,15 @@ func _pairing(engine: MatchEngine) -> String:
 	return "%s/%s" % [ids[0], ids[1]]
 
 
+## Every pairing of DECKS as "a/b" (seat 0's deck, then seat 1's), seat 0's deck major.
+static func _pairings() -> Array[String]:
+	var out: Array[String] = []
+	for first: String in DECKS:
+		for second: String in DECKS:
+			out.append("%s/%s" % [first, second])
+	return out
+
+
 func _typed(values: Array) -> Array[int]:
 	var out: Array[int] = []
 	out.assign(values)
@@ -139,9 +152,10 @@ func _state_int(state: Dictionary, key: String) -> int:
 
 
 ## The cost of one card instance of a match on `deck_ids`, from the pool and the list: its
-## origin seat's deck, its index in that deck (DC-07 P3: id = origin * 20 + index). An
-## unknown id costs more than any energy.
-func _card_cost(deck_ids: Array[String], card: int) -> int:
+## origin seat's deck, its index in that deck (DC-07 P3: id = origin * 20 + index), less the
+## reduction in its `memory` entry (the full state's "memory", cycle 8 P2, P3), never below
+## MatchRules.MIN_COST. An unknown id costs more than any energy.
+func _card_cost(deck_ids: Array[String], card: int, memory: Dictionary) -> int:
 	var origin: int = card / MatchRules.DECK_SIZE
 	if card < 0 or origin >= deck_ids.size():
 		return MAX_ACTIONS
@@ -152,17 +166,24 @@ func _card_cost(deck_ids: Array[String], card: int) -> int:
 	var def: CardDef = _db().card_by_id(listed[index])
 	if def == null:
 		return MAX_ACTIONS
-	return def.cost
+	var kept: Dictionary = memory.get(card, {})
+	var reduction: int = kept.get("cost", 0)
+	return maxi(def.cost - reduction, MatchRules.MIN_COST)
 
 
 ## The summed cost of a commit whose cards are in slot order, less the leftmost card's when
-## `free_first` (R10): computed here from the pool and the list, not through LegalPlays.
-func _commit_cost(deck_ids: Array[String], cards: Array[int], free_first: bool) -> int:
+## `seat` holds the free first card (R10), both read from the full state `state`: computed
+## here from the pool, the list and the memory, not through LegalPlays.
+func _commit_cost(state: Dictionary, seat: int, cards: Array[int]) -> int:
+	var deck_ids: Array[String] = []
+	var listed: Array = state["deck_ids"]
+	deck_ids.assign(listed)
+	var memory: Dictionary = state.get("memory", {})
 	var total: int = 0
 	for card: int in cards:
-		total += _card_cost(deck_ids, card)
-	if free_first and not cards.is_empty():
-		total -= _card_cost(deck_ids, cards[0])
+		total += _card_cost(deck_ids, card, memory)
+	if _free_first(state, seat) and not cards.is_empty():
+		total -= _card_cost(deck_ids, cards[0], memory)
 	return total
 
 
@@ -213,8 +234,8 @@ func _own_set(state: Dictionary, seat: int) -> Dictionary:
 
 
 ## Both seats' hidden sets (_hidden_set) and own sets (_own_set) of `state`, indexed by seat.
-func _sets_of(state: Dictionary) -> StateSets:
-	var out: StateSets = StateSets.new()
+func _sets_of(state: Dictionary) -> FullMatchRun.StateSets:
+	var out: FullMatchRun.StateSets = FullMatchRun.StateSets.new()
 	for seat: int in range(MatchEngine.SEATS):
 		out.hidden.append(_hidden_set(state, seat))
 		out.own.append(_own_set(state, seat))
@@ -287,8 +308,8 @@ func _new_bots(match_seed: int, engine: MatchEngine) -> Array[BotPlayer]:
 
 ## Plays `match_seed` bot against bot to the end or the cap, checking every invariant at
 ## every step. `scan_every_step` false leak-scans only the start and turn-ending steps.
-func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
-	var run: MatchRun = MatchRun.new()
+func _play(match_seed: int, scan_every_step: bool) -> FullMatchRun:
+	var run: FullMatchRun = FullMatchRun.new()
 	run.match_seed = match_seed
 	var engine: MatchEngine = _new_engine(match_seed)
 	run.engine = engine
@@ -320,10 +341,9 @@ func _play(match_seed: int, scan_every_step: bool) -> MatchRun:
 		run.decision_us.append(took_us)
 		run.slowest_us = maxi(run.slowest_us, took_us)
 		# The seat's budget, not the turn: a carry card raises it (DC-05 T04, R9), and the
-		# free first card makes the leftmost card free (R10).
+		# free first card makes the leftmost card free (R10); `after` is the state chosen on.
 		var prompt: Dictionary = engine.open_prompt()
-		var budget: int = engine.budget_for(seat)
-		_check_commit(run, action, seat, budget, _free_first(after, seat), prompt)
+		_check_commit(run, action, seat, engine.budget_for(seat), after, prompt)
 		# This step's "before" is the last step's "after": its full state and, when the last
 		# step was scanned, its hidden and own sets (NSC-97), so each state is read once.
 		before = after
@@ -361,15 +381,16 @@ func _walk_pulses(before: Dictionary, action: EngineAction) -> int:
 
 
 ## The bot's action is for the awaited seat: a commit costing no more than its budget (with
-## the free first card when the seat holds it), or, while a prompt is open (DC-05 T05), a
+## the free first card when the seat holds it, and each card's cost reduction, both read
+## from `state`, the full state the bot chose on), or, while a prompt is open (DC-05 T05), a
 ## choice: a set for a multi-select prompt (DC-07 P7, P13), with every index offered and
 ## none repeated, else a single position.
 func _check_commit(
-	run: MatchRun,
+	run: FullMatchRun,
 	action: EngineAction,
 	seat: int,
 	energy: int,
-	free_first: bool,
+	state: Dictionary,
 	prompt: Dictionary
 ) -> void:
 	var where: String = "action %d" % run.actions
@@ -392,14 +413,14 @@ func _check_commit(
 	if prompted:
 		run.choices += 1
 		return
-	var cost: int = _commit_cost(run.engine.deck_ids(), action.cards, free_first)
+	var cost: int = _commit_cost(state, seat, action.cards)
 	if cost > energy:
 		run.energy_violations.append(where + ": cost %d over energy %d" % [cost, energy])
 
 
 ## Hand cap for both seats after the step, then (when `scan`) the leak scan.
 func _check_step(
-	run: MatchRun, before: Dictionary, after: Dictionary, result: ApplyResult, scan: bool
+	run: FullMatchRun, before: Dictionary, after: Dictionary, result: ApplyResult, scan: bool
 ) -> void:
 	for seat: int in range(MatchEngine.SEATS):
 		var size: int = _state_list(after, "hand", seat).size()
@@ -416,9 +437,11 @@ func _check_step(
 ## no id that was hidden from it before or after the step, less the cards this step
 ## revealed in public (the approach of test_seat_view.gd).
 ## The hidden and own sets of `before` and `after` are built once per state and kept on the
-## run (MatchRun.sets_before, sets_after), so a step reuses the last step's `after` sets as
-## its `before` sets; each is copied before it is merged into.
-func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: ApplyResult) -> void:
+## run (FullMatchRun.sets_before, sets_after), so a step reuses the last step's `after` sets
+## as its `before` sets; each is copied before it is merged into.
+func _scan_leaks(
+	run: FullMatchRun, before: Dictionary, after: Dictionary, result: ApplyResult
+) -> void:
 	run.steps_scanned += 1
 	if run.sets_before == null:
 		run.sets_before = _sets_of(before)
@@ -441,7 +464,7 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 				run.leaks.append(where + ": view names hidden card %d" % card)
 		if view.opponent_pending_count > 0:
 			run.face_down_seen += 1
-		_scan_destroyed_rows(run, view, where)
+		_scan_hidden_rows(run, view, where)
 		_scan_destroyed_pile(run, view, after, where)
 		var hidden_during: Dictionary = run.sets_before.hidden[opp].duplicate()
 		hidden_during.merge(hidden_now)
@@ -472,6 +495,8 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 					run.destroyed_hidden_seen += 1
 				if event.kind == MatchEvent.Kind.CARD_RECOVERED:
 					run.hidden_recoveries_seen += 1
+				if _is_memory_kind(event.kind):
+					run.memory_hidden_seen += 1
 			var exempt: bool = _may_name_public_card(event)
 			for card: int in _event_card_ids(event):
 				if not hidden_during.has(card) or own_known.has(card):
@@ -483,34 +508,43 @@ func _scan_leaks(run: MatchRun, before: Dictionary, after: Dictionary, result: A
 				run.leaks.append(where + ": event %d names hidden card %d" % [event.kind, card])
 
 
-## DC-06 R20: a destroyed card still face down on the opponent's row (a walk paused on a
-## prompt after the destroy) shows its slot as destroyed, and neither its id nor its stats.
-func _scan_destroyed_rows(run: MatchRun, view: SeatView, where: String) -> void:
+## A face-down card on the opponent's row shows neither its id nor its stats (DC-06 R20: a
+## destroyed one still shows its slot as destroyed), nor its memory (cycle 8 R8, DC-09 T04):
+## cost 0, grown false and uses_left -1, whatever its card remembers.
+func _scan_hidden_rows(run: FullMatchRun, view: SeatView, where: String) -> void:
 	for slot: int in range(view.opponent_row.size()):
 		var entry: Dictionary = view.opponent_row[slot]
-		var destroyed: bool = entry.get("destroyed", false)
 		var revealed: bool = entry.get("revealed", false)
-		if not destroyed or revealed:
+		if revealed:
 			continue
-		run.destroyed_hidden_seen += 1
+		var destroyed: bool = entry.get("destroyed", false)
+		if destroyed:
+			run.destroyed_hidden_seen += 1
 		var card: int = entry.get(MatchEvent.KEY_CARD, MatchEvent.HIDDEN_CARD)
 		var flat: int = entry.get("flat", 0)
 		var times: int = entry.get("times", MatchRules.MULT_ONE)
 		var plus: int = entry.get("plus", 0)
 		var no_bonus: bool = times == MatchRules.MULT_ONE and plus == 0
 		if card != MatchEvent.HIDDEN_CARD or flat != 0 or not no_bonus:
-			run.leaks.append(where + ": destroyed face-down slot %d shows its card" % slot)
+			run.leaks.append(where + ": face-down slot %d shows its card" % slot)
+		var cost: int = entry.get("cost", 0)
+		var grown: bool = entry.get("grown", false)
+		var uses_left: int = entry.get("uses_left", -1)
+		if cost != 0 or grown or uses_left != -1:
+			run.leaks.append(where + ": face-down slot %d shows its memory" % slot)
 		var on_board: int = MatchEvent.HIDDEN_CARD
 		if slot < view.opponent_board.size():
 			on_board = view.opponent_board[slot]
 		if on_board != MatchEvent.HIDDEN_CARD:
-			run.leaks.append(where + ": opponent_board names destroyed face-down slot %d" % slot)
+			run.leaks.append(where + ": opponent_board names face-down slot %d" % slot)
 
 
 ## DC-07 R16-R18, P6: the opponent's destroyed pile shows its full size in pile order, and
 ## an entry whose identity is not public (`destroyed_known`) only as HIDDEN_CARD; a known
 ## entry shows its id. (Hidden ids in the view are also caught by _view_card_ids.)
-func _scan_destroyed_pile(run: MatchRun, view: SeatView, after: Dictionary, where: String) -> void:
+func _scan_destroyed_pile(
+	run: FullMatchRun, view: SeatView, after: Dictionary, where: String
+) -> void:
 	var pile: Array[int] = _state_list(after, "destroyed", view.opponent)
 	var known: Array[int] = _state_list(after, "destroyed_known", view.opponent)
 	if view.opponent_destroyed.size() != pile.size():
@@ -533,6 +567,12 @@ func _is_destroy_kind(kind: int) -> bool:
 	return kind == MatchEvent.Kind.CARD_DESTROYED or kind == MatchEvent.Kind.DESTROYED_CLEARED
 
 
+## The kinds that carry memory on a hidden card when private (cycle 8 R8, P4): a growth or
+## cost change (STATS_CHANGED) and a face-down card's turn-end return (CARD_RETURNED).
+func _is_memory_kind(kind: int) -> bool:
+	return kind == MatchEvent.Kind.STATS_CHANGED or kind == MatchEvent.Kind.CARD_RETURNED
+
+
 ## Whether `event` may name a card that was face up on the opponent's row before the step
 ## and is hidden after it (DC-05 T13): the on-row kinds that report that card in public
 ## (scored, revealed, stats, returned, a public burn), plus those the engine emits for a
@@ -540,24 +580,25 @@ func _is_destroy_kind(kind: int) -> bool:
 ## firing (c06's flat-up, c05's carry), a choice (its source, or a face-up target such as
 ## c17's), and a public destroy or move. Never a deal, draw, discard, commit or any other
 ## private kind: those must not name a card that was public.
+## DC-07 P9: CARD_UNREVEALED is a face-up card flipping down in public; the face-down rules
+## hide it from then on. DC-07 R25: a declined set ("Destroy 0") fizzles the face-up source
+## in public. DC-06: the turn-end clear of a destroyed card is public once it was revealed;
+## DC-07: so is the recovery of a pile card whose identity was public. Cycle 8 R8 (DC-09
+## T04): a private STATS_CHANGED or CARD_RETURNED (memory on a hand or face-down card, a
+## face-down card's return) never names a card to the other seat, even one public before.
 func _may_name_public_card(event: MatchEvent) -> bool:
 	match event.kind:
 		MatchEvent.Kind.CARD_SCORED, MatchEvent.Kind.CARD_REVEALED:
 			return true
-		# DC-07 P9: CARD_UNREVEALED is a face-up card flipping down in public; the face-down
-		# rules hide it from then on.
-		MatchEvent.Kind.STATS_CHANGED, MatchEvent.Kind.CARD_RETURNED, MatchEvent.Kind.CARD_UNREVEALED:
+		MatchEvent.Kind.CARD_UNREVEALED, MatchEvent.Kind.CHOICE_MADE:
 			return true
-		# DC-07 R25: a declined set ("Destroy 0") fizzles the face-up source in public.
-		MatchEvent.Kind.EFFECT_FIRED, MatchEvent.Kind.EFFECT_FIZZLED, MatchEvent.Kind.CHOICE_MADE:
+		MatchEvent.Kind.EFFECT_FIRED, MatchEvent.Kind.EFFECT_FIZZLED:
 			return true
 		MatchEvent.Kind.CARD_BURNED, MatchEvent.Kind.CARD_DESTROYED, MatchEvent.Kind.CARD_MOVED:
 			return not event.is_private()
 		MatchEvent.Kind.DESTROYED_CLEARED, MatchEvent.Kind.CARD_RECOVERED:
-			# DC-06: the turn-end clear of a destroyed card is public once it was revealed;
-			# DC-07: so is the recovery of a pile card whose identity was public.
 			return not event.is_private()
-	return false
+	return _is_memory_kind(event.kind) and not event.is_private()
 
 
 ## The kinds a recovery emits for the recovering seat (DC-07 R19): the choice, the recovery
@@ -570,14 +611,14 @@ func _is_recovery_kind(kind: int) -> bool:
 	)
 
 
-func _record_end(run: MatchRun, result: ApplyResult) -> void:
+func _record_end(run: FullMatchRun, result: ApplyResult) -> void:
 	for event: MatchEvent in result.events:
 		if event.kind == MatchEvent.Kind.MATCH_ENDED:
 			run.end_payload = event.payload.duplicate(true)
 
 
 ## The match result in the smoke line's terms; empty when the match did not end.
-func _summary(run: MatchRun) -> Dictionary:
+func _summary(run: FullMatchRun) -> Dictionary:
 	if run.end_payload.is_empty():
 		return {}
 	var winner: int = run.end_payload["winner"]
@@ -598,7 +639,7 @@ func _summary(run: MatchRun) -> Dictionary:
 ## The match result as one line in the smoke line's terms (GOLDEN_TUNED's format):
 ## "seed=.. decks=a/b bot=<name> winner=.. wins=a-b rounds=.. end=<reason> actions=..";
 ## empty when the match did not end.
-func _result_line(run: MatchRun) -> String:
+func _result_line(run: FullMatchRun) -> String:
 	var got: Dictionary = _summary(run)
 	if got.is_empty():
 		return ""
@@ -642,7 +683,7 @@ func _parsed_problem(parsed: ActionLog, engine: MatchEngine) -> String:
 
 
 ## Every invariant of one run, each failure labelled with the seed.
-func _assert_run(run: MatchRun) -> void:
+func _assert_run(run: FullMatchRun) -> void:
 	var label: String = "seed %d: " % run.match_seed
 	var capped: String = label + "not over after %d actions" % MAX_ACTIONS
 	var no_end: String = label + "no MATCH_ENDED event"
@@ -671,7 +712,7 @@ func _assert_none(found: Array[String], what: String) -> void:
 
 
 func test_seed_1_plays_to_the_end_and_replays() -> void:
-	var run: MatchRun = _play(SEED, true)
+	var run: FullMatchRun = _play(SEED, true)
 	_assert_run(run)
 	var summary: Dictionary = _summary(run)
 	assert_bool(summary.is_empty()).is_false()
@@ -698,8 +739,8 @@ func test_seed_1_plays_to_the_end_and_replays() -> void:
 ## R37: the bots are functions of their seeds and views, so seed 1 plays the same match
 ## every time, action for action.
 func test_seed_1_is_the_same_match_every_time() -> void:
-	var first: MatchRun = _play(SEED, false)
-	var second: MatchRun = _play(SEED, false)
+	var first: FullMatchRun = _play(SEED, false)
+	var second: FullMatchRun = _play(SEED, false)
 	assert_str(second.engine.action_log().to_json()).is_equal(first.engine.action_log().to_json())
 	assert_dict(second.engine.full_state()).is_equal(first.engine.full_state())
 	assert_dict(_summary(second)).is_equal(_summary(first))
@@ -735,8 +776,9 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	longest_walk = 0
 	longest_walk_seed = 0
 	pairing_records = {}
-	for pairing: String in PAIRINGS:
+	for pairing: String in _pairings():
 		pairing_records[pairing] = _empty_record()
+	var memory_hidden: int = 0
 	var destroyed_hidden: int = 0
 	var pile_hidden: int = 0
 	var recoveries: int = 0
@@ -748,7 +790,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	var ended: int = 0
 	var decisions: PackedInt32Array = PackedInt32Array()
 	for match_seed: int in range(SWEEP_FIRST, SWEEP_LAST + 1):
-		var run: MatchRun = _play(match_seed, match_seed <= EVERY_STEP_SCAN_LAST)
+		var run: FullMatchRun = _play(match_seed, match_seed <= EVERY_STEP_SCAN_LAST)
 		_assert_run(run)
 		decisions.append_array(run.decision_us)
 		face_down_seen += run.face_down_seen
@@ -758,6 +800,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 		pile_hidden += run.pile_hidden_seen
 		recoveries += run.recoveries_seen
 		recoveries_hidden += run.hidden_recoveries_seen
+		memory_hidden += run.memory_hidden_seen
 		set_answers += run.set_answers
 		_record_pairing(run)
 		if run.longest_walk > longest_walk:
@@ -781,8 +824,8 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 			(
 				"Sweep: longest=%d seed=%d longest_walk=%d walk_seed=%d"
 				+ " slowest_us=%d prompts=%d destroyed_hidden=%d pile_hidden=%d"
-				+ " recoveries=%d recoveries_hidden=%d sets=%d bot=%s p95_us=%d"
-				+ " p99_us=%d stamp=%s"
+				+ " recoveries=%d recoveries_hidden=%d sets=%d memory_hidden=%d bot=%s"
+				+ " p95_us=%d p99_us=%d stamp=%s"
 			)
 			% [
 				longest_actions,
@@ -796,6 +839,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 				recoveries,
 				recoveries_hidden,
 				set_answers,
+				memory_hidden,
 				sweep_bot,
 				p95_us,
 				p99_us,
@@ -828,6 +872,10 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	assert_int(pile_hidden).override_failure_message(no_pile).is_greater(0)
 	var no_recovery: String = "no recovery in the sweep"
 	assert_int(recoveries).override_failure_message(no_recovery).is_greater(0)
+	# Cycle 8 R8, R31: memory on a hidden card really reached the scan, redacted for the
+	# other seat (a growth on a hand card: Rain, Redwood, Vine).
+	var no_memory: String = "no private memory event in the sweep"
+	assert_int(memory_hidden).override_failure_message(no_memory).is_greater(0)
 	# The longest match, readable from the static and from this message.
 	var longest: String = (
 		"longest match: seed %d, %d actions (cap %d)" % [longest_seed, longest_actions, MAX_ACTIONS]
@@ -842,7 +890,7 @@ func _empty_record() -> Dictionary:
 
 ## Folds one run into its pairing's record (DC-07 T08, R38): the seed count, the longest
 ## match in accepted actions and the slowest single bot decision, each with its seed.
-func _record_pairing(run: MatchRun) -> void:
+func _record_pairing(run: FullMatchRun) -> void:
 	if not pairing_records.has(run.pairing):
 		pairing_records[run.pairing] = _empty_record()
 	var record: Dictionary = pairing_records[run.pairing]
@@ -858,12 +906,14 @@ func _record_pairing(run: MatchRun) -> void:
 		record["slowest_seed"] = run.match_seed
 
 
-## One line per pairing for the orchestrator to read at verification (DC-07 T13, NSC-74):
-## "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=.. slowest_us=.. seed=..".
+## One line per pairing played for the orchestrator to read at verification (DC-07 T13,
+## NSC-74): "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=.. slowest_us=.. seed=..".
 func _print_pairings() -> void:
-	for pairing: String in PAIRINGS:
+	for pairing: String in _pairings():
 		var record: Dictionary = pairing_records.get(pairing, _empty_record())
 		var seeds: int = record["seeds"]
+		if seeds == 0:
+			continue
 		var longest: int = record["longest"]
 		var longest_at: int = record["longest_seed"]
 		var slowest: int = record["slowest_us"]
@@ -876,21 +926,28 @@ func _print_pairings() -> void:
 		)
 
 
-## Every swept seed played one of the four pairings, and the seeded pairing reached each
-## of them (C15: the sweep exercises every deck on both seats).
+## Every swept seed played one of the sixteen pairings of DECKS, and the seeded pairing put
+## every deck on each seat at least once (C15: the sweep exercises every deck on both
+## seats; with four decks, 50 seeds need not reach all sixteen pairings, cycle 8 R31).
 func _assert_pairings() -> void:
+	var known_pairings: Array[String] = _pairings()
 	var total: int = 0
-	for pairing: String in pairing_records.keys():
+	var on_seat: Array[Dictionary] = [{}, {}]
+	for key: Variant in pairing_records.keys():
+		var pairing: String = key
 		var known: String = "unexpected pairing %s" % pairing
-		assert_bool(PAIRINGS.has(pairing)).override_failure_message(known).is_true()
+		assert_bool(known_pairings.has(pairing)).override_failure_message(known).is_true()
 		var record: Dictionary = pairing_records[pairing]
 		var seeds: int = record["seeds"]
 		total += seeds
-	for pairing: String in PAIRINGS:
-		var record: Dictionary = pairing_records.get(pairing, _empty_record())
-		var seeds: int = record["seeds"]
-		var never: String = "no seed of the sweep played %s" % pairing
-		assert_int(seeds).override_failure_message(never).is_greater(0)
+		var decks: PackedStringArray = pairing.split("/")
+		for seat: int in range(mini(decks.size(), MatchEngine.SEATS)):
+			if seeds > 0:
+				on_seat[seat][decks[seat]] = true
+	for seat: int in range(MatchEngine.SEATS):
+		for deck_id: String in DECKS:
+			var never: String = "no seed of the sweep played %s on seat %d" % [deck_id, seat]
+			assert_bool(on_seat[seat].has(deck_id)).override_failure_message(never).is_true()
 	assert_int(total).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
 
 
@@ -941,60 +998,3 @@ func test_stamp_check_reports_a_changed_stamp_as_mismatch() -> void:
 	assert_str(copied.stamp).is_equal(ALTERED_STAMP)
 	assert_str(BotStamp.current()).is_not_equal(ALTERED_STAMP)
 	assert_str(status).is_equal(STAMP_MISMATCH)
-
-
-## One played match and everything the harness saw on the way.
-class MatchRun:
-	extends RefCounted
-
-	var match_seed: int = 0
-	var engine: MatchEngine = null
-	## The match's decks as "a/b" (seat 0's, then seat 1's; DC-07 T08).
-	var pairing: String = ""
-	var start_ok: bool = false
-	## Accepted actions.
-	var actions: int = 0
-	## True when the harness cap stopped the match.
-	var capped: bool = false
-	var end_payload: Dictionary = {}
-	var max_hand: int = 0
-	var steps_scanned: int = 0
-	var face_down_seen: int = 0
-	var redacted_seen: int = 0
-	## Prompts the bots answered (DC-05 T05).
-	var choices: int = 0
-	## The bot's registry name (BotPlayer.bot_name(); cycle 7 T05).
-	var bot: String = ""
-	## The slowest bot choose() call, in microseconds (DC-05 T07), and every call's time in
-	## play order (cycle 7 T05, R17).
-	var slowest_us: int = 0
-	var decision_us: PackedInt32Array = PackedInt32Array()
-	## The longest walk of the match in pulses (DC-06 T03).
-	var longest_walk: int = 0
-	## Destroyed face-down cards the leak scan saw: redacted CARD_DESTROYED and
-	## DESTROYED_CLEARED events, and destroyed face-down row entries in views (DC-06 T03).
-	var destroyed_hidden_seen: int = 0
-	## Opponent destroyed-pile entries the views showed as hidden (DC-07 R18).
-	var pile_hidden_seen: int = 0
-	## CARD_RECOVERED events, and those the other seat saw redacted (DC-07 R19).
-	var recoveries_seen: int = 0
-	var hidden_recoveries_seen: int = 0
-	## Multi-select prompts the bots answered with a set (DC-07 P13).
-	var set_answers: int = 0
-	var rejections: Array[String] = []
-	var hand_violations: Array[String] = []
-	var energy_violations: Array[String] = []
-	var leaks: Array[String] = []
-	## The leak scan's sets of this step's `before` and `after` states (NSC-97): null until
-	## the scan builds them; `after`'s become the next step's `before` (TestFullMatch._play).
-	var sets_before: StateSets = null
-	var sets_after: StateSets = null
-
-
-## One full state's leak-scan sets, each indexed by seat: the ids hidden from the other
-## seat (TestFullMatch._hidden_set) and the ids the seat holds itself (_own_set).
-class StateSets:
-	extends RefCounted
-
-	var hidden: Array[Dictionary] = []
-	var own: Array[Dictionary] = []

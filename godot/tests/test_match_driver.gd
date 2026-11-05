@@ -27,22 +27,21 @@ const LINE_UNPINNED: String = ""
 ## DC-08 T07 (R5): the line gains `bot=<name>` after the decks and the greedy bot is
 ## unchanged, so this pin is built with "greedy" explicitly. The pre-bot literal was
 ## "Board: match ended seed=1 decks=ruin/ruin winner=1 wins=1-4 rounds=5 end=wins actions=88".
-const EXPECTED_LINE: String = (
-	"Board: match ended seed=1 decks=ruin/ruin bot=greedy winner=1 wins=1-4 rounds=5 end=wins"
-	+ " actions=88"
-)
+## DC-09 T04 (cycle 8 R10, R30): the pool and list gain Bloom and Echo, so seed 1's seeded
+## pairing draws from four decks and both pins are emptied until the orchestrator re-pins
+## them at T07. The DC-08 lines were "Board: match ended seed=1 decks=ruin/ruin bot=greedy
+## winner=1 wins=1-4 rounds=5 end=wins actions=88" (EXPECTED_LINE) and the same with
+## `bot=tuned` (GOLDEN_TUNED).
+const EXPECTED_LINE: String = LINE_UNPINNED
 ## Seed 1's result line under the default bot (tuned, level 20, k 24); pinned at DC-08 T11.
 ## While empty the test prints the line and checks only `bot=tuned`.
-const GOLDEN_TUNED: String = (
-	"Board: match ended seed=1 decks=ruin/ruin bot=tuned winner=1 wins=1-4 rounds=5 end=wins"
-	+ " actions=88"
-)
+const GOLDEN_TUNED: String = ""
 ## The bot the helpers build: the greedy bot, whose play the goldens pin (R5).
 const GREEDY: String = "greedy"
 const FULL_LEVEL: int = 20
 const LINE_SKIP_NOTE: String = (
-	"unpinned at DC-07 T01 (card data format 3): pin EXPECTED_LINE from seed 1's"
-	+ " 'Board: match ended' line"
+	"unpinned at DC-09 T04 (Bloom and Echo shipped, four-deck pairing): pin EXPECTED_LINE"
+	+ " from seed 1's greedy 'Board: match ended' line"
 )
 ## Event kinds whose card ids are private to their owner.
 const PRIVATE_KINDS: Array[int] = [
