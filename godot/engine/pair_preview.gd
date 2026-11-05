@@ -22,10 +22,21 @@ extends RefCounted
 ## Whether `opp` is a hypothesis the joint preview takes for `opponent` on `state` (R48):
 ## a commit by `opponent` whose cards are unseen (is_unseen) and legal for its public
 ## `budget` (MatchEngine.budget_for: the turn plus its carry) at the resolved slots
-## (slots_of) on its row, priced at printed costs with its free-first grant as `state` holds
-## it now. When `opponent` committed first (its face-down commit is pending), the hypothesis
-## must also have the public count and the public slots of that commit. Its grant is then
-## already consumed, so the check prices the hypothesis without it.
+## (slots_of) on its row, priced at printed costs with the free first card as _free_first
+## gives it. When `opponent` committed first (its face-down commit is pending), the
+## hypothesis must also have the public count and the public slots of that commit.
+##
+## Two refusals are deliberate, so a legal real commit can have no acceptable hypothesis:
+## - Foreign origin. A card whose origin (MatchCards.origin_of) is not `opponent` is
+##   refused wherever it sits, even in the opponent's hand, where a recover from the
+##   destroyed piles can put a card of the previewing seat's deck. R49 takes only cards of
+##   the opponent's deck; accepting a card of the seat's own deck only when the opponent
+##   holds it would tell the caller where that card went.
+## - Printed cost. Every hypothesis card is priced at its definition's cost
+##   (LegalPlays.def_costs), not the effective cost the live engine charges (cycle 8 R4), so
+##   a commit that fits the budget only through a hidden cost cut (an Echo cost-down memory
+##   on a card the view cannot locate) is refused. Pricing by the real memory would make the
+##   answer depend on it; the card is also staged as printed (place), so the scores agree.
 static func accepts(
 	state: MatchState, opponent: int, opp: EngineAction, budget: int, cards: MatchCards
 ) -> bool:
@@ -94,6 +105,13 @@ static func place(
 		if at >= 0:
 			piles.destroyed[at] = placeholder
 			placeholder += 1
+		## Out of the hand, deck or burn pile the card is erased with no placeholder, so the
+		## clone's hand, deck and burn sizes and its deck order depend on where it really was.
+		## The scores cannot: a walk scores only row cards (ScoreWalk), and what reads a hand,
+		## deck or burn pile in a walk (a draw, a discard, a grow of the hand, a recover at the
+		## hand cap) only moves or grows cards that do not score in it; the returns at the
+		## hand cap run at turn end, which a preview never reaches. Held by test_preview_pair
+		## (test_drawn_hypothesis_card_scores_as_the_live_engine, a walk that draws).
 		piles.hand.erase(card)
 		piles.deck.erase(card)
 		piles.burned.erase(card)
@@ -105,8 +123,23 @@ static func place(
 			pass  # No view shows it: the hypothesis is the printed card (cycle 8 R8).
 
 
+## Whether the free first card (cycle 4 R10) prices a hypothesis of `opponent` on `state`.
+## A grant is set only during a walk, after both commits (EffectResolver), so from the turn
+## start to `opponent`'s commit it is what TURN_STARTED announced to both seats, and that
+## commit consumes it (MatchEngine._commit). Before `opponent` commits, the live flag is
+## exactly what the engine will apply. Once it committed first, the flag is consumed and
+## `state` no longer holds what it was; the check then grants it, so no hypothesis the
+## engine could have taken is refused (a grant only lowers the cost). It may take one that
+## needed a grant the opponent lacked; that depends on nothing hidden.
+static func _free_first(state: MatchState, opponent: int) -> bool:
+	if state.phase == MatchState.Phase.AWAIT_SECOND and state.first_seat == opponent:
+		return true
+	return state.energy.free_first[opponent]
+
+
 ## Whether `hand` committed at `slots` is legal for `opponent` on `state`: LegalPlays over
-## the hypothesis's printed costs, with the row size, `budget` and the grant `state` holds.
+## the hypothesis's printed costs, with the row size, `budget` and the grant _free_first
+## gives.
 static func _legal(
 	state: MatchState,
 	opponent: int,
@@ -123,6 +156,6 @@ static func _legal(
 		LegalPlays.def_costs(hand, cards),
 		piles.board.size(),
 		budget,
-		state.energy.free_first[opponent]
+		_free_first(state, opponent)
 	)
 	return code == EngineError.Code.NONE

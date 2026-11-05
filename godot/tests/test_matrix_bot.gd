@@ -286,10 +286,12 @@ func test_registry_builds_the_matrix_bot_on_its_shipped_weights() -> void:
 		assert_str(bot.weights.load_error).is_equal("")
 		assert_str(bot.weights.bot).is_equal("matrix")
 		assert_str(bot.weights.stamp).is_not_empty()
-		assert_int(bot.weights.k).is_equal(12)
-		assert_int(bot.weights.k_opp).is_equal(12)
-		assert_int(bot.weights.samples).is_equal(4)
-		assert_int(bot.weights.rm_iterations).is_equal(200)
+		# Cut for R17 (Ben, 2026-11-05) from k 12, k_opp 12, 4 samples and 200 iterations,
+		# which ran a 59 ms p99.
+		assert_int(bot.weights.k).is_equal(6)
+		assert_int(bot.weights.k_opp).is_equal(4)
+		assert_int(bot.weights.samples).is_equal(2)
+		assert_int(bot.weights.rm_iterations).is_equal(50)
 	assert_bool(BotRegistry.PENDING.has("matrix")).is_false()
 	assert_object(BotRegistry.make("matrix", 7, engine.match_cards(), null, 21)).is_null()
 

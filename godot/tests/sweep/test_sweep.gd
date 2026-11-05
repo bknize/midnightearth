@@ -13,7 +13,9 @@ extends FullMatchHarness
 ## Every match checks what test_full_match.gd's seed 1 does (FullMatchHarness._assert_run):
 ## it ends, no hand exceeds 7, no commit exceeds the budget, nothing hidden leaks and the log
 ## replays; the 99th-percentile decision stays under DECISION_BUDGET_US; the weights' stamp
-## is printed, never asserted (R35).
+## is printed, never asserted (R35). The coverage counters (_assert_coverage: the scan met
+## face-down cards, prompts, hidden destroys and so on) are asserted only for the default bot,
+## whose play they were set for; another SWEEP_BOT prints a line saying they were skipped.
 
 const SWEEP_FIRST: int = 1
 const SWEEP_LAST: int = 50
@@ -162,6 +164,47 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 		% [p99_us, DECISION_BUDGET_US, slowest_us, slowest_seed]
 	)
 	assert_int(p99_us).override_failure_message(too_slow).is_less(DECISION_BUDGET_US)
+	# Coverage (which hidden paths the bots happened to reach) holds only for the default bot,
+	# whose play the counters were set for; every invariant above holds for any bot.
+	if sweep_bot == BotRegistry.default_name():
+		var counts: Dictionary = {
+			"face_down_seen": face_down_seen,
+			"redacted_seen": redacted_seen,
+			"choices": choices,
+			"destroyed_hidden": destroyed_hidden,
+			"pile_hidden": pile_hidden,
+			"recoveries": recoveries,
+			"memory_hidden": memory_hidden,
+			"longest_walk": longest_walk,
+		}
+		_assert_coverage(counts)
+	else:
+		print(
+			(
+				"Sweep: coverage assertions skipped for bot=%s (they hold for the default, %s)"
+				% [sweep_bot, BotRegistry.default_name()]
+			)
+		)
+	# The longest match, readable from the static and from this message.
+	var longest: String = (
+		"longest match: seed %d, %d actions (cap %d)" % [longest_seed, longest_actions, MAX_ACTIONS]
+	)
+	assert_int(longest_actions).override_failure_message(longest).is_between(1, MAX_ACTIONS - 1)
+
+
+## The sweep's coverage counters (`counts`, keyed by name, set by the sweep test) for the
+## default bot: the scan really met face-down and redacted cards, prompts, hidden destroys,
+## hidden pile entries, recoveries, hidden memory and a walk. Each depends on how the bot
+## happens to play, so a SWEEP_BOT other than the default skips them.
+func _assert_coverage(counts: Dictionary) -> void:
+	var face_down_seen: int = counts["face_down_seen"]
+	var redacted_seen: int = counts["redacted_seen"]
+	var choices: int = counts["choices"]
+	var destroyed_hidden: int = counts["destroyed_hidden"]
+	var pile_hidden: int = counts["pile_hidden"]
+	var recoveries: int = counts["recoveries"]
+	var memory_hidden: int = counts["memory_hidden"]
+	var walk: int = counts["longest_walk"]
 	assert_int(face_down_seen).is_greater(0)
 	assert_int(redacted_seen).is_greater(0)
 	# The sweep really answered prompts, so their leak scan and replay ran (DC-05 T05).
@@ -170,7 +213,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	# clear, or a destroyed face-down slot in a view.
 	var no_hidden_destroy: String = "no destroyed face-down card in the sweep"
 	assert_int(destroyed_hidden).override_failure_message(no_hidden_destroy).is_greater(0)
-	assert_int(longest_walk).override_failure_message("no walk in the sweep").is_greater(0)
+	assert_int(walk).override_failure_message("no walk in the sweep").is_greater(0)
 	# DC-07 T08: the scan really covered the piles and recoveries. An opponent's pile entry
 	# whose identity is not public was shown (as a hidden entry) to some view, and a card
 	# left a destroyed pile for a hand (Grave Robber, R19).
@@ -182,11 +225,6 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	# other seat (a growth on a hand card: Rain, Redwood, Vine).
 	var no_memory: String = "no private memory event in the sweep"
 	assert_int(memory_hidden).override_failure_message(no_memory).is_greater(0)
-	# The longest match, readable from the static and from this message.
-	var longest: String = (
-		"longest match: seed %d, %d actions (cap %d)" % [longest_seed, longest_actions, MAX_ACTIONS]
-	)
-	assert_int(longest_actions).override_failure_message(longest).is_between(1, MAX_ACTIONS - 1)
 
 
 ## A pairing's record before any seed: no seeds, no match, no decision.
