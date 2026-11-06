@@ -44,7 +44,7 @@ Tags are evergreen or one of Greed, Combo, Disruption, Graveyard, Control, Ramp 
 | Shade | Combo | At turn end (after the exit pass) | Choose one of up to three random revealed cards of yours and Un-reveal it. | The Un-reveal is immediate; the card keeps its Memory and loses its Board changes. | Unlimited; once per Turn; your row only. | Yes, optional |
 | Veil | Graveyard | At turn end (before the exit pass) | Choose one Condemned card of yours; it gets Fleeting instead of Condemned. | Fleeting resolves in the same exit pass, sending the card to its Owner's hand. | Unlimited; once per Turn; your row only. | Yes, optional |
 | Navigator | Ramp | On score | The second of your cards to Score in a Walk gets Power +2 permanently, after it has Scored. | Permanent: the +2 is Memory and follows the card everywhere. | Unlimited; once per Walk; your cards only. | No |
-| Void | Greed | On empty draw | You draw nothing, and your next Scoring card gets Power +10, Add +2 and Mult ×1.5 until it Scores or turn end. | Ends when that card has Scored, or at turn end if none of your cards Scored. | Unlimited; once per empty draw, and a second empty draw in the same Turn stacks: the same card gets the grant twice (Power +20, two Adds, two Mults). It does not fire if, when its trigger comes up, your Deck is no longer empty (the Pile-shuffling Crew refilled it). | No |
+| Void | Greed | On empty draw | Your next Scoring card gets Power +10, Add +0.5 and Mult ×1.25 until it Scores or turn end. | Ends when that card has Scored, or at turn end if none of your cards Scored. | Unlimited; once per empty draw, and a second empty draw in the same Turn stacks: the same card gets the grant twice (Power +20, two Adds, two Mults). | No |
 | Engineer | evergreen | Ongoing | From Turn 3 of each Round, your Budget is +1 Energy. | Ongoing: it applies for as long as the Crew is in play. | Unlimited; your Budget only. | No |
 | Quartermaster | evergreen | Ongoing | Your Hand size is 7. | Ongoing: it applies for as long as the Crew is in play. | Unlimited; your Hand size only. | No |
 | Salvager | Graveyard | On commit | You may Discard a card from your hand, then draw a card. | None needed: no status is granted. | Unlimited; once per Commit of yours. | Yes, optional |
@@ -88,12 +88,13 @@ Ramp deck wants a reliable card that reaches the second Scoring position each Tu
 cheap cards ahead of it to hold the first.
 
 **Void (Greed).** Void rewards running dry: each time a draw from an empty Deck
-happens, the Crew gives your next Scoring card a large swing, Power +10 with Add +2 and Mult
-×1.5. Under the walking-total maths its Bonus value is (1 + 2) × 1.5 = 4.5, which multiplies
+happens, the Crew gives your next Scoring card a large swing, Power +10 with Add +0.5 and
+Mult ×1.25. Under the walking-total maths its Bonus value is (1 + 0.5) × 1.25 = 1.875, which multiplies
 everything scored before that card, so the closer to the end of the row the card sits, the
 bigger the swing. In the last Rounds, when Decks are empty, a Greed deck without a
 Pile-shuffling Crew turns every empty draw into a finishing push instead of a dead draw.
-Void's exact reading is flagged below.
+Void's numbers and reading are confirmed (C31). With Void alone and an empty Deck, nothing
+is drawn (the Deck is still empty) and the grant applies.
 
 **Engineer (evergreen).** One more Energy every Turn from Turn 3, so a Round's Budget is
 28 + 5 = 33 rather than 28. Any deck uses it; it favours decks with expensive cards that
@@ -125,13 +126,12 @@ draw.
 shuffle your Pile into your Deck first (R55). Dredger is a placeholder; please give the
 name.
 
-**Void's numbers, for Ben to confirm (C21).** Under the walking total, Add +2 with Mult ×1.5
-gives a Bonus value of 4.5, much stronger than in the old maths. The numbers are kept as Ben
-wrote them; a gentler version would be Add +0.5 with Mult ×1.25.
+**Void's numbers, confirmed (C31).** Ben chose the gentler version: Power +10, Add +0.5 and
+Mult ×1.25, a Bonus value of (1 + 0.5) × 1.25 = 1.875 under the walking total.
 
-**Void's reading, for Ben to confirm (R56).** Ben's sketch is "when you would draw on an
-empty deck, get 10 +2x1.5 before the next walk". This note reads it as Power 10, Add +2 and
-Mult ×1.5, all granted to the seat's next Scoring card, applied in the Score steps before
+**Void's reading, confirmed (R56, C31).** Ben's sketch is "when you would draw on an
+empty deck, get 10 +2x1.5 before the next walk". This note reads it as Power 10, Add +0.5 and
+Mult ×1.25 (the numbers of C31), all granted to the seat's next Scoring card, applied in the Score steps before
 the card Scores (Power first, then the Bonus value), and ending when the card has Scored (or
 at turn end if none Scored). "Power 10" is read as a gain of 10 Power. The alternatives are the Bonus applying to the whole next Walk,
 or the Power replacing rather than adding to the card's Power.
@@ -161,8 +161,7 @@ These are places where the sketch in [[cards/Cards]] did not say, and this note 
   abilities.
 - **Salvager**: Ben's text says "On commit"; it fires once per accepted Commit of yours,
   before that seat's discard-down.
-- **Dredger and Void together**: both fire On empty draw in Crew slot order. Each trigger
-  re-checks that the Deck is still empty when it comes up (resolution Q2), so if Dredger
-  fires first and the Deck is no longer empty, the draw resumes and succeeds and Void does
-  not fire. If Void comes first in the deck list it fires, since the Deck is still empty,
-  and Dredger then refills it. This is the only ordering rule this note adds.
+- **Dredger and Void together**: both fire On empty draw, whatever the Crew slot order,
+  with no re-check that the Deck is still empty (C29). Dredger shuffles the Pile into the
+  Deck, Void's grant applies, and the resumed draw (resolution Q11) then succeeds. With Void
+  alone and an empty Deck, nothing is drawn (the Deck is still empty) and the grant applies.
