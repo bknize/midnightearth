@@ -56,11 +56,11 @@ func test_unknown_zone_is_invalid() -> void:
 
 
 func test_row_spot_names_the_row_and_slot_of_a_step() -> void:
-	var destroy: BoardStep = BoardStep.new()
-	destroy.kind = BoardStep.Kind.DESTROY
-	destroy.seat = 1
-	destroy.slot = 2
-	var spot: CardSpot = RowTargets.row_spot(destroy)
+	var returned: BoardStep = BoardStep.new()
+	returned.kind = BoardStep.Kind.RETURN
+	returned.seat = 1
+	returned.slot = 2
+	var spot: CardSpot = RowTargets.row_spot(returned)
 	assert_int(spot.seat).is_equal(1)
 	assert_int(spot.slot).is_equal(2)
 	var move: BoardStep = BoardStep.new()

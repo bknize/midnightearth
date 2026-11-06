@@ -116,7 +116,6 @@ func lift(card: BoardCard, show_face: bool = false, with_button: bool = false) -
 	_stand_in = stand_in
 	held = card
 	card.visible = false
-	card.set_tilt_suspended(true)
 	_place_dimmer()
 	_begin(Mode.LIFTING, LIFT_TIME, stand_in.global_transform, DIMMER_ALPHA)
 	lifted.emit(card)
@@ -231,7 +230,6 @@ func _finish() -> void:
 	var card: BoardCard = held if is_instance_valid(held) else null
 	if card != null:
 		card.visible = true
-		card.set_tilt_suspended(false)
 	if is_instance_valid(_stand_in):
 		_stand_in.queue_free()
 	_stand_in = null

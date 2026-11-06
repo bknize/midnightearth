@@ -35,12 +35,12 @@ static func resolve(zone: String, chooser: int, index: int, own_size: int) -> Ca
 	return CardSpot.new()
 
 
-## The row spot a destroy, move (its source slot), return or pulse step names, or an invalid
-## spot for kinds that name none. A step without a slot names the seat only.
+## The row spot a move (its source slot), return or pulse step names, or an invalid spot
+## for kinds that name none. A step without a slot names the seat only.
 static func row_spot(step: BoardStep) -> CardSpot:
 	match step.kind:
 		BoardStep.Kind.MOVE:
 			return CardSpot.new(step.seat, false, step.from_slot)
-		BoardStep.Kind.DESTROY, BoardStep.Kind.RETURN, BoardStep.Kind.PULSE:
+		BoardStep.Kind.RETURN, BoardStep.Kind.PULSE:
 			return CardSpot.new(step.seat, false, step.slot)
 	return CardSpot.new()

@@ -159,19 +159,6 @@ func test_stats_touch_only_the_held_card() -> void:
 	assert_bool(LiftRules.step_touches(step, 6, LiftRules.Place.ROW, false)).is_false()
 
 
-func test_destroy_touches_only_the_held_card() -> void:
-	var step: BoardStep = _named(BoardStep.Kind.DESTROY, 1, 25)
-	var place: LiftRules.Place = LiftRules.Place.OPPONENT_ROW
-	assert_bool(LiftRules.step_touches(step, 25, place, false)).is_true()
-	assert_bool(LiftRules.step_touches(step, 26, place, false)).is_false()
-
-
-func test_hidden_destroy_never_touches_a_face_up_held_card() -> void:
-	var step: BoardStep = _named(BoardStep.Kind.DESTROY, 1, -1)
-	var place: LiftRules.Place = LiftRules.Place.OPPONENT_ROW
-	assert_bool(LiftRules.step_touches(step, 25, place, false)).is_false()
-
-
 func test_return_touches_only_the_held_card() -> void:
 	var step: BoardStep = _named(BoardStep.Kind.RETURN, 0, 7)
 	assert_bool(LiftRules.step_touches(step, 7, LiftRules.Place.ROW, false)).is_true()
@@ -182,12 +169,6 @@ func test_discard_touches_only_the_held_card() -> void:
 	var step: BoardStep = _named(BoardStep.Kind.DISCARD, 0, 9)
 	assert_bool(LiftRules.step_touches(step, 9, LiftRules.Place.HAND, false)).is_true()
 	assert_bool(LiftRules.step_touches(step, 10, LiftRules.Place.HAND, false)).is_false()
-
-
-func test_burn_touches_a_held_row_card() -> void:
-	var step: BoardStep = _named(BoardStep.Kind.BURN, 0, 11)
-	assert_bool(LiftRules.step_touches(step, 11, LiftRules.Place.ROW, false)).is_true()
-	assert_bool(LiftRules.step_touches(step, 12, LiftRules.Place.ROW, false)).is_false()
 
 
 func test_move_touches_a_card_on_the_moved_row() -> void:
@@ -222,8 +203,9 @@ func _card_step(kind: int, seat: int, card: int) -> BoardStep:
 	return step
 
 
-func test_destroy_mark_and_clear_destroyed_touch_only_the_held_card() -> void:
-	for kind: int in [BoardStep.Kind.DESTROY, BoardStep.Kind.CLEAR_DESTROYED]:
+func test_status_and_exit_touch_only_the_held_card() -> void:
+	# R9, R81: a badge change or an exit names the card it moves.
+	for kind: int in [BoardStep.Kind.STATUS, BoardStep.Kind.EXIT]:
 		var named: BoardStep = _card_step(kind, 0, 7)
 		var other: BoardStep = _card_step(kind, 0, 8)
 		assert_bool(LiftRules.step_touches(named, 7, LiftRules.Place.ROW, false)).is_true()

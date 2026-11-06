@@ -1,3 +1,4 @@
+# gdlint: ignore=max-public-methods
 class_name PromptHost
 extends RefCounted
 ## The prompt on the table (R55-R57, plan P19): the banner, the glowing cards and the dim. The
@@ -27,7 +28,7 @@ var spawn: Callable = Callable()
 var crew_pool: CrewPool = null
 ## The multi-select's chosen positions in the prompt's zone, ascending (R48).
 var selected: Array[int] = []
-## The deck strip of a recover prompt, or an idle one.
+## The Pile strip of a Pile prompt or a tap on a Pile count, or an idle one.
 var strip: DeckStrip = DeckStrip.new()
 
 ## The lifted eligible card's option (a zone index); -1 when none is lifted (R47).
@@ -62,14 +63,15 @@ func current() -> Dictionary:
 	return _prompt
 
 
-## Opens the prompt: the banner shows `text`, each eligible card glows, the rest dim. A multi
-## prompt also shows the confirm button (R48), a pile prompt lays out the deck strip (R47).
-## `view` is seat 0's view: its row size splits `both_boards` and its piles fill the strip.
+## Opens the prompt: the banner shows `text` (or "Discard N" for the discard-down), each
+## eligible card glows, the rest dim. A multi prompt also shows the confirm button, enabled only
+## at the legal selection size (R48, R80); a Pile prompt lays out the Pile strip (R78).
+## `view` is seat 0's view: its row size splits `both_boards` and its Piles fill the strip.
 func open(prompt: Dictionary, text: String, view: SeatView) -> void:
 	close()
 	_prompt = prompt.duplicate(true)
 	selected.clear()
-	hud.show_prompt(PromptRules.banner_text(text, _crew_name()))
+	hud.show_prompt(PromptRules.banner_for(_prompt, text, _crew_name()))
 	card_lift.set_rest_alpha(DIM_ALPHA)
 	var own_size: int = view.own_board.size()
 	for spot: CardSpot in PromptRules.spots(_prompt, own_size):
@@ -80,11 +82,10 @@ func open(prompt: Dictionary, text: String, view: SeatView) -> void:
 		card.set_glow(glow_material, GLOW_ALPHA)
 		_lit.append(card)
 		_lit_options.append(PromptRules.option_at(spot, _prompt, own_size))
-	var zone: int = _prompt.get("zone", Choice.NO_ZONE)
-	if zone == Choice.Zone.BOTH_DESTROYED:
+	if PromptRules.is_pile_zone(PromptRules.zone_name_of(_prompt)):
 		_open_strip(view)
 	if is_multi():
-		hud.show_confirm(PromptRules.confirm_text(_prompt, 0))
+		hud.show_confirm(PromptRules.confirm_text(_prompt, 0), PromptRules.confirm_enabled(_prompt, 0))
 	if PromptRules.wants_skip(_prompt):
 		hud.show_skip(is_multi())
 
@@ -103,7 +104,7 @@ func strip_collection() -> CardCollection3D:
 	return strip.collection if strip.is_up() else null
 
 
-## Slides the strip away (STRIP_HIDE).
+## Slides the strip away (PILE_HIDE).
 func hide_strip(seconds: float) -> void:
 	strip.hide(seconds)
 
@@ -119,7 +120,7 @@ func drop() -> void:
 
 
 ## Clears the banner, the glows, the selection and the dim (R57). The strip stays when
-## `keep_strip` is set, for the recovery that flies a card out of it; a STRIP_HIDE step then
+## `keep_strip` is set, for a choice that flies a card out of it; a PILE_HIDE step then
 ## clears it.
 func close(keep_strip: bool = false) -> void:
 	_prompt = {}
@@ -237,9 +238,11 @@ func press() -> ApplyResult:
 
 
 ## The confirm button was pressed (R48): submits the selected positions; null when no multi
-## prompt is open.
+## prompt is open or the selection is not the legal size (R80).
 func confirm() -> ApplyResult:
 	if not is_open() or not is_multi() or driver == null:
+		return null
+	if not PromptRules.confirm_enabled(_prompt, selected.size()):
 		return null
 	var zone: int = _prompt.get("zone", Choice.NO_ZONE)
 	var chosen: Array[int] = []
@@ -271,31 +274,50 @@ func _refresh_selection() -> void:
 		var chosen: bool = selected.has(_lit_options[i])
 		card.set_selected(chosen)
 		card.set_glow(glow_material, SELECTED_GLOW_ALPHA if chosen else GLOW_ALPHA)
-	hud.show_confirm(PromptRules.confirm_text(_prompt, selected.size()))
+	hud.show_confirm(
+		PromptRules.confirm_text(_prompt, selected.size()),
+		PromptRules.confirm_enabled(_prompt, selected.size())
+	)
 
 
-## Builds the deck strip from a pile prompt: seat 0's pile then the opponent's (R47).
+## Builds the Pile strip from a Pile prompt (R78): the Piles its zone names in order, each
+## face up, the prompt's options glowing.
 func _open_strip(view: SeatView) -> void:
-	var entries: Array[int] = []
-	var piles: Array[Vector2i] = []
-	for i: int in range(view.own_destroyed.size()):
-		entries.append(view.own_destroyed[i])
-		piles.append(Vector2i(0, i))
-	for i: int in range(view.opponent_destroyed.size()):
-		entries.append(view.opponent_destroyed[i])
-		piles.append(Vector2i(1, i))
+	var asked: int = _prompt.get("seat", 0)
+	var seats: Array[int] = PromptRules.pile_seats(PromptRules.zone_name_of(_prompt), asked)
 	var options: Array[int] = []
 	var raw: Array = _prompt.get("options", [])
 	for entry: Variant in raw:
 		var option: int = entry
 		options.append(option)
+	_show_piles(seats, options, view)
+
+
+## The Pile of `seat` face up in the strip with nothing to choose (a tap on its count, R78).
+## A second tap on the same Pile, or any tap while another strip is up, puts the strip away.
+func toggle_pile(seat: int, view: SeatView) -> void:
+	if strip.is_up():
+		strip.hide(0.25)
+		return
+	var none: Array[int] = []
+	_show_piles([seat], none, view)
+
+
+func _show_piles(seats: Array[int], eligible: Array[int], view: SeatView) -> void:
+	var entries: Array[int] = []
+	var piles: Array[Vector2i] = []
+	for seat: int in seats:
+		var ids: Array[int] = DeckStrip.pile_of(view, seat)
+		for i: int in range(ids.size()):
+			entries.append(ids[i])
+			piles.append(Vector2i(seat, i))
 	var def_of: Callable = Callable()
 	if driver != null:
 		def_of = driver.match_cards().def_of
 	strip.show(
 		strip_parent,
 		entries,
-		options,
+		eligible,
 		spawn,
 		def_of,
 		glow_material,
