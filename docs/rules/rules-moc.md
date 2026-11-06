@@ -20,7 +20,7 @@ Crew were drawn from it, and it is not canon.
 
 ## Reading order
 
-1. [[rules/glossary]] - the words, the retired words, the statuses and the trigger moments.
+1. [[rules/glossary]] - the words, the Score maths (walking total and Bonus value), the retired words, the statuses and the ten trigger moments.
    Every later note is written against it.
 2. [[rules/rules-v2]] - the Match, Round and Turn, Energy, Hand, Deck and Pile, card anatomy,
    statuses and movement, with what changed from today.
