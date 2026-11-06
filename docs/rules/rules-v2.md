@@ -86,8 +86,8 @@ the order (R7).
   pool with no restriction by strategy (R18).
 - Each Deck is shuffled once, at Match start. It is not refilled or reshuffled at Round
   start (R19).
-- When a seat would draw from an empty Deck, it draws nothing and its On empty draw triggers
-  fire (the Pile-shuffling Crew, Void) (R20).
+- When a seat would draw from an empty Deck, it draws nothing and all of its On empty draw triggers
+  fire, with no re-check that the Deck is still empty (the Pile-shuffling Crew, Void) (R20, C29).
 - Each seat has one Pile, face up and public to both seats. It receives every card that
   leaves a hand or a row for any reason other than going to a hand (Fleeting), moving to a
   row or flipping face down (R21).
