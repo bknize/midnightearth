@@ -20,3 +20,4 @@ Entry point. Everything in this vault is plain Markdown with wikilinks; the sche
 - [[decisions/decisions-moc|Decisions]] — ADRs
 - [[systems/systems-moc|Systems]] — plain-language guides to how the game works today: the game loop, cards and Crew, the bots and training
 - [[art/art-direction|Art direction]] — the look of the cards, the prompt skeleton and the `generate` model
+- [[rules/rules-moc|Rules]] — the ruleset v2 canon: glossary, rules, resolution chart, Crew, cards and test decks (design, not yet built)
