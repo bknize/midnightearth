@@ -30,7 +30,8 @@ prompt spends nothing.
 
 Where a Crew gives a seat's card a change, the change has an end condition stated in the
 table, as the glossary requires of every status-granting ability (R34). A change that says
-"for the match" is Memory.
+"for the match" is Memory. In Crew text, "you" and "your" mean the Crew's seat, and a Crew
+acts in its Crew slot order.
 
 ## The ten Crew
 
@@ -39,16 +40,16 @@ Tags are evergreen or one of Greed, Combo, Disruption, Graveyard, Control, Ramp 
 
 | Crew | Tag | Moment | Text | End condition | Uses and scope | Prompts |
 |---|---|---|---|---|---|---|
-| Tallyman | Greed | On score | After four of your cards have Scored in a Walk, your next Scoring card gets Add +5. | The +5 Add ends when that card has Scored; the count of four starts again at the next Walk, and a count left over at the end of a Walk is lost. | Unlimited; counts your cards only; the count is kept per Walk. | No |
-| Shade | Combo | At turn end, after exit marks resolve | Choose one of up to three randomly selected revealed cards of yours and Un-reveal it. | The Un-reveal is immediate; the card keeps its Memory and loses its Board changes. | Unlimited; once per Turn; your row only. | Yes, optional |
-| Veil | Graveyard | At turn end, before exit marks resolve | Choose one Condemned card of yours; it gets Fleeting instead of Condemned. | Fleeting resolves in the same turn end pass, sending the card to its Owner's hand. | Unlimited; once per Turn; your row only. | Yes, optional |
+| Tallyman | Greed | Ongoing | Your 5th, 10th, 15th ... Scoring card in a Walk gets Mult ×2 for that Score. | The Mult ×2 applies to that Score only; the count starts again at 0 each Walk. | Unlimited; counts your Scores only, and a card that Scores twice counts twice; a card that is Squelched or Silenced does not Score and does not count. | No |
+| Shade | Combo | At turn end (after the exit pass) | Choose one of up to three random revealed cards of yours and Un-reveal it. | The Un-reveal is immediate; the card keeps its Memory and loses its Board changes. | Unlimited; once per Turn; your row only. | Yes, optional |
+| Veil | Graveyard | At turn end (before the exit pass) | Choose one Condemned card of yours; it gets Fleeting instead of Condemned. | Fleeting resolves in the same exit pass, sending the card to its Owner's hand. | Unlimited; once per Turn; your row only. | Yes, optional |
 | Navigator | Ramp | On score | The second of your cards to Score in a Walk gets Power +2 permanently, after it has Scored. | Permanent: the +2 is Memory and follows the card everywhere. | Unlimited; once per Walk; your cards only. | No |
-| Void | Greed | On empty draw | You draw nothing, and your next Scoring card gets Power +10, Add +2 and Mult ×1.5. | Ends when that card has Scored, or at turn end if none of your cards Scored. | Unlimited; once per empty draw; your Deck only. | No |
+| Void | Greed | On empty draw | You draw nothing, and your next Scoring card gets Power +10, Add +2 and Mult ×1.5 until it Scores or turn end. | Ends when that card has Scored, or at turn end if none of your cards Scored. | Unlimited; once per empty draw, and a second empty draw in the same Turn stacks: the same card gets the grant twice (Power +20, two Adds, two Mults). It does not fire if, when its trigger comes up, your Deck is no longer empty (the Pile-shuffling Crew refilled it). | No |
 | Engineer | evergreen | Ongoing | From Turn 3 of each Round, your Budget is +1 Energy. | Ongoing: it applies for as long as the Crew is in play. | Unlimited; your Budget only. | No |
 | Quartermaster | evergreen | Ongoing | Your Hand size is 7. | Ongoing: it applies for as long as the Crew is in play. | Unlimited; your Hand size only. | No |
 | Salvager | Graveyard | On commit | You may Discard a card from your hand, then draw a card. | None needed: no status is granted. | Unlimited; once per Commit of yours. | Yes, optional |
 | Captain | Ramp | On score | When the card in the leftmost slot of your row Scores, it gets Power +1 for the match, after it has Scored. | Permanent: the +1 is Memory and follows the card everywhere. | Unlimited; leftmost slot of your row, read when it Scores. | No |
-| Dredger (working name) | Graveyard | On empty draw | Before you would draw from an empty Deck, shuffle your Pile into your Deck, then draw. | None needed: no status is granted. | Unlimited; your Deck and Pile only. | No |
+| Dredger (working name) | Graveyard | On empty draw | Shuffle your Pile into your Deck. | None needed: no status is granted. | Unlimited; your Deck and Pile only. The draw that was denied resumes afterwards, for any draw (resolution Q11). | No |
 
 No Crew is tagged Disruption or Control; those two strategies take Crew chosen from the
 evergreen pair and from the others (see the sharing rule below). A later Crew may fill the
@@ -64,19 +65,19 @@ copies per card (R18).
 
 ## The play each Crew enables
 
-**Tallyman (Greed).** Early Score leads come from many cheap cards Scoring in a row. After
-four of your cards have Scored, the fifth is boosted by Add +5, so a Walk with five or more
-Scoring cards has a spike where the fifth card is big. It rewards a wide row and punishes
-losing cards to Squelch or Condemn before they Score, since a card that does not Score does
-not count.
+**Tallyman (Greed).** Early Score leads come from many cheap cards Scoring in a row. Your
+5th, 10th, 15th Scoring card gets Mult ×2, like tally marks, so the whole walking total up to
+that card doubles. It rewards a wide row, and putting a strong Power card ahead of the fifth
+slot, since that Power is doubled too. It punishes losing cards to Squelch or Condemn
+before they Score, since a card that does not Score does not count.
 
 **Shade (Combo).** The Walk reveals a card once, but Shade lets a card reveal again on a
 later Turn: at turn end it Un-reveals one of your revealed cards, so its On reveal fires
-again next Turn. It keeps the card's Memory, so a card grown "for the match" returns bigger.
+again next Turn. It keeps the card's Memory, so a card grown "for the match" comes back bigger.
 The randomness (three offered, you pick one) means you plan around having several good
 On reveal cards on the row.
 
-**Veil (Graveyard).** A Condemned card normally goes to the Pile at turn end. Veil takes one
+**Veil (Graveyard).** A Condemned card normally goes to the Pile in the exit pass. Veil, just before it, takes one
 of them and swaps its exit mark for Fleeting, so it goes to your hand instead. In a Graveyard
 deck that Condemns its own cards for Power, this turns a one-shot body into a reusable one,
 at the cost of a Commit to play it again.
@@ -88,9 +89,11 @@ cheap cards ahead of it to hold the first.
 
 **Void (Greed).** Void rewards running dry: each time a draw from an empty Deck
 happens, the Crew gives your next Scoring card a large swing, Power +10 with Add +2 and Mult
-×1.5. In the last Rounds, when Decks are empty, a Greed deck without a Pile-shuffling Crew
-turns every empty draw into a finishing push instead of a dead draw. Void's exact reading is
-flagged below.
+×1.5. Under the walking-total maths its Bonus value is (1 + 2) × 1.5 = 4.5, which multiplies
+everything scored before that card, so the closer to the end of the row the card sits, the
+bigger the swing. In the last Rounds, when Decks are empty, a Greed deck without a
+Pile-shuffling Crew turns every empty draw into a finishing push instead of a dead draw.
+Void's exact reading is flagged below.
 
 **Engineer (evergreen).** One more Energy every Turn from Turn 3, so a Round's Budget is
 28 + 5 = 33 rather than 28. Any deck uses it; it favours decks with expensive cards that
@@ -111,7 +114,7 @@ carries its growth into later Rounds as Memory. It wants a card you intend to ke
 leftmost slot, and Anchored cards that hold that slot.
 
 **Dredger (Graveyard, working name).** When your Deck is empty, Dredger shuffles your whole
-Pile into your Deck and then the draw proceeds. Cards that went to the Pile as Discards come
+Pile into your Deck and then the denied draw resumes. Cards that went to the Pile as Discards come
 back to be drawn again, so a Graveyard deck can recur its best cards late in the Match and
 draw into them again. Pile contents are public, so the other seat knows what you can
 draw.
@@ -122,24 +125,31 @@ draw.
 shuffle your Pile into your Deck first (R55). Dredger is a placeholder; please give the
 name.
 
+**Void's numbers, for Ben to confirm (C21).** Under the walking total, Add +2 with Mult ×1.5
+gives a Bonus value of 4.5, much stronger than in the old maths. The numbers are kept as Ben
+wrote them; a gentler version would be Add +0.5 with Mult ×1.25.
+
 **Void's reading, for Ben to confirm (R56).** Ben's sketch is "when you would draw on an
 empty deck, get 10 +2x1.5 before the next walk". This note reads it as Power 10, Add +2 and
-Mult ×1.5, all granted to the seat's next Scoring card, applied in that order before the
-card Scores, and ending when the card has Scored (or at turn end if none Scored). "Power 10"
-is read as a gain of 10 Power. The alternatives are the Bonus applying to the whole next Walk,
+Mult ×1.5, all granted to the seat's next Scoring card, applied in the Score steps before
+the card Scores (Power first, then the Bonus value), and ending when the card has Scored (or
+at turn end if none Scored). "Power 10" is read as a gain of 10 Power. The alternatives are the Bonus applying to the whole next Walk,
 or the Power replacing rather than adding to the card's Power.
 
 ## Notes on the reading
 
 These are places where the sketch in [[cards/Cards]] did not say, and this note chose.
 
-- **Tallyman**: "every 4 score triggers, the next score gets +5 mult" is read as: your
-  fifth Scoring card in a Walk gets Add +5, counting your own cards only, restarting each
-  Walk. "+5 mult" is Add, as R56 states.
-- **Shade and Veil**: "at the end of every turn" is turn end. Veil fires before exit marks
-  resolve (it needs the Condemned mark), and Shade fires after (it needs the cards that
-  remain). Shade offers up to three randomly chosen revealed cards, fewer if you have fewer;
-  with none, it fizzles with the reason "no target".
+- **Tallyman**: Ben (C23): "The math should work out that every 5th score is doubled, like
+  tally marks." Read as: your 5th, 10th, 15th ... Scoring card in a Walk gets Mult ×2 for
+  that Score, counting your own Scores only, restarting each Walk. It is Ongoing, because the
+  Mult must apply before the Score it doubles; a Crew that fired after the Score could not.
+  It is no longer Add +5 (R56).
+- **Shade and Veil**: "at the end of every turn" is turn end (C18), which has two points.
+  Veil fires before the exit pass (it needs the Condemned mark), and Shade fires after it (it
+  needs the cards that remain). Each has its own drain in the resolution chart. Shade offers
+  up to three randomly chosen revealed cards, fewer if you have fewer; with none, it fizzles
+  with the reason "no target".
 - **Navigator**: "the second time a card scores" is the second of your cards to Score in the
   Walk, and the +2 applies after that Score, because a Crew fires after the effect that
   caused it.
@@ -151,6 +161,8 @@ These are places where the sketch in [[cards/Cards]] did not say, and this note 
   abilities.
 - **Salvager**: Ben's text says "On commit"; it fires once per accepted Commit of yours,
   before that seat's discard-down.
-- **Dredger and Void together**: both fire On empty draw in slot order. If Dredger fires
-  first and the Deck is no longer empty, the draw succeeds and Void does not fire. This is
-  the only ordering rule this note adds.
+- **Dredger and Void together**: both fire On empty draw in Crew slot order. Each trigger
+  re-checks that the Deck is still empty when it comes up (resolution Q2), so if Dredger
+  fires first and the Deck is no longer empty, the draw resumes and succeeds and Void does
+  not fire. If Void comes first in the deck list it fires, since the Deck is still empty,
+  and Dredger then refills it. This is the only ordering rule this note adds.
