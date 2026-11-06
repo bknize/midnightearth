@@ -26,20 +26,20 @@ any of them. Change them freely when cards change.
 ## How a deck is built
 
 Each deck is the ten cards of one strategy section of [[rules/cards-v2]], four copies of
-each: 10 cards x 4 = 40 cards, the Deck size and copy limit of R18. Each deck lists three
-different Crew (R58). Four copies of every card leave the average Cost unchanged:
-(sum x 4) / 40 = sum / 10.
+each: 10 cards × 4 = 40 cards, the Deck size and copy limit of R18. Each deck lists three
+different Crew (R58). Four copies of every card leave the average Cost unchanged. The T07 re-tune of the printed Bonuses changed Power and Bonus only, no Cost, so every sum and average below is unchanged and was re-checked against the Cost column of [[rules/cards-v2]]:
+(sum × 4) / 40 = sum / 10.
 
 ## The six decks
 
-| Deck | Cards (each x 4) | Crew | Cost sum x 4 | Average Cost |
+| Deck | Cards (each × 4) | Crew | Cost sum × 4 | Average Cost |
 |---|---|---|---|---|
-| Greed | Ember, Pip, Flare, Skim, Cinder, Courier, Banner, Bounty, Gilt, Jackpot | Tallyman, Void, Engineer | 34 x 4 = 136 | 136 / 40 = 3.4 |
-| Combo | Wick, Refrain, Swell, Reprieve, Scrap, Twin, Reprise, Encore, Reverb, Finale | Shade, Quartermaster, Engineer | 36 x 4 = 144 | 144 / 40 = 3.6 |
-| Disruption | Hush, Muzzle, Litter, Saboteur, Hex, Jam, Stasis, Gag, Quorum, Eclipse | Engineer, Salvager, Quartermaster | 35 x 4 = 140 | 140 / 40 = 3.5 |
-| Graveyard | Fuse, Tithe, Reliquary, Boneyard, Wraith, Glutton, Revive, Exhume, Immolator, Reset | Veil, Salvager, Dredger | 36 x 4 = 144 | 144 / 40 = 3.6 |
-| Control | Eddy, Pin, Shepherd, Skip, Fence, Herald, Level, Shake, Tempest, Cull | Captain, Engineer, Quartermaster | 39 x 4 = 156 | 156 / 40 = 3.9 |
-| Ramp | Whisper, Sapling, Rain, Dynamo, Tinker, Idler, Lantern, Graft, Layaway, Colossus | Navigator, Captain, Dredger | 38 x 4 = 152 | 152 / 40 = 3.8 |
+| Greed | Ember, Pip, Flare, Skim, Cinder, Courier, Banner, Bounty, Gilt, Jackpot | Tallyman, Void, Engineer | 34 × 4 = 136 | 136 / 40 = 3.4 |
+| Combo | Wick, Refrain, Swell, Reprieve, Scrap, Twin, Reprise, Encore, Reverb, Finale | Shade, Quartermaster, Engineer | 36 × 4 = 144 | 144 / 40 = 3.6 |
+| Disruption | Hush, Muzzle, Litter, Saboteur, Hex, Jam, Stasis, Gag, Quorum, Eclipse | Engineer, Salvager, Quartermaster | 35 × 4 = 140 | 140 / 40 = 3.5 |
+| Graveyard | Fuse, Tithe, Reliquary, Boneyard, Wraith, Glutton, Revive, Exhume, Immolator, Reset | Veil, Salvager, Dredger | 36 × 4 = 144 | 144 / 40 = 3.6 |
+| Control | Eddy, Pin, Shepherd, Skip, Fence, Herald, Level, Shake, Tempest, Cull | Captain, Engineer, Quartermaster | 39 × 4 = 156 | 156 / 40 = 3.9 |
+| Ramp | Whisper, Sapling, Rain, Dynamo, Tinker, Idler, Lantern, Graft, Layaway, Colossus | Navigator, Captain, Dredger | 38 × 4 = 152 | 152 / 40 = 3.8 |
 
 The Cost sums, from the Cost column of [[rules/cards-v2]]:
 
@@ -66,12 +66,12 @@ Crew come from the tags in [[rules/crew-v2]] and the Crew lines of the strategy 
   fit. Engineer pays for Eclipse (Cost 6) and the Cost 4 cards; Salvager (Graveyard) smooths
   the hand, as the Disruption plan names; Quartermaster (evergreen) lets the seat hold
   Muzzle, Hex and Eclipse until the right Turn.
-- **Control:** no Crew is tagged Control either. Captain (Ramp) pairs with Pin and Herald,
-  which hold the leftmost slot its Power +1 for the match needs; Engineer is the evergreen
-  pick the Control plan names; Quartermaster (evergreen) keeps Cull, Tempest and Shake in hand
+- **Control:** no Crew is tagged Control either. Captain (Ramp) pairs with Pin:
+  Pin holds the leftmost slot its Power +1 for the match needs (Herald wants the rightmost
+  slot instead); Engineer is the evergreen pick the Control plan names; Quartermaster (evergreen) keeps Cull, Tempest and Shake in hand
   until the Turn they matter.
 
-Count: 6 decks x 3 Crew = 18 slots. Engineer fills 4, Quartermaster 3, Captain 2, Salvager 2,
+Count: 6 decks × 3 Crew = 18 slots. Engineer fills 4, Quartermaster 3, Captain 2, Salvager 2,
 Dredger 2, and Tallyman, Void, Shade, Veil and Navigator 1 each (5): 4 + 3 + 2 + 2 + 2 + 5 =
 18. Sharing is allowed (R58).
 
