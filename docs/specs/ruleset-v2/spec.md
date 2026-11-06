@@ -12,7 +12,7 @@ supersedes:
 
 # Spec: Ruleset v2 — hardened vocabulary, resolution chart, new card set
 
-**Slug:** `ruleset-v2`  ·  **Change type:** vault (design only)  ·  **Status:** approved (Ben, 2026-11-06, four rounds, 17 clarifications; signed off 2026-11-06)
+**Slug:** `ruleset-v2`  ·  **Change type:** vault (design only)  ·  **Status:** approved (Ben, 2026-11-06, four rounds, 26 clarifications incl. the T07 review decisions C18 to C26; signed off 2026-11-06)
 
 This set changes no code. It produces the design canon the next implementation cycles are
 specced from: a hardened glossary, a step-by-step resolution chart, the v2 rules, a 90-card
@@ -78,12 +78,16 @@ sentence in the canon that states how the game behaves, including card and Crew 
   shall keep each seat's hand, deck and Pile as they are.
 - R7. The canon shall keep today's commit order: the seat that won the previous Turn commits
   first; on Turn 1 of a Round the loser of the previous Round commits first; the first Turn
-  of a Match is a seeded coin flip; a tied Turn keeps the order.
+  of a Match is a seeded coin flip; a tied Turn keeps the order. After a tied Round there is
+  no loser, so the alternation of first committer simply continues from the Round's last
+  Turn into Turn 1 of the next Round (C25).
 - R8. The canon shall define a Turn as these phases in order: turn start (each seat draws
   one card, then On start triggers), first commit, that seat's discard-down, second commit,
   that seat's discard-down, the Walk, turn end.
-- R9. The canon shall define turn end as these steps in order: exit marks resolve (R35),
-  turn-scoped statuses end, energy settles, the Turn's winner is recorded.
+- R9. The canon shall define turn end as these steps in order: the At turn end triggers
+  that fire before the exit pass, exit marks resolve (R35), the At turn end triggers that
+  fire after the exit pass, turn-scoped statuses end, energy settles, the Turn's winner is
+  recorded (C18).
 
 ### C. Energy
 
@@ -130,17 +134,24 @@ sentence in the canon that states how the game behaves, including card and Crew 
 ### F. Card anatomy and scoring
 
 - R25. The canon shall give every card a Cost, a Power (the points it adds when it Scores,
-  today's "flat"), at most one Bonus, a strategy tag or "evergreen", and rules text; a card
-  may have no Bonus and no rules text.
-- R26. The canon shall define a Bonus as either a Mult (multiplies the seat's running
-  multiplier, printed ×1.25, ×1.5 or ×2) or an Add (adds whole units to it, printed +1 or
-  +2), applied before the card Scores, as today.
-- R27. The canon shall let abilities grow a Bonus additively or multiplicatively (Ben: "just
-  like Balatro"): a Mult may gain +0.25 or be multiplied by ×1.2, an Add may gain +1; growth
-  applies as base, then additive steps, then multiplicative steps, rounded to hundredths.
-- R28. The canon shall keep today's Score maths: each seat's running multiplier starts at
-  ×1.00 each Walk, a card's Bonus adjusts it, then the card adds floor(Power × multiplier) to
-  its seat's Score, in whole numbers, and a negative Power subtracts.
+  today's "flat"), at most one printed Bonus, a strategy tag or "evergreen", and rules text;
+  a card may have no Bonus and no rules text. Abilities may grant further Bonuses (R26).
+- R26. The canon shall define a Bonus as either a Mult (multiplies the card's Bonus value,
+  printed ×1.25, ×1.5 or ×2) or an Add (adds to the card's Bonus value, printed +0.25, +0.5
+  or +1). A card may carry its printed Bonus plus any granted ones; when it Scores, all Adds
+  apply, then all Mults (C20).
+- R27. The canon shall let abilities grow a Bonus (Ben: "just like Balatro"): an ability
+  states how much, an Add gaining +N, a Mult gaining +N or being multiplied by ×N (C19).
+  Growth applies as base, then additive steps, then multiplicative steps, rounded to
+  hundredths.
+- R28. The canon shall define Score maths with a walking total (C21, reading 9a, open to
+  Ben's veto). Each seat has a walking total that starts at 0 each Walk. When a card Scores,
+  for its Controller's seat: (1) the walking total gains the card's Power; (2) the card's
+  Bonus value starts at 1, then gains every Add, then is multiplied by every Mult; (3) the
+  walking total is multiplied by the Bonus value (a card with no Bonus multiplies by 1). The
+  seat's Walk Score is the walking total after its last Scoring card, rounded to a whole
+  number once, at the end of the Walk (half rounds up). A negative Power still subtracts
+  before the multiply.
 - R29. The canon shall keep the memory rule: stat changes are board changes and end when the
   card leaves its row or the Round ends, unless the ability says "for the match" or
   "permanently", in which case they are Memory and follow the card everywhere.
@@ -210,14 +221,15 @@ sentence in the canon that states how the game behaves, including card and Crew 
   to, with choices made again; retriggers stack by one resolution each and never apply to
   themselves.
 - R49. The canon shall define "each card Scores twice this turn" as running the score stage
-  of every pulse twice, each scoring feeding the running multiplier and firing On score.
+  of every pulse twice, each scoring running the three Score steps of R28 and firing On score.
 - R50. The canon shall define the trigger moments: On reveal (the card flips face up in the
   Walk), On score (the card adds to the Score), On commit (its Controller's commit is
   accepted, before that seat's discard-down; fires for revealed row cards and for hand cards
   whose text says "while in your hand"; never for cards committed face down this Turn), On
   start (turn start after the draws, revealed cards only), On discard (a card enters a Pile,
-  R22), On squelch (the card becomes Squelched or Silenced, once per application), On empty
-  draw (R20), On moved (R39), Ongoing (never fires; read when needed).
+  R22), On squelch (the card becomes Squelched alone; a Silenced card fires no triggers),
+  On empty draw (R20), On moved (R39), At turn end (two points: before the exit pass and
+  after it, each with its own drain, C18), Ongoing (never fires; read when needed).
 - R51. The canon shall keep Crew firing only after the effect that caused them has fully
   resolved, as a Batch of their own (cycle 8 R46), and shall keep Crew as non-cards: never
   on a row, never a target, never Condemned, moved or copied.
@@ -241,7 +253,8 @@ sentence in the canon that states how the game behaves, including card and Crew 
   an empty Deck, shuffles that seat's Pile into its Deck first (working name Dredger).
 - R56. The canon shall write each Crew's text in glossary terms with its trigger moment, its
   cessation where it grants a status, its uses and scope, and whether it prompts; Tallyman's
-  "+5 mult" is +5 Add, Captain's "first card" is the leftmost slot, Void's "10 +2x1.5" is
+  "every 4 score triggers, +5 mult" is Mult ×2 on the seat's 5th, 10th, 15th ... Scoring
+  card of a Walk (C23), Captain's "first card" is the leftmost slot, Void's "10 +2x1.5" is
   stated as Power 10 with Add +2 and Mult ×1.5 on its next Scoring card, or as Ben corrects.
 - R57. The canon shall tag each Crew as evergreen or as serving one of the six strategies.
 - R58. The canon shall keep three Crew per deck, chosen in the deck list, with sharing
@@ -306,11 +319,22 @@ sentence in the canon that states how the game behaves, including card and Crew 
 | C15 | Round 4 Q3: constructed decks | 3a, Ben: "bloom, drift, ruin, and echo remain as loosely correlated to the card choices, but they are not 4 finite fixtures of the game" (R63, R64) |
 | C16 | Round 4 Q4: where the canon lives | 4a: `docs/rules/`, six `reference` notes plus a MOC, implementers write, reviewer audits the vocabulary, Ben's read accepts (R66–R69) |
 | C17 | Round 4 preamble, no objection | Match / Round / Turn / Walk / Commit / Score keep today's meanings (R4) |
+| C18 | T07 review 1a: new trigger moment | A tenth moment, **At turn end**, with two points: one before the exit pass (Veil: swap a card's Condemned for Fleeting) and one after it (Shade: Un-reveal one of three random revealed cards of yours). Each point has its own drain in the resolution walkthrough (R9, R50) |
+| C19 | T07 review 2a: widen growth | An ability states how much a Bonus grows: Add +N, Mult +N or ×N. Eddy, Scrap and Idler are legal as written (R27) |
+| C20 | T07 review 3a: granted Bonuses stack | A card may carry its printed Bonus plus any granted ones (Void, Tallyman, Idler ...); when it Scores all Adds apply, then all Mults. "At most one Bonus" is amended to "at most one printed Bonus" (R25, R26) |
+| C21 | T07 review 9a (reading 9a, open to Ben's veto): Score rule | Ben: "A card's power adds to the walking total, then a card's flat bonus adds to its bonus, then its mult bonus multiplies the bonus, then the bonus is applied to the walking total. That's what happens when a card scores." and "We want the order of cards to be very important in maximizing your score". Each seat has a walking total starting at 0 each Walk; a Scoring card adds its Power, builds its Bonus value (1, plus Adds, times Mults) and multiplies the walking total by it. Replaces the running multiplier (R28). Consequence: the printed Bonuses of `cards-v2` are re-tuned (Adds in +0.25 / +0.5 steps, Mults ×1.25 to ×2) and a Bonus on the far right of a row is the strongest |
+| C22 | T07 review 4a: Silenced halves | Each half keeps its own end condition; when one half ends the card is left with the other (R33) |
+| C23 | T07 review 5a: Tallyman | Ben: "The math should work out that every 5th score is doubled, like tally marks." Tallyman: your 5th, 10th, 15th ... Scoring card in a Walk gets Mult ×2 for that Score; a card that Scores twice counts twice; no longer +5 Add (R56) |
+| C24 | T07 review 6a: "cannot be X" vs Silence | Ward ("cannot be Muted") blocks the Mute half of a Silence, so the card ends up Squelched only; the same pattern holds for any "cannot be X". Stasis protects the Squelch half of a Silence the same way: that half lasts until Stasis leaves your row |
+| C25 | T07 review 7a: tied Round | After a tied Round, alternation of first committer simply continues from the last Turn into Turn 1 of the next Round (R7) |
+| C26 | T07 review 8a: scratch sheet | Ben's scratch sheet `docs/cards/Cards.md` is committed on the branch; `[[cards/Cards]]` resolves |
 
 Defaults stated by the interrogator and open to Ben's veto at sign-off (none changes a
 decision above): the Pile is public and face up (R21, R24); opening hand dealt once at
 Match start (R13); a card that leaves a row it does not Own goes to its Owner (R30); a
-seat's Walk Score may go negative (R28); board-scoped statuses also end on un-reveal
+seat's Walk Score may go negative; a Mult below 1 simply multiplies, a negative walking
+total is multiplied like any other, and a Bonus value never falls below 0 (R28, choices
+of the T07 fix, flagged); board-scoped statuses also end on un-reveal
 (R37); growth applies base, additive, then multiplicative (R27); Void's text reading
 (R56).
 
@@ -329,7 +353,7 @@ seat's Walk Score may go negative (R28); board-scoped statuses also end on un-re
   again (R33).
 - **Given** "On reveal: trigger your other On reveals twice this turn" revealed at slot 0,
   **when** a card at slot 2 reading "On reveal: discard a card in your hand, +N Add where N
-  is its Cost" reveals, **then** it resolves, then resolves again with a new discard choice
+  is read from its Cost" reveals, **then** it resolves, then resolves again with a new discard choice
   and N re-read from the second card (R47, R48).
 - **Given** two cards that each say "On score: Condemn a random enemy card, then this card
   Scores again", **when** they feed each other within one pulse, **then** after 50
