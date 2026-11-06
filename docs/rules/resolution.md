@@ -22,7 +22,7 @@ the card ideas in [[cards/Cards]].
 
 ## 1. The queue rules
 
-Each rule has a label (Q1 to Q10) that the walkthrough and the traces cite. Each rule is
+Each rule has a label (Q1 to Q11) that the walkthrough and the traces cite. Each rule is
 stated here and nowhere else; other notes link to it.
 
 **Q1. One queue.** A resolving effect never resolves the triggers it wakes inline. The
@@ -34,12 +34,14 @@ uses the same rules with a fresh queue that drains at once.
 **Q2. Batch and snapshot.** One resolution wakes one Batch. When the Batch is created, its
 cards and Crew are fixed. An effect that later moves, Un-reveals or Condemns a card cannot
 make it fire twice or skip it within that Batch. Whether a Muted or Silenced card may fire is
-read when its trigger comes up, not at the snapshot.
+read when its trigger comes up, not at the snapshot. So is whether an On empty draw trigger
+still applies: when each one comes up, it re-checks that the Deck is still empty, so Void
+does not fire after the Pile-shuffling Crew (Dredger) has refilled the Deck.
 
-**Q3. Order.** Within one Batch, cards come before Crew. Among cards, the seat that
-committed first this Turn comes first, then the other seat; each seat's cards go by slot,
-left to right. Among one seat's Crew, slot order. Exit marks at turn end use the same seat
-order (rule Q10). This is the only place the order is defined.
+**Q3. Order.** Within one Batch, cards come before Crew. Among cards, the first seat's come
+first, then the second seat's; each seat's cards go by slot, left to right. Among one seat's
+Crew, Crew slot order. The exit pass at turn end uses the same seat order (rule Q10). This
+is the only place the order is defined.
 
 **Q4. Budget.** Each pulse has a Budget (trigger) of 50 trigger resolutions, counted across
 both of its drains. A trigger taken off the queue counts one, whether it acts or fizzles for
@@ -59,8 +61,9 @@ by the extra resolution form their own Batch at the end of the queue. "Twice" me
 resolutions in all, so one retrigger.
 
 **Q7. Scores twice.** "Each card Scores twice this turn" runs the score stage of every pulse
-that comes after it twice. Each run applies the card's Bonus to the running multiplier,
-adds the card's points to the Score, and wakes its On score Batch. Both Batches are queued
+that comes after it twice. Each run adds the card's Power to its Controller's walking total,
+multiplies the total by the card's Bonus value, and wakes its On score Batch. A card that
+Scores twice counts twice for any count of Scores (Tallyman). Both Batches are queued
 before the score stage's drain. Unless the text says otherwise it covers cards on both rows.
 
 **Q8. Crew.** Crew fire only after the effect that woke them has fully resolved: a Batch puts
@@ -68,29 +71,40 @@ its cards first and its Crew after them (Q3), and a Crew's own effect wakes a ne
 are not cards: never on a row, never a target, never Condemned, moved or copied.
 
 **Q9. Prompts.** An effect with no eligible target fizzles ("no target"). With one eligible
-target it is chosen automatically. With two or more, the Walk pauses on a Prompt for the
-choosing seat and resumes at the same place in the queue. Crew Prompts are optional and may
-be skipped; a Crew Prompt opens even for one eligible target, so Skip is always offered. The
-discard-down is a multi-select of exactly the excess.
+target it is chosen automatically. With two or more, play pauses on a Prompt for the
+choosing seat, wherever the queue is draining (turn start, a Commit, the Walk or turn end),
+and resumes at the same place in the queue. Crew Prompts are optional and may be skipped; a
+Crew Prompt opens even for one eligible target, so Skip is always offered. An ability with an
+optional count ("any number", "up to N": Immolator, Exhume) always Prompts, even with one
+eligible target, and the choosing seat may choose none. The discard-down is a multi-select of
+exactly the excess.
 
 **Q10. Exits.** Condemned, Fleeting and Fade are exit marks. A card holds at most one and a
-newer mark replaces an older one. They do nothing until turn end; a marked card still Scores,
-and still fires its triggers, this Walk.
+newer mark replaces an older one. They do nothing until the exit pass at turn end; a marked
+card still Scores, and still fires its triggers, this Walk.
+
+**Q11. Resumed draw.** When a seat's draw finds the Deck empty, its On empty draw Batch is
+woken (Q1). Immediately after the last trigger of that Batch has resolved, if the Deck is no
+longer empty the seat makes the draw it was denied, once; if the Deck is still empty,
+nothing is drawn and no second On empty draw Batch wakes. This applies to any draw: the one
+at turn start, and one made by an effect in the Walk or elsewhere.
 
 ## 2. A Turn, step by step
 
 Seats are called first and second for the seat that commits first and second this Turn (the
 winner of the previous Turn, as [[rules/rules-v2]] sets out). "Drain" means the queue of Q1
 empties, with prompts and the Budget (trigger) of Q4 applied. Drain points are marked **D1**
-to **D10**.
+to **D12**.
 
 **Turn start**
 
 1. Fix the commit order. Both seats' Budget is set to the Turn number plus any granted Energy.
 2. Each seat draws one card, first seat first. If its Deck is empty, nothing is drawn and the
-   seat's On empty draw triggers wake as a Batch. **D1: drain.** A text that says it acts
-   "first" (the Pile-shuffling Crew) therefore acts in this drain, and the seat then makes its
-   one draw again. If the Deck is still empty after the drain, nothing is drawn.
+   seat's On empty draw triggers wake as a Batch. **D1: drain.** Each trigger re-checks that
+   the Deck is still empty when it comes up (Q2). The Pile-shuffling Crew therefore acts
+   first in this drain, and Void, which comes later, does not fire if the Deck is no longer
+   empty. The seat then makes its draw again (the resumed draw of Q11, which applies to any
+   draw, not only this one). If the Deck is still empty after the drain, nothing is drawn.
 3. On start wakes one Batch of revealed cards and Crew. **D2: drain.**
 
 **First commit**
@@ -118,24 +132,41 @@ to **D10**.
     cursor is reached later this Walk, a card moved behind waits for the next Walk, and a card
     landing on the pulsed slot Scores now.
 
+    *Reveal-stage hook.* A text that says "after its On reveal resolves and before it Scores"
+    (Skip) acts once, right after D7 and before the score stage: its Move happens then, and
+    the On moved Batch it wakes is queued and drains in D8, after the score stage. An
+    Anchored card is not moved by the hook; a card that lands on the pulsed slot Scores now
+    (the cursor rules above).
+
 **Turn end**
 
-11. Exit marks resolve in one pass, in the order of Q3 (the first seat's row first, slot
-    order): Condemned goes to its Owner's Pile as a Discard, Fleeting goes to its Owner's
-    hand, Fade Un-reveals in place keeping its Memory and losing its Board changes. When the
+11. At turn end, before the exit pass. One Batch wakes: the At turn end abilities of cards
+    and Crew whose text says "before exit marks resolve" (Veil), in the order of Q3.
+    **D9: drain.**
+12. The exit pass. In the order of Q3 (the first seat's row first, slot order): Condemned
+    goes to its Owner's Pile as a Discard, Fleeting goes to its Owner's hand, Fade Un-reveals
+    in place keeping its Memory and losing its Board changes. At the start of the pass every
+    Ongoing that changes exit marks (Wraith) is read once and kept for the whole pass, so a
+    Wraith that is itself Condemned still applies to the other cards in this pass. When the
     pass is complete, each Discarded card wakes its On discard Batch, in pass order, snapshot
-    taken after the pass so cards that left no longer watch. **D9: drain.** An exit mark
+    taken after the pass so cards that left no longer watch. **D10: drain.** An exit mark
     given by this drain waits for the next turn end.
-12. Turn-scoped statuses end: every status whose cessation is "until end of turn", and every
+13. At turn end, after the exit pass. One Batch wakes: the At turn end abilities of cards
+    and Crew whose text says "after exit marks resolve" (Shade), in the order of Q3, read
+    against the rows as the exit pass left them. **D11: drain.** An exit mark given by this
+    drain waits for the next turn end.
+14. Turn-scoped statuses end: every status whose cessation is "until end of turn", and every
     status whose named condition is met.
-13. Energy settles: unspent Energy is lost unless an ability says otherwise.
-14. The Turn's winner is recorded (the higher Score; a tied Turn keeps the order).
+15. Energy settles: unspent Energy is lost unless an ability says otherwise.
+16. The Turn's winner is recorded (the higher Score; a tied Turn keeps the order). Each
+    seat's Score is its walking total after its last Scoring card, rounded once to a whole
+    number (half rounds up).
 
 **After Turn 7** (Round end): every card on both rows goes to its Owner's Pile as a Discard,
-hands and Decks stay as they are, and On discard wakes as a Batch. **D10: drain.** Then the
+hands and Decks stay as they are, and On discard wakes as a Batch. **D12: drain.** Then the
 Round is awarded.
 
-Ten drain points in all: eight are outside the Walk, only D7 and D8 sit in a pulse.
+Twelve drain points in all: ten are outside the Walk, only D7 and D8 sit in a pulse.
 
 ## 3. One pulse
 
@@ -146,7 +177,7 @@ flowchart TD
     F -- no --> D7
     R --> D7[["Drain (D7): queue empties, Budget of 50 applies"]]
     D7 --> S{"Does the card in the slot Score? (not Squelched or Silenced)"}
-    S -- yes --> SC["Score stage: Bonus adjusts the running multiplier, card adds floor of Power times multiplier, On score wakes a Batch (twice if Scores twice)"]
+    S -- yes --> SC["Score stage: walking total gains Power, then is multiplied by the Bonus value, On score wakes a Batch (twice if Scores twice)"]
     S -- no --> D8
     SC --> D8[["Drain (D8): queue empties, same Budget of 50"]]
     D8 --> N["Next pulse: new Budget of 50"]
@@ -175,14 +206,16 @@ flowchart TD
 ## 4. Statuses, exits and expiry
 
 - A status given by an effect lasts until its stated cessation; with none stated it ends at
-  turn end (step 12). A status tied to the board ends early if the card leaves its row or is
+  turn end (step 14). A status tied to the board ends early if the card leaves its row or is
   Un-revealed; a "permanently" status is Memory and survives both.
 - Mute stops a card's triggers (Q2 reads it when the trigger comes up); Squelch stops its
   Score at the score stage; Silence stops both. A card that is both Muted and Squelched is
-  Silenced; ending one half leaves the other (see [[rules/glossary]], section 9).
-- On squelch wakes when the card becomes Squelched or Silenced. A Silenced card fires no
-  triggers, so its own On squelch does not fire; watchers of it may.
-- Exits are step 11 only. Because a Condemned card still Scores and still fires, an
+  Silenced; ending one half leaves the other, and each half keeps its own end (see [[rules/glossary]],
+  section 9). A "cannot be Muted" protection (Ward) turns a would-be Silence into a Squelch
+  only.
+- On squelch wakes when the card becomes Squelched alone. A card that becomes Silenced fires
+  no triggers, so it has no On squelch; watchers of it may.
+- Exits are step 12 only. Because a Condemned card still Scores and still fires, an
   opposing effect that Condemns it does not remove it from this Walk.
 
 ## 5. Traces of the nine scenarios
@@ -193,13 +226,13 @@ Each trace names the step or rule that decides it.
    step 5 wakes the On commit Batch with the revealed card. In D3 the card's effect finds
    two or more eligible targets, so Q9 pauses on a Prompt for seat 0, before step 6 and long
    before seat 1's Commit at step 7. The chosen card becomes Squelched until end of turn;
-   seat 1 sees the Squelch badge when it commits. Step 12 ends the status. Decided by
-   step 5, D3, Q9, step 12.
+   seat 1 sees the Squelch badge when it commits. Step 14 ends the status. Decided by
+   step 5, D3, Q9, step 14.
 2. **Fleeting card Condemned.** An enemy effect gives Condemned to the Power 4 card; Q10
    says the newer mark replaces Fleeting, so it holds only Condemned. It Scores in the
-   Walk (step 10, Q10) and fires normally. Step 11 sends it to its Owner's Pile as a
-   Discard, and each watcher of On discard, on either row, fires in D9. Decided by Q10,
-   step 11, D9.
+   Walk (step 10, Q10) and fires normally. Step 12 sends it to its Owner's Pile as a
+   Discard, and each watcher of On discard, on either row, fires in D10. Decided by Q10,
+   step 12, D10.
 3. **Muted, then Squelched.** The Squelch effect finds the card Muted; it becomes Silenced
    (section 4): the score stage skips it (flowchart node S) and its triggers do not fire
    (Q2). A later effect that ends the Mute leaves Squelched: it again fires its triggers
@@ -216,12 +249,17 @@ Each trace names the step or rule that decides it.
    resolution Condemns an enemy card and Scores again, and that Score wakes another Batch of
    both. Every taken trigger counts (Q4). The count reaches 50 inside one drain (D8); the
    triggers still queued fizzle as "exhausted" and the Walk moves to the next pulse with a
-   count of 0. Condemned cards stay in their slots until step 11. Decided by Q4, D8.
-6. **Empty Deck, Round 6 Turn 1.** At step 2 the seat would draw from an empty Deck, so On
-   empty draw wakes a Batch. With Dredger, D1 shuffles the Pile into the Deck, and the seat
-   draws again and succeeds. With Void instead, D1 records the grant for the seat's next
-   Scoring card (Power 10, Add +2, Mult x1.5, per [[rules/crew-v2]]) and the Deck stays
-   empty, so nothing is drawn. Decided by step 2, D1.
+   count of 0. Condemned cards stay in their slots until step 12. Decided by Q4, D8.
+6. **Empty Deck, Round 6 Turn 1.** Assumption: a Deck of 40 cards less the opening hand of
+   four leaves 36 draws, one per Turn with no effect draws, so the Deck first runs dry at
+   Round 6 Turn 2 (Turn 36 is Round 6 Turn 1). The scenario's Round 6 Turn 1 therefore
+   assumes at least one earlier effect draw. At step 2 the seat would draw from an empty
+   Deck, so On empty draw wakes a Batch. With Dredger, D1 shuffles the Pile into the Deck,
+   and the resumed draw (Q11) succeeds. With Void instead, the Deck is still empty when
+   Void's trigger comes up (Q2), so D1 records the grant for the seat's next Scoring card
+   (Power +10, Add +2, Mult ×1.5, per [[rules/crew-v2]]) and nothing is drawn. With both,
+   Dredger comes first in Crew slot order, the Deck is no longer empty, and Void does not
+   fire. Decided by step 2, D1, Q2, Q11.
 7. **Hand of six.** At step 2 the seat drew to six. At step 7 it Commits one card, leaving
    five; step 8 drains On commit; step 9 compares five with Hand size four, so exactly one
    card must be chosen and Discarded, and its On discard drains in D6, all before the Walk
@@ -242,5 +280,5 @@ Each trace names the step or rule that decides it.
 Card and Crew texts live in [[rules/cards-v2]] and [[rules/crew-v2]]; Energy, Hand, Deck and
 Pile rules live in [[rules/rules-v2]]. Nothing here adds a rule that the spec does not
 imply. Where the spec was silent and this note chose a reading (the fresh queue outside the
-Walk, the resumed draw at step 2, the snapshot after the exit pass, what counts toward the
-Budget) the choice is open to Ben's veto at sign-off.
+Walk, the resumed draw of Q11, the snapshot after the exit pass, the reveal-stage hook, what
+counts toward the Budget) the choice is open to Ben's veto at sign-off.

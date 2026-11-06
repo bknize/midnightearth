@@ -2,7 +2,7 @@
 type: reference
 tags: [reference, rules-v2, rules]
 status: seedling
-related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[rules/resolution]]", "[[rules/crew-v2]]", "[[systems/game-loop]]", "[[cards/Cards]]"]
+related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[rules/resolution]]", "[[rules/crew-v2]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]"]
 created: 2026-11-06
 updated: 2026-11-06
 uid: effd8870-94a5-4b01-9b84-254a2da735eb
@@ -31,8 +31,11 @@ Commit, Walk and turn end; the Walk is the scoring pass and Score is its total (
 seat keeps its hand, its Deck and its Pile as they are (R6).
 
 **Who commits first.** The seat that won the previous Turn commits first. On Turn 1 of a
-Round, the seat that lost the previous Round commits first. The first Turn of a Match is
-decided by a seeded coin flip. A tied Turn keeps the order (R7).
+Round, the seat that lost the previous Round commits first. After a tied Round there is no
+loser, so the alternation of first committer simply continues from the last Turn of the
+Round into Turn 1 of the next: the seat that did not commit first on that last Turn commits
+first (C25). The first Turn of a Match is decided by a seeded coin flip. A tied Turn keeps
+the order (R7).
 
 **Turn phases, in order (R8).**
 
@@ -44,12 +47,14 @@ decided by a seeded coin flip. A tied Turn keeps the order (R7).
 6. The Walk.
 7. Turn end.
 
-**Turn end steps, in order (R9).**
+**Turn end steps, in order (R9, C18).**
 
-1. Exit marks resolve (section 6, R35).
-2. Statuses that end at turn end end.
-3. Energy settles (section 2).
-4. The Turn's winner is recorded.
+1. At turn end triggers that fire before the exit pass (Veil).
+2. The exit pass: exit marks resolve (section 6, R35).
+3. At turn end triggers that fire after the exit pass (Shade).
+4. Statuses that end at turn end end.
+5. Energy settles (section 2).
+6. The Turn's winner is recorded.
 
 ## 2. Energy and Cost
 
@@ -65,7 +70,8 @@ decided by a seeded coin flip. A tied Turn keeps the order (R7).
 
 - Each seat is dealt an opening hand of four cards once, at Match start (R13).
 - The base Hand size is four. Ongoing abilities and Crew change it; the Quartermaster sets it
-  to seven, and "your Hand size is +2" adds two (R14).
+  to seven, and "your Hand size is +2" adds two (R14). Sets apply first (the highest set
+  wins), then additions: Quartermaster's 7 with Pantry's +2 is 9.
 - During a Turn a hand may hold more cards than its Hand size. A draw always succeeds unless
   the Deck is empty (R15).
 - **Discard-down.** When a seat's Commit is accepted, if its hand holds more cards than its
@@ -83,50 +89,69 @@ decided by a seeded coin flip. A tied Turn keeps the order (R7).
 - When a seat would draw from an empty Deck, it draws nothing and its On empty draw triggers
   fire (the Pile-shuffling Crew, Void) (R20).
 - Each seat has one Pile, face up and public to both seats. It receives every card that
-  leaves a hand or a row for any reason other than returning to a hand, moving to a row or
-  flipping face down (R21).
+  leaves a hand or a row for any reason other than going to a hand (Fleeting), moving to a
+  row or flipping face down (R21).
 - A Discard is a card entering a Pile from a hand (a chosen discard or the discard-down) or
   from a row (a Condemned card leaving at turn end, a card cleared at Round end). On discard
   triggers fire for all of them (R22).
-- Each Pile lasts the whole Match. Nothing is burned (R23).
+- Each Pile lasts the whole Match. No card leaves play except to a Pile (R23).
 - When a card enters a Pile, its identity becomes known to both seats (R24).
 
 ## 5. Card anatomy, Bonus growth and Score maths
 
 **Anatomy (R25).** Every card has a Cost, a Power (the points it adds when it Scores), at
-most one Bonus, a strategy tag or "evergreen", and rules text. A card may have no Bonus and
-no rules text.
+most one printed Bonus, a strategy tag or "evergreen", and rules text. A card may have no
+Bonus and no rules text. Abilities may grant a card further Bonuses.
 
-**Bonus (R26).** A Bonus is either a Mult or an Add, applied before the card Scores.
+**Bonus (R26, C20).** A Bonus is either a Mult or an Add.
 
-- A Mult multiplies the seat's running multiplier. It is printed x1.25, x1.5 or x2.
-- An Add adds whole units to the running multiplier. It is printed +1 or +2.
+- A Mult multiplies the card's Bonus value. It is printed ×1.25, ×1.5 or ×2.
+- An Add adds to the card's Bonus value. It is printed +0.25, +0.5 or +1 (+1 only on
+  expensive cards).
+- A card carries its printed Bonus plus any granted ones (Void, Tallyman, Idler). When it
+  Scores, all Adds apply, then all Mults.
 
-**Growth (R27).** An ability may grow a Bonus. A Mult may gain +0.25 or be multiplied by
-x1.2. An Add may gain +1. Growth applies as the base value, then the additive steps, then the
-multiplicative steps, and the result is rounded to hundredths. Example: a printed x1.5 Mult
-that gains +0.25 and is multiplied by x1.2 once is (1.5 + 0.25) x 1.2 = x2.10.
+**Growth (R27, C19).** An ability that grows a Bonus states how much: an Add gains +N, a Mult
+gains +N or is multiplied by ×N. Growth applies as the base value, then the additive steps,
+then the multiplicative steps, and the result is rounded to hundredths. Example: a printed
+×1.5 Mult that gains +0.25 and is multiplied by ×1.2 once is (1.5 + 0.25) × 1.2 = ×2.10.
 
-**Score maths (R28).** In each Walk, each seat's running multiplier starts at x1.00. For each
-card, in the Walk's order:
+**Score maths (R28, C21; reading 9a, open to Ben's veto).** Each seat has a walking total that
+starts at 0 each Walk. When a card Scores, for its Controller's seat:
 
-1. The card's Bonus adjusts the running multiplier (a Mult multiplies it, an Add adds to it).
-2. The card adds floor(Power x running multiplier) to its seat's Score, in whole numbers.
+1. The walking total gains the card's Power.
+2. The card's Bonus value starts at 1, gains every Add, then is multiplied by every Mult.
+3. The walking total is multiplied by the Bonus value. A card with no Bonus multiplies by 1.
 
-A negative Power subtracts, so a seat's Score may go negative.
+The seat's Score for the Walk is its walking total after its last Scoring card, rounded to a
+whole number once, at the end of the Walk (half rounds up). Nothing is rounded in between. A
+negative Power subtracts before the multiply, so a Score may be negative. A Mult below 1
+simply multiplies, and a negative walking total is multiplied like any other, so a Mult
+above 1 makes a negative total more negative. The Bonus value is never below 0.
 
-**Worked row.** One seat's row, left to right, with the running multiplier starting at x1.00:
+Order matters: Power added early is multiplied by every later Bonus, so a Bonus on the far
+right of a row multiplies the whole walking total and is the strongest.
 
-| Slot | Card | Power | Bonus | Running multiplier after Bonus | Adds to Score | Score so far |
+**Worked row.** One seat's row, left to right, walking total starting at 0:
+
+| Slot | Card | Power | Bonus | Walking total after Power | Bonus value | Walking total after |
 |---|---|---|---|---|---|---|
-| 0 | A | 2 | Mult x1.5 | 1.00 x 1.5 = 1.50 | floor(2 x 1.50) = 3 | 3 |
-| 1 | B | 3 | Add +1 | 1.50 + 1 = 2.50 | floor(3 x 2.50) = floor(7.5) = 7 | 10 |
-| 2 | C | 4 | none | 2.50 | floor(4 x 2.50) = 10 | 20 |
+| 0 | A | 2 | Mult ×1.5 | 0 + 2 = 2 | 1 × 1.5 = 1.5 | 2 × 1.5 = 3 |
+| 1 | B | 3 | Add +1 | 3 + 3 = 6 | 1 + 1 = 2 | 6 × 2 = 12 |
+| 2 | C | 4 | none | 12 + 4 = 16 | 1 | 16 × 1 = 16 |
 
-The seat's Score for the Walk is 20. This is today's maths unchanged, with Power in the
-place of "flat": the same row built from flat 2 with x1.5, flat 3 with +1 and flat 4 with no
-bonus scores 20 today (R28). Order matters: with B before A, B makes the running multiplier 2.00 and scores 6, A makes it
-3.00 and scores 6, and C scores 12, a Score of 24 from the same three cards.
+The seat's Score for the Walk is 16.
+
+**Same cards, different order.** The same three cards as C, A, B:
+
+| Slot | Card | Power | Bonus | Walking total after Power | Bonus value | Walking total after |
+|---|---|---|---|---|---|---|
+| 0 | C | 4 | none | 0 + 4 = 4 | 1 | 4 |
+| 1 | A | 2 | Mult ×1.5 | 4 + 2 = 6 | 1.5 | 6 × 1.5 = 9 |
+| 2 | B | 3 | Add +1 | 9 + 3 = 12 | 2 | 12 × 2 = 24 |
+
+The Score is 24 from the same three cards. (B, A, C also gives 16, which is a coincidence of
+these numbers: (3 × 2 + 2) × 1.5 + 4 = 16.)
 
 **Memory and Board changes (R29).** A change to a card's stats is a Board change. It ends
 when the card leaves its row or the Round ends. If the ability says "for the match" or
@@ -147,7 +172,9 @@ Anchored (R31). The glossary's status table is the one-line reference; the rules
 - **Silenced.** If a card is both Muted and Squelched, both are replaced by Silenced: no
   triggers, no Score, no Ongoing. When an effect removes Muted from a Silenced card, it
   becomes Squelched. When an effect removes Squelched from a Silenced card, it becomes Muted
-  (R33).
+  (R33). Each half keeps its own end condition; when one half ends the card is left with the
+  other (C22). A "cannot be Muted" card (Ward) that would be Silenced is Squelched only, and
+  Stasis protects the Squelch half of a Silence the same way (C24).
 - **Cessation.** Every ability that gives a status states when it ends: "until end of turn"
   (the default), "permanently" (the status is Memory and follows the card), or a named end
   condition. A status with no stated cessation ends at turn end (R34).
@@ -207,9 +234,9 @@ to slot 0 and wraps A to slot 2. B stays in slot 1 (R36, R39).
 | Exit marks | Several marks may sit on a card | One mark per card; the newer replaces the older; one turn-end pass | R35 |
 | Anchored | None | Immovable by any effect | R36 |
 | Movement | Moves go to the far left or right, or shift by one; no ring | Stepwise moves wrap on a ring; Placement is not a Move | R39, R40 |
-| Card stats | Flat, plus a x-part and a +-part | Power, plus at most one Bonus (a Mult or an Add), with defined growth | R25–R27 |
-| Score maths | Running multiplier from x1.00, then floor(flat x multiplier) | Same maths with Power in place of flat | R28 |
-| Turn end | Returns, clear destroyed, flips, Crew queue, energy | Exit marks, statuses end, energy settles, winner recorded | R9 |
+| Card stats | Flat, plus a ×-part and a +-part | Power, plus at most one printed Bonus (a Mult or an Add) and any granted ones, with defined growth | R25–R27 |
+| Score maths | A running multiplier from ×1.00; each card's Bonus adjusts it, then the card adds floor(flat × multiplier). The same row of flat 2 with ×1.5, flat 3 with +1 and flat 4 with no bonus scores 20 | A walking total from 0: each Scoring card adds its Power, builds its Bonus value, and multiplies the total by it; the same row scores 16 (24 in the order C, A, B); rounded once at the end of the Walk | R28 |
+| Turn end | Returns, clear destroyed, flips, Crew queue, energy | At turn end triggers before the exit pass, exit marks, At turn end triggers after it, statuses end, energy settles, winner recorded | R9 |
 | Hidden information | Burn piles private; destroyed pile private if never revealed | Piles public; hand and face-down effects private to the Owner | R24, R53, R54 |
 
 ## 10. Trace table
