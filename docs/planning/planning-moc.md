@@ -4,7 +4,7 @@ tags: [moc, planning]
 status: evergreen
 related: ["[[home]]"]
 created: 2026-11-02
-updated: 2026-11-04
+updated: 2026-11-06
 uid: 3d11a0d5-b76c-4e27-a250-f5f85546aba7
 linear:
 supersedes:
@@ -21,3 +21,5 @@ supersedes:
 Dev cycles are logged in [[planning/cycles]] once the first one runs.
 Every bot the game ships or measures against, and how to rerun the bot checks after an
 engine change, is in [[planning/bot-ladder]].
+The proposed LLM-assisted training program on the Windows PC is in
+[[planning/bot-trainer-architecture]].
