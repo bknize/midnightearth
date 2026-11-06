@@ -36,7 +36,7 @@ different Crew (R58). Four copies of every card leave the average Cost unchanged
 |---|---|---|---|---|
 | Greed | Ember, Pip, Flare, Skim, Cinder, Courier, Banner, Bounty, Gilt, Jackpot | Tallyman, Void, Engineer | 34 × 4 = 136 | 136 / 40 = 3.4 |
 | Combo | Wick, Refrain, Swell, Reprieve, Scrap, Twin, Reprise, Encore, Reverb, Finale | Shade, Quartermaster, Engineer | 36 × 4 = 144 | 144 / 40 = 3.6 |
-| Disruption | Hush, Muzzle, Litter, Saboteur, Hex, Jam, Stasis, Gag, Quorum, Eclipse | Engineer, Salvager, Quartermaster | 35 × 4 = 140 | 140 / 40 = 3.5 |
+| Disruption | Hush, Muzzle, Litter, Saboteur, Hex, Jam, Stasis, Gag, Quorum, Eclipse | Engineer, Salvager, Quartermaster | 36 × 4 = 144 | 144 / 40 = 3.6 |
 | Graveyard | Fuse, Tithe, Reliquary, Boneyard, Wraith, Glutton, Revive, Exhume, Immolator, Reset | Veil, Salvager, Dredger | 36 × 4 = 144 | 144 / 40 = 3.6 |
 | Control | Eddy, Pin, Shepherd, Skip, Fence, Herald, Level, Shake, Tempest, Cull | Captain, Engineer, Quartermaster | 39 × 4 = 156 | 156 / 40 = 3.9 |
 | Ramp | Whisper, Sapling, Rain, Dynamo, Tinker, Idler, Lantern, Graft, Layaway, Colossus | Navigator, Captain, Dredger | 38 × 4 = 152 | 152 / 40 = 3.8 |
@@ -45,7 +45,7 @@ The Cost sums, from the Cost column of [[rules/cards-v2]]:
 
 - **Greed:** 1 + 1 + 2 + 2 + 3 + 3 + 4 + 5 + 6 + 7 = 34.
 - **Combo:** 1 + 2 + 2 + 3 + 3 + 3 + 4 + 5 + 6 + 7 = 36.
-- **Disruption:** 1 + 2 + 3 + 3 + 3 + 4 + 4 + 4 + 5 + 6 = 35.
+- **Disruption:** 1 + 2 + 3 + 3 + 4 + 4 + 4 + 4 + 5 + 6 = 36 (Saboteur is Cost 4, C27).
 - **Graveyard:** 2 + 2 + 3 + 3 + 3 + 4 + 4 + 4 + 5 + 6 = 36.
 - **Control:** 2 + 2 + 3 + 3 + 3 + 4 + 4 + 5 + 6 + 7 = 39.
 - **Ramp:** 1 + 2 + 2 + 2 + 3 + 3 + 4 + 4 + 5 + 12 = 38 (Colossus counts at its printed Cost of 12).
