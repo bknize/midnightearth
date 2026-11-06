@@ -202,7 +202,7 @@ Wraith and Tithe are Ongoing and On discard, so Squelch and Mute each hit one ha
 
 ### 2.5 Control
 
-*Card movement and board manipulation: arrange your own row to feed the multiplier and
+*Card movement and board manipulation: arrange your own row to feed your Mults and
 pull the other one apart.*
 
 **Plan (R62).** *Round 2:* Pin, Eddy and Shepherd set the row, aiming to hold a Mult in the
@@ -260,7 +260,7 @@ undo the slot order its Mults need).
 | RA07 | Lantern | Ramp | 4 | 4 | — | On reveal: the first card you commit next Turn costs 0, until you commit a card or next Turn ends. | L84 | If nothing is committed next Turn the effect ends at the next turn end |
 | RA08 | Graft | Ramp | 4 | 3 | — | On score: the card to the right of this card has its Mult multiplied by ×1.2 permanently, to a maximum of ×2.5. | L28 | Memory, growth ×1.2 (R27). Fizzles "no target" if that card has no Mult. The maximum is a design addition (C21) |
 | RA09 | Layaway | Ramp | 5 | 6 | — | On commit (while in your hand): this card costs 1 less for the match. | L54 | Fires from the hand (R50). Clamps at 0 |
-| RA10 | Colossus | Ramp | 12 | 12 | — | Ongoing: on Turn 7 this card's Cost is 7. | L30 | The one named Cost exception (R12). Other Cost changes apply after |
+| RA10 | Colossus | Ramp | 12 | 12 | — | Ongoing (while in your hand): on Turn 7 this card's Cost is 7. | L30 | The one named Cost exception (R12). Other Cost changes apply after |
 
 ### 2.7 Evergreen
 
