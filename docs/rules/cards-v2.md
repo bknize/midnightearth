@@ -70,7 +70,7 @@ total a Bonus on the far right of a row multiplies the most (C21).
 end of the Walk, before rounding, your walking total is multiplied by ×0.75 for each Dross
 in your hand. Ben's sketch (L25) was a ×.75 Bonus while in hand; under the walking total a
 Mult on a card in hand has nothing to multiply, so the intent, a tax on the holder's Score,
-is kept as a Walk-end multiply (flagged for Ben). Dross is a created card Owned by the seat
+is kept as a Walk-end multiply (confirmed by Ben, C32). Dross is a created card Owned by the seat
 whose hand it was put in; when that seat Discards it, it goes to that seat's Pile as a
 Discard (R22), and a Pile-shuffling Crew (Dredger) can shuffle it into that seat's Deck again.
 Twin's copies are created the same way. Dross and copies are not part of the 90.
@@ -90,8 +90,8 @@ is wide, and Banner makes plain bodies huge; it is cashing a lead into the fourt
 before a Ramp or Graveyard seat outgrows it. Gilt wants the far right of the row, where its
 Mult ×1.5 multiplies everything scored before it. If the Match is level, Gilt and Jackpot
 decide Turn 7. *Dry Deck (Rounds 6 and 7):* Courier drains the Deck faster, so the Greed
-seat runs dry first, on purpose: with Void each empty draw becomes Power +10, Add +2 and
-Mult ×1.5 on its next Scoring card. Without Void it is out of cards and relies on the cards
+seat runs dry first, on purpose: with Void each empty draw becomes Power +10, Add +0.5 and
+Mult ×1.25 on its next Scoring card. Without Void it is out of cards and relies on the cards
 already on the row. *Crew:* Tallyman, Void; Engineer is the evergreen pick. Void's grant is strongest on the
 last Scoring card of the row. *Beats* slow
 Ramp and Combo in Rounds 1 and 2. *Loses to* Disruption (one Squelch or Mute on a spike
@@ -135,7 +135,7 @@ Disruption (Mute stops triggers, Quorum mutes the row) and to early Greed.
 | CB04 | Reprieve | Combo | 3 | 3 | — | On reveal: choose a card on either row; it gets Fleeting. | L57 | On an opposing card it goes to its Owner's hand at turn end after it Scores this Walk; no Controller change |
 | CB05 | Scrap | Combo | 3 | 2 | — | On reveal: Discard a card from your hand; this card gets Add +N until end of turn, where N is 0.25 for each point of that card's Cost, at most 1. | L45 | RETRIG target (scenario 4): under Encore each resolution asks again and reads N again (Q5, Q6, Q9). The 0.25 step and the cap of 1 are design additions (C21); the granted Add stacks with any printed Bonus (C20) |
 | CB06 | Twin | Combo | 3 | 1 | — | On reveal: create a copy of this card in your hand. | L32 | LOOP across Turns and CREATE: each reveal makes one more copy; a copy has base values and no Memory. Hand growth is checked only by the discard-down (R16) |
-| CB07 | Reprise | Combo | 4 | 3 | — | On commit: every card on both rows Scores twice this Turn. | L39 | TWICE (Q7); covers both rows. Fires only for a Reprise revealed on an earlier Turn (never the Turn it is committed) |
+| CB07 | Reprise | Combo | 4 | 3 | — | On commit: every card on both rows Scores twice this Turn. | L39 | TWICE (Q7); covers both rows. Fires only for a Reprise revealed on an earlier Turn (never the Turn it is committed). Powerful, and the drawback is that it doubles the opponent's row too (C30) |
 | CB08 | Encore | Combo | 5 | 4 | — | On reveal: until end of turn, each of your other On reveal abilities resolves twice. | L38 | RETRIG (Q6): one extra resolution after each, never itself, choices and amounts read again. Slot order matters: it only covers cards revealed after it |
 | CB09 | Reverb | Combo | 6 | 5 | — | On reveal: this card gets Fleeting and costs 2 less for the match. | L85 | The Cost reduction is Memory and clamps at 0; each replay of the card is cheaper |
 | CB10 | Finale | Combo | 7 | 4 | — | On reveal: this card gets Power +2 for each of your other cards revealed this Turn, until end of turn. | new | N is read when it resolves (Q5), so cards to its left count and cards to its right do not |
@@ -337,7 +337,7 @@ payoff cards whose text is meant to supply the missing points.
 | Refrain | 2 / 1 | 2 to 4 | Seed: grows by 1 for each other reveal |
 | Scrap | 3 / 2 | 3 to 7 | Payoff: Add up to +1 from the Discard |
 | Twin | 3 / 1 | 3 to 5 | Engine: makes a copy each reveal |
-| Reprise | 4 / 3 | 4 to 6 | Payoff: every card Scores twice, so each Bonus applies twice on both rows |
+| Reprise | 4 / 3 | 4 to 6 | Payoff: every card Scores twice, so each Bonus applies twice on both rows; the drawback is that it doubles the opponent's row too (C30) |
 | Encore | 5 / 4 | 5 to 7 | Payoff: doubles every other On reveal |
 | Reverb | 6 / 5 | 6 to 8 | Replayable: Fleeting and cheaper each time |
 | Finale | 7 / 4 | 7 to 9 | Payoff: +2 for each other reveal, about 12 at six cards |
@@ -388,7 +388,7 @@ punishes Saboteur's negative Power, which sets the whole row it lands on to -3.
 | Encore | RETRIG | One extra resolution each, never itself, choices again (Q6) |
 | Scrap | RETRIG target | Each resolution asks a Prompt and reads N again (Q5, Q6, Q9); the scenario 4 trace |
 | Refrain | RETRIG target | A watcher is an On reveal ability and Encore doubles it (Q6) |
-| Reprise | TWICE | Every score stage runs twice (Q7); both rows |
+| Reprise | TWICE | Every score stage runs twice (Q7); both rows, so the drawback is that it doubles the opponent's row too (C30) |
 | Saboteur | CTRL | The card is on the opposing row; Owner never changes; Round end Discards it to its Owner (R30, D12) |
 | Delve | LEAK (private) | Own Deck only, nothing public (R54) |
 | Lookout | LEAK by design | Identity shown to the looking seat only (R54) |

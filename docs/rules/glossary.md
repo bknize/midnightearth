@@ -258,7 +258,7 @@ Every ability has exactly one trigger moment (spec R50). There are ten.
 | On start | Turn start, after the draws. | Revealed cards only |
 | On discard | A card enters a Pile (see Discard, section 2). | Abilities that react to a Discard |
 | On squelch | The card becomes Squelched alone (a Silenced card fires no triggers). | That card |
-| On empty draw | A seat would draw from an empty Deck and, when its trigger comes up, the Deck is still empty. | That seat's abilities and Crew, such as Void and the Pile-shuffling Crew |
+| On empty draw | A seat would draw from an empty Deck. Every On empty draw trigger fires, with no re-check that the Deck is still empty. | That seat's abilities and Crew, such as Void and the Pile-shuffling Crew |
 | On moved | The card changes slot by a Move (not by Placement). | That card, and Crew that react to a Move |
 | At turn end | Turn end has two points: before the exit pass, and after it. A text says which. | The ability's Controller's cards and Crew |
 | Ongoing | Never fires; the engine reads it when the value is needed. | Everything it applies to |
