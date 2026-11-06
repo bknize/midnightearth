@@ -26,7 +26,7 @@ in section 3 and tuned when the cards are played.
 |---|---|---|
 | Greed | 10 | 1, 1, 2, 2, 3, 3, 4, 5, 6, 7 |
 | Combo | 10 | 1, 2, 2, 3, 3, 3, 4, 5, 6, 7 |
-| Disruption | 10 | 1, 2, 3, 3, 3, 4, 4, 4, 5, 6 |
+| Disruption | 10 | 1, 2, 3, 3, 4, 4, 4, 4, 5, 6 |
 | Graveyard | 10 | 2, 2, 3, 3, 3, 4, 4, 4, 5, 6 |
 | Control | 10 | 2, 2, 3, 3, 3, 4, 4, 5, 6, 7 |
 | Ramp | 10 | 1, 2, 2, 2, 3, 3, 4, 4, 5, 12 (7 on Turn 7) |
@@ -38,7 +38,7 @@ in section 3 and tuned when the cards are played.
 **Columns.** ID, Name, Tag (the card's strategy, or evergreen, R59), Cost, Power, Bonus (the
 printed Mult or Add, or a dash), rules text, Source (a line of [[cards/Cards]], written L68,
 or "new"), and Flags. Costs are 1 to 7; the one
-named exception is Colossus at Cost 12 (R12). A dash in the Bonus column means no Bonus.
+named exception is Colossus at Cost 12 (R12). A dash in the Bonus column means no Bonus, which counts as a Bonus value of 1: the card does not change the walking total beyond its Power.
 A card with no text is a plain body.
 
 **Text style (binding).** The moment comes first, one sentence, glossary verbs. Every
@@ -145,7 +145,7 @@ Disruption (Mute stops triggers, Quorum mutes the row) and to early Greed.
 *Stop the other seat's win condition with Squelch and Mute; a few cards pay for it with
 slow, certain damage.*
 
-**Plan (R62).** *Round 2:* Hush, Muzzle and Saboteur are cheap and answer the first big
+**Plan (R62).** *Round 2:* Hush and Muzzle are cheap and answer the first big
 card; the seat accepts a low Score and aims at the far right of the opposing row, where
 Bonuses multiply the most. Muzzle and Eclipse choose by slot, so the seat is guessing against
 face-down commits. *Round 5:*
@@ -163,7 +163,7 @@ Shake and Tempest reorder the opposing row, which ruins a slot guess against fac
 | DI01 | Hush | Disruption | 1 | 1 | — | On reveal: Mute an opposing card until end of turn. | new | |
 | DI02 | Muzzle | Disruption | 2 | 2 | — | On reveal: Squelch an opposing card until end of turn. | new | |
 | DI03 | Litter | Disruption | 3 | 2 | — | On reveal: create three Dross in your opponent's hand. | L25 | CREATE: Dross is defined in section 1. A card created is Owned by the seat it is put in |
-| DI04 | Saboteur | Disruption | 3 | -3 | — | On reveal: move this card to the rightmost slot of your opponent's row. | L40 | CTRL: it is on the opposing row at the end of the Walk and goes to its Owner's Pile at Round end (R30, D12). Moved ahead of the cursor, it is reached later this Walk (R41) and Scores for the opposing seat, subtracting 3 from its walking total. L40 had Mult 1.2; at the end of a row a Mult would multiply the opponent's whole total, so the Bonus is dropped (C21) |
+| DI04 | Saboteur | Disruption | 4 | -3 | Mult ×0.75 | On reveal: move this card to the rightmost slot of your opponent's row. | L40 | CTRL: it is on the opposing row at the end of the Walk and goes to its Owner's Pile at Round end (R30, D12). Moved ahead of the cursor, it is reached later this Walk (R41) and Scores for the opposing seat, subtracting 3 from its walking total and then multiplying that total by ×0.75 (C21). Landing last, it takes about a quarter of the opponent's Walk Score; Ben chose ×0.75 at Cost 4 over ×0.5 (C27) |
 | DI05 | Hex | Disruption | 3 | 3 | — | On reveal: choose a card on either row. On start: Mute the chosen card until end of turn. | L42 | The choice (the chosen card, glossary) is kept until Hex or the chosen card leaves its row or is Un-revealed. Prompt at reveal (Q9); the On start Mute fires each Turn Hex is revealed and not Muted |
 | DI06 | Jam | Disruption | 4 | 3 | — | On score: Mute N random opposing cards until end of turn, where N is this card's Power. | L43 | N is read when it resolves (Q5); fewer cards than N, all of them |
 | DI07 | Stasis | Disruption | 4 | 3 | — | Ongoing: each Squelch applied by your effects lasts until this card leaves your row instead of until end of turn. | L44 | Ends with Stasis; a Squelched card that leaves its row loses the Squelch anyway (R37). It protects the Squelch half of your Silences the same way (C24). If Stasis is itself Squelched, the Ongoing stops and new Squelches use the default end |
@@ -332,7 +332,7 @@ payoff cards whose text is meant to supply the missing points.
 | Card | Cost / Power | Band | Reason |
 |---|---|---|---|
 | Colossus | 12 / 12 | Cost 1 to 7 | The named Cost exception (R12): Cost 7 on Turn 7 |
-| Saboteur | 3 / -3 | 3 to 5 | Negative by design; it subtracts from the opposing walking total |
+| Saboteur | 4 / -3 | 4 to 6 | Negative by design; it subtracts from the opposing walking total, and its ×0.75 shrinks that total (C27) |
 | Banner | 4 / 3 | 4 to 6 | Payoff: +4 Power on each of your cards with no rules text |
 | Refrain | 2 / 1 | 2 to 4 | Seed: grows by 1 for each other reveal |
 | Scrap | 3 / 2 | 3 to 7 | Payoff: Add up to +1 from the Discard |
@@ -450,7 +450,7 @@ says why. The old words appear in this table only, quoted from the sheet.
 | L37 | On commit: if you committed no cards this turn, +2 power +2 mult | Used as Idler (RA06) | "+2 mult" is a granted Add, re-tuned to +0.5 (C21) |
 | L38 | On reveal: trigger your other on-reveals twice this turn | Used as Encore (CB08) | Flagged RETRIG |
 | L39 | On commit: each card scores twice this turn | Used as Reprise (CB07) | Flagged TWICE |
-| L40 | On reveal: moves to your enemy's board (Cost 3, Power -3, Mult 1.2) | Used as Saboteur (DI04) | The Mult is dropped (C21); flagged CTRL |
+| L40 | On reveal: moves to your enemy's board (Cost 3, Power -3, Mult 1.2) | Used as Saboteur (DI04) | Cost 4, Mult ×0.75 on the opposing row (C27); flagged CTRL |
 | L41 | On score: draw a card | Used as Courier (GR06) | |
 | L42 | On reveal: select a card + On start: mute the selected card | Used as Hex (DI05) | Mute until end of turn each Turn |
 | L43 | On score: mute N random enemy cards, N is this card's Power | Used as Jam (DI06) | |
