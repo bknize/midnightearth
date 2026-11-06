@@ -101,7 +101,7 @@ to **D12**.
 1. Fix the commit order. Both seats' Budget is set to the Turn number plus any granted Energy.
 2. Each seat draws one card, first seat first. If its Deck is empty, nothing is drawn and the
    seat's On empty draw triggers wake as a Batch. **D1: drain.** Each trigger re-checks that
-   the Deck is still empty when it comes up (Q2). The Pile-shuffling Crew therefore acts
+   the Deck is still empty when it comes up (Q2). If the Pile-shuffling Crew is first in Crew slot order it acts
    first in this drain, and Void, which comes later, does not fire if the Deck is no longer
    empty. The seat then makes its draw again (the resumed draw of Q11, which applies to any
    draw, not only this one). If the Deck is still empty after the drain, nothing is drawn.
