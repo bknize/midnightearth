@@ -12,7 +12,7 @@ supersedes:
 
 # Spec: Ruleset v2 — hardened vocabulary, resolution chart, new card set
 
-**Slug:** `ruleset-v2`  ·  **Change type:** vault (design only)  ·  **Status:** approved (Ben, 2026-11-06, four rounds, 26 clarifications incl. the T07 review decisions C18 to C26; signed off 2026-11-06)
+**Slug:** `ruleset-v2`  ·  **Change type:** vault (design only)  ·  **Status:** approved (Ben, 2026-11-06, four rounds, 32 clarifications incl. the T07 review decisions C18 to C26 and the T08 read-through decisions C27 to C32; signed off 2026-11-06)
 
 This set changes no code. It produces the design canon the next implementation cycles are
 specced from: a hardened glossary, a step-by-step resolution chart, the v2 rules, a 90-card
@@ -120,7 +120,7 @@ sentence in the canon that states how the game behaves, including card and Crew 
 - R19. The canon shall shuffle each Deck once, at Match start, and shall not refill or
   reshuffle it at Round start.
 - R20. When a seat would draw from an empty Deck, the canon shall draw nothing and fire that
-  seat's On empty draw triggers (Void, the pile-shuffling Crew).
+  seat's On empty draw triggers (Void, the pile-shuffling Crew); every such trigger fires, with no re-check that the Deck is still empty (C29).
 - R21. The canon shall give each seat one Pile, face up and public to both seats, that
   receives every card that leaves a hand or a row for any reason other than returning to a
   hand, moving to a row or flipping face down.
@@ -255,7 +255,7 @@ sentence in the canon that states how the game behaves, including card and Crew 
   cessation where it grants a status, its uses and scope, and whether it prompts; Tallyman's
   "every 4 score triggers, +5 mult" is Mult ×2 on the seat's 5th, 10th, 15th ... Scoring
   card of a Walk (C23), Captain's "first card" is the leftmost slot, Void's "10 +2x1.5" is
-  stated as Power 10 with Add +2 and Mult ×1.5 on its next Scoring card, or as Ben corrects.
+  stated as Power +10 with Add +0.5 and Mult ×1.25 on its next Scoring card (confirmed by Ben, C31).
 - R57. The canon shall tag each Crew as evergreen or as serving one of the six strategies.
 - R58. The canon shall keep three Crew per deck, chosen in the deck list, with sharing
   allowed.
@@ -330,6 +330,10 @@ sentence in the canon that states how the game behaves, including card and Crew 
 | C26 | T07 review 8a: scratch sheet | Ben's scratch sheet `docs/cards/Cards.md` is committed on the branch; `[[cards/Cards]]` resolves |
 | C27 | T08 read-through, Saboteur | Ben asked about Power -3 with ×0.5; at ×0.5 on the far right it halves the opponent's Walk Score for Cost 3, so the orchestrator offered tunings and Ben chose (a): "Go with a". Saboteur is Cost 4, Power -3, Mult ×0.75; landing last on the opposing row it takes about a quarter of that Walk Score |
 | C28 | T08 read-through, Shake | Ben: "Shake card should move half the cards in both rows to the left." Then 15a with his amendment: "Anchored cards could be selected randomly, but then simply wouldn't move. If this card intentionally avoided anchored cards, anchor wouldn't be a worthwhile ability." In each row a random half of the cards (rounded down, Anchored cards included in the pool) each step one slot left on the ring; a chosen Anchored card stays |
+| C29 | T08 read-through, question 10, Void with Dredger | Ben: "both would trigger on empty draw, so you'd get both bonuses." On empty draw triggers do not re-check that the Deck is still empty: every On empty draw trigger in the Batch fires, whatever the Crew slot order. With Dredger and Void both, Dredger shuffles the Pile into the Deck, Void's grant applies, and the resumed draw (resolution Q11) then succeeds. With Void alone and an empty Deck, nothing is drawn (the Deck is still empty) and the grant applies. Void no longer says "You draw nothing". |
+| C30 | T08 read-through, question 11, Reprise | Ben: "scores twice as written. This is a powerful card and the drawback is that it benefits your opponent as well." Reprise keeps its text; the drawback is that it doubles the opponent's row too. |
+| C31 | T08 read-through, question 12, Void's numbers | 12a: Void's grant becomes Power +10, Add +0.5, Mult ×1.25 (Bonus value (1 + 0.5) × 1.25 = 1.875). This also confirms Void's reading (R56). |
+| C32 | T08 read-through, question 13, Dross | 13a: Dross stays as written (Mult ×0.75 on its holder's walking total at Walk end, once per Dross in hand). Ben confirmed it. |
 
 Defaults stated by the interrogator and open to Ben's veto at sign-off (none changes a
 decision above): the Pile is public and face up (R21, R24); opening hand dealt once at
@@ -362,8 +366,9 @@ of the T07 fix, flagged); board-scoped statuses also end on un-reveal
   resolutions the rest fizzle as "exhausted" and the Walk moves on (R46).
 - **Given** Round 6 Turn 1 with an empty Deck and Dredger, **when** the seat draws,
   **then** its Pile is shuffled into its Deck and the draw succeeds; **given** Void instead,
-  **then** nothing is drawn and Void's grant applies to the seat's next Scoring card (R20,
-  R55).
+  **then** nothing is drawn (the Deck is still empty) and Void's grant applies to the seat's
+  next Scoring card; **given** both, **then** both trigger, the Pile is shuffled in, Void's
+  grant applies and the resumed draw succeeds (R20, R55, C29).
 - **Given** seat 1 holds six cards after drawing, with Hand size 4, **when** seat 1's commit
   of one card is accepted, **then** seat 1 must choose exactly one card to Discard before
   the Walk starts (R16).
