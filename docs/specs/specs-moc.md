@@ -4,7 +4,7 @@ tags: [moc, specs]
 status: evergreen
 related: ["[[home]]"]
 created: 2026-11-02
-updated: 2026-11-04
+updated: 2026-11-06
 uid: 99ef0f47-bcd6-4654-ad1f-ab1f1db9df29
 linear:
 supersedes:
@@ -26,3 +26,4 @@ written by `/spec <slug>` and exercised into Linear by `/exercise <slug>`.
 | [[specs/cycle-6-constructed-decks/spec|cycle-6-constructed-decks]] ([[specs/cycle-6-constructed-decks/plan|plan]], [[specs/cycle-6-constructed-decks/tasks|tasks]]) | approved | [Cycle 6 — constructed decks](https://linear.app/night-science-llc/project/cycle-6-constructed-decks-3965e3da3936) |
 | [[specs/cycle-7-bot-players/spec|cycle-7-bot-players]] ([[specs/cycle-7-bot-players/plan|plan]], [[specs/cycle-7-bot-players/tasks|tasks]]) | approved | [Cycle 7 — bot players](https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83) |
 | [[specs/cycle-8-ramp-bounce-crew/spec|cycle-8-ramp-bounce-crew]] ([[specs/cycle-8-ramp-bounce-crew/plan|plan]], [[specs/cycle-8-ramp-bounce-crew/tasks|tasks]]) | approved | [Cycle 8 — ramp, bounce, Crew](https://linear.app/night-science-llc/project/cycle-8-ramp-bounce-crew-c3fe684d879f) |
+| [[specs/ruleset-v2/spec|ruleset-v2]] ([[specs/ruleset-v2/plan|plan]], [[specs/ruleset-v2/tasks|tasks]]) | approved | — (design-only set: glossary, resolution chart, rules v2, 90 cards, ten Crew, six test decks under `docs/rules/`) |
