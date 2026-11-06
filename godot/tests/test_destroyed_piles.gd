@@ -109,7 +109,7 @@ func _walk(state: MatchState, rng: MatchRng, recorder: Recorder) -> bool:
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		if ScoreWalk.step(state, _defs(), rng, recorder.record, null):
+		if ScoreWalk.step(state, _defs(), rng, recorder.record):
 			return true
 		guard += 1
 	return false

@@ -42,7 +42,6 @@ const UNSTAGE_TIME: float = 0.2
 ## True for stand-alone verify scenes: start the seeded pairing in _ready. Main starts it.
 @export var auto_start: bool = false
 var bot: String = BotRegistry.default_name()
-var level: int = BotPlayer.FULL_LEVEL
 
 ## The current match, for T08 and tests.
 var driver: MatchDriver = null
@@ -211,9 +210,9 @@ func start_match(new_seed: int, deck_ids: Array[String]) -> void:
 	_paused = false
 	_queue.clear()
 	_close_prompt()
-	driver = MatchDriver.create(new_seed, _cards, _decks, deck_ids, _autoplay, bot, level, _crew)
+	driver = MatchDriver.create(new_seed, _cards, _decks, deck_ids, _autoplay, bot, _crew)
 	if driver == null:
-		push_error("Board: cannot build bot '%s' at level %d" % [bot, level])
+		push_error("Board: cannot build bot '%s'" % bot)
 		return
 	_deck_ids = driver.deck_ids()
 	_fx.match_cards = driver.match_cards()

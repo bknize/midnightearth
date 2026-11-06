@@ -16,8 +16,6 @@ extends GdUnitTestSuite
 const SEED: int = 1
 const SEARCH_SEEDS: int = 100
 const MAX_STEPS: int = 100
-## Bot matches searched for prompts to check preview_choice against the live engine.
-const PREVIEW_SEEDS: int = 50
 const MAX_ACTIONS: int = 2000
 ## Every fixture verb that prompts (the switch retired at DC-07 T01).
 const PROMPT_VERBS: Array[int] = [
@@ -64,7 +62,7 @@ func _db() -> CardDb:
 
 
 ## The fixture-vs-fixture definitions over _db() (DC-07 T02), for the MatchCards APIs:
-## ScoreWalk, EffectResolver and GreedyBot.
+## ScoreWalk, EffectResolver and RandomBot.
 func _defs() -> MatchCards:
 	if _cached_defs == null:
 		_cached_defs = FixtureDecks.defs(_db())
@@ -104,7 +102,7 @@ func _reveal(state: MatchState, seat: int, cards: Array[int]) -> void:
 func _run(state: MatchState, recorder: Recorder) -> bool:
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		if ScoreWalk.step(state, _defs(), MatchRng.new(SEED), recorder.record, null):
+		if ScoreWalk.step(state, _defs(), MatchRng.new(SEED), recorder.record):
 			return true
 		guard += 1
 	return false
@@ -423,7 +421,7 @@ func test_two_or_more_targets_pause_the_walk_on_a_prompt() -> void:
 	assert_array(state.scores).is_equal(_typed([3, 0]))
 	assert_bool(state.walk.active).is_true()
 	var still: Dictionary = state.to_dict()
-	assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record, null)).is_true()
+	assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record)).is_true()
 	assert_dict(state.to_dict()).is_equal(still)
 	assert_int(recorder.events.size()).is_equal(4)
 
@@ -493,20 +491,6 @@ func test_a_face_down_swap_target_stays_hidden() -> void:
 	assert_int(_payload_int(made, "target")).is_equal(MatchEvent.HIDDEN_CARD)
 	assert_int(_payload_int(made, "card")).is_equal(card)
 	assert_int(_payload_int(answered[2].redacted_for(1), "card")).is_equal(MatchEvent.HIDDEN_CARD)
-
-
-## A preview (plan P12) never pauses: the prompt takes its first option at once.
-func test_a_preview_takes_the_first_option_without_pausing() -> void:
-	var state: MatchState = _swap_state()
-	ScoreWalk.begin(state)
-	var paused: bool = ScoreWalk.run(state, _defs(), null, Callable(), PreviewPolicy.new())
-	assert_bool(paused).is_false()
-	assert_dict(state.prompt).is_empty()
-	var a: int = _id(0, C04)
-	var b: int = _id(0, C08)
-	assert_array(state.seats[0].board).is_equal(_typed([_id(0, C12_SWAP), a, b]))
-	# The first option swaps c12 behind: a scores again on slot 1, c12 not at all (C23).
-	assert_array(state.scores).is_equal(_typed([10, 0]))
 
 
 # --- DRAW_THEN_DISCARD (R20, R25) -----------------------------------------------------
@@ -735,137 +719,22 @@ func test_a_concede_while_prompted_ends_the_match_and_closes_the_prompt() -> voi
 	assert_dict(engine.view_for(asked).prompt).is_empty()
 
 
-## The bot answers with an offered option whose preview is among the best (R37, DC-05 T06;
-## T05's interim first-option rule is gone). A discard never changes a score, so here every
-## option ties and the seed picks; test_greedy_bot covers an untied prompt.
-func test_the_bot_answers_its_prompt_with_a_best_option() -> void:
+## The random bot answers its prompt with an offered option of the prompt's zone, which the
+## engine accepts (cycle 9 R70).
+func test_the_bot_answers_its_prompt_with_an_offered_option() -> void:
 	var engine: MatchEngine = _discard_prompt_engine()
 	assert_object(engine).is_not_null()
 	if engine == null:
 		return
 	var asked: int = engine.awaited_seat()
-	var bot: GreedyBot = GreedyBot.new(GreedyBot.seed_for(SEED, asked), _defs())
+	var bot: RandomBot = RandomBot.new(BotRegistry.seed_for(SEED, asked), _defs())
 	var action: EngineAction = bot.choose(engine.view_for(asked), engine)
 	assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE)
 	assert_int(action.seat).is_equal(asked)
 	assert_int(action.zone).is_equal(Choice.Zone.OWN_HAND)
 	var options: Array[int] = Choice.options_of(engine.open_prompt())
 	assert_bool(options.has(action.index)).is_true()
-	var best: int = -1000000
-	for option: int in options:
-		var scores: Array[int] = engine.preview_choice(asked, option)
-		best = maxi(best, scores[asked] - scores[1 - asked])
-	var picked: Array[int] = engine.preview_choice(asked, action.index)
-	assert_int(picked[asked] - picked[1 - asked]).is_equal(best)
 	assert_bool(engine.apply(action).ok).is_true()
-
-
-## R35, R37 (DC-05 T13): for every option of an open prompt, preview_choice equals the
-## scores the live engine ends that walk on after the same choice. Prompts come from bot
-## matches (one per verb, until every prompt verb is found; the switch this looked for
-## retired at DC-07 T01); the live side is a fresh engine that replays the paused match's
-## log, submits the option, and answers any later prompt with its first option, as the
-## preview's policy does. Only prompts whose remaining walk
-## the preview sees in full are taken (_preview_is_exact).
-func test_preview_choice_equals_the_live_outcome_for_every_option() -> void:
-	var seen: Dictionary = {}
-	for match_seed: int in range(1, PREVIEW_SEEDS + 1):
-		var engine: MatchEngine = _bot_engine_at_exact_prompt(match_seed, seen)
-		if engine == null:
-			continue
-		var prompt: Dictionary = engine.open_prompt()
-		var verb: int = prompt["verb"]
-		var seat: int = prompt["seat"]
-		var zone: int = prompt["zone"]
-		seen[verb] = match_seed
-		var logged: String = engine.action_log().to_json()
-		for option: int in Choice.options_of(prompt):
-			var previewed: Array[int] = engine.preview_choice(seat, option)
-			var live: Array[int] = _live_walk_end(logged, seat, zone, option)
-			var where: String = (
-				"seed %d verb %s option %d" % [match_seed, CardEffect.verb_name(verb), option]
-			)
-			assert_int(live.size()).override_failure_message(where).is_equal(2)
-			assert_array(previewed).override_failure_message(where).is_equal(live)
-		if seen.size() == PROMPT_VERBS.size():
-			return
-	var none_found: String = (
-		"no bot match in %d seeds opened an exactly previewable prompt" % PREVIEW_SEEDS
-	)
-	assert_bool(seen.is_empty()).override_failure_message(none_found).is_false()
-
-
-## Plays `match_seed` bot against bot until a prompt opens whose verb is not in `seen` and
-## whose preview is exact; that engine, paused on it, or null when the match ends first.
-func _bot_engine_at_exact_prompt(match_seed: int, seen: Dictionary) -> MatchEngine:
-	var engine: MatchEngine = _started(match_seed)
-	var bots: Array[GreedyBot] = []
-	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(match_seed, seat), _defs()))
-	var actions: int = 0
-	while not engine.is_over() and actions < MAX_ACTIONS:
-		var prompt: Dictionary = engine.open_prompt()
-		if not prompt.is_empty() and _preview_is_exact(engine):
-			var verb: int = prompt["verb"]
-			if not seen.has(verb):
-				return engine
-		var seat: int = engine.awaited_seat()
-		if not engine.apply(bots[seat].choose(engine.view_for(seat), engine)).ok:
-			return null
-		actions += 1
-	return null
-
-
-## Whether a preview of the open prompt plays the rest of the walk as the live engine does:
-## the prompted seat's opponent has no face-down card on its row (a preview drops those,
-## R38), and no face-down card left on the prompted seat's row destroys at random (the live
-## engine draws from its stream, a preview takes the lowest flat: P11). Later prompts take
-## their first option on both sides (_live_walk_end).
-func _preview_is_exact(engine: MatchEngine) -> bool:
-	var seat: int = engine.open_prompt().get("seat", -1)
-	if seat < 0:
-		return false
-	var state: Dictionary = engine.full_state()
-	for row_seat: int in range(MatchEngine.SEATS):
-		var revealed: Array[int] = _seat_list(state, "revealed", row_seat)
-		for card: int in _seat_list(state, "board", row_seat):
-			if revealed.has(card):
-				continue
-			if row_seat != seat:
-				return false
-			var effect: CardEffect = _db().card_at(card % MatchRules.DECK_SIZE).effect
-			if effect != null and effect.verb == CardEffect.Verb.DESTROY_RANDOM_OPPONENT:
-				return false
-	return true
-
-
-## The scores of the TURN_ENDED that closes the walk when a fresh engine replays `logged`,
-## `seat` chooses `option` of `zone`, and every later prompt takes its first option; []
-## when the replay or a choice fails or no turn ends.
-func _live_walk_end(logged: String, seat: int, zone: int, option: int) -> Array[int]:
-	var none: Array[int] = []
-	var replayed: ReplayResult = ActionLog.from_json(logged).replay(
-		_db(), FixtureDecks.decks(), FixtureDecks.crew()
-	)
-	if not replayed.ok:
-		return none
-	var live: MatchEngine = replayed.engine
-	var result: ApplyResult = live.apply(EngineAction.choose(seat, zone, option))
-	var guard: int = 0
-	while result.ok and guard < MAX_STEPS:
-		for event: MatchEvent in result.events:
-			if event.kind == MatchEvent.Kind.TURN_ENDED:
-				var raw: Array = event.payload["scores"]
-				return _typed(raw)
-		var next: Dictionary = live.open_prompt()
-		if next.is_empty():
-			return none
-		var asked: int = next["seat"]
-		var next_zone: int = next["zone"]
-		var first: int = Choice.options_of(next)[0]
-		result = live.apply(EngineAction.choose(asked, next_zone, first))
-		guard += 1
-	return none
 
 
 func _seat_list(state: Dictionary, key: String, seat: int) -> Array[int]:
@@ -951,20 +820,20 @@ func test_a_multi_select_fizzles_on_none_and_prompts_on_one() -> void:
 	var recorder: Recorder = Recorder.new()
 	var alone: MatchState = _state(_typed([source]), _none(), 0)
 	ScoreWalk.begin(alone)
-	assert_bool(ScoreWalk.run(alone, defs, null, recorder.record, null)).is_false()
+	assert_bool(ScoreWalk.run(alone, defs, null, recorder.record)).is_false()
 	assert_array(_kinds(recorder.events)).is_equal(_typed([REVEALED, FIRED, FIZZLED, SCORED]))
 	var other: int = _id(0, C04)
 	var state: MatchState = _state(_typed([other, source]), _none(), 0)
 	_reveal(state, 0, _typed([other]))
 	recorder.events.clear()
 	ScoreWalk.begin(state)
-	assert_bool(ScoreWalk.run(state, defs, null, recorder.record, null)).is_true()
+	assert_bool(ScoreWalk.run(state, defs, null, recorder.record)).is_true()
 	assert_array(_kinds(recorder.events)).is_equal(_typed([SCORED, REVEALED, FIRED, REQUESTED]))
 	var multi: bool = recorder.events[3].payload["multi"]
 	assert_bool(multi and Choice.is_multi_prompt(state.prompt)).is_true()
 	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0]))
-	recorder.events.assign(EffectResolver.answer_set(state, defs, null, null, _none()))
-	assert_bool(ScoreWalk.run(state, defs, null, recorder.record, null)).is_false()
+	recorder.events.assign(EffectResolver.answer_set(state, defs, null, _none()))
+	assert_bool(ScoreWalk.run(state, defs, null, recorder.record)).is_false()
 	assert_array(_kinds(recorder.events)).is_equal(_typed([MADE, FIZZLED, SCORED]))
 	assert_array(recorder.events[0].payload["indices"]).is_empty()
 	assert_bool(state.is_destroyed(other)).is_false()
@@ -1029,7 +898,6 @@ func test_decline_errors_leave_the_state_and_the_log_unchanged() -> void:
 	with_set.indices.append(0)
 	_assert_rejected(engine, with_set, EngineError.Code.MALFORMED)
 	assert_int(_phase(engine)).is_equal(MatchState.Phase.AWAIT_CHOICE)
-	assert_array(engine.preview_decline(asked)).is_empty()
 	# A concede still ends it; a decline then meets the match's end.
 	assert_bool(engine.apply(EngineAction.concede(asked)).ok).is_true()
 	_assert_rejected(engine, EngineAction.decline(asked), EngineError.Code.MATCH_OVER)

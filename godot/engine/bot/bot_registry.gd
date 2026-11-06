@@ -1,86 +1,32 @@
 class_name BotRegistry
 extends RefCounted
-## Every bot by name (cycle 7 R1, plan P2): the board, autoplay, the smoke, the sweep and the
-## harness build their bots here, so one name picks one policy everywhere.
+## Every bot by name (cycle 7 R1; cycle 9 R70, R73, P16): the board, the smoke, the sweep
+## and the harness build their bots here, so one name picks one policy everywhere. The
+## engine ships one bot, `random`.
 ##
-## make() returns null on anything it cannot build: an unknown name, a name whose class has
-## not landed yet (PENDING), a level outside 0..20, and a level below full strength for a
-## bot without an evaluator (`greedy`, `greedy_v1`, `random`). It never prints; the
-## launcher reports the error (P16).
-##
-## A bot with an evaluator (`tuned`, `matrix`) given no weights reads its shipped file
-## (default_weights_path); when that fails to load it gets the built-in defaults for its
-## name, with the file's `load_error` kept so the launcher can print its `Bot weights:`
-## warning (R11).
+## make() returns null on a name it does not know. It never prints; the launcher reports
+## the error.
 
-## Separates bot seeds from any other derivation of the match seed ("bot" in ASCII). Moved
-## from GreedyBot with its value, so seed_for() is unchanged (cycle 7 P1, R5).
+## Separates bot seeds from any other derivation of the match seed ("bot" in ASCII). Its
+## value is unchanged since cycle 7, so seed_for() is too (R5).
 const SEED_TAG: int = 0x626F74
-## Every name the registry knows, in a fixed order (R1); make() builds every one of them.
-const NAMES: Array[String] = ["greedy", "greedy_v1", "random", "tuned", "matrix"]
-## The names known but not buildable yet; the launcher rejects them up front. Empty since
-## the matrix bot landed (DC-10 T13).
-const PENDING: Array[String] = []
-## The names whose bots have no evaluator and so take only the full level (P2).
-const NO_LEVEL: Array[String] = ["greedy", "greedy_v1", "random"]
-## Where a bot's shipped weights live: WEIGHTS_DIR + name + WEIGHTS_SUFFIX (P7).
-const WEIGHTS_DIR: String = "res://engine/bot/data/"
-const WEIGHTS_SUFFIX: String = "_weights.json"
+## Every name the registry knows (R70); make() builds every one of them.
+const NAMES: Array[String] = ["random"]
 
 
-## The bot `name` seeded `bot_seed` over `cards`, with `weights` (default_weights(name) when
-## null) and `level`; null when it cannot be built (see the class comment).
-static func make(
-	name: String, bot_seed: int, cards: MatchCards, weights: BotWeights, level: int
-) -> BotPlayer:
-	if not NAMES.has(name) or level < 0 or level > BotPlayer.FULL_LEVEL:
-		return null
-	if level != BotPlayer.FULL_LEVEL and NO_LEVEL.has(name):
-		return null
-	var bot: BotPlayer = null
-	if name == "greedy":
-		bot = GreedyBot.new(bot_seed, cards)
-	elif name == "greedy_v1":
-		bot = GreedyV1Bot.new(bot_seed, cards)
-	elif name == "random":
-		bot = RandomBot.new(bot_seed, cards)
-	elif name == "tuned":
-		bot = TunedBot.new(bot_seed, cards)
-	elif name == "matrix":
-		bot = MatrixBot.new(bot_seed, cards)
-	if bot == null:
-		return null
-	bot.level = level
-	bot.weights = weights if weights != null else default_weights(name)
-	return bot
+## The bot `name` seeded `bot_seed` over `cards`; null for an unknown name.
+static func make(name: String, bot_seed: int, cards: MatchCards) -> BotPlayer:
+	if name == "random":
+		return RandomBot.new(bot_seed, cards)
+	return null
 
 
-## The weights bot `name` gets when none are given: the built-in defaults for a bot without
-## an evaluator; otherwise its shipped file (default_weights_path), or, when that fails to
-## load, the built-in defaults for the name carrying the file's `load_error` (R11).
-static func default_weights(name: String) -> BotWeights:
-	if NO_LEVEL.has(name):
-		return BotWeights.defaults(name)
-	var loaded: BotWeights = BotWeights.load(default_weights_path(name))
-	if loaded.load_error == "":
-		return loaded
-	var fallback: BotWeights = BotWeights.defaults(name)
-	fallback.load_error = loaded.load_error
-	return fallback
-
-
-## The bot a seat gets when no name is given (R4): the tuned bot (cycle 7 T04).
+## The bot a seat gets when no name is given (R73): the random bot.
 static func default_name() -> String:
-	return "tuned"
+	return "random"
 
 
 ## The seed a caller should give the bot playing `seat` in a match seeded `match_seed`.
-## Equal to what GreedyBot.seed_for returned before cycle 7, so every golden holds (R5).
 static func seed_for(match_seed: int, seat: int) -> int:
 	var parts: Array[int] = [SEED_TAG, seat]
 	return MatchRng.derive_seed(match_seed, parts)
-
-
-## The shipped weights file of bot `name`: res://engine/bot/data/<name>_weights.json.
-static func default_weights_path(name: String) -> String:
-	return WEIGHTS_DIR + name + WEIGHTS_SUFFIX

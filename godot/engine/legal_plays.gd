@@ -8,14 +8,13 @@ extends RefCounted
 ##
 ## Two families (cycle 8 R4, R21, plan P3). The `_with` functions (enumerate_masks_with,
 ## validate_with, commit_cost_with) take the costs as an array parallel to the cards: the
-## engine and the shipped bots pass effective costs (ScoreWalk.effective_cost, the view's
+## engine and the random bot pass effective costs (ScoreWalk.effective_cost, the view's
 ## `own_hand_costs`), so a card whose cost an ability reduced is priced as the engine
 ## accepts it. The printed-cost functions (cost_of, total_cost, enumerate_masks, enumerate,
 ## validate, commit_cost) read the definition's cost from MatchCards by instance id
-## (MatchCards.def_of: origin * DECK_SIZE + index into the origin's deck, DC-07 P3) and stay
-## for the frozen GreedyV1Bot (cycle 7 R21, R22), whose printed costs are never below the
-## effective ones, so its commits stay legal. They are the `_with` functions over printed
-## costs, so both families agree whenever no cost is reduced.
+## (MatchCards.def_of: origin * DECK_SIZE + index into the origin's deck, DC-07 P3). They
+## are the `_with` functions over printed costs, so both families agree whenever no cost is
+## reduced.
 ##
 ## Enumeration order is deterministic and part of the contract (the bot's seeded
 ## tie-break depends on it): subsets are listed by ascending bitmask over the hand's

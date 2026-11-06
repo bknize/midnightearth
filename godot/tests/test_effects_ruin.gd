@@ -4,8 +4,7 @@ extends GdUnitTestSuite
 ## The Ruin verbs (DC-07 T05, T06; R22-R27, R30-R32, R35, plan P7-P10, P12): sacrifice_destroy's
 ## multi-select prompt over the owner's other live cards, the chosen cards destroyed and as
 ## many random live opponent cards from the engine stream, fewer when fewer are live, the
-## previews of a set (MatchEngine.preview_set) and the decline of a nested one
-## (PreviewPolicy), and replay of a log holding a set.
+## empty set's decline, and replay of a log holding a set.
 ##
 ## No shipped card sacrifices yet, so the fixture's c02 (cost 1, flat 2) is given an
 ## on-reveal sacrifice_destroy in memory (FixtureDecks.sacrifice_cards). Tables are set by
@@ -289,45 +288,17 @@ func test_one_live_opponent_card_is_the_only_one_destroyed() -> void:
 	)
 
 
-# --- Previews (P7, P13, R35) -------------------------------------------------------------
+# --- The empty set (P7, R24) -----------------------------------------------------------
 
 
-## preview_set() mirrors preview_choice(): [] for a bad set, another seat or a single
-## answer; a pair for a valid set, the empty one included, with no change to the state or
-## the stream; the empty set's preview equals the live turn's scores.
-func test_preview_set_scores_a_set_without_touching_the_match() -> void:
+## The prompted seat's empty set is accepted and the turn ends on its scores.
+func test_the_empty_set_declines_and_the_turn_ends() -> void:
 	var source: int = _id(0, C02_SACRIFICE)
 	var own: Array[int] = [_id(0, C04), _id(0, C08), source]
 	var engine: MatchEngine = _table(own, _typed([_id(1, C04), _id(1, C08)]))
-	var before: Dictionary = engine.full_state()
-	assert_array(engine.preview_set(0, _typed([0, 0]))).is_empty()
-	assert_array(engine.preview_set(0, _typed([2]))).is_empty()
-	assert_array(engine.preview_set(1, _none())).is_empty()
-	assert_array(engine.preview_choice(0, 0)).is_empty()
-	assert_int(engine.preview_set(0, _typed([0, 1])).size()).is_equal(2)
-	var declined: Array[int] = engine.preview_set(0, _none())
-	assert_int(declined.size()).is_equal(2)
-	assert_dict(engine.full_state()).is_equal(before)
 	var result: ApplyResult = engine.apply(EngineAction.choose_set(0, OWN_BOARD, _none()))
 	assert_bool(result.ok).is_true()
-	assert_array(_turn_scores(result.events)).is_equal(declined)
-
-
-## PreviewPolicy declines a multi-select met inside a preview's walk: the walk never pauses
-## and nothing is destroyed.
-func test_a_preview_walk_declines_a_nested_multi_select() -> void:
-	var other: int = _id(0, C04)
-	var source: int = _id(0, C02_SACRIFICE)
-	var state: MatchState = MatchState.new(SEED)
-	state.seats[0].board.assign([other, source])
-	state.seats[1].board.assign([_id(1, C04)])
-	ScoreWalk.begin(state)
-	var policy: PreviewPolicy = PreviewPolicy.new()
-	assert_bool(ScoreWalk.run(state, _defs(), null, Callable(), policy)).is_false()
-	assert_dict(state.prompt).is_empty()
-	assert_bool(state.is_destroyed(other)).is_false()
-	assert_bool(state.is_destroyed(_id(1, C04))).is_false()
-	assert_array(policy.set_for(_typed([0, 1]))).is_empty()
+	assert_int(_turn_scores(result.events).size()).is_equal(2)
 
 
 # --- Replay (R24, P7) -------------------------------------------------------------------
@@ -421,7 +392,7 @@ func _walk(state: MatchState, rng: MatchRng, recorder: Recorder) -> void:
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		var paused: bool = ScoreWalk.step(state, _ruin(), rng, recorder.record, null)
+		var paused: bool = ScoreWalk.step(state, _ruin(), rng, recorder.record)
 		assert_bool(paused).is_false()
 		guard += 1
 
@@ -526,7 +497,7 @@ func test_phoenix_chosen_for_a_sacrifice_unreveals_and_still_counts() -> void:
 	var victims: Array[int] = _picks(SEED, theirs, 2)
 	var prompt: Dictionary = _sacrifice_prompt(source, [0, 1])
 	var events: Array[MatchEvent] = EffectResolver.apply_set(
-		state, _ruin(), MatchRng.new(SEED), null, prompt, _typed([0, 1])
+		state, _ruin(), MatchRng.new(SEED), prompt, _typed([0, 1])
 	)
 	var expected: Array[int] = [MADE, STATS, UNREVEALED, DESTROYED, DESTROYED, DESTROYED]
 	assert_array(_kinds(events)).is_equal(expected)
@@ -563,7 +534,7 @@ func test_a_face_down_phoenix_is_destroyed_normally() -> void:
 	var state: MatchState = _rows(_typed([phoenix, source]), _typed([target]), 0)
 	_reveal(state, 0, _typed([source]))
 	var events: Array[MatchEvent] = EffectResolver.apply_set(
-		state, _ruin(), MatchRng.new(SEED), null, _sacrifice_prompt(source, [0]), _typed([0])
+		state, _ruin(), MatchRng.new(SEED), _sacrifice_prompt(source, [0]), _typed([0])
 	)
 	assert_array(_kinds(events)).is_equal(_typed([MADE, DESTROYED, DESTROYED]))
 	_assert_event(events[1], DESTROYED, {"seat": 0, "card": phoenix, "slot": 0}, 0)
@@ -702,12 +673,12 @@ func test_a_stat_change_to_five_bursts_fuse_too() -> void:
 	var stream: int = rng.state
 	state.card_state_for(fuse).flat_delta = 3
 	var below: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	assert_bool(RuinEffects.check_burst(state, _ruin(), rng, null, fuse, below)).is_false()
+	assert_bool(RuinEffects.check_burst(state, _ruin(), rng, fuse, below)).is_false()
 	assert_array(below.events).is_empty()
 	assert_int(rng.state).is_equal(stream)
 	state.card_state_for(fuse).flat_delta = 4
 	var copied: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	assert_bool(RuinEffects.check_burst(state, _ruin(), rng, null, fuse, copied)).is_true()
+	assert_bool(RuinEffects.check_burst(state, _ruin(), rng, fuse, copied)).is_true()
 	var victim: int = _picks(SEED, theirs, 1)[0]
 	assert_array(_cards_of(copied.events, DESTROYED)).is_equal(_typed([fuse, victim]))
 	assert_bool(state.is_destroyed(fuse)).is_true()
@@ -720,14 +691,14 @@ func test_a_stat_change_to_five_bursts_fuse_too() -> void:
 	var lone_rng: MatchRng = MatchRng.new(SEED)
 	var lone_stream: int = lone_rng.state
 	var lone: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	assert_bool(RuinEffects.check_burst(alone, _ruin(), lone_rng, null, fuse, lone)).is_true()
+	assert_bool(RuinEffects.check_burst(alone, _ruin(), lone_rng, fuse, lone)).is_true()
 	assert_array(_cards_of(lone.events, DESTROYED)).is_equal(_typed([fuse]))
 	assert_int(lone_rng.state).is_equal(lone_stream)
 	# Face down at 5: not a revealed burst card, so nothing.
 	var hidden: MatchState = _rows(_typed([fuse]), theirs, 0)
 	hidden.card_state_for(fuse).flat_delta = 4
 	var down: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	assert_bool(RuinEffects.check_burst(hidden, _ruin(), rng, null, fuse, down)).is_false()
+	assert_bool(RuinEffects.check_burst(hidden, _ruin(), rng, fuse, down)).is_false()
 	assert_bool(hidden.is_destroyed(fuse)).is_false()
 
 

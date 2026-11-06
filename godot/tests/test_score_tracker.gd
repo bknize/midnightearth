@@ -15,9 +15,9 @@ func _steps() -> Array[BoardStep]:
 	var started: ApplyResult = engine.start()
 	assert_bool(started.ok).is_true()
 	collected.append_array(started.events_for(0))
-	var bots: Array[GreedyBot] = []
+	var bots: Array[RandomBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), engine.match_cards()))
+		bots.append(RandomBot.new(BotRegistry.seed_for(SEED, seat), engine.match_cards()))
 	var actions: int = 0
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var awaited: int = engine.awaited_seat()

@@ -3,7 +3,7 @@ extends GdUnitTestSuite
 ## The hundredths mult (DC-07 T03; spec R10-R14, plan P4, P5): the running mult is an
 ## integer in hundredths from 100, a ×-part multiplies it rounded to the nearest hundredth,
 ## a +-part adds whole units, each card adds floor(flat × mult); the no-bonus mark clears
-## both parts; `temp_plus` lasts until the walk ends; a preview walk equals the live one.
+## both parts; `temp_plus` lasts until the walk ends; a walk on a copy equals the live one.
 ##
 ## The pool is the DC-05 fixture with three bonuses edited so both kinds appear: c02 (flat 2)
 ## +1, c08 (flat 4) ×1.25, c14 (flat 6) +2. Every card named here is effect-free. Instance
@@ -71,15 +71,15 @@ func _walk(state: MatchState, recorder: Recorder) -> void:
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < 100:
-		var paused: bool = ScoreWalk.step(state, _defs(), null, recorder.record, null)
+		var paused: bool = ScoreWalk.step(state, _defs(), null, recorder.record)
 		assert_bool(paused).is_false()
 		guard += 1
 
 
-## Runs the walk on `state` from begin() to its end as a preview (no sink, no stream).
-func _preview(state: MatchState) -> void:
+## Runs the walk on `state` from begin() to its end with no sink and no stream.
+func _copy_walk(state: MatchState) -> void:
 	ScoreWalk.begin(state)
-	var paused: bool = ScoreWalk.run(state, _defs(), null, Callable(), PreviewPolicy.new())
+	var paused: bool = ScoreWalk.run(state, _defs(), null, Callable())
 	assert_bool(paused).is_false()
 
 
@@ -281,18 +281,18 @@ func test_temp_plus_is_gone_after_the_walk() -> void:
 	# The next walk has no +2: 3 + 5.
 	_walk(state, Recorder.new())
 	assert_array(state.scores).is_equal(_typed([8, 0]))
-	# A preview walk clears it too, with the same scores and no event.
-	_preview(before)
+	# A walk with no sink clears it too, with the same scores and no event.
+	_copy_walk(before)
 	assert_array(before.scores).is_equal(_typed([24, 0]))
 	assert_int(before.card_state(C04).temp_plus).is_equal(0)
 
 
-# --- P4, P12: a preview walk equals the live walk -------------------------------------
+# --- P4, P12: a walk on a copy equals the live walk -----------------------------------
 
 
-## Both rows hold ×- and +bonuses (and a flat-up and a temp_plus): a preview walk on a copy
+## Both rows hold ×- and +bonuses (and a flat-up and a temp_plus): a walk on a copy
 ## ends on the live walk's scores, mults and state.
-func test_preview_equals_live_on_a_row_with_both_bonus_kinds() -> void:
+func test_copy_walk_equals_live_on_a_row_with_both_bonus_kinds() -> void:
 	var row_0: Array[int] = [C08_TIMES_125, C02_PLUS_1, C20_TIMES_150, C14_PLUS_2]
 	var row_1: Array[int] = []
 	for index: int in [C14_PLUS_2, C03_TIMES_125, C04]:
@@ -302,7 +302,7 @@ func test_preview_equals_live_on_a_row_with_both_bonus_kinds() -> void:
 	var copy: MatchState = state.duplicate()
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
-	_preview(copy)
+	_copy_walk(copy)
 	# Seat 0: 5, 9, then ×1.5 → 338 and 7 × 3.38 = 23 (32), then +2 → 538 and
 	# 6 × 5.38 = 32 (64). Seat 1: 6 +2 → 300, 18; ×1.25 → 375, 1 × 3.75 = 3 (21);
 	# 4 × 3.75 = 15 (36).
@@ -315,8 +315,8 @@ func test_preview_equals_live_on_a_row_with_both_bonus_kinds() -> void:
 
 ## DC-07 T07: a Drift row with a neighbour (Lodestone), an edge (Herald on slot 0) and moves
 ## (Courier to the far right, Tempest reversing the other row, Eddy's +2 when moved): a
-## preview walk on a copy ends on the live walk's scores, mults, rows and state.
-func test_preview_equals_live_on_a_row_with_a_neighbour_and_an_edge() -> void:
+## walk on a copy ends on the live walk's scores, mults, rows and state.
+func test_copy_walk_equals_live_on_a_row_with_a_neighbour_and_an_edge() -> void:
 	var drift: MatchCards = FixtureDecks.drift_defs()
 	var herald: int = FixtureDecks.D12_HERALD
 	var lodestone: int = FixtureDecks.D10_LODESTONE
@@ -335,12 +335,12 @@ func test_preview_equals_live_on_a_row_with_a_neighbour_and_an_edge() -> void:
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < 100:
-		var paused: bool = ScoreWalk.step(state, drift, null, recorder.record, null)
+		var paused: bool = ScoreWalk.step(state, drift, null, recorder.record)
 		assert_bool(paused).is_false()
 		guard += 1
 	ScoreWalk.begin(copy)
-	var preview_paused: bool = ScoreWalk.run(copy, drift, null, Callable(), PreviewPolicy.new())
-	assert_bool(preview_paused).is_false()
+	var copy_paused: bool = ScoreWalk.run(copy, drift, null, Callable())
+	assert_bool(copy_paused).is_false()
 	# The moves happened: Courier went right, then Tempest reversed seat 1's row.
 	assert_array(state.seats[1].board).is_equal(_typed([courier, pebble, tide, eddy]))
 	assert_int(_of_kind(recorder.events, MatchEvent.Kind.CARD_MOVED).size()).is_greater(0)
@@ -363,14 +363,14 @@ func _dict_int(values: Dictionary, key: int) -> int:
 
 
 ## A bot match over the edited pool: after each turn that neither ends a round nor changed
-## a card mid-walk (a destroy, a choice, a stat change), a preview walk on a copy of the
+## a card mid-walk (a destroy, a choice, a stat change), a walk on a copy of the
 ## engine's state gives the live TURN_ENDED scores.
-func test_a_preview_on_the_live_state_gives_the_live_scores() -> void:
+func test_a_copy_walk_on_the_live_state_gives_the_live_scores() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	assert_bool(engine.start().ok).is_true()
-	var bots: Array[GreedyBot] = []
+	var bots: Array[RandomBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), _defs()))
+		bots.append(RandomBot.new(BotRegistry.seed_for(SEED, seat), _defs()))
 	var compared: int = 0
 	var actions: int = 0
 	var turn_events: Array[MatchEvent] = []
@@ -392,7 +392,7 @@ func test_a_preview_on_the_live_state_gives_the_live_scores() -> void:
 		if engine.is_over() or _changed_the_walk(events):
 			continue
 		var copy: MatchState = engine._state.duplicate()
-		_preview(copy)
+		_copy_walk(copy)
 		var raw: Array = ended[0].payload["scores"]
 		assert_array(copy.scores).is_equal(_typed(raw))
 		compared += 1

@@ -33,10 +33,6 @@ extends RefCounted
 ## compatibility default (EngineAction): its slots resolve to the row's right end,
 ## row_size .. row_size + k - 1, when it is validated, and the resolved slots are what the
 ## state, the COMMITTED event and the action log hold.
-##
-## Previews (plan P12, R35; DC-05 T06): preview() and preview_choice() score a hypothetical
-## commit or prompt answer on a MatchState.duplicate() under a PreviewPolicy, and return
-## only the clone's two scores. See preview() for why that keeps hidden information hidden.
 
 const SEATS: int = 2
 const REASON_WINS: String = "wins"
@@ -55,8 +51,6 @@ var _state: MatchState = null
 var _accepted: Array[EngineAction] = []
 ## Events of the call in progress.
 var _events: Array[MatchEvent] = []
-## The decisions of every preview walk (stateless, so shared).
-var _policy: PreviewPolicy = PreviewPolicy.new()
 ## The turn start's Crew and its pause (cycle 8 P11).
 var _turn_start: TurnStart = TurnStart.new()
 
@@ -146,161 +140,6 @@ func awaited_seat() -> int:
 ## source is revealed (or a Crew, which is public).
 func open_prompt() -> Dictionary:
 	return _state.prompt.duplicate(true)
-
-
-## The scores pair [seat 0, seat 1] the walk would end on if `seat` made the commit
-## `action` now (plan P12, R35), or [] when `action` is not a commit the engine would accept
-## from `seat` now. Pure: it changes no state, accepted action, log or event, and never
-## touches the engine stream.
-##
-## On a MatchState.duplicate(): the commit leaves the clone's hand (its cost spent, the free
-## first card consumed, as _commit does) and merges into the clone's row at its resolved
-## slots, then ScoreWalk runs to the end under the PreviewPolicy (no events, no stream, a
-## prompt takes its first option, a random destroy the opponent's lowest flat).
-##
-## Hidden information (R7, R38): the caller learns nothing the seat's own view does not
-## already hold. The opponent's face-down commit (`pending`, when `seat` commits second) is
-## treated as absent, and any of its unrevealed row cards stays in its slot as an inert
-## one, marked destroyed on the clone (_hide_opponent, DC-06 R23), so no hidden card's
-## stats reach the walk while the slots match the live row. Every other card the walk can
-## score or target is on a row and revealed, or is `seat`'s own. Draws and discards in the
-## walk do touch hidden piles (decks, hands), but a hand or deck card never scores, so it
-## cannot change the scores; and the policy's picks only ever read the opponent's live
-## cards, which are revealed. Only the two scores come back: no state, event or card id.
-func preview(seat: int, action: EngineAction) -> Array[int]:
-	var none: Array[int] = []
-	if action == null or action.kind != EngineAction.Kind.COMMIT or action.seat != seat:
-		return none
-	if _check(action) != EngineError.Code.NONE:
-		return none
-	var clone: MatchState = _state.duplicate()
-	var cards: Array[int] = []
-	cards.assign(action.cards)
-	var slots: Array[int] = _resolved_slots(action)
-	_stage_commit(clone, seat, cards)
-	_hide_opponent(clone, seat)
-	_merge_row(clone, seat, cards, slots)
-	clone.phase = MatchState.Phase.AWAIT_SECOND
-	ScoreWalk.begin(clone)
-	return _finish_preview(clone)
-
-
-## The scores pair [seat 0, seat 1] the walk would end on if `seat` made the commit `own` now
-## and its opponent the hypothetical commit `opp` (cycle 7 R47-R49, plan P10), or [] when
-## `own` is not a commit the engine would accept from `seat` now (as preview()) or `opp` is
-## not an acceptable hypothesis (PairPreview.accepts: unseen cards of the opponent's deck,
-## legal for its public budget, and when it committed first of the public count and slots).
-## Pure, like preview(): no state, accepted action, log, event or stream changes.
-##
-## On a MatchState.duplicate(): `own` is staged as preview() stages it; the opponent's real
-## face-down commit is dropped and each hypothesis card leaves whichever hidden place holds
-## it, as the printed card (PairPreview.place), then is staged the same way; the opponent's
-## unrevealed row cards go inert (_hide_opponent); both commits merge, first committer first,
-## and ScoreWalk runs to the end under the PreviewPolicy. With an empty hypothesis it scores
-## what preview() scores. Hidden information (R49): the real face-down commit never scores,
-## and an unseen card scores the same wherever it really sits.
-func preview_pair(seat: int, own: EngineAction, opp: EngineAction) -> Array[int]:
-	var none: Array[int] = []
-	if own == null or own.kind != EngineAction.Kind.COMMIT or own.seat != seat:
-		return none
-	if _check(own) != EngineError.Code.NONE:
-		return none
-	var opponent: int = 1 - seat
-	if not PairPreview.accepts(_state, opponent, opp, budget_for(opponent), _cards):
-		return none
-	var own_cards: Array[int] = []
-	own_cards.assign(own.cards)
-	var opp_cards: Array[int] = []
-	opp_cards.assign(opp.cards)
-	var own_slots: Array[int] = _resolved_slots(own)
-	var opp_slots: Array[int] = PairPreview.slots_of(_state, opp)
-	var clone: MatchState = _state.duplicate()
-	_stage_commit(clone, seat, own_cards)
-	PairPreview.place(clone, opponent, opp_cards, _cards)
-	_stage_commit(clone, opponent, opp_cards)
-	_hide_opponent(clone, seat)
-	if clone.first_seat == seat:
-		_merge_row(clone, seat, own_cards, own_slots)
-		_merge_row(clone, opponent, opp_cards, opp_slots)
-	else:
-		_merge_row(clone, opponent, opp_cards, opp_slots)
-		_merge_row(clone, seat, own_cards, own_slots)
-	clone.phase = MatchState.Phase.AWAIT_SECOND
-	ScoreWalk.begin(clone)
-	return _finish_preview(clone)
-
-
-## The scores pair the walk would end on if `seat` answered the open prompt with position
-## `index` of its zone (plan P12, R37), or [] when no prompt is open for `seat` or `index`
-## is not one of its options, or the prompt is a multi-select (see preview_set). Pure, like
-## preview(): the clone applies the answer (EffectResolver.answer), marks the opponent's
-## unrevealed row cards inert in their slots (_hide_opponent) and finishes the paused walk
-## under the PreviewPolicy from the live cursor. The answer is applied before the marking,
-## so `index` means what it means to the live engine. The options name an unrevealed card of
-## the opponent only by position (DC-07 T07: Hook's and Maelstrom's moves); such a move only
-## reorders slots, and the card is then marked inert like any other hidden card, so its
-## identity never reaches the scores. The answer runs under the policy (no stream, no
-## events built), and only the scores come back.
-func preview_choice(seat: int, index: int) -> Array[int]:
-	var none: Array[int] = []
-	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _prompt_seat() != seat:
-		return none
-	if Choice.is_multi_prompt(_state.prompt):
-		return none
-	var zone: int = _state.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
-	if not Choice.is_offered(_state.prompt, zone, index):
-		return none
-	var clone: MatchState = _state.duplicate()
-	var answered: Array[MatchEvent] = EffectResolver.answer(clone, _cards, index, null, _policy)
-	answered.clear()  # A preview reports no events.
-	_hide_opponent(clone, seat)
-	clone.phase = MatchState.Phase.AWAIT_SECOND
-	return _finish_preview(clone)
-
-
-## The scores pair the walk would end on if `seat` answered the open multi-select prompt
-## with the set `indices` of its zone (DC-07 P7, P13, R37), or [] when no multi-select prompt
-## is open for `seat` or the engine would reject the set (Choice.is_valid_set). Mirrors
-## preview_choice(), with one difference in order: the opponent's unrevealed row cards are
-## marked inert (_hide_opponent) before the set applies, since the set's random opponent
-## destroys then take the policy's pick (PreviewPolicy.destroy_slot, the lowest effective
-## flat) and must read revealed cards' stats only. The set names positions on the seat's own
-## row, which the marking does not touch, so `indices` means what it means to the live
-## engine. Draws nothing from the stream; only the scores come back.
-func preview_set(seat: int, indices: Array[int]) -> Array[int]:
-	var none: Array[int] = []
-	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _prompt_seat() != seat:
-		return none
-	if not Choice.is_multi_prompt(_state.prompt):
-		return none
-	var zone: int = _state.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
-	if not Choice.is_valid_set(_state.prompt, zone, indices):
-		return none
-	var clone: MatchState = _state.duplicate()
-	_hide_opponent(clone, seat)
-	var answered: Array[MatchEvent] = EffectResolver.answer_set(
-		clone, _cards, null, _policy, indices
-	)
-	answered.clear()  # A preview reports no events.
-	clone.phase = MatchState.Phase.AWAIT_SECOND
-	return _finish_preview(clone)
-
-
-## The scores pair the walk would end on if `seat` declined the open optional prompt now
-## (cycle 8 R56, plan P15), or [] unless an optional prompt a walk paused on is open for
-## `seat` (a turn-start Crew prompt has no walk to preview). Pure, like preview_choice(): the
-## clone declines (EffectResolver.decline), marks the opponent's unrevealed row cards inert
-## (_hide_opponent) and finishes the paused walk under the PreviewPolicy.
-func preview_decline(seat: int) -> Array[int]:
-	var none: Array[int] = []
-	if _check(EngineAction.decline(seat)) != EngineError.Code.NONE or TurnStart.is_paused(_state):
-		return none
-	var clone: MatchState = _state.duplicate()
-	var declined: Array[MatchEvent] = EffectResolver.decline(clone)
-	declined.clear()  # A preview reports no events.
-	_hide_opponent(clone, seat)
-	clone.phase = MatchState.Phase.AWAIT_SECOND
-	return _finish_preview(clone)
 
 
 func is_over() -> bool:
@@ -706,8 +545,8 @@ func _resolve(
 
 ## Places `cards` into `seat`'s row of `state` at their final slots (plan P1): walks the
 ## merged row's indices 0..n-1, taking the committed card whose slot matches, else the next
-## card already on the row. Played cards keep their relative order. Static so a preview
-## merges into its clone exactly as the live engine merges into its state.
+## card already on the row. Played cards keep their relative order. Static and pure over
+## `state`.
 static func _merge_row(state: MatchState, seat: int, cards: Array[int], slots: Array[int]) -> void:
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	var old_row: Array[int] = []
@@ -728,7 +567,7 @@ static func _merge_row(state: MatchState, seat: int, cards: Array[int], slots: A
 ## The walk (R11-R17, plan P3): pulses until the walk ends, then ends the turn. Every walk
 ## recomputes every card on both rows, so cards played in earlier turns score again (they
 ## are already revealed: no second CARD_REVEALED). Effects fire inside the pulses
-## (ScoreWalk, EffectResolver) with the engine stream and no preview policy, and their
+## (ScoreWalk, EffectResolver) with the engine stream, and their
 ## events reach `_events` through `_emit` with their owners. A pulse that opens a prompt
 ## (DC-05 T05) pauses the walk here: phase AWAIT_CHOICE, the prompted seat awaited, the
 ## turn not ended. _choose() applies the answer and calls this again, and the walk resumes
@@ -736,7 +575,7 @@ static func _merge_row(state: MatchState, seat: int, cards: Array[int], slots: A
 func _run_walk() -> void:
 	var sink: Callable = _emit
 	while _state.walk.active:
-		if ScoreWalk.step(_state, _cards, _rng, sink, null):
+		if ScoreWalk.step(_state, _cards, _rng, sink):
 			_state.phase = MatchState.Phase.AWAIT_CHOICE
 			return
 	_end_turn()
@@ -749,7 +588,7 @@ func _run_walk() -> void:
 func _choose(index: int) -> void:
 	var resume: String = Choice.resume_of(_state.prompt)
 	_state.phase = MatchState.Phase.AWAIT_SECOND
-	_events.append_array(EffectResolver.answer(_state, _cards, index, _rng, null))
+	_events.append_array(EffectResolver.answer(_state, _cards, index, _rng))
 	_resume(resume)
 
 
@@ -759,7 +598,7 @@ func _choose(index: int) -> void:
 func _choose_set(indices: Array[int]) -> void:
 	var resume: String = Choice.resume_of(_state.prompt)
 	_state.phase = MatchState.Phase.AWAIT_SECOND
-	_events.append_array(EffectResolver.answer_set(_state, _cards, _rng, null, indices))
+	_events.append_array(EffectResolver.answer_set(_state, _cards, _rng, indices))
 	_resume(resume)
 
 
@@ -821,53 +660,6 @@ func _end_turn() -> void:
 		_end_round()
 	else:
 		_begin_turn()
-
-
-# --- Previews -------------------------------------------------------------------------
-
-
-## Makes the opponent of `seat` hold nothing hidden on the table of `clone` (a preview's
-## copy, never the live state; DC-06 R23, P7): its face-down commit is cleared, and each of
-## its row cards not yet revealed (mid-walk, or one a swap left face down behind a cursor,
-## DC-06 R8) is marked destroyed on the clone. A destroyed card keeps its slot, scores
-## nothing, fires nothing and cannot be targeted by the switch, the return or the random
-## destroy (ScoreWalk, EffectResolver, Choice; the swap only moves its owner's own row),
-## so its stats never reach the preview's scores, while the row keeps its size: the
-## clone's cursor is untouched and the preview pulses the same slots in the same
-## alternation as the live walk. The mark lives only in
-## the clone's CardState copies (MatchState.duplicate), and a preview runs no turn end, so
-## no clear, energy carry or event ever sees it.
-static func _hide_opponent(clone: MatchState, seat: int) -> void:
-	var opponent: int = 1 - seat
-	# Only the opponent's commit can be pending when `seat` may act (_check).
-	clone.pending.clear()
-	clone.pending_slots.clear()
-	var piles: MatchState.SeatPiles = clone.seats[opponent]
-	for card: int in piles.board:
-		if piles.is_revealed(card):
-			continue
-		clone.card_state_for(card).destroyed = true
-
-
-## Takes `seat`'s commit `cards` out of its hand on `clone` (a preview's copy) and spends its
-## effective cost, the free first card consumed, as _commit does to the live state.
-func _stage_commit(clone: MatchState, seat: int, cards: Array[int]) -> void:
-	var piles: MatchState.SeatPiles = clone.seats[seat]
-	for card: int in cards:
-		piles.hand.erase(card)
-	var costs: Array[int] = ScoreWalk.effective_costs(cards, clone, _cards)
-	var cost: int = LegalPlays.commit_cost_with(cards, costs, clone.energy.free_first[seat])
-	clone.energy.spent[seat] = maxi(cost, 0)
-	clone.energy.free_first[seat] = false
-
-
-## Runs a preview's walk on `clone` to its end under the policy (no sink, no stream) and
-## returns the clone's scores.
-func _finish_preview(clone: MatchState) -> Array[int]:
-	if ScoreWalk.run(clone, _cards, null, Callable(), _policy):
-		pass  # Never: the policy answers every prompt at once, so a preview cannot pause.
-	var out: Array[int] = [clone.scores[0], clone.scores[1]]
-	return out
 
 
 # --- Match end ------------------------------------------------------------------------

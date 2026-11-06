@@ -117,7 +117,7 @@ func _walk(state: MatchState, cards: MatchCards, rng: MatchRng, recorder: Record
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		var paused: bool = ScoreWalk.step(state, cards, rng, recorder.record, null)
+		var paused: bool = ScoreWalk.step(state, cards, rng, recorder.record)
 		assert_bool(paused).is_false()
 		guard += 1
 
@@ -424,7 +424,7 @@ func test_a_destroyed_face_down_card_stays_hidden_from_the_opponent() -> void:
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
 	# One pulse: c19 flips and destroys; seat 1's cards are still face down.
-	var paused: bool = ScoreWalk.step(state, _defs(), MatchRng.new(SEED), recorder.record, null)
+	var paused: bool = ScoreWalk.step(state, _defs(), MatchRng.new(SEED), recorder.record)
 	assert_bool(paused).is_false()
 	var slot: int = MatchRng.new(SEED).pick_index(row.size())
 	var target: int = row[slot]

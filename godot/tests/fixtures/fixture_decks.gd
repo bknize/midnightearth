@@ -389,7 +389,7 @@ static func engine(match_seed: int, pool: CardDb) -> MatchEngine:
 
 
 ## The definitions of a fixture-vs-fixture match over `pool`, for the engine modules that
-## take MatchCards (ScoreWalk, EffectResolver, LegalPlays, SeatView, GreedyBot).
+## take MatchCards (ScoreWalk, EffectResolver, LegalPlays, SeatView, RandomBot).
 static func defs(pool: CardDb) -> MatchCards:
 	return MatchCards.build(pool, decks(), ids(), crew())
 

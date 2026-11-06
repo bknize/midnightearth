@@ -4,8 +4,8 @@ extends GdUnitTestSuite
 ## ScoreWalk.effective() adds the memory after the base and before the board changes, the
 ## no-bonus mark still shows ×1.00 and +0 without erasing the memory, effective_cost() is
 ## the printed cost less the reduction floored at MatchRules.MIN_COST, and the memory
-## survives round start and MatchState.duplicate(). The engine prices commits and previews
-## at the effective cost.
+## survives round start and MatchState.duplicate(). The engine prices commits at the
+## effective cost.
 ##
 ## The pool is the DC-05 fixture; instance ids are seat * DECK_SIZE + index.
 
@@ -221,7 +221,7 @@ func test_a_new_match_starts_with_empty_memory() -> void:
 
 ## On turn 2 (budget 2, no carry) a hand card printed at 3 commits alone once its cost is
 ## reduced by 1, and is rejected OVER_BUDGET without the reduction; the spend recorded is the
-## effective cost, and the preview accepts the same commit (R4, P3).
+## effective cost (R4, P3).
 func test_engine_accepts_a_reduced_card_on_its_effective_cost() -> void:
 	var found: bool = false
 	for match_seed: int in range(1, SEARCH_SEEDS + 1):
@@ -248,12 +248,10 @@ func test_engine_accepts_a_reduced_card_on_its_effective_cost() -> void:
 		var rejected: ApplyResult = engine.apply(action)
 		assert_bool(rejected.ok).is_false()
 		assert_int(rejected.error).is_equal(EngineError.Code.OVER_BUDGET)
-		assert_array(engine.preview(seat, action)).is_empty()
 		state.memory_for(card).cost = 1
 		var view: SeatView = engine.view_for(seat)
 		var at: int = view.own_hand.find(card)
 		assert_int(view.own_hand_costs[at]).is_equal(2)
-		assert_int(engine.preview(seat, action).size()).is_equal(2)
 		var accepted: ApplyResult = engine.apply(action)
 		assert_bool(accepted.ok).is_true()
 		assert_int(state.energy.spent[seat]).is_equal(2)

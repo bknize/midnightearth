@@ -4,8 +4,8 @@ extends GdUnitTestSuite
 ## plan P9-P11): a Crew prompt opened at turn start leaves phase AWAIT_CHOICE with the walk
 ## inactive, after the turn's draws and before any commit; commits are rejected meanwhile;
 ## a choice or a decline resumes the turn start (the remaining Crew, first-committer order)
-## and the first committer is awaited as usual. preview_decline() changes nothing and
-## returns two scores.
+## and the first committer is awaited as usual. A decline of an optional walk prompt ends
+## the walk.
 ##
 ## The Crew abilities are T10's, so the prompts come from StubCrew (tests/fixtures), set as
 ## the engine's TurnStart.fire over the shipped Echo deck on both seats: Shade (slot 0,
@@ -172,13 +172,13 @@ func test_a_turn_start_prompt_pauses_the_turn_in_await_choice() -> void:
 	assert_str(resume).is_equal("turn_start")
 	assert_bool(optional).is_true()
 	assert_dict(engine.view_for(1 - first).prompt).is_equal({"open": true, "seat": first})
-	# The pause survives a copy of the state (replay and previews read it).
+	# The pause survives a copy of the state (replay reads it).
 	var copied: MatchState = engine._state.duplicate()
 	assert_dict(copied.to_dict()).is_equal(engine.full_state())
 
 
 ## R54: while the turn start is paused every commit is rejected (WRONG_SEAT), from either
-## seat, and nothing changes; previews of a commit give nothing either.
+## seat, and nothing changes.
 func test_commits_are_rejected_while_the_turn_start_is_paused() -> void:
 	var stub: StubCrew = StubCrew.new(1, _typed([StubCrew.SHADE_SLOT]))
 	var engine: MatchEngine = _started(stub, SEED)
@@ -188,7 +188,6 @@ func test_commits_are_rejected_while_the_turn_start_is_paused() -> void:
 	_assert_rejected(engine, EngineAction.commit(1 - first, _typed([])), wrong)
 	var card: int = _hand(engine, first)[0]
 	_assert_rejected(engine, EngineAction.commit(first, _typed([card])), wrong)
-	assert_array(engine.preview(first, EngineAction.commit(first, _typed([])))).is_empty()
 	# The other seat cannot answer or decline the prompt either.
 	_assert_rejected(engine, EngineAction.decline(1 - first), wrong)
 	_assert_rejected(engine, EngineAction.choose(1 - first, HAND, 0), wrong)
@@ -270,7 +269,6 @@ func test_a_crew_prompt_that_is_not_optional_rejects_the_decline() -> void:
 	assert_str(Choice.crew_of(prompt)).is_equal("quartermaster")
 	assert_bool(Choice.is_optional_prompt(prompt)).is_false()
 	_assert_rejected(engine, EngineAction.decline(first), EngineError.Code.NOT_OPTIONAL)
-	assert_array(engine.preview_decline(first)).is_empty()
 	assert_bool(engine.apply(EngineAction.choose(first, HAND, 0)).ok).is_true()
 	assert_int(engine.awaited_seat()).is_equal(1 - first)
 	assert_bool(engine.apply(EngineAction.choose(1 - first, HAND, 0)).ok).is_true()
@@ -328,7 +326,7 @@ func test_without_a_firing_the_turn_start_awaits_the_first_committer() -> void:
 	assert_int(_state_int(engine, "turn_start_at")).is_equal(TurnStart.DONE)
 
 
-# --- preview_decline (cycle 8 R56, P15) ------------------------------------------------
+# --- The decline of a walk prompt (cycle 8 R52) ----------------------------------------
 
 
 ## A fixture match paused on c09's discard prompt (as test_choices.gd finds it), marked
@@ -357,39 +355,22 @@ func _optional_walk_prompt_engine() -> MatchEngine:
 	return null
 
 
-## R56, P15: preview_decline() on an optional walk prompt changes no state, accepted
-## action or log and returns two scores: the scores the live decline's walk ends on (the
-## opponent's row is empty, so nothing is hidden). Nothing for the other seat, and nothing
-## on a turn-start prompt, where no walk is paused.
-func test_preview_decline_changes_no_state_and_returns_two_scores() -> void:
+## R52: the decline of an optional walk prompt is accepted only from the prompted seat, adds
+## one accepted action, closes the prompt and lets the walk run on to the turn's end.
+func test_a_decline_of_a_walk_prompt_resumes_the_walk() -> void:
 	var engine: MatchEngine = _optional_walk_prompt_engine()
 	assert_object(engine).override_failure_message("no seed gives c09 by turn 3").is_not_null()
 	if engine == null:
 		return
 	var asked: int = engine.awaited_seat()
-	var before: Dictionary = engine.full_state()
 	var count: int = engine.accepted_action_count()
-	var logged: String = engine.action_log().to_json()
-	var scores: Array[int] = engine.preview_decline(asked)
-	assert_int(scores.size()).is_equal(2)
-	assert_array(engine.preview_decline(1 - asked)).is_empty()
-	assert_dict(engine.full_state()).is_equal(before)
-	assert_int(engine.accepted_action_count()).is_equal(count)
-	assert_str(engine.action_log().to_json()).is_equal(logged)
-	# Twice the same.
-	assert_array(engine.preview_decline(asked)).is_equal(scores)
+	_assert_rejected(engine, EngineAction.decline(1 - asked), EngineError.Code.WRONG_SEAT)
 	var live: ApplyResult = engine.apply(EngineAction.decline(asked))
 	assert_bool(live.ok).is_true()
+	assert_int(engine.accepted_action_count()).is_equal(count + 1)
+	assert_dict(engine.open_prompt()).is_empty()
 	var ended: Array = []
 	for event: MatchEvent in live.events:
 		if event.kind == MatchEvent.Kind.TURN_ENDED:
 			ended = event.payload["scores"]
-	assert_array(ended).is_equal(MatchState.plain(scores))
-	# A turn-start Crew prompt has no walk to preview.
-	var stub: StubCrew = StubCrew.new(1, _typed([StubCrew.SHADE_SLOT]))
-	var paused: MatchEngine = _started(stub, SEED)
-	var first: int = paused.awaited_seat()
-	assert_bool(Choice.is_optional_prompt(paused.open_prompt())).is_true()
-	var still: Dictionary = paused.full_state()
-	assert_array(paused.preview_decline(first)).is_empty()
-	assert_dict(paused.full_state()).is_equal(still)
+	assert_int(ended.size()).is_equal(2)

@@ -2,7 +2,7 @@ class_name MatchDriver
 extends RefCounted
 ## Owns one match for the board (R2, R5, R6): the card data, the engine, the bots, the seed,
 ## both deck ids (DC-07 P14) and the MATCH_ENDED payload. Seat 1 is always the named bot
-## at the given level (BotRegistry); seat 0 is too under autoplay.
+## (BotRegistry); seat 0 is too under autoplay.
 ##
 ## Bots are seeded BotRegistry.seed_for(seed, seat), exactly as main.gd's smoke run, so the
 ## seed-1 autoplay match is the smoke match under the same bot. Only seat 0's redacted
@@ -38,7 +38,7 @@ var _end_payload: Dictionary = {}
 ## and its deck's Crew from `crew` (cycle 8 R42, P12). An empty id takes the seed's own
 ## pairing (DC-07 R6, P14; MatchEngine.create). An unknown id or failed data makes start()
 ## return no events. The bots come from
-## BotRegistry.make(`bot_name`, level); null when it cannot build one (the caller reports).
+## BotRegistry.make(`bot_name`); null when it cannot build one (the caller reports).
 static func create(
 	p_seed: int,
 	cards: CardDb,
@@ -46,7 +46,6 @@ static func create(
 	ids: Array[String],
 	p_autoplay: bool,
 	p_bot_name: String,
-	level: int,
 	crew: CrewPool
 ) -> MatchDriver:
 	var driver: MatchDriver = MatchDriver.new()
@@ -60,9 +59,7 @@ static func create(
 		if seat == PLAYER_SEAT and not p_autoplay:
 			driver._bots.append(null)
 			continue
-		var bot: BotPlayer = BotRegistry.make(
-			p_bot_name, BotRegistry.seed_for(p_seed, seat), defs, null, level
-		)
+		var bot: BotPlayer = BotRegistry.make(p_bot_name, BotRegistry.seed_for(p_seed, seat), defs)
 		if bot == null:
 			return null
 		driver._bots.append(bot)
