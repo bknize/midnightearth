@@ -34,7 +34,7 @@ this note says what the term means. Multipliers are written with the sign ×.
 | Walk | The scoring pass: a cursor steps along both rows, revealing and Scoring cards. | Between the second Commit and turn end | Walk (same) |
 | Commit | Placing cards face down from a hand into slots on a row, paying their Cost. | The two commit phases of a Turn | Commit (same) |
 | Pass | A Commit of zero cards; it is still an accepted Commit. | A commit phase | Pass, "committed nothing" |
-| Score | As a noun, a seat's Walk Score (the rounded walking total after its last Scoring card); as a verb, a card adding its Power and Bonus value to its Controller's walking total. | The Walk | Score (same) |
+| Score | As a noun, a seat's Walk Score (the rounded walking total after its last Scoring card); as a verb, a card adding its Power to its Controller's walking total, then multiplying that total by its Bonus value. | The Walk | Score (same) |
 | Match start | The moment the Match begins: Decks are shuffled once and each seat is dealt its opening hand. | Once per Match | Match setup |
 | Match end | The moment a seat has four Round wins, or has more Round wins after Round 7 with no sudden-death Round left. | Once per Match | Match over |
 | Round start | The moment a Round begins; Turn 1 follows. Nothing is refilled or reshuffled. | Once per Round | Round setup |
@@ -159,6 +159,9 @@ These are not in the spec's term list but the entries above need them. Each has 
 | Term | Meaning |
 |---|---|
 | Seat | One of the two sides of a Match, numbered 0 and 1; owns a hand, a Deck, a Pile, a row and Crew. |
+| Walk end | The moment after the last Scoring card of a Walk and before its walking totals are rounded; an Ongoing that names it applies there once. |
+| Reveal-stage hook | The point in a pulse after the reveal-stage drain (D7) and before the score stage; a text that says "after its On reveal resolves and before it Scores" acts here ([[rules/resolution]] step 10). |
+| Dross | A created card (Litter makes it): Cost 1, Power 0, no Bonus; Ongoing (while in your hand): at Walk end your walking total is multiplied by ×0.75 for each Dross in your hand. Owned by the seat whose hand it was created in ([[rules/cards-v2]]). |
 | Opponent, opposing | The opponent is the other seat than "you"; opposing means on the opponent's row (or, for a hand or a Pile, the opponent's). |
 | you, your | In card and Crew text, the ability's Controller: for a card on a row, its Controller; for a hand card, the holding seat; for a Crew, the Crew's seat. |
 | Hand | The cards a seat holds, private to that seat. |
