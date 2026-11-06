@@ -329,6 +329,7 @@ sentence in the canon that states how the game behaves, including card and Crew 
 | C25 | T07 review 7a: tied Round | After a tied Round, alternation of first committer simply continues from the last Turn into Turn 1 of the next Round (R7) |
 | C26 | T07 review 8a: scratch sheet | Ben's scratch sheet `docs/cards/Cards.md` is committed on the branch; `[[cards/Cards]]` resolves |
 | C27 | T08 read-through, Saboteur | Ben asked about Power -3 with ×0.5; at ×0.5 on the far right it halves the opponent's Walk Score for Cost 3, so the orchestrator offered tunings and Ben chose (a): "Go with a". Saboteur is Cost 4, Power -3, Mult ×0.75; landing last on the opposing row it takes about a quarter of that Walk Score |
+| C28 | T08 read-through, Shake | Ben: "Shake card should move half the cards in both rows to the left." Then 15a with his amendment: "Anchored cards could be selected randomly, but then simply wouldn't move. If this card intentionally avoided anchored cards, anchor wouldn't be a worthwhile ability." In each row a random half of the cards (rounded down, Anchored cards included in the pool) each step one slot left on the ring; a chosen Anchored card stays |
 
 Defaults stated by the interrogator and open to Ben's veto at sign-off (none changes a
 decision above): the Pile is public and face up (R21, R24); opening hand dealt once at
