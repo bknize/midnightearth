@@ -328,6 +328,7 @@ sentence in the canon that states how the game behaves, including card and Crew 
 | C24 | T07 review 6a: "cannot be X" vs Silence | Ward ("cannot be Muted") blocks the Mute half of a Silence, so the card ends up Squelched only; the same pattern holds for any "cannot be X". Stasis protects the Squelch half of a Silence the same way: that half lasts until Stasis leaves your row |
 | C25 | T07 review 7a: tied Round | After a tied Round, alternation of first committer simply continues from the last Turn into Turn 1 of the next Round (R7) |
 | C26 | T07 review 8a: scratch sheet | Ben's scratch sheet `docs/cards/Cards.md` is committed on the branch; `[[cards/Cards]]` resolves |
+| C27 | T08 read-through, Saboteur | Ben asked about Power -3 with ×0.5; at ×0.5 on the far right it halves the opponent's Walk Score for Cost 3, so the orchestrator offered tunings and Ben chose (a): "Go with a". Saboteur is Cost 4, Power -3, Mult ×0.75; landing last on the opposing row it takes about a quarter of that Walk Score |
 
 Defaults stated by the interrogator and open to Ben's veto at sign-off (none changes a
 decision above): the Pile is public and face up (R21, R24); opening hand dealt once at
