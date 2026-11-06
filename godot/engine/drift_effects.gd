@@ -3,7 +3,7 @@ extends RefCounted
 ## The Drift deck's verbs (DC-07 T07; plan P5, P8, P11, P12; R26, R28, R29, R33-R35, C11,
 ## C17), split from EffectResolver as RuinEffects is. Pure: no nodes, no clock. A move picks
 ## nothing at random; only the copy's burst check may draw, from the engine stream passed in
-## (R35), and a preview passes a policy and no stream (EffectResolver's preview seam).
+## (R35).
 ##
 ## Moves (P11): every move, the DC-05 swap included, goes through place() or rewrite_row().
 ## rewrite_row() writes the row's new order, then emits one CARD_MOVED {seat, card,
@@ -51,7 +51,6 @@ static func apply(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	card: int,
 	effect: CardEffect,
@@ -60,25 +59,24 @@ static func apply(
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	match effect.verb:
 		CardEffect.Verb.MOVE_SELF_LEFT:
-			place(state, cards, rng, policy, seat, card, 0, outcome)
+			place(state, cards, rng, seat, card, 0, outcome)
 		CardEffect.Verb.MOVE_SELF_RIGHT:
-			place(state, cards, rng, policy, seat, card, piles.board.size() - 1, outcome)
+			place(state, cards, rng, seat, card, piles.board.size() - 1, outcome)
 		CardEffect.Verb.SHIFT_OWN_LEFT:
-			_shift_left(state, cards, rng, policy, seat, card, outcome)
+			_shift_left(state, cards, rng, seat, card, outcome)
 		CardEffect.Verb.REVERSE_OPPONENT_ROW:
-			_reverse(state, cards, rng, policy, 1 - seat, outcome)
+			_reverse(state, cards, rng, 1 - seat, outcome)
 		CardEffect.Verb.PLUS_ON_MOVED:
 			_plus(state, cards, seat, card, effect.amount, outcome)
 
 
 ## The consequence of a Drift prompt verb (and SWAP_PLACES) once EffectResolver.apply_choice
 ## has the target: `seat` is the prompted seat (the source's), `holder` the seat whose row
-## holds `target`. The events in order; none built under a preview policy.
+## holds `target`. The events in order.
 static func apply_choice(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	verb: int,
 	seat: int,
 	holder: int,
@@ -86,18 +84,17 @@ static func apply_choice(
 	target: int
 ) -> Array[MatchEvent]:
 	var outcome: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	outcome.quiet = policy != null
 	match verb:
 		CardEffect.Verb.SWAP_PLACES:
-			swap(state, cards, rng, policy, holder, source, target, outcome)
+			swap(state, cards, rng, holder, source, target, outcome)
 		CardEffect.Verb.MOVE_OPPONENT_LEFT:
-			place(state, cards, rng, policy, holder, target, 0, outcome)
+			place(state, cards, rng, holder, target, 0, outcome)
 		CardEffect.Verb.SWAP_OPPONENT_RIGHT:
 			var right: int = _right_of(state, holder, target)
 			if right >= 0:
-				swap(state, cards, rng, policy, holder, target, right, outcome)
+				swap(state, cards, rng, holder, target, right, outcome)
 		CardEffect.Verb.COPY_STATS:
-			_copy(state, cards, rng, policy, seat, source, target, outcome)
+			_copy(state, cards, rng, seat, source, target, outcome)
 	return outcome.events
 
 
@@ -107,7 +104,6 @@ static func place(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	card: int,
 	to_slot: int,
@@ -122,7 +118,7 @@ static func place(
 	order.remove_at(from_slot)
 	if order.insert(clampi(to_slot, 0, order.size()), card) != OK:
 		return  # The slot is clamped into range, so the insert cannot fail.
-	rewrite_row(state, cards, rng, policy, seat, order, outcome, card)
+	rewrite_row(state, cards, rng, seat, order, outcome, card)
 
 
 ## Exchanges the slots of `first` and `second` on `seat`'s row, `first`'s CARD_MOVED first.
@@ -131,7 +127,6 @@ static func swap(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	first: int,
 	second: int,
@@ -146,7 +141,7 @@ static func swap(
 	order.assign(piles.board)
 	order[first_slot] = second
 	order[second_slot] = first
-	rewrite_row(state, cards, rng, policy, seat, order, outcome, first)
+	rewrite_row(state, cards, rng, seat, order, outcome, first)
 
 
 ## Writes `new_order` (a reordering of `seat`'s row) as that row, then the CARD_MOVED events
@@ -156,7 +151,6 @@ static func rewrite_row(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	new_order: Array[int],
 	outcome: EffectResolver.Outcome,
@@ -178,11 +172,10 @@ static func rewrite_row(
 	for card: int in moved:
 		# Each moved card is the row's seat's: its Crew may fire on it (DC-11 T10, P13).
 		CrewEffects.push(state, cards, CrewDef.Trigger.OWN_MOVED, seat, card)
-		if not outcome.quiet:
-			var from_slot: int = before.find(card)
-			var to_slot: int = new_order.find(card)
-			outcome.events.append(_moved_event(piles, seat, card, from_slot, to_slot))
-	_fire_on_moved(state, cards, rng, policy, seat, moved, outcome)
+		var from_slot: int = before.find(card)
+		var to_slot: int = new_order.find(card)
+		outcome.events.append(_moved_event(piles, seat, card, from_slot, to_slot))
+	_fire_on_moved(state, cards, rng, seat, moved, outcome)
 
 
 ## The ON_MOVED firings of `moved` (cards of `seat`'s row, in CARD_MOVED order): the ones
@@ -192,7 +185,6 @@ static func _fire_on_moved(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	moved: Array[int],
 	outcome: EffectResolver.Outcome
@@ -206,10 +198,9 @@ static func _fire_on_moved(
 		if not piles.board.has(card) or not _is_live_face_up(state, piles, card):
 			continue
 		var fired: EffectResolver.Outcome = EffectResolver.apply(
-			state, cards, rng, policy, seat, card
+			state, cards, rng, seat, card
 		)
-		if not outcome.quiet:
-			outcome.events.append_array(fired.events)
+		outcome.events.append_array(fired.events)
 		# PLUS_ON_MOVED is the only ON_MOVED verb and it never prompts, so `fired.prompt`
 		# stays empty and nothing has to pause here.
 
@@ -249,7 +240,6 @@ static func _shift_left(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	card: int,
 	outcome: EffectResolver.Outcome
@@ -268,7 +258,7 @@ static func _shift_left(
 	order.append(leftmost)
 	if order.insert(slot, card) != OK:
 		return  # `slot` was the source's own slot, so it is in range.
-	rewrite_row(state, cards, rng, policy, seat, order, outcome)
+	rewrite_row(state, cards, rng, seat, order, outcome)
 
 
 ## REVERSE_OPPONENT_ROW: `seat` is the row reversed (the opponent of the source).
@@ -276,7 +266,6 @@ static func _reverse(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	outcome: EffectResolver.Outcome
 ) -> void:
@@ -284,7 +273,7 @@ static func _reverse(
 	var order: Array[int] = []
 	order.assign(piles.board)
 	order.reverse()
-	rewrite_row(state, cards, rng, policy, seat, order, outcome)
+	rewrite_row(state, cards, rng, seat, order, outcome)
 
 
 ## PLUS_ON_MOVED: `temp_plus += amount` on `card`, STATS_CHANGED (cause temp_plus).
@@ -297,10 +286,9 @@ static func _plus(
 	outcome: EffectResolver.Outcome
 ) -> void:
 	state.card_state_for(card).temp_plus += amount
-	if not outcome.quiet:
-		outcome.events.append(
-			EffectResolver.stats_changed(state, cards, seat, card, EffectResolver.CAUSE_TEMP_PLUS)
-		)
+	outcome.events.append(
+		EffectResolver.stats_changed(state, cards, seat, card, EffectResolver.CAUSE_TEMP_PLUS)
+	)
 
 
 ## COPY_STATS: `source`, of `seat`, takes `target`'s effective flat, ×-part and +-part as
@@ -309,7 +297,6 @@ static func _copy(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	source: int,
 	target: int,
@@ -321,7 +308,6 @@ static func _copy(
 	held.base_flat = stats.flat
 	held.base_times = stats.times
 	held.base_plus = stats.plus
-	if not outcome.quiet:
-		outcome.events.append(EffectResolver.stats_changed(state, cards, seat, source, CAUSE_COPY))
-	if RuinEffects.check_burst(state, cards, rng, policy, source, outcome):
+	outcome.events.append(EffectResolver.stats_changed(state, cards, seat, source, CAUSE_COPY))
+	if RuinEffects.check_burst(state, cards, rng, source, outcome):
 		pass  # A copy to BURST_FLAT or more burst the source; its destroys are on `outcome`.

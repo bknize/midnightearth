@@ -20,7 +20,7 @@ extends GdUnitTestSuite
 const SEED: int = 1
 const SEARCH_SEEDS: int = 100
 const ENGINE_DIR: String = "res://engine"
-const BOT_SCRIPT: String = "res://engine/bot/greedy_bot.gd"
+const BOT_SCRIPT: String = "res://engine/bot/random_bot.gd"
 const FORBIDDEN_CALLS: Array[String] = [
 	"print(",
 	"printerr(",

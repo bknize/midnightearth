@@ -80,7 +80,7 @@ func _reveal(state: MatchState, seat: int, cards: Array[int]) -> void:
 func _run(state: MatchState, recorder: Recorder) -> bool:
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		if ScoreWalk.step(state, _ruin(), MatchRng.new(SEED), recorder.record, null):
+		if ScoreWalk.step(state, _ruin(), MatchRng.new(SEED), recorder.record):
 			return true
 		guard += 1
 	return false

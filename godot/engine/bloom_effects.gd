@@ -2,8 +2,7 @@ class_name BloomEffects
 extends RefCounted
 ## The Bloom grow verbs (cycle 8 R5, R6, R12-R14, R20, plan P4, P7, P8). Pure: no nodes, no
 ## clock, no randomness. EffectResolver.apply() dispatches here after EFFECT_FIRED (and after
-## the uses countdown, EffectResolver.take_use) and passes its Outcome, which is quiet on a
-## preview: the memory still grows on the preview's clone, so a preview equals live play.
+## the uses countdown, EffectResolver.take_use) and passes its Outcome.
 ##
 ## A growth writes the card's match memory (MatchState.memory_for, CardMemory): it survives
 ## round start, the hand, the deck, a return, an un-reveal and a recovery by the other seat,
@@ -68,13 +67,12 @@ static func apply(
 
 
 ## A prompt grow verb's consequence (P8): `target`, chosen from `seat`'s row or hand, grows
-## by the step of `source`'s effect. The STATS_CHANGED events, none built when `quiet` (a
-## preview); empty when `source` has no grow effect.
+## by the step of `source`'s effect. The STATS_CHANGED events; empty when `source` has no
+## grow effect.
 static func apply_choice(
-	state: MatchState, cards: MatchCards, seat: int, source: int, target: int, quiet: bool
+	state: MatchState, cards: MatchCards, seat: int, source: int, target: int
 ) -> Array[MatchEvent]:
 	var outcome: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	outcome.quiet = quiet
 	var effect: CardEffect = EffectResolver.effect_of(source, cards)
 	if effect == null or not CardEffect.GROW_STAT.has(effect.verb):
 		return outcome.events
@@ -85,7 +83,7 @@ static func apply_choice(
 
 ## The growth itself (P4): each card of `targets` gains `amount` of `stat` (STAT_FLAT,
 ## STAT_TIMES in hundredths, STAT_PLUS or STAT_COST) in its memory for the match, then
-## STATS_CHANGED (see the class comment) on `outcome`, none built when it is quiet. An empty
+## STATS_CHANGED (see the class comment) on `outcome`. An empty
 ## `targets` changes nothing: the caller decides whether that fizzles. `seat` is the seat the
 ## growth acts for; a card's event names the seat holding it (its controller).
 static func grow(
@@ -108,8 +106,6 @@ static func grow(
 			kept.plus += amount
 		elif stat == STAT_COST:
 			kept.cost += amount
-		if outcome.quiet:
-			continue
 		var holder: int = state.controller_of(target)
 		if holder < 0:
 			holder = seat

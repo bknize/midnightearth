@@ -81,15 +81,14 @@ func _walk(state: MatchState, recorder: Recorder) -> void:
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
 		var paused: bool = ScoreWalk.step(
-			state, _drift(), MatchRng.new(SEED), recorder.record, null
-		)
+			state, _drift(), MatchRng.new(SEED), recorder.record)
 		assert_bool(paused).is_false()
 		guard += 1
 
 
 ## Fires `card`'s effect for `seat` as a live walk would, with no stream.
 func _fire(state: MatchState, seat: int, card: int) -> Array[MatchEvent]:
-	return EffectResolver.apply(state, _drift(), null, null, seat, card).events
+	return EffectResolver.apply(state, _drift(), null, seat, card).events
 
 
 ## The prompt `verb` of `source` (seat 0) would open over OPPONENT_BOARD with `options`.
@@ -429,12 +428,11 @@ func test_mirror_copying_a_moved_eddy_beside_lodestone_copies_both_parts() -> vo
 	assert_dict(_eff(mirror, state)).is_equal(_flat_times_plus(1, 125, 2))
 
 
-## A preview of Mirror's copy scores as the live engine then does (R34 with DC-05 R35): seat
-## 0's [Gust, Pebble, Mirror] against seat 1's [Lodestone, Vane], all face down, both pass.
-## Whichever seat commits first, Lodestone and Vane are revealed before Mirror, so its
-## prompt offers both; copying Vane (×1.25 and +1) previews to the scores the live answer
-## ends the walk on, and the copy stays on Mirror after the turn.
-func test_mirror_copy_preview_equals_live() -> void:
+## Mirror's copy on the live engine (R34): seat 0's [Gust, Pebble, Mirror] against seat 1's
+## [Lodestone, Vane], all face down, both pass. Whichever seat commits first, Lodestone and
+## Vane are revealed before Mirror, so its prompt offers both; copying Vane (×1.25 and +1)
+## is accepted, and the copy stays on Mirror after the turn.
+func test_mirror_copies_vane_and_keeps_it_after_the_turn() -> void:
 	var mirror: int = _id(0, D07_MIRROR)
 	var own: Array[int] = [_id(0, D01_GUST), _id(0, D04_PEBBLE), mirror]
 	var theirs: Array[int] = [_id(1, D10_LODESTONE), _id(1, D18_VANE)]
@@ -444,11 +442,7 @@ func test_mirror_copy_preview_equals_live() -> void:
 	assert_int(engine.awaited_seat()).is_equal(0)
 	var prompt: Dictionary = engine.open_prompt()
 	assert_array(Choice.options_of(prompt)).is_equal(_typed([0, 1]))
-	var previewed: Array[int] = engine.preview_choice(0, 1)
-	assert_int(previewed.size()).is_equal(2)
 	assert_bool(engine.apply(EngineAction.choose(0, OPPONENT_BOARD, 1)).ok).is_true()
-	var raw: Array = engine.full_state()["scores"]
-	assert_array(_typed(raw)).is_equal(previewed)
 	var stats: ScoreWalk.Effective = ScoreWalk.effective(
 		mirror, engine._state, engine.match_cards()
 	)

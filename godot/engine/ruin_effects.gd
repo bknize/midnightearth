@@ -2,8 +2,8 @@ class_name RuinEffects
 extends RefCounted
 ## The Ruin deck's verbs (DC-07 T06; plan P8-P10, P12; R26, R27, R30-R32, R35, C9, C10,
 ## C18), split from EffectResolver to keep it in bounds. Pure: no nodes, no clock; the only
-## randomness is the engine stream passed in (a preview passes a policy and no stream, and
-## EffectResolver.random_live then takes the policy's pick). Every destroy here goes through
+## randomness is the engine stream passed in (with none, EffectResolver.random_live takes
+## the lowest-flat live card). Every destroy here goes through
 ## EffectResolver.destroy() (P9), so a revealed card carrying UNREVEAL_INSTEAD un-reveals
 ## instead and still counts.
 ##
@@ -81,27 +81,24 @@ static func burst(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	card: int,
 	outcome: EffectResolver.Outcome
 ) -> void:
 	state.card_state_for(card).flat_delta += 1
-	if not outcome.quiet:
-		outcome.events.append(
-			EffectResolver.stats_changed(state, cards, seat, card, CAUSE_OPPONENT_SCORE)
-		)
-	if check_burst(state, cards, rng, policy, card, outcome):
+	outcome.events.append(
+		EffectResolver.stats_changed(state, cards, seat, card, CAUSE_OPPONENT_SCORE)
+	)
+	if check_burst(state, cards, rng, card, outcome):
 		pass  # The destroys' events are on `outcome`; nothing else follows them.
 
 
 ## The burst threshold of `card` (see the class comment): true when it fired, its events on
-## `outcome`. `rng` and `policy` are as EffectResolver.apply()'s.
+## `outcome`. `rng` is as EffectResolver.apply()'s.
 static func check_burst(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	card: int,
 	outcome: EffectResolver.Outcome
 ) -> bool:
@@ -114,7 +111,7 @@ static func check_burst(
 	if ScoreWalk.effective(card, state, cards).flat < MatchRules.BURST_FLAT:
 		return false
 	var fired: bool = EffectResolver.destroy(state, cards, card, outcome)
-	var victim: int = EffectResolver.random_live(state, cards, rng, policy, 1 - seat)
+	var victim: int = EffectResolver.random_live(state, cards, rng, 1 - seat)
 	if victim < 0:
 		return fired
 	var hit: bool = EffectResolver.destroy(state, cards, victim, outcome)

@@ -2,7 +2,7 @@ class_name EchoEffects
 extends RefCounted
 ## The Echo verbs (cycle 8 R15-R20, plan P5, P6, P8). Pure: no nodes, no clock, no
 ## randomness. EffectResolver.apply() dispatches here after EFFECT_FIRED (and after the uses
-## countdown, EffectResolver.take_use) and passes its Outcome, which is quiet on a preview.
+## countdown, EffectResolver.take_use) and passes its Outcome.
 ##
 ## No verb here takes a card off a row during a walk (R19): a return is a turn-end mark and
 ## the flip keeps the slot.
@@ -132,6 +132,4 @@ static func _ally_flat(
 	outcome: EffectResolver.Outcome
 ) -> void:
 	state.card_state_for(card).flat_delta += amount
-	if outcome.quiet:
-		return
 	outcome.events.append(EffectResolver.stats_changed(state, cards, seat, card, CAUSE_ALLY_REVEAL))

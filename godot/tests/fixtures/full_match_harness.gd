@@ -9,9 +9,6 @@ extends GdUnitTestSuite
 ## The shipped decks (cycle 8 R10); the sweep's pairings are every "a/b" of them.
 const DECKS: Array[String] = ["ruin", "drift", "bloom", "echo"]
 const MAX_ACTIONS: int = 2000
-## The stamp check's two results (R35).
-const STAMP_MATCH: String = "match"
-const STAMP_MISMATCH: String = "MISMATCH"
 
 var _cached_db: CardDb = null
 var _cached_decks: DeckList = null
@@ -204,24 +201,16 @@ func _bot_name() -> String:
 	return BotRegistry.default_name()
 
 
-## The weights both seats' bots are built on; null reads the shipped file (cycle 7 P15).
-## The sweep suite overrides it for SWEEP_WEIGHTS.
-func _bot_weights() -> BotWeights:
-	return null
-
-
-## One shipped bot per seat on the match's own definitions (each card through its origin's
-## deck), as main.gd's smoke builds them: _bot_name() at full level, null
-## weights so the registry reads the shipped file (cycle 7 P15). An entry is null when the
+## One bot per seat on the match's own definitions (each card through its origin's deck),
+## as main.gd's smoke builds them: _bot_name() from the registry. An entry is null when the
 ## registry cannot build the bot (_play reports it).
 func _new_bots(match_seed: int, engine: MatchEngine) -> Array[BotPlayer]:
 	var bots: Array[BotPlayer] = []
 	var bot_name: String = _bot_name()
-	var weights: BotWeights = _bot_weights()
 	var cards: MatchCards = engine.match_cards()
 	for seat: int in range(MatchEngine.SEATS):
 		var bot_seed: int = BotRegistry.seed_for(match_seed, seat)
-		bots.append(BotRegistry.make(bot_name, bot_seed, cards, weights, BotPlayer.FULL_LEVEL))
+		bots.append(BotRegistry.make(bot_name, bot_seed, cards))
 	return bots
 
 
@@ -575,7 +564,7 @@ func _summary(run: FullMatchRun) -> Dictionary:
 	}
 
 
-## The match result as one line in the smoke line's terms (GOLDEN_TUNED's format):
+## The match result as one line in the smoke line's terms (GOLDEN's format):
 ## "seed=.. decks=a/b bot=<name> winner=.. wins=a-b rounds=.. end=<reason> actions=..";
 ## empty when the match did not end.
 func _result_line(run: FullMatchRun) -> String:
@@ -646,16 +635,3 @@ func _assert_run(run: FullMatchRun) -> void:
 func _assert_none(found: Array[String], what: String) -> void:
 	var message: String = "%s: %s" % [what, found]
 	assert_array(found).override_failure_message(message).is_empty()
-
-
-## The stamp check of R35, shared by the sweep and the stamp test: STAMP_MATCH when the
-## weights file at `weights_path` loads and carries the current engine's stamp
-## (BotStamp.current()), else STAMP_MISMATCH (a file that fails to load, or an empty stamp
-## on either side, never matches). It asserts and prints nothing: a mismatch is reported on
-## the sweep line, never failed (R35).
-static func stamp_status(weights_path: String) -> String:
-	var loaded: BotWeights = BotWeights.load(weights_path)
-	var current: String = BotStamp.current()
-	if loaded.load_error != "" or loaded.stamp == "" or loaded.stamp != current:
-		return STAMP_MISMATCH
-	return STAMP_MATCH

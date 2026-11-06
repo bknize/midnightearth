@@ -6,7 +6,7 @@ extends GdUnitTestSuite
 ## STATS_CHANGED they emit (public on a revealed row card, private to the holder on a hand
 ## card), the two prompt verbs' eligibility, EFFECT_FIRED `uses_left` and EFFECT_FIZZLED
 ## `reason`, growth kept through a round start, a redraw and a recovery by the other seat,
-## and a preview that equals live play with memory.
+## and a live commit of a grown card.
 ##
 ## The Bloom deck is built in memory from the plan's table (BloomFixture) until T04 ships it,
 ## on both seats: instance id = seat * DECK_SIZE + the B* index. Walk cases build
@@ -95,7 +95,7 @@ func _walk(state: MatchState, recorder: Recorder) -> void:
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		var paused: bool = ScoreWalk.step(state, _defs(), null, recorder.record, null)
+		var paused: bool = ScoreWalk.step(state, _defs(), null, recorder.record)
 		assert_bool(paused).is_false()
 		guard += 1
 
@@ -316,14 +316,14 @@ func test_oak_fires_once_then_fizzles_spent() -> void:
 	var state: MatchState = _state(_typed([oak]), _none())
 	_reveal(state, 0, _typed([oak]))
 	assert_int(ScoreWalk.uses_left(oak, state, _defs())).is_equal(1)
-	var first: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, null, 0, oak)
+	var first: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, 0, oak)
 	assert_array(_kinds(first.events)).is_equal(_typed([FIRED, STATS]))
 	var fired: Dictionary = _fired(0, oak, "grow_self_times_once", "on_score", 0)
 	_assert_event(first.events[0], FIRED, fired, PUBLIC)
 	_assert_event(first.events[1], STATS, _grown(0, oak, _typed([4, 150, 0])), PUBLIC)
 	assert_int(state.memory_of(oak).uses_left).is_equal(0)
 	assert_int(ScoreWalk.uses_left(oak, state, _defs())).is_equal(0)
-	var second: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, null, 0, oak)
+	var second: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, 0, oak)
 	assert_array(_kinds(second.events)).is_equal(_typed([FIZZLED]))
 	var spent: Dictionary = _fizzled(0, oak, "grow_self_times_once", EffectResolver.REASON_SPENT)
 	_assert_event(second.events[0], FIZZLED, spent, PUBLIC)
@@ -380,7 +380,7 @@ func test_rain_grows_every_hand_card_privately() -> void:
 	state.seats[0].hand.assign(hand)
 	_reveal(state, 0, _typed([rain]))
 	var walk_before: Dictionary = state.walk.to_dict()
-	var outcome: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, null, 0, rain)
+	var outcome: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, 0, rain)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, STATS, STATS, STATS, STATS]))
 	for index: int in range(hand.size()):
 		var card: int = hand[index]
@@ -439,7 +439,7 @@ func test_vine_prompts_over_the_hand() -> void:
 	var state: MatchState = _state(_typed([vine]), _none())
 	state.seats[0].hand.assign(_typed([moss, acorn]))
 	_reveal(state, 0, _typed([vine]))
-	var outcome: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, null, 0, vine)
+	var outcome: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, 0, vine)
 	assert_bool(outcome.needs_prompt()).is_true()
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, REQUESTED]))
 	var zone: int = outcome.prompt[Choice.KEY_ZONE]
@@ -471,7 +471,7 @@ func test_vine_auto_chooses_the_only_hand_card() -> void:
 	var state: MatchState = _state(_typed([vine]), _none())
 	state.seats[0].hand.assign(_typed([moss]))
 	_reveal(state, 0, _typed([vine]))
-	var outcome: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, null, 0, vine)
+	var outcome: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, 0, vine)
 	assert_bool(outcome.needs_prompt()).is_false()
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, MADE, STATS]))
 	var auto: bool = outcome.events[1].payload["auto"]
@@ -503,7 +503,7 @@ func test_tiller_offers_live_own_cards_but_itself() -> void:
 	var found: Dictionary = Choice.eligible(state, 0, verb, tiller)
 	assert_array(Choice.options_of(found)).is_equal(_typed([0, 3]))
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, tiller
+		state, _defs(), null, 0, tiller
 	)
 	assert_bool(outcome.needs_prompt()).is_true()
 	state.prompt = outcome.prompt
@@ -513,7 +513,7 @@ func test_tiller_offers_live_own_cards_but_itself() -> void:
 	_assert_event(answered[1], STATS, _grown(0, acorn, _typed([2, 125, 0])), 0)
 	# Then the revealed Sprout alone is left (Acorn destroyed): auto-chosen, public.
 	state.card_state_for(acorn).destroyed = true
-	var again: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, null, 0, tiller)
+	var again: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, 0, tiller)
 	assert_array(_kinds(again.events)).is_equal(_typed([FIRED, MADE, STATS]))
 	_assert_event(again.events[2], STATS, _grown(0, sprout, _typed([3, 100, 0])), PUBLIC)
 
@@ -524,7 +524,7 @@ func test_tiller_alone_fizzles() -> void:
 	var state: MatchState = _state(_typed([tiller]), _none())
 	_reveal(state, 0, _typed([tiller]))
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, tiller
+		state, _defs(), null, 0, tiller
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, FIZZLED]))
 	var reason: String = outcome.events[1].payload["reason"]
@@ -540,7 +540,7 @@ func test_orchard_alone_on_the_row_fizzles() -> void:
 	var state: MatchState = _state(_typed([orchard]), _typed([_id(1, B04_MOSS)]))
 	_reveal(state, 0, _typed([orchard]))
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, orchard
+		state, _defs(), null, 0, orchard
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, FIZZLED]))
 	var fired: Dictionary = _fired(0, orchard, "grow_row_flat", "on_reveal", -1)
@@ -566,7 +566,7 @@ func test_orchard_and_world_tree_grow_the_rest_of_the_row() -> void:
 	_reveal(state, 1, _typed([theirs]))
 	state.card_state_for(wreck).destroyed = true
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, orchard
+		state, _defs(), null, 0, orchard
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, STATS, STATS, STATS]))
 	_assert_event(outcome.events[1], STATS, _grown(0, moss, _typed([4, 100, 0])), PUBLIC)
@@ -575,7 +575,7 @@ func test_orchard_and_world_tree_grow_the_rest_of_the_row() -> void:
 	_assert_event(outcome.events[3], STATS, _grown(0, tree, _typed([6, 100, 0])), PUBLIC)
 	assert_object(state.memory_of(wreck)).is_null()
 	assert_object(state.memory_of(theirs)).is_null()
-	var times: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, null, 0, tree)
+	var times: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, 0, tree)
 	assert_array(_kinds(times.events)).is_equal(_typed([FIRED, STATS, STATS, STATS]))
 	assert_int(state.memory_of(moss).times).is_equal(25)
 	assert_int(state.memory_of(orchard).times).is_equal(25)
@@ -624,13 +624,12 @@ func test_a_grown_card_recovered_by_the_other_seat_scores_with_its_growth() -> v
 	assert_int(state.memory_of(seed_card).flat).is_equal(4)
 
 
-# --- Previews (P3, P7) ----------------------------------------------------------------
+# --- Live commits with memory (P3, P7) ----------------------------------------------
 
 
-## A preview of a commit holding a grown card equals the live result: same effective cost
-## (a reduced Sapling fits a budget of 1), same stats, and the preview's growth stays on its
-## clone.
-func test_preview_equals_live_with_memory() -> void:
+## A commit holding a grown card plays on its effective cost (a reduced Sapling fits a
+## budget of 1) and stats: flat 1 + 3, ×1.00 + 0.50, so 4 × 1.50 = 6.
+func test_a_grown_card_commits_and_scores_with_its_memory() -> void:
 	var engine: MatchEngine = _engine()
 	var state: MatchState = engine._state
 	var first: int = state.first_seat
@@ -643,22 +642,16 @@ func test_preview_equals_live_with_memory() -> void:
 	kept.flat = 3
 	kept.times = 50
 	var action: EngineAction = EngineAction.commit(second, _typed([sapling]))
-	var before: Dictionary = engine.full_state()
-	var previewed: Array[int] = engine.preview(second, action)
-	assert_dict(engine.full_state()).is_equal(before)
-	# Flat 1 + 3, ×1.00 + 0.50: 4 × 1.50 = 6.
-	assert_int(previewed.size()).is_equal(2)
-	assert_int(previewed[second]).is_equal(6)
 	var result: ApplyResult = engine.apply(action)
 	assert_bool(result.ok).is_true()
 	var ended: MatchEvent = _of_kind(result.events, TURN_ENDED)[0]
 	var live: Array = ended.payload["scores"]
-	assert_array(previewed).is_equal(_typed(live))
+	assert_int(_typed(live)[second]).is_equal(6)
 	assert_int(state.memory_of(sapling).times).is_equal(75)
 
 
-## A preview's uses countdown runs on its clone only: Oak's use is still there afterwards.
-func test_preview_counts_down_uses_on_the_clone_only() -> void:
+## Oak's uses countdown runs on the live commit: unread before, spent after.
+func test_a_live_commit_counts_down_uses() -> void:
 	var engine: MatchEngine = _engine()
 	var state: MatchState = engine._state
 	var first: int = state.first_seat
@@ -668,13 +661,9 @@ func test_preview_counts_down_uses_on_the_clone_only() -> void:
 	_to_hand(state, second, oak)
 	state.memory_for(oak).cost = 4
 	var action: EngineAction = EngineAction.commit(second, _typed([oak]))
-	var previewed: Array[int] = engine.preview(second, action)
 	assert_int(state.memory_of(oak).uses_left).is_equal(-1)
 	var result: ApplyResult = engine.apply(action)
 	assert_bool(result.ok).is_true()
-	var ended: MatchEvent = _of_kind(result.events, TURN_ENDED)[0]
-	var live: Array = ended.payload["scores"]
-	assert_array(previewed).is_equal(_typed(live))
 	assert_int(state.memory_of(oak).uses_left).is_equal(0)
 
 

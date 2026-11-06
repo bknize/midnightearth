@@ -19,8 +19,8 @@ extends RefCounted
 ## with no eligible target, or no use left, does not fire, counts nothing and emits
 ## nothing (R48). An optional Crew with at least one eligible target opens a Crew prompt
 ## (R49), even for one target: in the walk it pauses the pulse (resume "walk", the entry
-## left at the head of the queue until the answer); at turn end and round end, and under a
-## preview policy, it is declined unasked (no Crew there can open one: only a destroy,
+## left at the head of the queue until the answer); at turn end and round end it is
+## declined unasked (no Crew there can open one: only a destroy,
 ## which none of those steps makes, opens a Crew prompt in a walk, and turn start opens
 ## its own through TurnStart).
 ##
@@ -110,19 +110,14 @@ static func turn_start(
 	return null
 
 
-## Drains the queue (see the class comment) onto `outcome`, which is quiet under a preview
-## policy. A drain that starts on a fresh queue (its head not yet begun) first puts each
-## seat's entries in row order (_order_by_row); one resumed after a Crew prompt keeps the
-## order it set, so the head entry the prompt opened over stays the head. True when a Crew
-## prompt opened (state.prompt set, CHOICE_REQUESTED on `outcome`): only when `may_prompt`
-## and on a live walk (`policy` null); otherwise an optional Crew with targets is declined
-## unasked.
+## Drains the queue (see the class comment) onto `outcome`. A drain that starts on a fresh
+## queue (its head not yet begun) first puts each seat's entries in row order
+## (_order_by_row); one resumed after a Crew prompt keeps the order it set, so the head entry
+## the prompt opened over stays the head. True when a Crew prompt opened (state.prompt set,
+## CHOICE_REQUESTED on `outcome`): only when `may_prompt`; otherwise an optional Crew with
+## targets is declined unasked.
 static func drain(
-	state: MatchState,
-	cards: MatchCards,
-	policy: PreviewPolicy,
-	may_prompt: bool,
-	outcome: EffectResolver.Outcome
+	state: MatchState, cards: MatchCards, may_prompt: bool, outcome: EffectResolver.Outcome
 ) -> bool:
 	if cards == null:
 		state.crew_queue.clear()
@@ -146,7 +141,7 @@ static func drain(
 		if def == null or def.trigger != trigger or not has_use(state, seat, slot):
 			continue
 		var found: Dictionary = _fire_queued(state, cards, seat, slot, def, card, outcome)
-		if found.is_empty() or not may_prompt or policy != null:
+		if found.is_empty() or not may_prompt:
 			continue
 		open_prompt(state, seat, def, found, Choice.RESUME_WALK, outcome.events)
 		return true
@@ -156,7 +151,7 @@ static func drain(
 ## The queue drained where no prompt may open (turn start, turn end, round end): the events.
 static func drain_all(state: MatchState, cards: MatchCards) -> Array[MatchEvent]:
 	var outcome: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	if not state.crew_queue.is_empty() and drain(state, cards, null, false, outcome):
+	if not state.crew_queue.is_empty() and drain(state, cards, false, outcome):
 		pass  # Never: no prompt opens when none may (see drain()).
 	return outcome.events
 
@@ -213,12 +208,11 @@ static func open_prompt(
 ## A Crew prompt answered with the card `target` of its zone (EffectResolver.apply_choice,
 ## after CHOICE_MADE): CREW_FIRED with the use counted, then the ability (see the class
 ## comment). Nothing when the prompt names no Crew of its seat or was answered in a zone
-## the Crew does not choose from. `policy` is non-null on a preview (no events built).
+## the Crew does not choose from.
 static func apply_choice(
-	state: MatchState, cards: MatchCards, prompt: Dictionary, target: int, policy: PreviewPolicy
+	state: MatchState, cards: MatchCards, prompt: Dictionary, target: int
 ) -> Array[MatchEvent]:
 	var outcome: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	outcome.quiet = policy != null
 	var seat: int = prompt.get(EffectResolver.KEY_SEAT, -1)
 	var zone: int = prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
 	var slot: int = cards.crew_slot(seat, Choice.crew_of(prompt)) if cards != null else -1
@@ -369,13 +363,13 @@ static func _can_draw(state: MatchState, seat: int) -> bool:
 
 
 ## `count` draws for `seat` (EffectResolver.draw_card: CARD_DRAWN, or CARD_BURNED at the
-## hand cap; private to `seat`), none built when `outcome` is quiet.
+## hand cap; private to `seat`).
 static func _draws(
 	state: MatchState, seat: int, count: int, outcome: EffectResolver.Outcome
 ) -> void:
 	for _i: int in range(count):
 		var drawn: MatchEvent = EffectResolver.draw_card(state, seat)
-		if drawn != null and not outcome.quiet:
+		if drawn != null:
 			outcome.events.append(drawn)
 
 
@@ -395,8 +389,6 @@ static func _moved_flat(
 		return
 	_fired(state, seat, slot, def, outcome)
 	state.card_state_for(card).flat_delta += def.amount
-	if outcome.quiet:
-		return
 	var owner: int = MatchEvent.PUBLIC if piles.is_revealed(card) else seat
 	outcome.events.append(
 		EffectResolver.stats_changed(state, cards, seat, card, CAUSE_CREW, false, owner)

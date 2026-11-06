@@ -149,8 +149,8 @@ func to_dict() -> Dictionary:
 	}
 
 
-## A deep copy: no array, dictionary or inner object is shared with this state (plan P12,
-## the preview's clone). The copy's to_dict() equals this one's.
+## A deep copy: no array, dictionary or inner object is shared with this state (plan
+## P12). The copy's to_dict() equals this one's.
 func duplicate() -> MatchState:
 	var out: MatchState = MatchState.new(match_seed)
 	out.deck_ids.assign(deck_ids)
@@ -276,8 +276,7 @@ func burn_destroyed_piles() -> void:
 ## false, changing nothing, when it was not on that row. Read the card's slot before
 ## calling. Where the card goes next is the caller's call. The live engine calls it only
 ## once a walk is over, so the walk's slot cursor never follows a row that shrinks (DC-06
-## P1); the preview's MatchEngine._hide_opponent marks hidden cards destroyed in place
-## instead of taking them (DC-06 P7), so no caller shrinks a row mid-walk.
+## P1), so no caller shrinks a row mid-walk.
 func take_from_row(seat: int, card: int) -> bool:
 	var piles: SeatPiles = seats[seat]
 	var slot: int = piles.board.find(card)

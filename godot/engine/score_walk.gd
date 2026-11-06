@@ -2,7 +2,7 @@ class_name ScoreWalk
 extends RefCounted
 ## The pure, resumable score walk over a MatchState (R11-R18, plan P3-P5). All of its
 ## progress lives in `state.walk`, so a walk can stop on a prompt and resume from the same
-## state, and a preview can run it on a copy (MatchState.duplicate()).
+## state.
 ##
 ## A walk: begin() resets both scores to 0 and both multipliers to ×1.00 (R11; DC-07 R10,
 ## MatchRules.MULT_ONE in hundredths), then each
@@ -62,8 +62,8 @@ extends RefCounted
 ##
 ## Events go to `sink` as sink.call(kind, payload) for the walk's own public events and
 ## sink.call(kind, payload, owner) for an effect's events, which may be private (draws,
-## burns, the destroy of a face-down card). A null `policy` is a live walk; a preview
-## passes a PreviewPolicy and gets no events (the effects still change its state).
+## burns, the destroy of a face-down card). A walk with no valid sink emits nothing (the
+## effects still change its state).
 ##
 ## Prompts and resuming (DC-05 T05): a pulse runs in Stages. It starts at SCORE, which
 ## reads the slot: a card revealed there goes to REVEAL_EFFECT (its on-reveal effect), then
@@ -137,8 +137,8 @@ static func next_card(state: MatchState) -> int:
 ## ×amount when the card itself carries the ongoing EDGE_LEFT_TIMES, Herald, and holds slot
 ## 0 of its row), each step times_hundredths(); then `flat_delta` adds to the flat and
 ## `temp_plus` to the +-part, then `no_bonus` makes the ×-part 100 and the +-part 0. Flat 0,
-## ×1.00 and +0 for a card with no definition. Every reader (the walk, previews, SeatView,
-## STATS_CHANGED, the destroy's preview rule) goes through this one function, so it stays
+## ×1.00 and +0 for a card with no definition. Every reader (the walk, SeatView,
+## STATS_CHANGED, the stream-less destroy rule) goes through this one function, so it stays
 ## cheap: the positional parts look at the card's two neighbours and its own slot only, and
 ## are skipped outright in a match where no definition carries either positional verb
 ## (MatchCards.has_verb), since every lookup would then leave the ×-part as it is.
@@ -294,8 +294,7 @@ static func _definition(card: int, cards: MatchCards) -> CardDef:
 
 ## One pulse (P3). Returns true when the walk paused on a prompt. When no card is left the
 ## walk ends (`walk.active` becomes false) and nothing else changes. `rng` is the engine
-## stream, for the random destroy (P11); `rng` and `policy` go to EffectResolver (see its
-## preview seam).
+## stream, for the random destroy (P11); `rng` goes to EffectResolver.
 ##
 ## Prompts (DC-05 T05): an effect that needs a choice between two or more targets returns
 ## its prompt from EffectResolver.apply(); step() stores it in `state.prompt`, records
@@ -305,22 +304,22 @@ static func _definition(card: int, cards: MatchCards) -> CardDef:
 ## (EffectResolver.answer clears the prompt), the next step() finishes that same pulse from
 ## where it stopped (the paused card's remaining reveal hooks, then the score stage of the
 ## paused slot, `walk.paused_slot`, whatever card the choice left there) before the cursor
-## moves on. A preview never pauses: its policy answers at once.
+## moves on.
 static func step(
-	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, policy: PreviewPolicy
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable
 ) -> bool:
 	var walk: MatchState.WalkState = state.walk
 	# Still waiting for the choice: nothing moves until EffectResolver.answer() runs.
 	if not state.prompt.is_empty():
 		return true
 	# The Crew an answered prompt queued fire first (DC-11 T10, P13); one may prompt again.
-	if _drain(state, cards, sink, policy):
+	if _drain(state, cards, sink):
 		return true
 	if walk.paused_card >= 0:
 		var resumed: int = walk.paused_card
 		var slot: int = walk.paused_slot
 		var stage: int = walk.paused_stage
-		var pulse: Pulse = Pulse.new(state, cards, rng, sink, policy)
+		var pulse: Pulse = Pulse.new(state, cards, rng, sink)
 		pulse.watchers.assign(walk.paused_watchers)
 		pulse.watcher_at = walk.paused_watcher_at
 		walk.paused_card = -1
@@ -333,14 +332,14 @@ static func step(
 	var at: Vector2i = next_slot(state)
 	if at.x < 0:
 		walk.active = false
-		_clear_temp_plus(state, cards, sink, policy)
+		_clear_temp_plus(state, cards, sink)
 		return false
 	var seat: int = at.x
 	# The slot is passed before anything the pulse fires resolves (R2).
 	walk.cursor[seat] = at.y + 1
 	walk.next_seat = 1 - walk.next_seat
 	# The score stage reads the slot: it reveals, scores or flips its card (DC-06 P2).
-	return Pulse.new(state, cards, rng, sink, policy).run(seat, at.y, -1, Stage.SCORE)
+	return Pulse.new(state, cards, rng, sink).run(seat, at.y, -1, Stage.SCORE)
 
 
 ## The pulse of a destroyed `card` on `seat`'s row (DC-06 R13, R14, P4): face down, it is
@@ -360,36 +359,29 @@ static func _pulse_destroyed(
 
 
 ## Runs the walk from its current point to its end or to a prompt; true on a prompt. The
-## preview's loop (plan P12); the live engine loops step() itself so it can stop between
-## pulses.
-static func run(
-	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, policy: PreviewPolicy
-) -> bool:
+## engine loops step() itself so it can stop between pulses.
+static func run(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> bool:
 	while state.walk.active:
-		if step(state, cards, rng, sink, policy):
+		if step(state, cards, rng, sink):
 			return true
 	return false
 
 
 ## Drains the Crew trigger queue (CrewEffects.drain) once a firing or an answer has
 ## resolved (cycle 8 R46, P13; DC-11 T10), its events forwarded as an effect's. True when a
-## Crew prompt opened (`state.prompt`), which pauses the pulse as a card's prompt does; a
-## preview opens none (its policy declines the Crew).
-static func _drain(
-	state: MatchState, cards: MatchCards, sink: Callable, policy: PreviewPolicy
-) -> bool:
+## Crew prompt opened (`state.prompt`), which pauses the pulse as a card's prompt does.
+static func _drain(state: MatchState, cards: MatchCards, sink: Callable) -> bool:
 	if state.crew_queue.is_empty():
 		return false
 	var outcome: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	outcome.quiet = policy != null
-	var opened: bool = CrewEffects.drain(state, cards, policy, true, outcome)
-	_forward(outcome.events, sink, policy)
+	var opened: bool = CrewEffects.drain(state, cards, true, outcome)
+	_forward(outcome.events, sink)
 	return opened
 
 
-## Sends an effect's events to `sink` with their owners, on a live walk only.
-static func _forward(events: Array[MatchEvent], sink: Callable, policy: PreviewPolicy) -> void:
-	if policy != null or not sink.is_valid():
+## Sends an effect's events to `sink` with their owners, when the sink is valid.
+static func _forward(events: Array[MatchEvent], sink: Callable) -> void:
+	if not sink.is_valid():
 		return
 	for event: MatchEvent in events:
 		sink.call(event.kind, event.payload, event.owner_seat)
@@ -432,17 +424,17 @@ static func _score(
 
 ## The walk's end (DC-07 P5): every card's `temp_plus` goes back to 0. On a live walk a
 ## revealed card still on a row gets STATS_CHANGED (cause temp_plus) for it, public, in
-## ascending card id. A preview (or a walk with no sink) emits nothing, and zeroing one
+## ascending card id. A walk with no sink emits nothing, and zeroing one
 ## entry reads no other, so the order cannot matter: it clears the entries in place,
 ## unsorted.
 static func _clear_temp_plus(
-	state: MatchState, cards: MatchCards, sink: Callable, policy: PreviewPolicy
+	state: MatchState, cards: MatchCards, sink: Callable
 ) -> void:
-	var live: bool = policy == null and sink.is_valid()
+	var live: bool = sink.is_valid()
 	if not live:
 		for card: int in state.card_states:
-			var quiet: CardState = state.card_states[card]
-			quiet.temp_plus = 0
+			var silent: CardState = state.card_states[card]
+			silent.temp_plus = 0
 		return
 	var ids: Array[int] = []
 	ids.assign(state.card_states.keys())
@@ -528,7 +520,6 @@ class Pulse:
 	var cards: MatchCards = null
 	var rng: MatchRng = null
 	var sink: Callable = Callable()
-	var policy: PreviewPolicy = null
 	## The watcher snapshot of the card revealing now (DC-05 T13): the other row's revealed
 	## cards with an ON_OPPONENT_REVEAL effect, in row order, taken when the WATCHERS stage
 	## first runs for the card; then, emptied as that stage ends, the own row's other revealed
@@ -539,18 +530,11 @@ class Pulse:
 	## The snapshot index the WATCHERS or ALLY_WATCHERS stage goes on from.
 	var watcher_at: int = 0
 
-	func _init(
-		p_state: MatchState,
-		p_cards: MatchCards,
-		p_rng: MatchRng,
-		p_sink: Callable,
-		p_policy: PreviewPolicy
-	) -> void:
+	func _init(p_state: MatchState, p_cards: MatchCards, p_rng: MatchRng, p_sink: Callable) -> void:
 		state = p_state
 		cards = p_cards
 		rng = p_rng
 		sink = p_sink
-		policy = p_policy
 
 	## Runs the pulse of `slot` on `seat`'s row from `stage`, `card` being the card whose
 	## reveal stages run (REVEAL_EFFECT, WATCHERS, ALLY_WATCHERS; -1 for a pulse starting at
@@ -609,11 +593,11 @@ class Pulse:
 	func _reveal(seat: int, card: int) -> void:
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		piles.revealed[card] = true
-		if policy == null and sink.is_valid():
+		if sink.is_valid():
 			ScoreWalk._emit_reveal(state, cards, sink, seat, card, false)
 		state.walk.reveals += 1
 		var spent: Array[MatchEvent] = EffectResolver.spend_bonus_zero(state, cards, seat, card)
-		ScoreWalk._forward(spent, sink, policy)
+		ScoreWalk._forward(spent, sink)
 		watchers.clear()
 		watcher_at = 0
 
@@ -625,7 +609,7 @@ class Pulse:
 	func _score_slot(seat: int, slot: int, card: int) -> bool:
 		if card < 0:
 			return false
-		var live: bool = policy == null and sink.is_valid()
+		var live: bool = sink.is_valid()
 		if state.is_destroyed(card):
 			ScoreWalk._pulse_destroyed(state, cards, sink, live, seat, card)
 			return false
@@ -741,9 +725,9 @@ class Pulse:
 		if effect == null or effect.trigger != trigger:
 			return false
 		var outcome: EffectResolver.Outcome = EffectResolver.apply(
-			state, cards, rng, policy, seat, card
+			state, cards, rng, seat, card
 		)
-		ScoreWalk._forward(outcome.events, sink, policy)
+		ScoreWalk._forward(outcome.events, sink)
 		if not outcome.needs_prompt():
 			return false
 		state.prompt = outcome.prompt
@@ -752,7 +736,7 @@ class Pulse:
 	## Drains the Crew trigger queue after a firing resolved (ScoreWalk._drain); true when a
 	## Crew prompt opened, so the caller pauses as for a card's prompt.
 	func _drain() -> bool:
-		return ScoreWalk._drain(state, cards, sink, policy)
+		return ScoreWalk._drain(state, cards, sink)
 
 	## Records where the pulse of `slot` resumes: `card`, the card whose stage was running,
 	## `stage`, and for WATCHERS and ALLY_WATCHERS the snapshot and next index (an empty

@@ -7,8 +7,7 @@ extends RefCounted
 ## in order, always starting with EFFECT_FIRED {seat, card, verb, trigger, uses_left} (verb
 ## and trigger as their CardEffect JSON names), and the prompt the verb needs (empty unless
 ## a prompt verb found two or more targets on a live walk). ScoreWalk decides when an effect
-## fires (the trigger hooks, P6) and forwards the events to its sink on a live walk; a
-## preview drops them.
+## fires (the trigger hooks, P6) and forwards the events to its sink.
 ##
 ## The uses countdown (cycle 8 R6, P7; take_use): an effect with `uses > 0` counts down its
 ## card's CardMemory.uses_left (read from the effect's `uses` the first time) before its
@@ -61,12 +60,10 @@ extends RefCounted
 ##   false, resume: "walk", crew: ""} and the event CHOICE_REQUESTED {seat, card, verb,
 ##   text, zone, options, multi, optional, resume, crew} (zone by name, options as
 ##   positions: public; cycle 8 P9). answer() applies the choice later, or decline() closes
-##   an optional prompt (cycle 8 P10). A preview (non-null policy) never prompts: it takes
-##   the first option at once (plan P12).
+##   an optional prompt (cycle 8 P10).
 ## - The multi-select verb SACRIFICE_DESTROY (DC-07 P7, P12, R22-R25, R27): the same, but
 ##   the prompt and CHOICE_REQUESTED carry `multi` true, one eligible position still
 ##   prompts (the empty set is a legal answer), and answer_set() applies a set (apply_set).
-##   A preview declines it (PreviewPolicy.set_for, the empty set): the effect fizzles.
 ##   - DRAW_THEN_DISCARD (amount): draws `amount` as DRAW does (burns at the cap), then
 ##     discards one card of the owner's hand to its burn pile: CARD_DISCARDED {seat, card},
 ##     private to the owner.
@@ -126,14 +123,11 @@ extends RefCounted
 ## unreveal() and a return to a hand queue OWN_RETURNED, and a Crew prompt's answer is
 ## CrewEffects.apply_choice(); the queue drains in ScoreWalk, TurnStart and MatchEngine.
 ##
-## Preview seam (orchestrator, DC-05 T04): a null `policy` is a live walk, which always picks
-## the destroyed card with MatchRng.pick_index on the engine stream at the moment the effect
-## fires; walk order is deterministic given the log, so a replay destroys the same card. A
-## non-null policy is a preview (plan P12): PreviewPolicy.destroy_slot, the opponent's
-## lowest-flat card (effective flat, leftmost on a tie), with no stream. A live walk given no
-## stream (`rng` null, as unit tests do) takes the preview's rule rather than fail. A
-## preview's prompt takes PreviewPolicy.option_for (its first option), and a preview's
-## Outcome is quiet: the events a preview would drop are not built where avoidable.
+## The random destroy (DC-05 T04): a walk picks the destroyed card with MatchRng.pick_index
+## on the engine stream at the moment the effect fires; walk order is deterministic given
+## the log, so a replay destroys the same card. A walk given no stream (`rng` null, as unit
+## tests do) takes the opponent's lowest-flat live card (effective flat, leftmost on a tie;
+## lowest_flat_slot) rather than fail.
 
 const CAUSE_FLAT_UP: String = "flat_up"
 const CAUSE_BONUS_ZERO: String = "bonus_zero"
@@ -167,31 +161,27 @@ static func effect_of(card: int, cards: MatchCards) -> CardEffect:
 
 
 ## Fires `card`'s effect for its owner `seat`: EFFECT_FIRED, then the verb's own events. An
-## empty Outcome when the card has no effect. `rng` is the engine stream (a live walk) and
-## `policy` is null on a live walk (see the class comment).
+## empty Outcome when the card has no effect. `rng` is the engine stream (see the class
+## comment).
 static func apply(
-	state: MatchState, cards: MatchCards, rng: MatchRng, policy: PreviewPolicy, seat: int, card: int
+	state: MatchState, cards: MatchCards, rng: MatchRng, seat: int, card: int
 ) -> Outcome:
 	var outcome: Outcome = Outcome.new()
-	# A preview drops every event, so it builds none it can avoid (DC-05 T06).
-	outcome.quiet = policy != null
 	var effect: CardEffect = effect_of(card, cards)
 	if effect == null:
 		return outcome
-	# The uses countdown runs on a preview's clone too, so a preview equals live play (P7).
 	var uses_left: int = take_use(state, card, effect)
 	if uses_left == USES_SPENT:
 		fizzle(seat, card, effect.verb, outcome, REASON_SPENT)
 		return outcome
-	if not outcome.quiet:
-		var fired: Dictionary = {
-			"seat": seat,
-			"card": card,
-			"verb": CardEffect.verb_name(effect.verb),
-			"trigger": CardEffect.trigger_name(effect.trigger),
-			"uses_left": uses_left,
-		}
-		outcome.add(MatchEvent.Kind.EFFECT_FIRED, fired)
+	var fired: Dictionary = {
+		"seat": seat,
+		"card": card,
+		"verb": CardEffect.verb_name(effect.verb),
+		"trigger": CardEffect.trigger_name(effect.trigger),
+		"uses_left": uses_left,
+	}
+	outcome.add(MatchEvent.Kind.EFFECT_FIRED, fired)
 	match effect.verb:
 		CardEffect.Verb.DRAW, CardEffect.Verb.DRAW_ONCE:
 			_draw(state, seat, effect.amount, outcome)
@@ -200,49 +190,49 @@ static func apply(
 		CardEffect.Verb.OPPONENT_NEXT_NO_BONUS:
 			_mark_bonus_zero(state, seat, outcome)
 		CardEffect.Verb.DESTROY_RANDOM_OPPONENT:
-			_destroy_random(state, cards, rng, policy, seat, card, outcome)
+			_destroy_random(state, cards, rng, seat, card, outcome)
 		CardEffect.Verb.FLAT_UP_ON_SCORE:
 			_flat_up(state, cards, seat, card, effect.amount, outcome)
 		CardEffect.Verb.CARRY_ENERGY:
 			_carry(state, seat, outcome)
 		CardEffect.Verb.DRAW_THEN_DISCARD:
 			_draw(state, seat, effect.amount, outcome)
-			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.SWAP_PLACES, CardEffect.Verb.RETURN_AT_TURN_END:
 			# A target, then the verb.
-			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.DISCARD_OWN, CardEffect.Verb.DESTROY_OWN_THEN_DRAW:
 			# A card of the owner's hand or row (DC-07 P12), then the verb.
-			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
-			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.DESTROY_LEFTMOST_OWN:
 			RuinEffects.destroy_leftmost(state, cards, seat, card, outcome)
 		CardEffect.Verb.BURST:
-			RuinEffects.burst(state, cards, rng, policy, seat, card, outcome)
+			RuinEffects.burst(state, cards, rng, seat, card, outcome)
 		CardEffect.Verb.RECOVER_DESTROYED:
 			# A card from either destroyed pile (DC-07 P12), then the recovery.
-			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.SACRIFICE_DESTROY:
 			# A set of own live cards (DC-07 P7, P12), then as many random destroys.
-			_ask_set(state, cards, rng, policy, seat, card, effect, outcome)
+			_ask_set(state, seat, card, effect, outcome)
 		CardEffect.Verb.MOVE_SELF_LEFT, CardEffect.Verb.MOVE_SELF_RIGHT:
-			DriftEffects.apply(state, cards, rng, policy, seat, card, effect, outcome)
+			DriftEffects.apply(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.SHIFT_OWN_LEFT, CardEffect.Verb.REVERSE_OPPONENT_ROW:
-			DriftEffects.apply(state, cards, rng, policy, seat, card, effect, outcome)
+			DriftEffects.apply(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.PLUS_ON_MOVED:
-			DriftEffects.apply(state, cards, rng, policy, seat, card, effect, outcome)
+			DriftEffects.apply(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.COPY_STATS, CardEffect.Verb.MOVE_OPPONENT_LEFT:
 			# A card of the opponent's row (DC-07 P12), then DriftEffects.apply_choice.
-			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.SWAP_OPPONENT_RIGHT:
-			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.GROW_OTHER_FLAT, CardEffect.Verb.GROW_HAND_ONE_TIMES:
 			# A card of the owner's row or hand (cycle 8 P8), then BloomEffects.apply_choice.
-			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, seat, card, effect, outcome)
 		CardEffect.Verb.RETURN_OWN_AT_TURN_END, CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
 			# A card of either row (cycle 8 P8), then apply_choice() marks it.
-			_ask(state, cards, rng, policy, seat, card, effect, outcome)
+			_ask(state, cards, rng, seat, card, effect, outcome)
 		_:
 			# The Bloom and Echo verbs that need no target go to their family. Every other verb
 			# left here, UNREVEAL_INSTEAD (read by destroy()), NEIGHBOUR_TIMES and
@@ -317,41 +307,36 @@ static func settle_energy(state: MatchState, cards: MatchCards) -> Array[MatchEv
 		if carrier < 0:
 			state.energy.carry[seat] = 0
 			continue
-		out.append_array(apply(state, cards, null, null, seat, carrier).events)
+		out.append_array(apply(state, cards, null, seat, carrier).events)
 	return out
 
 
 ## Answers the open prompt of `state` with position `index` of its zone (plan P3, R32):
 ## clears the prompt, then applies the choice (apply_choice, `auto` false). The caller has
 ## checked the index is one of the options (Choice.is_offered). Empty when no prompt is
-## open. The walk resumes with the next ScoreWalk.step(). `rng` and `policy` are as
+## open. The walk resumes with the next ScoreWalk.step(). `rng` is as
 ## apply()'s (DC-07 T07: a move fires ON_MOVED, a copy runs the burst check).
 static func answer(
-	state: MatchState,
-	cards: MatchCards,
-	index: int,
-	rng: MatchRng = null,
-	policy: PreviewPolicy = null
+	state: MatchState, cards: MatchCards, index: int, rng: MatchRng = null
 ) -> Array[MatchEvent]:
 	var prompt: Dictionary = state.prompt
 	state.prompt = {}
 	if prompt.is_empty():
 		var none: Array[MatchEvent] = []
 		return none
-	return apply_choice(state, cards, prompt, index, false, rng, policy)
+	return apply_choice(state, cards, prompt, index, false, rng)
 
 
 ## Applies `prompt`'s verb to position `index` of its zone: CHOICE_MADE, then the verb's
-## own events (see the class comment). Empty when the position names no card. `rng` and
-## `policy` are as apply()'s; the Drift verbs' events are not built under a policy.
+## own events (see the class comment). Empty when the position names no card. `rng` is as
+## apply()'s.
 static func apply_choice(
 	state: MatchState,
 	cards: MatchCards,
 	prompt: Dictionary,
 	index: int,
 	auto: bool,
-	rng: MatchRng = null,
-	policy: PreviewPolicy = null
+	rng: MatchRng = null
 ) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	var seat: int = prompt.get(KEY_SEAT, -1)
@@ -374,7 +359,7 @@ static func apply_choice(
 	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_MADE, made, owner))
 	if Choice.crew_of(prompt) != "":
 		# A Crew prompt's `verb` is a CrewDef.Verb (DC-11 T10).
-		out.append_array(CrewEffects.apply_choice(state, cards, prompt, target, policy))
+		out.append_array(CrewEffects.apply_choice(state, cards, prompt, target))
 		return out
 	match verb:
 		CardEffect.Verb.DRAW_THEN_DISCARD:
@@ -382,13 +367,13 @@ static func apply_choice(
 		CardEffect.Verb.SWAP_PLACES, CardEffect.Verb.COPY_STATS:
 			out.append_array(
 				DriftEffects.apply_choice(
-					state, cards, rng, policy, verb, seat, holder, source, target
+					state, cards, rng, verb, seat, holder, source, target
 				)
 			)
 		CardEffect.Verb.MOVE_OPPONENT_LEFT, CardEffect.Verb.SWAP_OPPONENT_RIGHT:
 			out.append_array(
 				DriftEffects.apply_choice(
-					state, cards, rng, policy, verb, seat, holder, source, target
+					state, cards, rng, verb, seat, holder, source, target
 				)
 			)
 		CardEffect.Verb.RETURN_AT_TURN_END:
@@ -404,8 +389,7 @@ static func apply_choice(
 		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
 			out.append_array(RuinEffects.destroy_then_flat_up(state, cards, holder, source, target))
 		CardEffect.Verb.GROW_OTHER_FLAT, CardEffect.Verb.GROW_HAND_ONE_TIMES:
-			var quiet: bool = policy != null
-			out.append_array(BloomEffects.apply_choice(state, cards, holder, source, target, quiet))
+			out.append_array(BloomEffects.apply_choice(state, cards, holder, source, target))
 		CardEffect.Verb.RETURN_OWN_AT_TURN_END, CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
 			EchoEffects.mark_return(state, target)
 	return out
@@ -413,18 +397,17 @@ static func apply_choice(
 
 ## Answers the open multi-select prompt of `state` with the set `indices` of its zone
 ## (DC-07 P7, R24): clears the prompt, then applies the set (apply_set). The caller has
-## checked the set (Choice.is_valid_set). `rng` and `policy` are as apply()'s: the engine
-## stream on a live walk, the preview policy (and no stream) on a preview. Empty when no
+## checked the set (Choice.is_valid_set). `rng` is as apply()'s. Empty when no
 ## prompt is open. The walk resumes with the next ScoreWalk.step().
 static func answer_set(
-	state: MatchState, cards: MatchCards, rng: MatchRng, policy: PreviewPolicy, indices: Array[int]
+	state: MatchState, cards: MatchCards, rng: MatchRng, indices: Array[int]
 ) -> Array[MatchEvent]:
 	var prompt: Dictionary = state.prompt
 	state.prompt = {}
 	if prompt.is_empty():
 		var none: Array[MatchEvent] = []
 		return none
-	return apply_set(state, cards, rng, policy, prompt, indices)
+	return apply_set(state, cards, rng, prompt, indices)
 
 
 ## Applies the multi-select `prompt`'s verb to the set `indices` of its zone (DC-07 P7):
@@ -433,14 +416,13 @@ static func answer_set(
 ## follows and nothing else (R24).
 ## - SACRIFICE_DESTROY (P12, R27): each chosen own card goes through destroy() (in row
 ##   order), then as many random live opponent cards, each picked as
-##   DESTROY_RANDOM_OPPONENT picks (the engine stream on a live walk, R35;
-##   PreviewPolicy.destroy_slot on a preview); with fewer live opponent cards than that, all
+##   DESTROY_RANDOM_OPPONENT picks (the engine stream, R35;
+##   lowest_flat_slot with none); with fewer live opponent cards than that, all
 ##   of them. A chosen card un-revealed instead still counts (P9, R32).
 static func apply_set(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	prompt: Dictionary,
 	indices: Array[int]
 ) -> Array[MatchEvent]:
@@ -471,7 +453,7 @@ static func apply_set(
 		out.append(MatchEvent.new(MatchEvent.Kind.EFFECT_FIZZLED, fizzled))
 		return out
 	if verb == CardEffect.Verb.SACRIFICE_DESTROY:
-		out.append_array(_sacrifice(state, cards, rng, policy, seat, zone, indices))
+		out.append_array(_sacrifice(state, cards, rng, seat, zone, indices))
 	return out
 
 
@@ -585,7 +567,7 @@ static func flip_echoes(state: MatchState, cards: MatchCards) -> Array[MatchEven
 static func _draw(state: MatchState, seat: int, amount: int, outcome: Outcome) -> void:
 	for _i: int in range(amount):
 		var drawn: MatchEvent = draw_card(state, seat)
-		if drawn != null and not outcome.quiet:
+		if drawn != null:
 			outcome.events.append(drawn)
 
 
@@ -605,13 +587,12 @@ static func _destroy_random(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	card: int,
 	outcome: Outcome
 ) -> void:
 	var opponent: int = 1 - seat
-	var target: int = random_live(state, cards, rng, policy, opponent)
+	var target: int = random_live(state, cards, rng, opponent)
 	if target < 0:
 		fizzle(seat, card, CardEffect.Verb.DESTROY_RANDOM_OPPONENT, outcome)
 		return
@@ -621,11 +602,9 @@ static func _destroy_random(
 
 ## A random live card of `seat`'s row, or -1 when it holds none (nothing is drawn then).
 ## Only live cards may be picked (DC-06 R16, R17), in row order as the row stands now: one
-## MatchRng.pick_index on the engine stream on a live walk (P11, R35), else
-## PreviewPolicy.destroy_slot (a preview, or a live walk given no stream).
-static func random_live(
-	state: MatchState, cards: MatchCards, rng: MatchRng, policy: PreviewPolicy, seat: int
-) -> int:
+## MatchRng.pick_index on the engine stream (P11, R35), else lowest_flat_slot (a walk given
+## no stream).
+static func random_live(state: MatchState, cards: MatchCards, rng: MatchRng, seat: int) -> int:
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	var live: Array[int] = []
 	for held: int in piles.board:
@@ -634,18 +613,36 @@ static func random_live(
 	if live.is_empty():
 		return -1
 	var pick: int = 0
-	if policy == null and rng != null:
+	if rng != null:
 		pick = rng.pick_index(live.size())
 	else:
-		pick = PreviewPolicy.destroy_slot(state, cards, live)
+		pick = lowest_flat_slot(state, cards, live)
 	return live[pick]
+
+
+## The position in `row` of the live (not destroyed, DC-06 R16, R17) card with the lowest
+## effective flat (ScoreWalk.effective), the leftmost on a tie; 0 when no entry is live.
+## The random destroy's pick when a walk has no stream (random_live).
+static func lowest_flat_slot(state: MatchState, cards: MatchCards, row: Array[int]) -> int:
+	var best: int = 0
+	var best_flat: int = 0
+	var found: bool = false
+	for i: int in range(row.size()):
+		if state.is_destroyed(row[i]):
+			continue
+		var flat: int = ScoreWalk.effective(row[i], state, cards).flat
+		if not found or flat < best_flat:
+			best = i
+			best_flat = flat
+			found = true
+	return best
 
 
 ## The one destroy (DC-07 P9; see the class comment): `card`, live on its controller's
 ## row, is un-revealed when it is revealed and carries UNREVEAL_INSTEAD, else marked
 ## destroyed in place (DC-06 R12): it keeps its slot and stays face up or face down,
 ## CARD_DESTROYED {seat, card, slot}, public when the card is revealed, else private to its
-## seat. The events go to `outcome` (none built when it is quiet). True in both cases, so a
+## seat. The events go to `outcome`. True in both cases, so a
 ## sacrifice counts the card (R32); false, changing nothing, when the card is on no row or
 ## already destroyed.
 static func destroy(state: MatchState, cards: MatchCards, card: int, outcome: Outcome) -> bool:
@@ -679,7 +676,7 @@ static func unreveal(
 	var before: Dictionary = ScoreWalk.effective(card, state, cards).to_dict()
 	if state.clear_card_state(card):
 		var after: Dictionary = ScoreWalk.effective(card, state, cards).to_dict()
-		if after != before and not outcome.quiet:
+		if after != before:
 			outcome.events.append(stats_changed(state, cards, seat, card, CAUSE_UNREVEAL))
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	if not piles.revealed.erase(card):
@@ -693,7 +690,6 @@ static func _sacrifice(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	zone: int,
 	indices: Array[int]
@@ -715,7 +711,7 @@ static func _sacrifice(
 			count += 1
 	var opponent: int = 1 - seat
 	for _i: int in range(count):
-		var victim: int = random_live(state, cards, rng, policy, opponent)
+		var victim: int = random_live(state, cards, rng, opponent)
 		if victim < 0 or not destroy(state, cards, victim, outcome):
 			break
 	out.append_array(outcome.events)
@@ -726,8 +722,7 @@ static func _flat_up(
 	state: MatchState, cards: MatchCards, seat: int, card: int, amount: int, outcome: Outcome
 ) -> void:
 	state.card_state_for(card).flat_delta += amount
-	if not outcome.quiet:
-		outcome.events.append(stats_changed(state, cards, seat, card, CAUSE_FLAT_UP))
+	outcome.events.append(stats_changed(state, cards, seat, card, CAUSE_FLAT_UP))
 
 
 static func _carry(state: MatchState, seat: int, outcome: Outcome) -> void:
@@ -743,7 +738,6 @@ static func _ask(
 	state: MatchState,
 	cards: MatchCards,
 	rng: MatchRng,
-	policy: PreviewPolicy,
 	seat: int,
 	card: int,
 	effect: CardEffect,
@@ -756,30 +750,17 @@ static func _ask(
 		fizzle(seat, card, effect.verb, outcome)
 		return
 	var prompt: Dictionary = _prompt(seat, card, effect.verb, zone, options)
-	if options.size() == 1 or policy != null:
-		var auto: bool = options.size() == 1
-		var picked: int = options[0]
-		if policy != null:
-			picked = policy.option_for(options)
-		var made: Array[MatchEvent] = apply_choice(state, cards, prompt, picked, auto, rng, policy)
-		if not outcome.quiet:
-			outcome.events.append_array(made)
+	if options.size() == 1:
+		var made: Array[MatchEvent] = apply_choice(state, cards, prompt, options[0], true, rng)
+		outcome.events.append_array(made)
 		return
 	_open(prompt, effect, outcome)
 
 
 ## A multi-select verb's targets (DC-07 P7, R22, R25): no eligible position fizzles; one or
-## more opens the prompt (never auto-chosen, since the empty set is a legal answer). A
-## preview declines it at once (PreviewPolicy.set_for), so its walk never pauses.
+## more opens the prompt (never auto-chosen, since the empty set is a legal answer).
 static func _ask_set(
-	state: MatchState,
-	cards: MatchCards,
-	rng: MatchRng,
-	policy: PreviewPolicy,
-	seat: int,
-	card: int,
-	effect: CardEffect,
-	outcome: Outcome
+	state: MatchState, seat: int, card: int, effect: CardEffect, outcome: Outcome
 ) -> void:
 	var found: Dictionary = Choice.eligible(state, seat, effect.verb, card)
 	var zone: int = found[Choice.KEY_ZONE]
@@ -788,13 +769,6 @@ static func _ask_set(
 		fizzle(seat, card, effect.verb, outcome)
 		return
 	var prompt: Dictionary = _prompt(seat, card, effect.verb, zone, options)
-	if policy != null:
-		var declined: Array[MatchEvent] = apply_set(
-			state, cards, rng, policy, prompt, policy.set_for(options)
-		)
-		if not outcome.quiet:
-			outcome.events.append_array(declined)
-		return
 	_open(prompt, effect, outcome)
 
 
@@ -978,15 +952,10 @@ class Outcome:
 	## Empty unless a prompt verb found two or more targets (a multi-select verb: one or
 	## more) on a live walk.
 	var prompt: Dictionary = {}
-	## True under a preview policy: add() then builds nothing, since the walk drops every
-	## event of a preview (DC-05 T06, cost).
-	var quiet: bool = false
 
 	## Whether the walk must pause for a choice.
 	func needs_prompt() -> bool:
 		return not prompt.is_empty()
 
 	func add(kind: int, payload: Dictionary, owner: int = MatchEvent.PUBLIC) -> void:
-		if quiet:
-			return
 		events.append(MatchEvent.new(kind, payload, owner))

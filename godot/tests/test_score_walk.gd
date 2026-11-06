@@ -4,8 +4,8 @@ extends GdUnitTestSuite
 ## ScoreWalk (R11-R18, plan P3-P5) and CardState: the walk's math (C2; the hundredths mult
 ## of DC-07 P4, whose own cases live in test_score_walk_mult.gd), its cursor (C4),
 ## recomputation every turn (C3), the per-walk multiplier, effective stats from CardState,
-## and a walk on a MatchState.duplicate() giving the live engine's scores (the preview's
-## basis, P12). DC-06 T01 (R1-R11): the slot cursor, one pulse per slot (n + m pulses),
+## and a walk on a MatchState.duplicate() giving the live engine's scores (plan
+## P12). DC-06 T01 (R1-R11): the slot cursor, one pulse per slot (n + m pulses),
 ## the score stage belonging to the slot through c12's swap (C23-C25: the card landing on
 ## the pulsed slot scores now, the moved card later or not this walk), a card swapped
 ## behind the cursor skipped (and left face down), a card swapped ahead of it scored again
@@ -36,7 +36,7 @@ func _db() -> CardDb:
 
 
 ## The fixture-vs-fixture definitions over _db() (DC-07 T02), for ScoreWalk,
-## EffectResolver and GreedyBot.
+## EffectResolver and RandomBot.
 func _defs() -> MatchCards:
 	if _cached_defs == null:
 		_cached_defs = FixtureDecks.defs(_db())
@@ -129,7 +129,7 @@ func _walk(state: MatchState, recorder: Recorder) -> void:
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < 100:
-		var paused: bool = ScoreWalk.step(state, _defs(), null, recorder.record, null)
+		var paused: bool = ScoreWalk.step(state, _defs(), null, recorder.record)
 		assert_bool(paused).is_false()
 		guard += 1
 
@@ -242,7 +242,7 @@ func test_three_against_one_alternates_then_finishes_the_longer_row() -> void:
 		var order: Array[int] = []
 		while state.walk.active:
 			var next: int = ScoreWalk.next_card(state)
-			ScoreWalk.step(state, _defs(), null, recorder.record, null)
+			ScoreWalk.step(state, _defs(), null, recorder.record)
 			if next >= 0:
 				order.append(next)
 		var expected: Array[int] = [long_row[0], short_row[0], long_row[1], long_row[2]]
@@ -273,7 +273,7 @@ func test_an_empty_walk_ends_on_its_first_step() -> void:
 	assert_int(state.walk.next_seat).is_equal(1)
 	assert_int(ScoreWalk.next_card(state)).is_equal(-1)
 	var recorder: Recorder = Recorder.new()
-	assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record, null)).is_false()
+	assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record)).is_false()
 	assert_bool(state.walk.active).is_false()
 	assert_array(recorder.events).is_empty()
 	assert_array(state.scores).is_equal(_typed([0, 0]))
@@ -460,7 +460,7 @@ func test_row_edits_between_steps_follow_the_slot_cursor() -> void:
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
 	assert_vector(ScoreWalk.next_slot(state)).is_equal(Vector2i(0, 0))
-	ScoreWalk.step(state, _defs(), null, recorder.record, null)
+	ScoreWalk.step(state, _defs(), null, recorder.record)
 	assert_array(state.walk.cursor).is_equal(_typed([1, 0]))
 	assert_vector(ScoreWalk.next_slot(state)).is_equal(Vector2i(1, 0))
 	# Swap the scored slot-0 card with the slot-2 card: own[0] lands ahead of the cursor,
@@ -469,8 +469,8 @@ func test_row_edits_between_steps_follow_the_slot_cursor() -> void:
 	var held: int = row[0]
 	row[0] = row[2]
 	row[2] = held
-	ScoreWalk.step(state, _defs(), null, recorder.record, null)
-	ScoreWalk.step(state, _defs(), null, recorder.record, null)
+	ScoreWalk.step(state, _defs(), null, recorder.record)
+	ScoreWalk.step(state, _defs(), null, recorder.record)
 	# Take seat 1's slot-1 card off its row before the cursor reaches it.
 	var doomed: int = theirs[1]
 	state.seats[1].board.erase(doomed)
@@ -483,7 +483,7 @@ func test_row_edits_between_steps_follow_the_slot_cursor() -> void:
 	ahead[d_at] = own[1]
 	var guard: int = 0
 	while state.walk.active and guard < 20:
-		ScoreWalk.step(state, _defs(), null, recorder.record, null)
+		ScoreWalk.step(state, _defs(), null, recorder.record)
 		guard += 1
 	var scored: Array[int] = _cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)
 	var expected: Array[int] = [own[0], theirs[0], own[1], own[0], own[1]]
@@ -520,7 +520,7 @@ func _walk_answering(state: MatchState, answer: int, recorder: Recorder) -> int:
 		guard += 1
 		if state.walk.paused_card < 0 and ScoreWalk.next_slot(state).x >= 0:
 			pulses += 1
-		if ScoreWalk.step(state, _defs(), null, recorder.record, null):
+		if ScoreWalk.step(state, _defs(), null, recorder.record):
 			recorder.events.append_array(EffectResolver.answer(state, _defs(), answer))
 	return pulses
 
@@ -634,12 +634,12 @@ func test_a_face_down_card_swapped_behind_reveals_in_the_next_walk() -> void:
 	var state: MatchState = _state(row, none, 0)
 	var first: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
-	ScoreWalk.step(state, _defs(), null, first.record, null)
+	ScoreWalk.step(state, _defs(), null, first.record)
 	# row[0] scored at slot 0; it swaps with row[2], face down at slot 2.
 	state.seats[0].board.assign([row[2], row[1], row[0]])
 	var guard: int = 0
 	while state.walk.active and guard < 10:
-		ScoreWalk.step(state, _defs(), null, first.record, null)
+		ScoreWalk.step(state, _defs(), null, first.record)
 		guard += 1
 	assert_bool(_cards_of(first.events, MatchEvent.Kind.CARD_REVEALED).has(row[2])).is_false()
 	assert_bool(state.seats[0].is_revealed(row[2])).is_false()
@@ -667,12 +667,12 @@ func test_an_on_score_card_scored_twice_gains_twice() -> void:
 	var state: MatchState = _state(_typed([card, other]), none, 0)
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
-	ScoreWalk.step(state, _defs(), null, recorder.record, null)
+	ScoreWalk.step(state, _defs(), null, recorder.record)
 	# Swap c06 (slot 0, passed) with the card at slot 1 (ahead).
 	state.seats[0].board.assign([other, card])
 	var guard: int = 0
 	while state.walk.active and guard < 10:
-		ScoreWalk.step(state, _defs(), null, recorder.record, null)
+		ScoreWalk.step(state, _defs(), null, recorder.record)
 		guard += 1
 	assert_array(_cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)).is_equal(
 		_typed([card, card])
@@ -719,7 +719,7 @@ func test_effective_reads_the_base_then_flat_delta_temp_plus_and_no_bonus() -> v
 	assert_dict(_eff(card, state)).is_equal(_stats(3, 100, 0))
 	held.return_marked = true
 	assert_dict(_eff(card, state)).is_equal(_stats(3, 100, 0))
-	# The copy a preview walks on carries every field.
+	# A copy carries every field.
 	var copy: MatchState = state.duplicate()
 	assert_dict(copy.to_dict()).is_equal(state.to_dict())
 	assert_dict(_eff(card, copy)).is_equal(_stats(3, 100, 0))
@@ -1015,8 +1015,8 @@ func test_reveal_puts_cards_on_boards_and_scores_in_state() -> void:
 
 
 ## A seed-1 bot match: after every turn that does not end a round, a walk run to the end
-## on a MatchState.duplicate() of the engine's state (with a PreviewPolicy, no sink and no
-## stream) gives the live TURN_ENDED scores, emits nothing and leaves the engine alone.
+## on a MatchState.duplicate() of the engine's state (no sink and no stream) gives the live
+## TURN_ENDED scores and leaves the engine alone.
 ## Turns whose walk changed a scored card after it scored (a flat-up, a destroy) are
 ## skipped (DC-05 T04): re-walking the turn's end state is then a different walk. So are
 ## turns with a choice (DC-05 T05): a swap reorders the row, a return takes a scored card
@@ -1027,9 +1027,9 @@ func test_reveal_puts_cards_on_boards_and_scores_in_state() -> void:
 func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	assert_bool(engine.start().ok).is_true()
-	var bots: Array[GreedyBot] = []
+	var bots: Array[RandomBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), _defs()))
+		bots.append(RandomBot.new(BotRegistry.seed_for(SEED, seat), _defs()))
 	var compared: int = 0
 	var actions: int = 0
 	var turn_events: Array[MatchEvent] = []
@@ -1056,13 +1056,11 @@ func test_a_walk_on_a_copy_gives_the_live_scores() -> void:
 		var live: Dictionary = engine.full_state()
 		var copy: MatchState = engine._state.duplicate()
 		assert_dict(copy.to_dict()).is_equal(live)
-		var recorder: Recorder = Recorder.new()
 		ScoreWalk.begin(copy)
-		var paused: bool = ScoreWalk.run(copy, _defs(), null, recorder.record, PreviewPolicy.new())
+		var paused: bool = ScoreWalk.run(copy, _defs(), null, Callable())
 		assert_bool(paused).is_false()
 		assert_array(copy.scores).is_equal(_payload_ints(ended[0], "scores"))
 		assert_array(copy.scores).is_equal(_state_ints(live, "scores"))
-		assert_array(recorder.events).is_empty()
 		assert_dict(engine.full_state()).is_equal(live)
 		compared += 1
 	assert_bool(engine.is_over()).is_true()

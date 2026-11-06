@@ -97,7 +97,7 @@ func _walk(state: MatchState, recorder: Recorder, defs: MatchCards = null) -> vo
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		var paused: bool = ScoreWalk.step(state, used, null, recorder.record, null)
+		var paused: bool = ScoreWalk.step(state, used, null, recorder.record)
 		assert_bool(paused).is_false()
 		guard += 1
 
@@ -106,7 +106,7 @@ func _walk(state: MatchState, recorder: Recorder, defs: MatchCards = null) -> vo
 func _step_until_pause(state: MatchState, defs: MatchCards, recorder: Recorder) -> bool:
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		if ScoreWalk.step(state, defs, null, recorder.record, null):
+		if ScoreWalk.step(state, defs, null, recorder.record):
 			return true
 		guard += 1
 	return false
@@ -230,7 +230,7 @@ func test_flicker_returns_at_turn_end_with_memory_kept_and_board_changes_gone() 
 	_reveal(state, 0, _typed([flicker]))
 	state.memory_for(flicker).flat = 2
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, flicker
+		state, _defs(), null, 0, flicker
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED]))
 	var fired: Dictionary = _fired(0, flicker, "return_self_at_turn_end", "on_reveal", -1)
@@ -351,7 +351,7 @@ func test_recall_marks_another_own_card() -> void:
 		_typed([0, 2])
 	)
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, recall
+		state, _defs(), null, 0, recall
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, REQUESTED]))
 	var requested: Dictionary = outcome.events[1].payload
@@ -380,7 +380,7 @@ func test_recall_alone_fizzles() -> void:
 	var state: MatchState = _state(_typed([recall]), _none())
 	_reveal(state, 0, _typed([recall]))
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, recall
+		state, _defs(), null, 0, recall
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, FIZZLED]))
 	var fizzled: Dictionary = _fizzled(
@@ -415,7 +415,7 @@ func test_banish_marks_a_revealed_enemy_card_which_returns_to_its_controller() -
 		_typed([0, 4])
 	)
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, banish
+		state, _defs(), null, 0, banish
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, REQUESTED]))
 	state.prompt = outcome.prompt
@@ -442,7 +442,7 @@ func test_banish_returns_a_recovered_card_to_the_recoverer() -> void:
 	assert_int(state.controller_of(recovered)).is_equal(1)
 	assert_int(_defs().origin_of(recovered)).is_equal(0)
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, banish
+		state, _defs(), null, 0, banish
 	)
 	# One option: auto-chosen.
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, MADE]))
@@ -458,7 +458,7 @@ func test_banish_with_no_revealed_enemy_card_fizzles() -> void:
 	var state: MatchState = _state(_typed([banish]), _typed([_id(1, E04_GLINT)]))
 	_reveal(state, 0, _typed([banish]))
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, banish
+		state, _defs(), null, 0, banish
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, FIZZLED]))
 
@@ -556,7 +556,7 @@ func test_tinker_reduces_the_card_to_its_right() -> void:
 	var state: MatchState = _state(_typed([tinker, encore, _id(0, E04_GLINT)]), _none())
 	_reveal(state, 0, _typed([tinker]))
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, tinker
+		state, _defs(), null, 0, tinker
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, STATS]))
 	var cause: String = BloomEffects.CAUSE_COST
@@ -569,7 +569,7 @@ func test_tinker_reduces_the_card_to_its_right() -> void:
 	assert_int(state.memory_of(encore).cost).is_equal(1)
 	assert_int(ScoreWalk.effective_cost(encore, state, _defs())).is_equal(6)
 	_reveal(state, 0, _typed([encore]))
-	var again: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, null, 0, tinker)
+	var again: EffectResolver.Outcome = EffectResolver.apply(state, _defs(), null, 0, tinker)
 	var shown: Dictionary = _changed(0, encore, _typed([10, 100, 0, 5]), true, cause)
 	_assert_event(again.events[1], STATS, shown, PUBLIC)
 	# The reduction is memory: it holds in the hand.
@@ -584,7 +584,7 @@ func test_tinker_at_the_rows_end_fizzles() -> void:
 	var state: MatchState = _state(_typed([_id(0, E04_GLINT), tinker]), _none())
 	_reveal(state, 0, _typed([tinker]))
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, tinker
+		state, _defs(), null, 0, tinker
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, FIZZLED]))
 	var fizzled: Dictionary = _fizzled(
@@ -600,7 +600,7 @@ func test_reverb_reduces_its_own_cost() -> void:
 	var state: MatchState = _state(_typed([reverb]), _none())
 	_reveal(state, 0, _typed([reverb]))
 	var outcome: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, reverb
+		state, _defs(), null, 0, reverb
 	)
 	assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, STATS]))
 	var stats: Dictionary = _changed(
@@ -622,7 +622,7 @@ func test_messenger_draws_two_once_per_match() -> void:
 	state.seats[0].deck.assign(deck)
 	_reveal(state, 0, _typed([messenger]))
 	var first: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, messenger
+		state, _defs(), null, 0, messenger
 	)
 	assert_array(_kinds(first.events)).is_equal(_typed([FIRED, DRAWN, DRAWN]))
 	var fired: Dictionary = _fired(0, messenger, "draw_once", "on_reveal", 0)
@@ -630,7 +630,7 @@ func test_messenger_draws_two_once_per_match() -> void:
 	assert_int(first.events[1].owner_seat).is_equal(0)
 	assert_array(state.seats[0].hand).is_equal(_typed([deck[0], deck[1]]))
 	var second: EffectResolver.Outcome = EffectResolver.apply(
-		state, _defs(), null, null, 0, messenger
+		state, _defs(), null, 0, messenger
 	)
 	var spent: Dictionary = _fizzled(0, messenger, "draw_once", EffectResolver.REASON_SPENT)
 	assert_array(_kinds(second.events)).is_equal(_typed([FIZZLED]))

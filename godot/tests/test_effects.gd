@@ -4,7 +4,7 @@ extends GdUnitTestSuite
 ## EffectResolver and the walk's trigger hooks (DC-05 T04; R13, R15, R18-R27, plan P6-P8,
 ## P11, P14): one case per verb with its event list, the bonus-0 mark (spent on the next
 ## reveal, no stacking), the random destroy (fizzle on an empty row, the engine stream, the
-## preview's rule, hidden information), flat-up after every score, the energy carry (only
+## stream-less rule, hidden information), flat-up after every score, the energy carry (only
 ## while the card is on the row at turn end), the free first card (lost when unused),
 ## on-opponent-reveal (an in-memory card: no deck card uses it), and the round boundary.
 ## The four prompt verbs (DC-05 T05) are in test_choices.gd. Since DC-06 the destroy marks
@@ -155,7 +155,7 @@ func _walk(state: MatchState, cards: MatchCards, rng: MatchRng, recorder: Record
 	ScoreWalk.begin(state)
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		var paused: bool = ScoreWalk.step(state, cards, rng, recorder.record, null)
+		var paused: bool = ScoreWalk.step(state, cards, rng, recorder.record)
 		assert_bool(paused).is_false()
 		guard += 1
 
@@ -482,7 +482,7 @@ func test_bonus_zero_does_not_stack() -> void:
 	_reveal(state, 0, _typed([source]))
 	for _set: int in range(2):
 		var outcome: EffectResolver.Outcome = EffectResolver.apply(
-			state, _defs(), null, null, 0, source
+			state, _defs(), null, 0, source
 		)
 		assert_array(_kinds(outcome.events)).is_equal(_typed([FIRED, ZERO_SET]))
 		assert_bool(outcome.needs_prompt()).is_false()
@@ -506,7 +506,7 @@ func test_bonus_zero_waits_for_a_later_walk_and_ignores_the_setter_seat() -> voi
 	var state: MatchState = _state(_typed([source, own_new]), _typed([old]), 0)
 	_reveal(state, 0, _typed([source]))
 	_reveal(state, 1, _typed([old]))
-	EffectResolver.apply(state, _defs(), null, null, 0, source)
+	EffectResolver.apply(state, _defs(), null, 0, source)
 	assert_array(state.bonus_zero_pending).is_equal([false, true])
 	# This walk reveals only the setter's own card: the mark waits.
 	var recorder: Recorder = Recorder.new()
@@ -660,19 +660,15 @@ func test_destroying_a_revealed_card_is_public_and_it_clears_at_turn_end() -> vo
 	assert_array(EffectResolver.clear_destroyed(state)).is_empty()
 
 
-func test_a_preview_destroys_the_lowest_flat_card_without_the_stream() -> void:
+## A walk given no stream (EffectResolver.random_live) destroys the lowest-flat live card.
+func test_a_walk_without_a_stream_destroys_the_lowest_flat_card() -> void:
 	var source: int = _id(0, C19_DESTROY)
 	# Flats 3, 2, 4: the c02 in the middle is the lowest.
 	var row: Array[int] = [_id(1, C04), _id(1, C02), _id(1, C08)]
 	var state: MatchState = _state(_typed([source]), row, 0)
-	var rng: MatchRng = MatchRng.new(SEED)
-	var stream: int = rng.state
-	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
-	var paused: bool = ScoreWalk.run(state, _defs(), rng, recorder.record, PreviewPolicy.new())
+	var paused: bool = ScoreWalk.run(state, _defs(), null, Callable())
 	assert_bool(paused).is_false()
-	assert_array(recorder.events).is_empty()
-	assert_int(rng.state).is_equal(stream)
 	# Marked in place (DC-06 R12, R23): the row keeps its three slots.
 	assert_array(state.seats[1].board).is_equal(row)
 	assert_bool(state.is_destroyed(_id(1, C02))).is_true()
@@ -857,7 +853,7 @@ func _swap_watcher_walk(row: Array[int], answer: int) -> Array[MatchEvent]:
 	var prompts: int = 0
 	var guard: int = 0
 	while state.walk.active and guard < MAX_STEPS:
-		if ScoreWalk.step(state, cards, null, recorder.record, null):
+		if ScoreWalk.step(state, cards, null, recorder.record):
 			prompts += 1
 			# The snapshot and its next index wait in the walk state with the prompt.
 			assert_array(state.walk.paused_watchers).is_not_empty()

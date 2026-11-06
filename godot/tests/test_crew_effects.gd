@@ -520,20 +520,19 @@ func test_a_multi_destroy_fires_its_crew_in_row_order() -> void:
 	assert_bool(EffectResolver.destroy(state, cards, theirs[0], outcome)).is_true()
 	assert_array(_queued_cards(state)).is_equal(_typed([theirs[2], theirs[0]]))
 	var drained: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	assert_bool(CrewEffects.drain(state, cards, null, true, drained)).is_true()
+	assert_bool(CrewEffects.drain(state, cards, true, drained)).is_true()
 	assert_array(_queued_cards(state)).is_equal(_typed([theirs[0], theirs[2]]))
 	assert_str(Choice.crew_of(state.prompt)).is_equal("salvager")
 	var discard: int = piles.hand[0]
 	var chosen: Array[MatchEvent] = CrewEffects.apply_choice(
-		state, cards, state.prompt, discard, null
-	)
+		state, cards, state.prompt, discard)
 	assert_array(_kinds(chosen)).is_equal(_typed([CREW_FIRED, DISCARDED]))
 	assert_bool(state.card_state_for(theirs[0]).salvaged).is_true()
 	assert_bool(state.card_state_for(theirs[2]).salvaged).is_false()
 	# The rest of the batch: Salvager is spent, so slot 2's card is offered nothing.
 	state.prompt = {}
 	var rest: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	assert_bool(CrewEffects.drain(state, cards, null, true, rest)).is_false()
+	assert_bool(CrewEffects.drain(state, cards, true, rest)).is_false()
 	assert_array(rest.events).is_empty()
 	assert_array(state.crew_queue).is_empty()
 
@@ -556,7 +555,7 @@ func test_the_row_order_is_the_same_on_a_copy() -> void:
 	var copy: MatchState = state.duplicate()
 	for held: MatchState in [state, copy]:
 		var drained: EffectResolver.Outcome = EffectResolver.Outcome.new()
-		assert_bool(CrewEffects.drain(held, cards, null, true, drained)).is_true()
+		assert_bool(CrewEffects.drain(held, cards, true, drained)).is_true()
 		assert_array(_queued_cards(held)).is_equal(_typed([theirs[0], theirs[1]]))
 	assert_dict(copy.to_dict()).is_equal(state.to_dict())
 
@@ -692,7 +691,7 @@ func test_navigator_gives_plus_one_flat_on_each_own_move() -> void:
 				piles.revealed[card] = true
 		piles.board.assign(row)
 	var moved: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	DriftEffects.place(state, cards, null, null, 0, C08, 0, moved)
+	DriftEffects.place(state, cards, null, 0, C08, 0, moved)
 	assert_array(state.seats[0].board).is_equal(_typed([C08, C02, C03, C04]))
 	assert_int(_of_kind(moved.events, MOVED).size()).is_equal(4)
 	# Not inside the move: queued, nothing fired yet.
@@ -700,7 +699,7 @@ func test_navigator_gives_plus_one_flat_on_each_own_move() -> void:
 	assert_int(state.crew_queue.size()).is_equal(4)
 	assert_object(state.card_state(C02)).is_null()
 	var drained: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	assert_bool(CrewEffects.drain(state, cards, null, true, drained)).is_false()
+	assert_bool(CrewEffects.drain(state, cards, true, drained)).is_false()
 	assert_array(state.crew_queue).is_empty()
 	var expected: Array[int] = []
 	for _card: int in own:
@@ -717,14 +716,14 @@ func test_navigator_gives_plus_one_flat_on_each_own_move() -> void:
 	assert_int(ScoreWalk.effective(C04, state, cards).flat).is_equal(4)
 	# Each move again: C04 to the far left moves all four once more.
 	var again: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	DriftEffects.place(state, cards, null, null, 0, C04, 0, again)
-	assert_bool(CrewEffects.drain(state, cards, null, true, again)).is_false()
+	DriftEffects.place(state, cards, null, 0, C04, 0, again)
+	assert_bool(CrewEffects.drain(state, cards, true, again)).is_false()
 	for card: int in own:
 		assert_int(state.card_state(card).flat_delta).is_equal(2)
 	# The other seat's row reversed: its seat holds no Navigator, so nothing is queued.
 	var reversed: Array[int] = [theirs[1], theirs[0]]
 	var other: EffectResolver.Outcome = EffectResolver.Outcome.new()
-	DriftEffects.rewrite_row(state, cards, null, null, 1, reversed, other)
+	DriftEffects.rewrite_row(state, cards, null, 1, reversed, other)
 	assert_array(state.crew_queue).is_empty()
 	assert_object(state.card_state(theirs[0])).is_null()
 
@@ -846,7 +845,7 @@ func _replayed(text: String) -> ReplayResult:
 
 ## A match paused on a Crew prompt in a walk holds its queue in the full state (and in a
 ## copy), and its log replays to an equal state through ActionLog.replay, the shipped Crew
-## firing; the greedy bot answers that prompt with a plain choice the engine accepts; and a
+## firing; the random bot answers that prompt with an answer the engine accepts; and a
 ## log holding a decline of a real Crew prompt replays too.
 func test_a_queued_crew_and_a_declined_crew_prompt_replay() -> void:
 	var engine: MatchEngine = null
@@ -867,12 +866,15 @@ func test_a_queued_crew_and_a_declined_crew_prompt_replay() -> void:
 	if not at_prompt.ok:
 		return
 	assert_dict(at_prompt.engine.full_state()).is_equal(paused)
-	# A bot answers the Crew prompt with a plain choice (bots do not decline yet).
+	# A bot answers the Crew prompt on the replica: a choice or the decline, both accepted.
 	var seat: int = engine.open_prompt()["seat"]
 	var replica: MatchEngine = at_prompt.engine
-	var bot: GreedyBot = GreedyBot.new(GreedyBot.seed_for(SEED, seat), replica.match_cards())
+	var bot: RandomBot = RandomBot.new(BotRegistry.seed_for(SEED, seat), replica.match_cards())
 	var answer: EngineAction = bot.choose(replica.view_for(seat), replica)
-	assert_int(answer.kind).is_equal(EngineAction.Kind.CHOOSE)
+	var answered: bool = (
+		answer.kind == EngineAction.Kind.CHOOSE or answer.kind == EngineAction.Kind.DECLINE
+	)
+	assert_bool(answered).is_true()
 	assert_bool(replica.apply(answer).ok).is_true()
 	# The decline, then a few more actions; the whole log replays.
 	assert_bool(engine.apply(EngineAction.decline(seat)).ok).is_true()

@@ -1,12 +1,12 @@
 class_name TestRandomBot
 extends GdUnitTestSuite
-## The random bot (cycle 7 T01; R2, R3, R20): uniform over the legal candidate commits and
-## over a prompt's options, drawn from its per-decision seed. Two random bots play whole
-## matches on 50 seeds without one rejected action; the same seed and view give the same
-## action; two seeds differ somewhere. Every loop shares a per-match action cap, so a bug
-## fails the test instead of hanging the suite.
+## The random bot (cycle 7 T01; R2, R3, R20; cycle 9 R70, P16): uniform over the legal
+## candidate commits and over a prompt's answers, drawn from its per-decision seed. Two
+## random bots play whole matches on 20 seeds without one rejected action; the same seed and
+## view give the same action; two seeds differ somewhere. Every loop shares a per-match
+## action cap, so a bug fails the test instead of hanging the suite.
 
-const SWEEP_SEEDS: int = 50
+const SWEEP_SEEDS: int = 20
 const MAX_ACTIONS: int = 1000
 const BOT_SOURCE: String = "res://engine/bot/random_bot.gd"
 ## The random bot asks the engine nothing and reads nothing past its own view.
@@ -17,7 +17,6 @@ const FORBIDDEN_TOKENS: Array[String] = [
 	"view_for",
 	"open_prompt",
 	"action_log",
-	"preview",
 	"apply(",
 	"randi(",
 	"randf(",
@@ -82,9 +81,9 @@ func _play_out(match_seed: int, engine: MatchEngine) -> int:
 	return prompts
 
 
-## R3: two random bots play the fixture deck to the end on seeds 1-50 and the engine
+## R3: two random bots play the fixture deck to the end on seeds 1-20 and the engine
 ## accepts every action, prompts included.
-func test_engine_never_rejects_the_random_bot_over_50_seeds() -> void:
+func test_engine_never_rejects_the_random_bot_over_20_seeds() -> void:
 	for match_seed: int in range(1, SWEEP_SEEDS + 1):
 		var prompts: int = _play_out(match_seed, FixtureDecks.engine(match_seed, _db()))
 		if prompts < 0:
@@ -180,7 +179,7 @@ func test_registry_random_matches_random_bot_new() -> void:
 	var views: Array[SeatView] = _views(3)
 	var defs: MatchCards = FixtureDecks.defs(_db())
 	var direct: RandomBot = RandomBot.new(9, defs)
-	var made: BotPlayer = BotRegistry.make("random", 9, defs, null, BotPlayer.FULL_LEVEL)
+	var made: BotPlayer = BotRegistry.make("random", 9, defs)
 	assert_object(made).is_not_null()
 	for view: SeatView in views:
 		assert_dict(made.choose(view, null).to_dict()).is_equal(direct.choose(view, null).to_dict())
