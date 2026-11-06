@@ -6,7 +6,7 @@ related: ["[[specs/ruleset-v2/plan]]", "[[specs/ruleset-v2/tasks]]", "[[cards/Ca
 created: 2026-11-06
 updated: 2026-11-06
 uid: bb79af3f-db95-4aa5-998a-cccaeb6fe93c
-linear:
+linear: https://linear.app/night-science-llc/project/ruleset-v2-hardened-vocabulary-resolution-chart-new-card-set-7f65436c0b01
 supersedes:
 ---
 

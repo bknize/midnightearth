@@ -6,7 +6,7 @@ related: ["[[specs/ruleset-v2/spec]]", "[[specs/ruleset-v2/plan]]", "[[cards/Car
 created: 2026-11-06
 updated: 2026-11-06
 uid: 0ed7d2ea-9a29-4b9c-aeca-c6aadb17f836
-linear:
+linear: https://linear.app/night-science-llc/project/ruleset-v2-hardened-vocabulary-resolution-chart-new-card-set-7f65436c0b01
 supersedes:
 ---
 
@@ -50,13 +50,11 @@ Task 8, owned by the orchestrator:
 - [ ] Ben has read each of the seven notes and said so; his changes are applied as T7-style
       fix commits before the branch merges.
 
-## Linear
+## Linear (exercised 2026-11-06)
 
-Filled by `/exercise ruleset-v2`. Empty until then.
-
-- Project: <URL>
-- Milestone: <DC-NN ruleset-v2>
-- Issue mapping: task n is issue <KEY-m> (T01 = <KEY-…> … T08 = <KEY-…>)
+- Project: [Ruleset v2 — hardened vocabulary, resolution chart, new card set](https://linear.app/night-science-llc/project/ruleset-v2-hardened-vocabulary-resolution-chart-new-card-set-7f65436c0b01) (P-NSC-10, planned)
+- Milestone: set at `/cycle plan`
+- Issue mapping: T01 = NSC-137, T02 = NSC-138, T03 = NSC-139, T04 = NSC-140, T05 = NSC-141, T06 = NSC-142, T07 = NSC-143, T08 = NSC-144
 
 ## Commit plan
 
