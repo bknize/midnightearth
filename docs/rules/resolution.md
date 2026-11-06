@@ -34,9 +34,9 @@ uses the same rules with a fresh queue that drains at once.
 **Q2. Batch and snapshot.** One resolution wakes one Batch. When the Batch is created, its
 cards and Crew are fixed. An effect that later moves, Un-reveals or Condemns a card cannot
 make it fire twice or skip it within that Batch. Whether a Muted or Silenced card may fire is
-read when its trigger comes up, not at the snapshot. So is whether an On empty draw trigger
-still applies: when each one comes up, it re-checks that the Deck is still empty, so Void
-does not fire after the Pile-shuffling Crew (Dredger) has refilled the Deck.
+read when its trigger comes up, not at the snapshot. An On empty draw trigger does not
+re-check that the Deck is still empty: every On empty draw trigger in the Batch fires, in
+any Crew slot order (C29).
 
 **Q3. Order.** Within one Batch, cards come before Crew. Among cards, the first seat's come
 first, then the second seat's; each seat's cards go by slot, left to right. Among one seat's
@@ -100,11 +100,10 @@ to **D12**.
 
 1. Fix the commit order. Both seats' Budget is set to the Turn number plus any granted Energy.
 2. Each seat draws one card, first seat first. If its Deck is empty, nothing is drawn and the
-   seat's On empty draw triggers wake as a Batch. **D1: drain.** Each trigger re-checks that
-   the Deck is still empty when it comes up (Q2). If the Pile-shuffling Crew is first in Crew slot order it acts
-   first in this drain, and Void, which comes later, does not fire if the Deck is no longer
-   empty. The seat then makes its draw again (the resumed draw of Q11, which applies to any
-   draw, not only this one). If the Deck is still empty after the drain, nothing is drawn.
+   seat's On empty draw triggers wake as a Batch. **D1: drain.** Every On empty draw trigger
+   in the Batch fires, whatever the Crew slot order, with no re-check that the Deck is still
+   empty (C29). The seat then makes its draw again (the resumed draw of Q11, which applies to
+   any draw, not only this one). If the Deck is still empty after the drain, nothing is drawn.
 3. On start wakes one Batch of revealed cards and Crew. **D2: drain.**
 
 **First commit**
@@ -255,11 +254,11 @@ Each trace names the step or rule that decides it.
    Round 6 Turn 2 (Turn 36 is Round 6 Turn 1). The scenario's Round 6 Turn 1 therefore
    assumes at least one earlier effect draw. At step 2 the seat would draw from an empty
    Deck, so On empty draw wakes a Batch. With Dredger, D1 shuffles the Pile into the Deck,
-   and the resumed draw (Q11) succeeds. With Void instead, the Deck is still empty when
-   Void's trigger comes up (Q2), so D1 records the grant for the seat's next Scoring card
-   (Power +10, Add +2, Mult ×1.5, per [[rules/crew-v2]]) and nothing is drawn. With both,
-   Dredger comes first in Crew slot order, the Deck is no longer empty, and Void does not
-   fire. Decided by step 2, D1, Q2, Q11.
+   and the resumed draw (Q11) succeeds. With Void alone, D1 records the grant for the seat's
+   next Scoring card (Power +10, Add +0.5, Mult ×1.25, per [[rules/crew-v2]]) and the Deck
+   is still empty, so nothing is drawn. With both, both trigger (C29): Dredger shuffles the
+   Pile into the Deck, Void's grant applies, and the resumed draw (Q11) then succeeds, in
+   either Crew slot order. Decided by step 2, D1, Q2, Q11.
 7. **Hand of six.** At step 2 the seat drew to six. At step 7 it Commits one card, leaving
    five; step 8 drains On commit; step 9 compares five with Hand size four, so exactly one
    card must be chosen and Discarded, and its On discard drains in D6, all before the Walk
