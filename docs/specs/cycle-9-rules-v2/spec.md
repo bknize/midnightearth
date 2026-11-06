@@ -6,7 +6,7 @@ related: ["[[specs/cycle-9-rules-v2/plan]]", "[[specs/cycle-9-rules-v2/tasks]]",
 created: 2026-11-06
 updated: 2026-11-06
 uid: 8bcbf874-aa7e-4696-9bb8-acb7bbe843e0
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-9-rules-v2-in-the-engine-60e0297b48b8
 supersedes:
 ---
 

@@ -6,7 +6,7 @@ related: ["[[specs/cycle-9-rules-v2/spec]]", "[[specs/cycle-9-rules-v2/plan]]", 
 created: 2026-11-06
 updated: 2026-11-06
 uid: 9864f294-25f9-4d49-b40b-ef82cd42f851
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-9-rules-v2-in-the-engine-60e0297b48b8
 supersedes:
 ---
 
@@ -118,13 +118,32 @@ Owned by the orchestrator, on `cycle-9b-rules-v2`. Two screenshots.
 - [ ] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new; the DC-14 row
       in [[planning/cycles]].
 
-## Linear
+## Linear (exercised 2026-11-06)
 
-Filled by `/exercise cycle-9-rules-v2`. Empty until then.
+- Project: [Cycle 9 — rules v2 in the engine](https://linear.app/night-science-llc/project/cycle-9-rules-v2-in-the-engine-60e0297b48b8) (P-NSC-11), state Planned; label `spec/cycle-9-rules-v2`
+- Milestones are created at `/cycle plan`: A `DC-13 rules-v2` (T01–T11), B `DC-14 rules-v2-content` (T12–T18)
+- Every issue is in Todo with `blockedBy` from the Depends column (T09 is blocked by T01 only; its wave-7 re-run against T08 is a dispatch note, not a blocker)
 
-- Project: <URL>
-- Milestones: A `DC-13 rules-v2` (T01–T11), B `DC-14 rules-v2-content` (T12–T18)
-- Issue mapping: task n is issue <KEY-m> (T01 = <KEY-…> … T18 = <KEY-…>)
+| Task | Issue |
+|---|---|
+| T01 | NSC-145 |
+| T02 | NSC-146 |
+| T03 | NSC-147 |
+| T04 | NSC-148 |
+| T05 | NSC-149 |
+| T06 | NSC-150 |
+| T07 | NSC-151 |
+| T08 | NSC-152 |
+| T09 | NSC-153 |
+| T10 | NSC-154 |
+| T11 | NSC-155 |
+| T12 | NSC-156 |
+| T13 | NSC-157 |
+| T14 | NSC-158 |
+| T15 | NSC-159 |
+| T16 | NSC-160 |
+| T17 | NSC-161 |
+| T18 | NSC-162 |
 
 ## Commit plan
 
