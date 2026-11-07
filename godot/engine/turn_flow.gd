@@ -27,17 +27,18 @@ extends RefCounted
 ##   cards in hand than its Hand size, a multi-select prompt for that seat over its hand
 ##   with `exact` the excess (R13), answered by answer_discard_down() (R14 is
 ##   Choice.is_valid_set), its Discards waking On discard (hook, D4/D6).
-## - end_turn(): At turn end before the exit pass (hook, D9), the exit pass (hook exit_pass(),
-##   T04) and its On discard (D10), At turn end after (D11), turn-scoped statuses end (hook
-##   end_statuses(), T04), Energy settles, the Turn's winner is recorded, TURN_ENDED.
+## - end_turn(): At turn end before the exit pass (hook, D9), the exit pass
+##   (Statuses.exit_pass) and its On discard (D10), At turn end after (D11), turn-scoped
+##   statuses end (Statuses.on_turn_end), Energy settles, the Turn's winner is recorded,
+##   TURN_ENDED.
 ## - end_round(): every card on both rows to its Owner's Pile as a Discard, first seat's row
 ##   first, in slot order (R2, R20), On discard once (D12), then the Round is awarded to the
 ##   higher Score of its last Walk (R1, today's rule), ROUND_ENDED.
 ##
 ## Hook points (no-ops until their task fills them; each returns true when its drain paused
 ## on a prompt, and the task that makes one pause adds the resume): on_empty_draw() (T07
-## Crew, T05 queue), on_start(), on_commit(), on_discard(), at_turn_end() (T05), exit_pass()
-## and end_statuses() (T04), crew_budget_bonus() (T07, Engineer).
+## Crew, T05 queue), on_start(), on_commit(), on_discard(), at_turn_end() (T05),
+## crew_budget_bonus() (T07, Engineer). exit_pass() and end_statuses() are filled (T04).
 
 const SEATS: int = 2
 ## The verb of the discard-down prompt.
@@ -412,7 +413,7 @@ static func end_round(state: MatchState, cards: MatchCards, rng: MatchRng, sink:
 		var row: Array[int] = []
 		row.assign(piles.board)
 		for card: int in row:
-			if state.take_from_row(seat, card):
+			if Statuses.take_from_row(state, seat, card, sink):
 				pass  # Revealed or not, a Round-end clear is a Discard (R20).
 			to_pile(state, cards, sink, card, FROM_ROW, REASON_ROUND_END)
 			cleared.append(card)
@@ -494,17 +495,17 @@ static func at_turn_end(
 	return false
 
 
-## Hook (T04): the exit pass (R41) in Q3 order, the first seat's row first, each in slot
-## order; returns the cards it sent to a Pile as Discards (to_pile(), reason condemned), in
-## pass order, for the D10 On discard Batches. Nothing holds an exit mark before T04.
-static func exit_pass(_state: MatchState, _cards: MatchCards, _sink: Callable) -> Array[int]:
-	var out: Array[int] = []
-	return out
+## The exit pass (R41, Statuses.exit_pass) in Q3 order, the first seat's row first, each in
+## slot order; returns the cards it sent to a Pile as Discards (to_pile(), reason
+## condemned), in pass order, for the D10 On discard Batches.
+static func exit_pass(state: MatchState, cards: MatchCards, sink: Callable) -> Array[int]:
+	return Statuses.exit_pass(state, cards, sink)
 
 
-## Hook (T04): turn-scoped statuses and named conditions end (resolution step 14).
-static func end_statuses(_state: MatchState, _sink: Callable) -> void:
-	pass
+## Turn-scoped statuses and met named conditions end (resolution step 14;
+## Statuses.on_turn_end), the seats' turn protections with them.
+static func end_statuses(state: MatchState, sink: Callable) -> void:
+	Statuses.on_turn_end(state, sink)
 
 
 ## Hook (T07, Engineer): the Energy a seat's Crew add to its Budget this Turn; 0 until then.

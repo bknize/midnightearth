@@ -41,11 +41,15 @@ static func on_moment(card: int, cards: MatchCards, moment: String) -> Array[Car
 
 ## Fires `card`'s abilities on `moment` for its Controller `seat` (the T02 stub): one public
 ## TRIGGER_FIZZLED {seat, card, crew: "", verb, reason: REASON_NO_TARGET} per ability on
-## that moment, in printed order, and nothing else. Empty for a card with none.
+## that moment, in printed order, and nothing else. Empty for a card with none, and for a
+## Muted or Silenced card, whose triggers do not fire (R33, Statuses.fires; T05 reads it at
+## the queue's pop).
 static func fire(
-	_state: MatchState, cards: MatchCards, _rng: MatchRng, seat: int, card: int, moment: String
+	state: MatchState, cards: MatchCards, _rng: MatchRng, seat: int, card: int, moment: String
 ) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
+	if state != null and not Statuses.fires(state, card):
+		return out
 	for ability: CardAbility in on_moment(card, cards, moment):
 		var fizzled: Dictionary = {
 			"seat": seat,
