@@ -192,12 +192,14 @@ static func draw(
 
 
 ## The resumed draw of Q11, right after the On empty draw drain: the top card when the Deck
-## is no longer empty, else nothing and no second DRAW_EMPTY. True when a card was drawn.
+## is no longer empty, else nothing and no second DRAW_EMPTY. True when a card was drawn;
+## an invalid `sink` hears nothing (the TriggerQueue contract).
 static func resumed_draw(state: MatchState, sink: Callable, seat: int) -> bool:
 	var card: int = _take_top(state, seat)
 	if card < 0:
 		return false
-	sink.call(MatchEvent.Kind.CARD_DRAWN, {"seat": seat, "card": card}, seat)
+	if sink.is_valid():
+		sink.call(MatchEvent.Kind.CARD_DRAWN, {"seat": seat, "card": card}, seat)
 	return true
 
 

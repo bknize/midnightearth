@@ -81,8 +81,9 @@ static func next_card(state: MatchState) -> int:
 	return piles.board[at.y]
 
 
-## One pulse. Returns true when the Walk is paused on an open prompt (none opens before
-## DC-13 T05). When no slot is left the Walk ends (finish()). `rng` is the engine stream.
+## One pulse. Returns true when the Walk is paused on an open prompt (an On reveal or On
+## score drain's, reveal_stage() and score_stage()). When no slot is left the Walk ends
+## (finish()). `rng` is the engine stream.
 static func step(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> bool:
 	if not state.prompt.is_empty():
 		return true
@@ -194,7 +195,7 @@ static func reveal(
 		"power": shown.power,
 		"mult": shown.mult(),
 		"add": shown.add(),
-		"statuses": _plain_words(Statuses.badges(state, cards, card)),
+		"statuses": MatchState.plain_strings(Statuses.badges(state, cards, card)),
 	}
 	sink.call(MatchEvent.Kind.CARD_REVEALED, revealed)
 
@@ -278,9 +279,3 @@ static func score_stage(
 			pass  # Nothing watches this Score.
 	return TriggerQueue.drain(state, cards, rng, sink, STEP_SCORE)
 
-
-## An untyped copy of `words`, so a payload holds plain data.
-static func _plain_words(words: Array[String]) -> Array:
-	var out: Array = []
-	out.assign(words)
-	return out

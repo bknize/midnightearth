@@ -42,7 +42,11 @@ const MOMENTS: Array[String] = [
 	"ongoing",
 ]
 ## The watcher bracket (plan P3): whose event the ability watches; "self" when absent.
-const WATCHES: Array[String] = ["self", "other_own", "opposing", "any"]
+const WATCH_SELF: String = "self"
+const WATCH_OTHER_OWN: String = "other_own"
+const WATCH_OPPOSING: String = "opposing"
+const WATCH_ANY: String = "any"
+const WATCHES: Array[String] = [WATCH_SELF, WATCH_OTHER_OWN, WATCH_OPPOSING, WATCH_ANY]
 ## The zone bracket (plan P3): where the card must be for the ability to fire; "row" when
 ## absent.
 const ZONES: Array[String] = ["row", "hand"]
@@ -166,7 +170,7 @@ static func from_dict(d: Dictionary) -> CardAbility:
 	out.verb = _string_of(d, KEY_VERB, "")
 	out.text = _string_of(d, KEY_TEXT, "")
 	out.scope = _string_of(d, KEY_SCOPE, "")
-	out.watch = _string_of(d, KEY_WATCH, WATCHES[0])
+	out.watch = _string_of(d, KEY_WATCH, WATCH_SELF)
 	out.zone = _string_of(d, KEY_ZONE, ZONES[0])
 	out.amount = _int_of(d, KEY_AMOUNT)
 	out.amount_2 = _int_of(d, KEY_AMOUNT_2)
@@ -237,7 +241,7 @@ func to_dict() -> Dictionary:
 		out[KEY_AMOUNT_2] = amount_2
 	if scope != "":
 		out[KEY_SCOPE] = scope
-	if watch != WATCHES[0]:
+	if watch != WATCH_SELF:
 		out[KEY_WATCH] = watch
 	if zone != ZONES[0]:
 		out[KEY_ZONE] = zone
