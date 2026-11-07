@@ -16,9 +16,10 @@ extends GdUnitTestSuite
 const DECKS: Array[String] = ["greed", "ramp"]
 const MAX_ACTIONS: int = 2000
 ## The largest hand a seat can hold under rules 7 with the milestone A decks: its Hand size
-## (no Pantry in Greed or Ramp) plus the Turn's draw, the discard-down bringing it back after
-## each Commit. DC-13 T06's drawing cards (Scout, Courier, Bounty) raise it.
-const HAND_BOUND: int = MatchRules.HAND_SIZE + 1
+## (no Pantry in Greed or Ramp) after the discard-down, plus the Turn's draw, plus the
+## effect draws of one Walk (DC-13 T06): up to four of its own Couriers on its row and four
+## of the opponent's Bounties on theirs, each Scoring once a Walk.
+const HAND_BOUND: int = MatchRules.HAND_SIZE + 1 + 2 * MatchRules.MAX_COPIES
 
 var _cached_db: CardDb = null
 var _cached_decks: DeckList = null

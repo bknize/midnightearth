@@ -134,6 +134,7 @@ static func build(
 			view.opponent_pending_count = state.pending.size()
 			view.opponent_pending_slots.assign(state.pending_slots)
 	view.looked = _looked(own, other)
+	view.deck_top = _deck_top(state, view.seat)
 	_fill_pairs(view, state, cards)
 	view.round_number = state.round_number
 	view.turn = state.turn
@@ -213,6 +214,20 @@ static func _looked(
 		var card: int = other.board[slot]
 		if own.looked.has(card) and not other.is_revealed(card):
 			out[slot] = card
+	return out
+
+
+## `deck_top` (see there): the cards of `p_seat`'s Deck at the options of its own open
+## prompt in zone OWN_DECK_TOP (Delve), in Deck order; empty otherwise.
+static func _deck_top(state: MatchState, p_seat: int) -> Array[int]:
+	var out: Array[int] = []
+	var asked: int = state.prompt.get(Abilities.KEY_SEAT, -1)
+	if asked != p_seat or Choice.zone_of(state.prompt) != Choice.Zone.OWN_DECK_TOP:
+		return out
+	var deck: Array[int] = state.seats[p_seat].deck
+	for index: int in Choice.options_of(state.prompt):
+		if index >= 0 and index < deck.size():
+			out.append(deck[index])
 	return out
 
 

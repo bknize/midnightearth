@@ -27,6 +27,8 @@ extends RefCounted
 const COST_ON_TURN_VERB: String = "cost_on_turn"
 ## The verb of an Ongoing "your Hand size is +N" (Pantry, plan P3).
 const HAND_SIZE_ADD_VERB: String = "hand_size_add"
+## The verb of an Ongoing "each of your cards with no rules text has Power +N" (Banner).
+const PLAIN_POWER_VERB: String = "plain_power"
 const MOMENT_ONGOING: String = "ongoing"
 
 
@@ -111,9 +113,20 @@ static func stats(card: int, state: MatchState, cards: MatchCards) -> Stats:
 	return out
 
 
-## Power that Ongoing abilities give `card` when it Scores (Banner, DC-13 T06): 0 until then.
-static func ongoing_power(_card: int, _state: MatchState, _cards: MatchCards) -> int:
-	return 0
+## Power that Ongoing abilities give `card` now (DC-13 T06), read when it Scores (Q5):
+## Banner's `plain_power`, the amount of every read Banner on its Controller's row, for a
+## card with no rules text (CardDef.is_plain) on that row. 0 for a card on no row.
+static func ongoing_power(card: int, state: MatchState, cards: MatchCards) -> int:
+	if state == null or cards == null or not cards.has_verb(PLAIN_POWER_VERB):
+		return 0
+	var def: CardDef = cards.def_of(card)
+	var seat: int = Statuses.row_seat(state, card)
+	if def == null or not def.is_plain() or seat < 0:
+		return 0
+	var total: int = 0
+	for ability: CardAbility in ongoing_on_row(state, cards, seat, PLAIN_POWER_VERB):
+		total += ability.amount
+	return total
 
 
 ## `card`'s effective Cost (R8): its printed Cost, or the `cost_on_turn` amount on the Turn

@@ -583,9 +583,12 @@ static func exit_pass(state: MatchState, cards: MatchCards, sink: Callable) -> A
 
 
 ## Turn-scoped statuses and met named conditions end (resolution step 14;
-## Statuses.on_turn_end), the seats' turn protections with them.
+## Statuses.on_turn_end), the seats' turn protections with them; then the Board changes
+## "until end of turn" end and Lantern's free first card moves on
+## (Abilities.end_turn_changes, DC-13 T06).
 static func end_statuses(state: MatchState, sink: Callable) -> void:
 	Statuses.on_turn_end(state, sink)
+	Abilities.end_turn_changes(state)
 
 
 ## Hook (T07, Engineer): the Energy a seat's Crew add to its Budget this Turn; 0 until then.
