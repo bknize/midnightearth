@@ -126,7 +126,7 @@ static func label(
 	# MatchCards copy, since the cards a play-out creates must not reach the next one.
 	var view: SeatView = engine.view_for(seat)
 	var det_seeds: Array[int] = []
-	var mappings: Array[Dictionary] = []
+	var mappings: Array = []
 	if view != null:
 		var sets: Array[Array] = _hidden_of(engine.state_copy(), engine.match_cards(), view)
 		for det: int in range(determinizations):
@@ -142,8 +142,8 @@ static func label(
 			var played: Dictionary = {"rejected": true}
 			if view != null:
 				var det_seed: int = det_seeds[det]
-				var mapping: Dictionary[int, int] = {}
-				mapping.assign(mappings[det])
+				# _mapping_of's typed dictionary, read without a copy: _relabel only reads it.
+				var mapping: Dictionary[int, int] = mappings[det]
 				var copy: MatchEngine = _built(engine, engine.state_copy(), mapping, det_seed)
 				played = play(copy, seat, candidates[index], policy, det_seed)
 			_count(played, values, counts)
