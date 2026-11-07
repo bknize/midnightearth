@@ -287,12 +287,13 @@ static func _run(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Call
 		var entry: Dictionary = _pop(queue)
 		if entry.is_empty():
 			continue
+		# Each pop counts one (P11), a silent Muted one too.
+		_count(state)
 		var card: int = entry["card"]
 		if card >= 0 and not Statuses.fires(state, card):
-			# Q2: Muted (or Silenced) when its trigger comes up.
+			# Q2: Muted (or Silenced) when its trigger comes up: no event, no effect, no wakes.
 			_then_draw(state, sink, entry)
 			continue
-		_count(state)
 		if _resolve(state, cards, rng, sink, entry, spent(state)):
 			return true
 	return false
@@ -417,8 +418,8 @@ static func _retriggers(state: MatchState, ctx: TriggerContext) -> int:
 	return count
 
 
-## The budget is spent: every queued entry fizzles `exhausted`, in queue order, and the
-## queue empties (Q4).
+## The budget is spent: every queued entry fizzles `exhausted`, in queue order (a Muted or
+## Silenced one silently drops), and the queue empties (Q4).
 static func _exhaust(state: MatchState, cards: MatchCards, sink: Callable) -> void:
 	var queue: TriggerQueue = state.queue
 	var guard: int = queue.size()
@@ -427,6 +428,9 @@ static func _exhaust(state: MatchState, cards: MatchCards, sink: Callable) -> vo
 		var entry: Dictionary = _pop(queue)
 		if entry.is_empty():
 			continue
+		var card: int = entry["card"]
+		if card >= 0 and not Statuses.fires(state, card):
+			continue  # A Muted (or Silenced) entry stays silent, budget or not (Q2).
 		var ctx: TriggerContext = _context(state, cards, null, sink, entry, spent(state))
 		_fizzled(ctx, Abilities.REASON_EXHAUSTED)
 	queue.batches.clear()
@@ -519,8 +523,9 @@ static func _apply(ctx: TriggerContext) -> void:
 		Abilities.resolve(ctx)
 
 
-## TRIGGER_FIRED {seat, card, crew, moment, verb, resolution}: public, except for a card
-## firing from its hand (zone `hand`), private to its seat (_owner).
+## TRIGGER_FIRED {seat, card, crew, moment, verb, resolution}: public. A card firing from
+## its hand is public too (C14, the telegraph) and adds `from_hand: true`; a card firing from
+## its Deck stays private to its seat (_owner).
 static func _fired(ctx: TriggerContext) -> void:
 	var fired: Dictionary = {
 		"seat": ctx.seat,
@@ -530,6 +535,7 @@ static func _fired(ctx: TriggerContext) -> void:
 		"verb": ctx.verb,
 		"resolution": ctx.resolution,
 	}
+	_mark_hand(ctx, fired)
 	ctx.emit(MatchEvent.Kind.TRIGGER_FIRED, fired, _owner(ctx))
 
 
@@ -542,19 +548,34 @@ static func _fizzled(ctx: TriggerContext, reason: String) -> void:
 		"verb": ctx.verb,
 		"reason": reason,
 	}
+	_mark_hand(ctx, fizzled)
 	ctx.emit(MatchEvent.Kind.TRIGGER_FIZZLED, fizzled, _owner(ctx))
 
 
-## The owner of a trigger event: the seat when its card is in that seat's hand or Deck
-## (hidden from the other seat, whose copy hides `card`, MatchEvent.redacted_for), else
-## MatchEvent.PUBLIC.
+## Adds `from_hand: true` to a trigger payload whose card is in its seat's hand, so the board
+## telegraphs it to both seats (rules-v2 section 8, C14).
+static func _mark_hand(ctx: TriggerContext, payload: Dictionary) -> void:
+	var piles: MatchState.SeatPiles = _seat_piles(ctx)
+	if piles != null and piles.hand.has(ctx.card):
+		payload[MatchEvent.KEY_FROM_HAND] = true
+
+
+## The owner of a trigger event: the seat when its card is in that seat's Deck (hidden from
+## the other seat, whose copy hides `card`, MatchEvent.redacted_for), else
+## MatchEvent.PUBLIC. A hand trigger is public (C14).
 static func _owner(ctx: TriggerContext) -> int:
-	if ctx.card < 0 or ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
-		return MatchEvent.PUBLIC
-	var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
-	if piles.hand.has(ctx.card) or piles.deck.has(ctx.card):
+	var piles: MatchState.SeatPiles = _seat_piles(ctx)
+	if piles != null and piles.deck.has(ctx.card):
 		return ctx.seat
 	return MatchEvent.PUBLIC
+
+
+## The piles of the trigger's seat, or null for a Crew trigger or an out-of-range seat.
+static func _seat_piles(ctx: TriggerContext) -> MatchState.SeatPiles:
+	if ctx.card < 0 or ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
+		return null
+	var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
+	return piles
 
 
 # --- Watchers -------------------------------------------------------------------------

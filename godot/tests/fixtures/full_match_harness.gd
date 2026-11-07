@@ -355,12 +355,12 @@ func _check_step(
 
 
 ## For both seats: the view names no id hidden from it now, and its redacted events name
-## no id that was hidden from it before or after the step, less the cards this step
-## revealed in public and the cards in a Pile after it (a Pile entry is public, R19), and
-## less a card named while it was public within the step (_public_windows: face up on a
-## row or in a Pile at the step's start, or Discarded during it, until a Pile shuffle puts
-## it back into a Deck; DC-13 T06/T07, Dredger can shuffle a card in after it Scored or
-## was Discarded in the same step).
+## no id that was hidden from it before or after the step, less a card named while it was
+## public within the step, in event order (_public_windows: face up on a row or in a Pile at
+## the step's start, from its CARD_REVEALED, its public exit to a Pile, its CARD_DISCARDED or
+## its public hand trigger (C14) on, until a Pile shuffle puts it back into a Deck or it
+## flips face down). An event naming a card before the card became public is a leak, even
+## when the card is public by the step's end (DC-13 T10 review, Ben 2a).
 func _scan_leaks(
 	run: FullMatchRun, before: Dictionary, after: Dictionary, result: ApplyResult
 ) -> void:
@@ -369,16 +369,9 @@ func _scan_leaks(
 		run.sets_before = _sets_of(before)
 	if run.sets_after == null:
 		run.sets_after = _sets_of(after)
-	var public: Dictionary = {}
 	for event: MatchEvent in result.events:
-		if event.kind == MatchEvent.Kind.CARD_REVEALED:
-			for card: int in FullMatchRun.event_card_ids(event):
-				public[card] = true
-		elif event.kind == MatchEvent.Kind.DRAW_EMPTY:
+		if event.kind == MatchEvent.Kind.DRAW_EMPTY:
 			run.empty_draws += 1
-	for pile_seat: int in range(MatchEngine.SEATS):
-		for card: int in _state_list(after, "pile", pile_seat):
-			public[card] = true
 	var windows: PublicWindows = _public_windows(before, after, result)
 	for seat: int in range(MatchEngine.SEATS):
 		var opp: int = 1 - seat
@@ -396,8 +389,6 @@ func _scan_leaks(
 		_scan_looked(run, view, after, where)
 		var hidden_during: Dictionary = run.sets_before.hidden[opp].duplicate()
 		hidden_during.merge(hidden_now)
-		for card: Variant in public.keys():
-			hidden_during.erase(card)
 		var own_known: Dictionary = run.sets_before.own[seat].duplicate()
 		own_known.merge(run.sets_after.own[seat])
 		var seen: Array[MatchEvent] = result.events_for(seat)
@@ -420,9 +411,11 @@ func _scan_leaks(
 
 
 ## When each card was public during the step of `result` (event positions): from -1 for a
-## card face up on a row or in a Pile in `before`, from its CARD_DISCARDED otherwise; until
-## the PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`)
-## or its CARD_UNREVEALED.
+## card face up on a row or in a Pile in `before`; otherwise from the event that made it
+## public: its CARD_REVEALED, its EXIT_RESOLVED to a Pile, its CARD_DISCARDED, or a
+## TRIGGER_FIRED / TRIGGER_FIZZLED of it firing from its hand (`from_hand`, C14); until the
+## PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`) or
+## its CARD_UNREVEALED.
 func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult) -> PublicWindows:
 	var out: PublicWindows = PublicWindows.new()
 	for seat: int in range(MatchEngine.SEATS):
@@ -431,24 +424,33 @@ func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult)
 				out.since[card] = -1
 	for at: int in range(result.events.size()):
 		var event: MatchEvent = result.events[at]
-		if event.kind == MatchEvent.Kind.CARD_DISCARDED:
+		if _opens_window(event):
 			for card: int in FullMatchRun.event_card_ids(event):
-				if not out.since.has(card) or out.until.has(card):
-					out.since[card] = at
-					if out.until.erase(card):
-						pass  # Public again from this Discard.
+				out.open(card, at)
 		elif event.kind == MatchEvent.Kind.CARD_UNREVEALED:
 			for card: int in FullMatchRun.event_card_ids(event):
-				if out.since.has(card) and not out.until.has(card):
-					out.until[card] = at
+				out.close(card, at)
 		elif event.kind == MatchEvent.Kind.PILE_SHUFFLED_IN:
 			var seat: int = event.payload.get("seat", -1)
 			if seat < 0 or seat >= MatchEngine.SEATS:
 				continue
 			for card: int in _state_list(after, "deck", seat):
-				if out.since.has(card) and not out.until.has(card):
-					out.until[card] = at
+				out.close(card, at)
 	return out
+
+
+## Whether `event` makes the cards it names public from its position on (_public_windows).
+func _opens_window(event: MatchEvent) -> bool:
+	match event.kind:
+		MatchEvent.Kind.CARD_REVEALED, MatchEvent.Kind.CARD_DISCARDED:
+			return not event.is_private()
+		MatchEvent.Kind.EXIT_RESOLVED:
+			var to: String = event.payload.get("to", "")
+			return not event.is_private() and to == "pile"
+		MatchEvent.Kind.TRIGGER_FIRED, MatchEvent.Kind.TRIGGER_FIZZLED:
+			var from_hand: bool = event.payload.get(MatchEvent.KEY_FROM_HAND, false)
+			return not event.is_private() and from_hand
+	return false
 
 
 ## Whether `card` was public at event position `at` of the step (_public_windows).
@@ -631,3 +633,15 @@ class PublicWindows:
 
 	var since: Dictionary[int, int] = {}
 	var until: Dictionary[int, int] = {}
+
+	## `card` is public from position `at` on, unless it already is.
+	func open(card: int, at: int) -> void:
+		if not since.has(card) or until.has(card):
+			since[card] = at
+			if until.erase(card):
+				pass  # Public again from this event.
+
+	## `card` stops being public at position `at`, if it was public.
+	func close(card: int, at: int) -> void:
+		if since.has(card) and not until.has(card):
+			until[card] = at

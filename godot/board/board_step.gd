@@ -72,6 +72,10 @@ enum Kind {
 	CREW_FIRE,
 	## An optional prompt was declined (CHOICE_DECLINED): the prompt clears.
 	DECLINE,
+	## The opponent's hand card fires or fizzles (C14, public): its face (`card`) rises above
+	## the opponent's hand, holds and goes back; the fan does not change. `verb`, `trigger`,
+	## `reason` (a fizzle's, "" when it fired).
+	TELEGRAPH,
 }
 
 var kind: int = Kind.CLEAR_TABLE
@@ -148,6 +152,8 @@ var grown: bool = false
 ## CREW_FIRE: the Crew's id and the uses it has left (-1 unlimited).
 var crew: String = ""
 var uses_left: int = -1
+## EFFECT, FIZZLE: the card fired from the viewer's own hand (C14), so it pulses in the fan.
+var from_hand: bool = false
 ## FIZZLE: "no_target", "exhausted" or "spent".
 var reason: String = ""
 ## CHOICE_SHOW, PROMPT: the zone chosen from and the pick.

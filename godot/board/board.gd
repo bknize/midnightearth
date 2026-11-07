@@ -423,7 +423,7 @@ func _apply(step: BoardStep) -> void:
 ## runner holds in _play(), not here.
 func _apply_effect(step: BoardStep) -> void:
 	match step.kind:
-		BoardStep.Kind.EFFECT:
+		BoardStep.Kind.EFFECT, BoardStep.Kind.TELEGRAPH:
 			_fx.effect(step)
 		BoardStep.Kind.FIZZLE:
 			_fx.fizzle(step)

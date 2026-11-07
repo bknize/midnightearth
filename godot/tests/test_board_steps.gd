@@ -234,6 +234,72 @@ func test_a_trigger_fired_lifts_the_card_and_a_crew_trigger_has_no_step() -> voi
 	assert_int(BoardEvents.steps(events).size()).is_equal(0)
 
 
+## C14: a public hand trigger. The opponent's (seat 1) yields the TELEGRAPH step naming the
+## card; the viewer's own yields the EFFECT pulse in its fan (`from_hand`).
+func test_a_public_hand_trigger_telegraphs_the_opponents_card_and_pulses_your_own() -> void:
+	var theirs: MatchEvent = BoardEvents.make(
+		"TRIGGER_FIRED",
+		{
+			"seat": 1,
+			"card": 47,
+			"crew": "",
+			"moment": "on_commit",
+			"verb": "cost_down_self",
+			"resolution": 1,
+			"from_hand": true,
+		}
+	)
+	var telegraph: BoardStep = BoardEvents.one(theirs.redacted_for(0))
+	assert_int(telegraph.kind).is_equal(BoardStep.Kind.TELEGRAPH)
+	assert_int(telegraph.card).is_equal(47)
+	assert_int(telegraph.seat).is_equal(1)
+	assert_str(telegraph.verb).is_equal("cost_down_self")
+	assert_float(telegraph.duration).is_equal_approx(BoardSteps.TELEGRAPH_TIME, EPSILON)
+	var own: MatchEvent = BoardEvents.make(
+		"TRIGGER_FIRED",
+		{
+			"seat": 0,
+			"card": 7,
+			"crew": "",
+			"moment": "on_commit",
+			"verb": "cost_down_self",
+			"resolution": 1,
+			"from_hand": true,
+		}
+	)
+	var pulse: BoardStep = BoardEvents.one(own)
+	assert_int(pulse.kind).is_equal(BoardStep.Kind.EFFECT)
+	assert_int(pulse.card).is_equal(7)
+	assert_bool(pulse.from_hand).is_true()
+	assert_float(pulse.duration).is_equal_approx(BoardSteps.HAND_PULSE_TIME, EPSILON)
+
+
+## A hand trigger that fizzles: the opponent's telegraphs with its reason, the viewer's own
+## flashes the note on its fan card; a row trigger has no `from_hand`.
+func test_a_public_hand_fizzle_telegraphs_with_its_reason() -> void:
+	var payload: Dictionary = {
+		"seat": 1, "card": 47, "crew": "", "verb": "cost_down_self", "reason": "spent"
+	}
+	payload["from_hand"] = true
+	var theirs: BoardStep = BoardEvents.one(BoardEvents.make("TRIGGER_FIZZLED", payload))
+	assert_int(theirs.kind).is_equal(BoardStep.Kind.TELEGRAPH)
+	assert_str(theirs.reason).is_equal("spent")
+	var mine: Dictionary = payload.duplicate()
+	mine["seat"] = 0
+	mine["card"] = 7
+	var own: BoardStep = BoardEvents.one(BoardEvents.make("TRIGGER_FIZZLED", mine))
+	assert_int(own.kind).is_equal(BoardStep.Kind.FIZZLE)
+	assert_bool(own.from_hand).is_true()
+	var row: BoardStep = BoardEvents.one(
+		BoardEvents.make(
+			"TRIGGER_FIRED",
+			{"seat": 1, "card": 47, "crew": "", "moment": "on_reveal", "verb": "draw"}
+		)
+	)
+	assert_int(row.kind).is_equal(BoardStep.Kind.EFFECT)
+	assert_bool(row.from_hand).is_false()
+
+
 func test_turn_started_carries_the_viewers_budget() -> void:
 	var event: MatchEvent = BoardEvents.make(
 		"TURN_STARTED", {"round": 2, "turn": 3, "first_seat": 1, "budgets": [3, 4]}
