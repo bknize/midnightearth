@@ -241,7 +241,7 @@ Verified on the Mac 2026-11-06: seeds 1–4, tuned vs `greedy_v1`, gave the same
 
 There's no rollout-from-mid-match entry yet; that's cycle A. A full match from the start is the
 longest possible play-out, so it gives an upper bound. `greedy_v1` on both sides is a greedy
-rollout policy. All of these are started with `detach.ps1`.
+rollout policy. All of these are queued on the runner (`spike\queue\*.cmd`).
 
 - [ ] **Workers sweep:** `--seeds 1-200` at 16, 12 and 8 workers. Record games per minute for each.
 - [ ] **Throttling:** 30 minutes at the best worker count (`--seeds 1-3000 --minutes 30`).
