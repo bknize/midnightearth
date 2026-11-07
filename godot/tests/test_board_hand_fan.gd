@@ -4,7 +4,8 @@ extends GdUnitTestSuite
 ## CLEAR_TABLE must leave them alone, and every change of the opponent's hand reaches the board
 ## as a step (DEAL, DRAW, OPPONENT_COMMIT, a hand DISCARD, RETURN). Replays seed 1's autoplay
 ## match through BoardSteps with the board's own bookkeeping (a count per seat) and compares the
-## opponent's fan with SeatView.hand_sizes after every accepted action.
+## opponent's fan with SeatView.opponent_hand_count (hand_sizes is the hand LIMIT, not a
+## count) after every accepted action.
 
 const SEED: int = 1
 const MAX_ACTIONS: int = 2000
@@ -56,8 +57,6 @@ func test_opponent_fan_follows_the_engine_every_action() -> void:
 			if step.kind == BoardStep.Kind.OPPONENT_COMMIT:
 				assert_int(fan).is_greater_equal(step.count)
 			fan += _fan_delta(step)
-		var sizes: Array[int] = driver.view().hand_sizes
-		assert_int(fan).is_equal(sizes[OPPONENT])
 		assert_int(fan).is_equal(driver.view().opponent_hand_count)
 		checked += 1
 		if driver.is_over() or not driver.bot_turn_due():
