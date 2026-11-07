@@ -8,6 +8,10 @@ extends RefCounted
 
 ## The action cap of a generated match (the match worker's MAX_ACTIONS).
 const MAX_ACTIONS: int = 2000
+## The seed tag of the large-hand candidate draw ("lhc").
+const LARGE_HAND_TAG: int = 0x6C6863
+## Draws allowed per wanted candidate before a large hand's sample stops short.
+const LARGE_HAND_TRIES: int = 8
 
 var _cards: CardDb = null
 var _decks: DeckList = null
@@ -62,6 +66,8 @@ func handle_line(line: String) -> Dictionary:
 	var reply: Dictionary = {}
 	if kind == PlayoutProtocol.KIND_PLAY:
 		reply = _play(request, began)
+	elif kind == PlayoutProtocol.KIND_INSPECT:
+		reply = _inspect(request, began)
 	else:
 		reply = _label(request, began)
 	return reply
@@ -124,27 +130,39 @@ func _play(request: Dictionary, began: int) -> Dictionary:
 	return PlayoutProtocol.play_reply(request_id, _stamp, log, result, commits, us)
 
 
+# --- inspect --------------------------------------------------------------------------
+
+
+## What `seat` sees after the prefix: Round, Turn and its hand as card ids and names.
+func _inspect(request: Dictionary, began: int) -> Dictionary:
+	var request_id: Variant = request["id"]
+	var seat: int = request["seat"]
+	var replayed: Dictionary = _replayed(request_id, request)
+	if replayed.has("error"):
+		return replayed["error"]
+	var engine: MatchEngine = replayed["engine"]
+	var view: SeatView = engine.view_for(seat)
+	var match_cards: MatchCards = engine.match_cards()
+	var hand: Array = []
+	for instance: int in view.own_hand:
+		var def: CardDef = match_cards.def_of(instance)
+		if def == null:
+			continue
+		hand.append({"instance": instance, "card": def.id, "name": def.name})
+	var us: int = Time.get_ticks_usec() - began
+	return PlayoutProtocol.inspect_reply(request_id, _stamp, view.round_number, view.turn, hand, us)
+
+
 # --- label ----------------------------------------------------------------------------
 
 
 func _label(request: Dictionary, began: int) -> Dictionary:
 	var request_id: Variant = request["id"]
 	var seat: int = request["seat"]
-	var match_seed: int = request["seed"]
-	var label_decks: Array[String] = []
-	label_decks.assign(_as_array(request["decks"]))
-	var engine: MatchEngine = _new_engine(match_seed, label_decks)
-	var started: ApplyResult = engine.start()
-	if not started.ok:
-		return PlayoutProtocol.error_reply(request_id, "match failed to start: %d" % started.error)
-	var prefix: Array[EngineAction] = []
-	prefix.assign(_as_array(request["actions"]))
-	for index: int in range(prefix.size()):
-		var applied: ApplyResult = engine.apply(prefix[index])
-		if not applied.ok:
-			return PlayoutProtocol.error_reply(
-				request_id, "prefix action %d rejected: %d" % [index, applied.error]
-			)
+	var replayed: Dictionary = _replayed(request_id, request)
+	if replayed.has("error"):
+		return replayed["error"]
+	var engine: MatchEngine = replayed["engine"]
 	if engine.is_over() or engine.awaited_seat() != seat or not engine.open_prompt().is_empty():
 		return PlayoutProtocol.error_reply(
 			request_id, "the position is not seat %d's commit decision" % seat
@@ -161,11 +179,12 @@ func _label(request: Dictionary, began: int) -> Dictionary:
 	given.assign(_as_array(request["candidates"]))
 	var label_seed: int = request["label_seed"]
 	if given.is_empty():
-		if not enumerable:
-			return PlayoutProtocol.error_reply(request_id, "the hand is too large to enumerate")
 		var k: int = request["k"]
-		for index: int in Rollout.sample_indices(listed.size(), k, label_seed):
-			chosen.append(listed[index])
+		if enumerable:
+			for index: int in Rollout.sample_indices(listed.size(), k, label_seed):
+				chosen.append(listed[index])
+		else:
+			chosen = _large_hand_candidates(view, engine.match_cards(), k, label_seed)
 	else:
 		chosen = given
 	var determinizations: int = request["determinizations"]
@@ -183,6 +202,59 @@ func _label(request: Dictionary, began: int) -> Dictionary:
 	return PlayoutProtocol.label_reply(
 		request_id, _stamp, legal, dicts, value_list, chosen.size() * determinizations, us
 	)
+
+
+## Up to `k` distinct legal commits of a hand too large to enumerate (more than
+## LegalPlays.ENUMERATE_MAX cards): uniform draws by RandomBot.large_hand_commit from one
+## MatchRng seeded MatchRng.derive_seed(label_seed, [LARGE_HAND_TAG]), duplicates dropped,
+## in draw order, after at most k * LARGE_HAND_TRIES draws.
+static func _large_hand_candidates(
+	view: SeatView, cards: MatchCards, k: int, label_seed: int
+) -> Array[EngineAction]:
+	var out: Array[EngineAction] = []
+	if k < 1:
+		return out
+	var parts: Array[int] = [LARGE_HAND_TAG]
+	var rng: MatchRng = MatchRng.new(MatchRng.derive_seed(label_seed, parts))
+	var seen: Dictionary = {}
+	for _draw: int in range(k * LARGE_HAND_TRIES):
+		if out.size() >= k:
+			break
+		var action: EngineAction = RandomBot.large_hand_commit(view, cards, rng)
+		var key: String = JSON.stringify(action.to_dict())
+		if seen.has(key):
+			continue
+		seen[key] = true
+		out.append(action)
+	return out
+
+
+## The engine for a request's seed and decks, started and advanced through its prefix
+## `actions`: {"engine": MatchEngine}, or {"error": reply} when the match fails to start or
+## a prefix action is rejected.
+func _replayed(request_id: Variant, request: Dictionary) -> Dictionary:
+	var match_seed: int = request["seed"]
+	var ids: Array[String] = []
+	ids.assign(_as_array(request["decks"]))
+	var engine: MatchEngine = _new_engine(match_seed, ids)
+	var started: ApplyResult = engine.start()
+	if not started.ok:
+		return {
+			"error": PlayoutProtocol.error_reply(
+				request_id, "match failed to start: %d" % started.error
+			)
+		}
+	var prefix: Array[EngineAction] = []
+	prefix.assign(_as_array(request["actions"]))
+	for index: int in range(prefix.size()):
+		var applied: ApplyResult = engine.apply(prefix[index])
+		if not applied.ok:
+			return {
+				"error": PlayoutProtocol.error_reply(
+					request_id, "prefix action %d rejected: %d" % [index, applied.error]
+				)
+			}
+	return {"engine": engine}
 
 
 ## A created, not yet started engine for `ids` (empty = the seeded pick).

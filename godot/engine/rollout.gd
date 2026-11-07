@@ -60,20 +60,7 @@ static func determinize(engine: MatchEngine, seat: int, det_seed: int) -> MatchE
 		return null
 	var state: MatchState = engine.state_copy()
 	var sets: Array[Array] = _hidden_of(state, engine.match_cards(), view)
-	var rng: MatchRng = MatchRng.new(det_seed)
-	var mapping: Dictionary[int, int] = {}
-	for owned: Array in sets:
-		var from: Array[int] = []
-		from.assign(owned)
-		var to: Array[int] = []
-		to.assign(owned)
-		rng.shuffle_in_place(to)
-		for index: int in range(from.size()):
-			mapping[from[index]] = to[index]
-	_relabel(state, mapping)
-	var stream_parts: Array[int] = [ROLLOUT_TAG]
-	var stream_seed: int = MatchRng.derive_seed(det_seed, stream_parts)
-	return MatchEngine.from_state(state, engine.match_cards(), stream_seed)
+	return _built(engine, state, _mapping_of(sets, det_seed), det_seed)
 
 
 ## Plays `copy` out from `candidate` for `seat` (see the class comment) and returns
@@ -133,16 +120,31 @@ static func label(
 	policy: String,
 	label_seed: int
 ) -> Array[Dictionary]:
+	# The view and the hidden sets are the same for every play-out of the position, and so
+	# is each determinization's mapping for every candidate (NSC-210): work them out once.
+	# Each play-out still gets its own state copy and, through from_state, its own
+	# MatchCards copy, since the cards a play-out creates must not reach the next one.
+	var view: SeatView = engine.view_for(seat)
+	var det_seeds: Array[int] = []
+	var mappings: Array = []
+	if view != null:
+		var sets: Array[Array] = _hidden_of(engine.state_copy(), engine.match_cards(), view)
+		for det: int in range(determinizations):
+			var parts: Array[int] = [det]
+			var det_seed: int = MatchRng.derive_seed(label_seed, parts)
+			det_seeds.append(det_seed)
+			mappings.append(_mapping_of(sets, det_seed))
 	var out: Array[Dictionary] = []
 	for index: int in range(candidates.size()):
 		var values: Array[int] = []
 		var counts: Dictionary = {"wins": 0, "draws": 0, "losses": 0, "capped": 0, "rejected": 0}
 		for det: int in range(determinizations):
-			var parts: Array[int] = [det]
-			var det_seed: int = MatchRng.derive_seed(label_seed, parts)
-			var copy: MatchEngine = determinize(engine, seat, det_seed)
 			var played: Dictionary = {"rejected": true}
-			if copy != null:
+			if view != null:
+				var det_seed: int = det_seeds[det]
+				# _mapping_of's typed dictionary, read without a copy: _relabel only reads it.
+				var mapping: Dictionary[int, int] = mappings[det]
+				var copy: MatchEngine = _built(engine, engine.state_copy(), mapping, det_seed)
 				played = play(copy, seat, candidates[index], policy, det_seed)
 			_count(played, values, counts)
 		out.append(_summary(values, counts))
@@ -170,6 +172,35 @@ static func sample_indices(count: int, k: int, label_seed: int) -> Array[int]:
 
 
 # --- Determinization ------------------------------------------------------------------
+
+
+## The permutation of the hidden `sets` (from _hidden_of) for `det_seed`: each Owner's set
+## shuffled by one MatchRng seeded `det_seed`, owner 0's set first; a card to the card that
+## takes its place. `sets` is only read.
+static func _mapping_of(sets: Array[Array], det_seed: int) -> Dictionary[int, int]:
+	var rng: MatchRng = MatchRng.new(det_seed)
+	var mapping: Dictionary[int, int] = {}
+	for owned: Array in sets:
+		var from: Array[int] = []
+		from.assign(owned)
+		var to: Array[int] = []
+		to.assign(owned)
+		rng.shuffle_in_place(to)
+		for index: int in range(from.size()):
+			mapping[from[index]] = to[index]
+	return mapping
+
+
+## The determinized copy: `state` (a copy of `engine`'s, taken over) relabelled through
+## `mapping`, around a copy of `engine`'s cards, its stream seeded
+## MatchRng.derive_seed(det_seed, [ROLLOUT_TAG]) (P7).
+static func _built(
+	engine: MatchEngine, state: MatchState, mapping: Dictionary[int, int], det_seed: int
+) -> MatchEngine:
+	_relabel(state, mapping)
+	var stream_parts: Array[int] = [ROLLOUT_TAG]
+	var stream_seed: int = MatchRng.derive_seed(det_seed, stream_parts)
+	return MatchEngine.from_state(state, engine.match_cards(), stream_seed)
 
 
 ## The hidden sets of `state` from `view` (its seat's view of the same state): see the
@@ -288,7 +319,7 @@ static func _mapped(card: int, mapping: Dictionary[int, int]) -> int:
 
 ## A refused candidate (R22): no value, the copy unchanged.
 static func _rejected(copy: MatchEngine) -> Dictionary:
-	var wins: Array = _wins_of(copy)
+	var wins: Array = MatchState.plain(copy.round_wins())
 	return {
 		"value": 0,
 		"result": 0,
@@ -301,14 +332,12 @@ static func _rejected(copy: MatchEngine) -> Dictionary:
 
 ## The outcome of a play-out of `actions` actions on `copy` for `seat` (P8, R21, R22).
 static func _outcome(copy: MatchEngine, seat: int, actions: int, capped: bool) -> Dictionary:
-	var full: Dictionary = copy.full_state()
-	var wins: Array = full.get("wins", [0, 0])
+	var wins: Array[int] = copy.round_wins()
 	var own_wins: int = wins[seat]
 	var other_wins: int = wins[1 - seat]
 	var result: int = 0
 	if not capped:
-		var ended: Dictionary = full.get("result", {})
-		var winner: int = ended.get("winner", -1)
+		var winner: int = copy.match_winner()
 		if winner == seat:
 			result = 1
 		elif winner == 1 - seat:
@@ -316,18 +345,11 @@ static func _outcome(copy: MatchEngine, seat: int, actions: int, capped: bool) -
 	return {
 		"value": RESULT_WEIGHT * result + WINS_WEIGHT * (own_wins - other_wins),
 		"result": result,
-		"wins": wins.duplicate(),
+		"wins": MatchState.plain(wins),
 		"actions": actions,
 		"capped": capped,
 		"rejected": false,
 	}
-
-
-## Both seats' Round wins in `copy`, as a plain list.
-static func _wins_of(copy: MatchEngine) -> Array:
-	var full: Dictionary = copy.full_state()
-	var wins: Array = full.get("wins", [0, 0])
-	return wins.duplicate()
 
 
 ## Adds one play-out's outcome `played` to a candidate's `values` and `counts`.

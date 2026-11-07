@@ -323,6 +323,67 @@ func test_the_same_seeds_give_the_same_labels() -> void:
 		assert_int(entry["spread"]).is_greater_equal(0)
 
 
+## label() works the view, hidden sets and mappings out once per position (NSC-210) and
+## reads outcomes without serializing (NSC-211); each label must equal the one built the
+## straightforward way, a public determinize() and play() per candidate and deal.
+func test_a_label_equals_determinize_and_play_per_deal() -> void:
+	var engine: MatchEngine = _position()
+	var before: Dictionary = engine.full_state()
+	var candidates: Array[EngineAction] = [
+		_candidate(engine), _pass(POSITION_SEAT), EngineAction.concede(POSITION_SEAT)
+	]
+	var determinizations: int = 2
+	var labels: Array[Dictionary] = Rollout.label(
+		engine, POSITION_SEAT, candidates, determinizations, POLICY, LABEL_SEED
+	)
+	assert_int(labels.size()).is_equal(candidates.size())
+	for index: int in range(candidates.size()):
+		var values: Array[int] = []
+		var expected: Dictionary = {"wins": 0, "draws": 0, "losses": 0, "capped": 0, "rejected": 0}
+		for det: int in range(determinizations):
+			var parts: Array[int] = [det]
+			var det_seed: int = MatchRng.derive_seed(LABEL_SEED, parts)
+			var copy: MatchEngine = Rollout.determinize(engine, POSITION_SEAT, det_seed)
+			var played: Dictionary = Rollout.play(
+				copy, POSITION_SEAT, candidates[index], POLICY, det_seed
+			)
+			var refused: bool = played["rejected"]
+			if refused:
+				expected["rejected"] += 1
+				continue
+			var value: int = played["value"]
+			var result: int = played["result"]
+			values.append(value)
+			if result > 0:
+				expected["wins"] += 1
+			elif result < 0:
+				expected["losses"] += 1
+			else:
+				expected["draws"] += 1
+			if played["capped"]:
+				expected["capped"] += 1
+		var n: int = values.size()
+		var total: int = 0
+		var squares: int = 0
+		for value: int in values:
+			total += value
+			squares += value * value
+		expected["n"] = n
+		expected["mean"] = 0
+		expected["spread"] = 0
+		if n > 0:
+			expected["mean"] = Scoring.round_half_up(total, n)
+			@warning_ignore("integer_division")
+			var variance: int = (n * squares - total * total) / (n * n)
+			var spread: int = 0
+			while (spread + 1) * (spread + 1) <= variance:
+				spread += 1
+			expected["spread"] = spread
+		var seen: String = "candidate %d: label %s, reference %s" % [index, labels[index], expected]
+		assert_dict(labels[index]).override_failure_message(seen).is_equal(expected)
+	assert_dict(engine.full_state()).is_equal(before)
+
+
 func test_a_play_out_value_follows_the_formula() -> void:
 	var engine: MatchEngine = _position()
 	var det_seed: int = _det_seed(0, 0)
@@ -336,6 +397,13 @@ func test_a_play_out_value_follows_the_formula() -> void:
 	assert_bool(played["rejected"]).is_false()
 	if not played["capped"]:
 		assert_bool(copy.is_over()).is_true()
+	# The outcome reads (NSC-211) agree with the full state.
+	var full: Dictionary = copy.full_state()
+	assert_array(copy.round_wins()).is_equal(_ints(full["wins"]))
+	var ended: Dictionary = full["result"]
+	var winner: int = ended.get("winner", -1)
+	assert_int(copy.match_winner()).is_equal(winner)
+	assert_array(wins).is_equal(copy.round_wins())
 	# Each value is a win, draw or loss plus a tiebreak within ±40 (spec Scenarios).
 	assert_int(absi(value - 1000 * result)).is_less_equal(40)
 

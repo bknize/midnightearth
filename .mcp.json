@@ -11,6 +11,13 @@
     "replicate": {
       "command": "scripts/replicate-mcp.sh",
       "args": []
+    },
+    "bot-trainer": {
+      "type": "http",
+      "url": "${BOT_TRAINER_URL}",
+      "headers": {
+        "Authorization": "Bearer ${BOT_TRAINER_TOKEN}"
+      }
     }
   }
 }
