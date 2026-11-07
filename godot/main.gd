@@ -133,9 +133,12 @@ func _on_picked(deck_ids: Array[String]) -> void:
 
 ## Tears the board down and shows the picker again with the match's decks preselected.
 func _on_decks_requested() -> void:
-	var last_ids: Array[String] = _board.driver.deck_ids()
+	var driver: MatchDriver = _board.driver
+	var last_ids: Array[String] = ["", ""]
+	if driver != null:
+		last_ids = driver.deck_ids()
 	if _seed_fixed:
-		_seed = BoardSeeds.bumped(_board.driver.match_seed)
+		_seed = BoardSeeds.bumped(driver.match_seed if driver != null else _seed)
 	else:
 		_seed = BoardSeeds.clock_seed()
 	remove_child(_board)
@@ -150,7 +153,7 @@ func _on_decks_requested() -> void:
 func _run_smoke(cards: CardDb) -> bool:
 	var seeded: Array[String] = ["", ""]
 	var engine: MatchEngine = MatchEngine.create(
-		SMOKE_SEED, cards, DeckList.load_default(), seeded, _crew
+		SMOKE_SEED, cards, _decks, seeded, _crew
 	)
 	var started: ApplyResult = engine.start()
 	if not started.ok:

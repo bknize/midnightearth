@@ -259,6 +259,12 @@ func skip() -> ApplyResult:
 
 
 ## The open prompt's Crew name, or "" for a card prompt (R66).
+## Whether the open prompt's options are in the strip (a Pile or the top of a Deck).
+func _chooses_from_strip() -> bool:
+	var zone_label: String = PromptRules.zone_name_of(_prompt)
+	return PromptRules.is_pile_zone(zone_label) or PromptRules.is_deck_top_zone(zone_label)
+
+
 func _crew_name() -> String:
 	var crew_id: String = _prompt.get("crew", "")
 	if crew_id == "" or crew_pool == null:
@@ -301,7 +307,11 @@ func _open_strip(view: SeatView) -> void:
 
 ## The Pile of `seat` face up in the strip with nothing to choose (a tap on its count, R78).
 ## A second tap on the same Pile, or any tap while another strip is up, puts the strip away.
+## Nothing while an open prompt chooses from the strip (a Pile or Deck-top zone): hiding it
+## would leave that prompt with nothing to choose.
 func toggle_pile(seat: int, view: SeatView) -> void:
+	if is_open() and _chooses_from_strip():
+		return
 	if strip.is_up():
 		strip.hide(0.25)
 		return
