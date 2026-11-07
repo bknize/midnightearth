@@ -1,7 +1,7 @@
 ---
 type: planning
 tags: [planning, bot, training, llm, spike, windows, ssh]
-status: seedling
+status: growing
 related: ["[[planning/bot-trainer-architecture]]", "[[planning/planning-moc]]", "[[systems/bot-training]]"]
 created: 2026-11-06
 updated: 2026-11-06
@@ -39,7 +39,7 @@ Paths used below, all under the `trainer` profile:
 | Spike folder | `C:\Users\trainer\spike\` (logs in `spike\logs\`) |
 | Repo clone | `C:\Users\trainer\spike\midnightearth\` |
 | Godot | `C:\Users\trainer\tools\godot\Godot_v4.6.3-stable_win64_console.exe` |
-| Python | `C:\Users\trainer\AppData\Local\Programs\Python\Python314\python.exe` (per-user install) |
+| Python | `C:\Users\trainer\tools\python314\tools\python.exe` (NuGet package, no installer) |
 | llama.cpp | `C:\Users\trainer\tools\llama\` |
 | Models | `C:\Users\trainer\models\` |
 
@@ -118,63 +118,83 @@ Run everything in **one administrator PowerShell window**, in order.
       and `nvidia-smi`.
 - [ ] **A9. Router:** add DHCP reservations for the PC and for the Mac. The Mac must keep
       192.168.68.52, or the firewall rules stop matching.
-- [ ] **A10. Send the orchestrator the PC's address:**
+- [x] **A10. Send the orchestrator the PC's address:**
       `(Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "<alias>").IPAddress`.
+      Done 2026-11-06: **192.168.68.63** (Wi-Fi 2).
+- [x] **A11. The job runner** (added after B0 showed SSH can't start long jobs; see B0). First
+      give `trainer` the "Log on as a batch job" right, then register the `trainer-runner` task.
+      Windows 10 Home has no Local Security Policy window, and `secedit /configure` failed twice
+      (a SID needs a leading `*`, and the second file wouldn't open). Use the account-rights
+      function directly, `LsaAddAccountRights`, through a small `Add-Type` block that calls
+      `[LsaRights]::Grant('<trainer SID>', 'SeBatchLogonRight')` and prints `0` on success.
+      The code is in this session's transcript; cycle A turns it into a script. Then:
+
+  ```powershell
+  $cred = Get-Credential trainer
+  $a = New-ScheduledTaskAction -Execute powershell.exe -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\Users\trainer\spike\runner.ps1'
+  $t = New-ScheduledTaskTrigger -AtStartup
+  $s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Days 365) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+  Register-ScheduledTask -TaskName trainer-runner -Action $a -Trigger $t -Settings $s -User trainer -Password $cred.GetNetworkCredential().Password -RunLevel Limited
+  Start-ScheduledTask trainer-runner
+  ```
+
+  Without the batch-logon right, the task fails at logon with error `2147943785` (0x80070569,
+  logon type not granted). Windows only reports it in the Task Scheduler history log, which is
+  off by default (`wevtutil set-log Microsoft-Windows-TaskScheduler/Operational /enabled:true`).
+  The runner checks `spike\queue\` every 5 s and starts each `.cmd` it finds, logging output to
+  `spike\logs\<name>.log`.
+
+**Part A gotchas met on 2026-11-06:**
+- `New-LocalUser` says "access denied" in a PowerShell window that isn't elevated, and a retry
+  then reports "already exists". Use **Run as administrator**, and set the password with
+  `Set-LocalUser` if the account already exists.
+- The Wi-Fi came up as **Public**, so the Private-profile firewall rules didn't apply and SSH
+  timed out, even though the PC answered ping. Fix: `Set-NetConnectionProfile -NetworkCategory Private`.
+- `Add-WindowsCapability` for the OpenSSH server took several minutes. Leave Windows Update
+  unpaused until it finishes.
 
 ## Part B: the orchestrator over SSH
 
-### B0. Connect and check the detach trick (about 15 min)
+### B0. Connect and run long jobs (done 2026-11-06)
 
-- [ ] **Mac:** add the host to `~/.ssh/config` and test the connection.
+- [x] **Mac:** `~/.ssh/config` has `Host midnight-pc`: HostName 192.168.68.63, User trainer,
+      IdentityFile `~/.ssh/midnight_pc`, IdentitiesOnly yes, ServerAliveInterval 30.
+      `whoami` prints `desktop-q7m5vjd\trainer`, and `trainer` is not in Administrators.
+      Windows' SSH server doesn't offer post-quantum key exchange, so every connection prints a
+      warning. It's harmless on the LAN.
+- [x] **Long jobs:** Windows OpenSSH ends every process a session started when the session
+      closes (verified: a background writer stopped at disconnect). A standard user's network
+      logon is also refused by WMI (`Win32_Process.Create`, "Access denied") and can't create
+      scheduled tasks. So long jobs go through the **runner** (A11): drop a `.cmd` file into
+      `spike\queue\`. Verified: a 30 s job queued over SSH ran to the end after the disconnect,
+      and `nvidia-smi` worked from the runner's session.
 
-  ```
-  Host midnight-pc
-    HostName <PC_IP>
-    User trainer
-    IdentityFile ~/.ssh/midnight_pc
-    IdentitiesOnly yes
-    ServerAliveInterval 30
-  ```
+### B1. Tools, as `trainer` (done 2026-11-06; downloads approved by Ben)
 
-  `ssh midnight-pc whoami` must print `<pcname>\trainer`. Also check that `trainer` isn't an
-  admin: `ssh midnight-pc "whoami /groups | findstr /i S-1-5-32-544"` must print nothing.
-- [ ] **Long jobs:** Windows OpenSSH ends every process a session started when that session
-      closes. So long jobs are created through WMI (`Win32_Process.Create`), which puts them
-      outside the session. Save `spike\detach.ps1` (below), start a 2-minute
-      `Start-Sleep`-and-write job with it, disconnect, reconnect, and check the job finished and
-      wrote its log. If WMI is blocked for a standard user, fall back to a scheduled task that
-      Ben creates once at the PC.
+| Download | Source | Size | SHA-256 (first 16) |
+|---|---|---|---|
+| Python 3.14.10, NuGet package `python` | nuget.org (Python Software Foundation) | 14.9 MB | `F54BA67C9951C3D7` |
+| Python 3.14.10 installer (unused, see below) | python.org | 32 MB | `92480239264744FE` |
+| `Godot_v4.6.3-stable_win64.exe.zip` | GitHub godotengine/godot, tag `4.6.3-stable` | 76 MB | `E39986A178D585CE` |
+| `llama-b12180-bin-win-cuda-12.4-x64.zip` | GitHub ggml-org/llama.cpp, tag `b12180` | 275 MB | `3C5308A2C2FE8388` |
+| `cudart-llama-bin-win-cuda-12.4-x64.zip` | same | 373 MB | `8C79A9B226DE4B3C` |
+| `mcp` 2.3.0, `huggingface_hub` 2.4.0 into `spike\venv` | PyPI | — | — |
 
-`C:\Users\trainer\spike\detach.ps1`:
-
-```powershell
-param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string]$Command)
-$logs = "$HOME\spike\logs"; New-Item -ItemType Directory -Force $logs | Out-Null
-$log = "$logs\$Name.log"
-$godot = "$HOME\tools\godot\Godot_v4.6.3-stable_win64_console.exe"
-$line = "cmd.exe /c `"set GODOT_BIN=$godot&& cd /d $HOME\spike\midnightearth && $Command > `"$log`" 2>&1`""
-$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $line }
-"started $Name pid=$($r.ProcessId) rc=$($r.ReturnValue) log=$log"
-```
-
-### B1. Tools, as `trainer` (about 30 min; downloads approved by Ben first)
-
-| Download | Source | Approx. size |
-|---|---|---|
-| Python 3.14 (latest 3.14.x, 64-bit installer) | python.org | ~30 MB |
-| Godot 4.6.3 Windows (`Godot_v4.6.3-stable_win64.exe.zip`) | godotengine.org / GitHub releases | ~60 MB |
-| llama.cpp Windows CUDA 12 build + `cudart` zip | github.com/ggml-org/llama.cpp releases | ~200 MB + ~400 MB |
-| MCP Python SDK (`mcp[cli]`) and `huggingface_hub`, in a venv | PyPI | ~30 MB |
-| 2–3 GGUF models at Q4_K_M | Hugging Face (names confirmed at download) | ~5–7 GB each |
-
-- [ ] **Python** per-user and silent, no admin needed:
-      `python-3.14.x-amd64.exe /quiet InstallAllUsers=0 PrependPath=1 Include_test=0`.
-      Check with `& "$HOME\AppData\Local\Programs\Python\Python314\python.exe" --version`.
-- [ ] **Godot** unzipped to `tools\godot\`. Check with `--version`.
-      `setx GODOT_BIN "<path>"` for the interactive sessions.
-- [ ] **llama.cpp** unzipped to `tools\llama\`. `llama-cli.exe --list-devices` must list the
-      RTX 3070. CUDA works from an SSH session; if it doesn't, that is a finding.
-- [ ] **A venv** at `spike\venv` with `mcp[cli]` and `huggingface_hub`.
+- [x] **Python:** the python.org installer exits with **1601** (Windows Installer can't be
+      reached) for a non-admin account, from SSH and from the runner alike. Use the NuGet package
+      instead: unzip it to `tools\python314\`, which gives `tools\python314\tools\python.exe`.
+      `venv`, `ensurepip` and pip all work.
+- [x] **Godot:** `tools\godot\Godot_v4.6.3-stable_win64_console.exe` prints
+      `4.6.3.stable.official.7d41c59c4`. `GODOT_BIN` is set for `trainer` with `setx`.
+- [x] **llama.cpp b12180** (it reports `0.9.0-dev`) in `tools\llama\`, the CUDA **12.4** build,
+      because the NVIDIA driver is 566.36 and the CUDA 13.5 builds need a newer one. From SSH
+      and from the runner, `--list-devices` shows
+      `CUDA0: NVIDIA GeForce RTX 3070 Laptop GPU (8191 MiB, 7118 MiB free)`.
+      Note: GitHub's "latest release" for llama.cpp is now a tag with no binaries. Pick the newest
+      `bNNNNN` pre-release.
+- [x] **venv** at `spike\venv` with `mcp[cli]` and `huggingface_hub`.
+- **Quoting:** Windows PowerShell 5.1 mangles double quotes inside arguments to native programs
+  (`python -c "…"`). Put code in a file instead of passing it inline.
 
 ### B2. Code onto the PC as a bundle (about 10 min)
 
@@ -346,7 +366,7 @@ if __name__ == "__main__":
 
 | # | Measure | Result |
 |---|---|---|
-| A/B0 | SSH as `trainer` works, `trainer` not an admin, the detached job survives a disconnect | |
+| A/B0 | SSH as `trainer` works, `trainer` not an admin, the detached job survives a disconnect | **Pass** (2026-11-06): SSH as `desktop-q7m5vjd\trainer`, not an admin; long jobs through the `trainer-runner` task; CUDA visible from the runner |
 | B2 | Commit on the PC = Mac `master`? | |
 | B3 | Import / boot (`Main ready`) / gate tests (`Statistics:`) | |
 | B3 | Sweep `p99_us=` and `stamp=` on the PC | |
@@ -359,7 +379,8 @@ if __name__ == "__main__":
 | B6 | Play-outs + LLM together: games/min and tok/s, each vs alone | |
 | B6 | Plan JSON valid and sensible? (each model) | |
 | B7 | MCP `health` from the Mac: reply and round trip | |
-| — | Driver version, CUDA version, peak CPU temperature | |
+| B1 | Tools installed | **Pass**: Python 3.14.10 (NuGet), Godot 4.6.3, llama.cpp b12180 CUDA 12.4, mcp 2.3.0, huggingface_hub 2.4.0 |
+| — | Driver version, CUDA version, peak CPU temperature | Driver 566.36 (CUDA 12.x; not updated in A8), 136 GB free on C:; temperature pending |
 
 ## Go / no-go for `/spec` cycle A
 
