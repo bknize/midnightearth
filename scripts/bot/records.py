@@ -5,7 +5,7 @@ import math
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Union
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 GODOT_DIR = os.path.join(REPO_ROOT, "godot")
@@ -14,7 +14,6 @@ CARDS_PATH = os.path.join(DATA_DIR, "cards.json")
 DECKS_PATH = os.path.join(DATA_DIR, "decks.json")
 CREW_PATH = os.path.join(DATA_DIR, "crew.json")
 RULES_PATH = os.path.join(GODOT_DIR, "engine", "match_rules.gd")
-WEIGHTS_DIR = os.path.join(GODOT_DIR, "engine", "bot", "data")
 PathLike = Union[str, "os.PathLike[str]"]
 STAMP_RE = re.compile(r"^r\d+-[0-9a-f]{16}$")
 Z95 = 1.96
@@ -40,27 +39,6 @@ def current_stamp(cards: PathLike = CARDS_PATH, decks: PathLike = DECKS_PATH,
     for p in (cards, decks, crew):
         h.update(Path(p).read_bytes())
     return "r%d-%s" % (rules_version(rules), h.hexdigest()[:16])
-
-
-def weights_stamp(bot: str, weights_dir: str = WEIGHTS_DIR) -> Optional[str]:
-    """The stamp field of a bot's weights file, or None when absent or unreadable."""
-    path = os.path.join(weights_dir, "%s_weights.json" % bot)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            value = json.load(f).get("stamp")
-    except (OSError, ValueError, AttributeError):
-        return None
-    return value if isinstance(value, str) else None
-
-
-def file_stamp(path: str) -> Optional[str]:
-    """The stamp field of the weights file at `path`, or None when absent or unreadable."""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            value = json.load(f).get("stamp")
-    except (OSError, ValueError, AttributeError):
-        return None
-    return value if isinstance(value, str) else None
 
 
 def read_records(path: str) -> List[Dict[str, Any]]:
