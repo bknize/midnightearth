@@ -6,7 +6,7 @@ related: ["[[specs/cycle-12-multiplayer/spec]]", "[[specs/cycle-12-multiplayer/p
 created: 2026-11-07
 updated: 2026-11-07
 uid: 266ba239-b351-4742-9fc8-d4cb4154c6b6
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-12-pvp-through-a-match-server-on-the-testing-pc-130cdbdf69c0
 supersedes:
 ---
 
@@ -90,13 +90,17 @@ Ben, round 2 Q3 and round 3 Q2b):
 - [ ] The cycle's row in [[planning/cycles]]; `obsidian-cli vault=docs unresolved` and
       `orphans` report nothing new.
 
-## Linear
+## Linear (exercised 2026-11-07)
 
-Filled by `/exercise cycle-12-multiplayer`. Empty until then.
-
-- Project: <URL>
-- Milestone: <DC-NN multiplayer>
-- Issue mapping: task n is issue <KEY-m> (T01 = <KEY-…> … T14 = <KEY-…>)
+- Project: [Cycle 12 — PVP through a match server on the testing PC](https://linear.app/night-science-llc/project/cycle-12-pvp-through-a-match-server-on-the-testing-pc-130cdbdf69c0) (`planned`)
+- Milestone: `DC-NN multiplayer` (N assigned at `/cycle plan`; cycle 11 took DC-16, so
+  DC-17 is expected)
+- Issue mapping: T01 = NSC-214, T02 = NSC-215, T03 = NSC-216, T04 = NSC-217,
+  T05 = NSC-218, T06 = NSC-219, T07 = NSC-220, T08 = NSC-221, T09 = NSC-222,
+  T10 = NSC-223, T11 = NSC-224, T12 = NSC-225, T13 = NSC-226, T14 = NSC-227 (all Todo;
+  blockers follow the Depends column)
+- Areas: `net` and `server` rows carry `area/engine` (no network label exists); tests,
+  deployment, review and verification carry `area/tooling`
 
 ## Commit plan
 

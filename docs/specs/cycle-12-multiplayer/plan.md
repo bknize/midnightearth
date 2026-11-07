@@ -6,7 +6,7 @@ related: ["[[specs/cycle-12-multiplayer/spec]]", "[[specs/cycle-12-multiplayer/t
 created: 2026-11-07
 updated: 2026-11-07
 uid: a3e8d365-8a9a-42dd-954a-4bf62985ef25
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-12-pvp-through-a-match-server-on-the-testing-pc-130cdbdf69c0
 supersedes:
 ---
 
