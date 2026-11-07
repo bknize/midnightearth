@@ -1,36 +1,36 @@
 class_name CrewPool
 extends RefCounted
-## Loads and validates the Crew pool (cycle 8 R39-R41, plan P12):
-## {"version": 1, "crew": [{"id", "name", "trigger", "verb", "amount", "optional", "uses",
-## "scope", "text"}, ...]} (CrewDef).
+## Loads and validates the Crew pool, v2 (cycle 9 plan P4, spec R62, R64):
+## {"version": 2, "crew": [{"id", "name", "tag", "moment", "verb", "amount", "amount_2",
+## "optional", "uses", "scope", "text"}, ...]} (CrewDef). `amount`, `amount_2` (0),
+## `optional` (false), `uses` (0) and `scope` ("") may be left out.
 ##
-## The checks: unique non-empty string ids, a non-empty string name, a string text, a known
-## trigger, verb and scope, the verb on its own trigger (CrewDef.VERB_TRIGGER), a whole
-## amount >= 0, a bool `optional`, a whole `uses` >= 0 that is 0 for scope "none" and > 0
-## for "round" or "match". The pool has no Crew count: each deck names three of it
-## (DeckList.validate).
+## The checks, each failing by its name: version 2; unique non-empty string ids and names; a
+## tag in CardDef.TAGS; a known moment (CardAbility.MOMENTS) and verb (CrewDef.VERBS), the
+## verb on its own moment; each amount whole and within the verb's range; a bool `optional`;
+## a whole `uses` >= 0; a scope in CardAbility.SCOPES or ""; a non-empty string text. The
+## pool has no Crew count: each deck names three of it (DeckList.validate).
 ##
 ## Like CardDb, loading never prints, asserts or pushes an error: every failure is reported
 ## through load_error() (and validate()), and a failed pool holds no Crew, so a deck list
-## checked against it fails and the engine refuses to start (R41).
+## checked against it fails and the engine refuses to start.
 
 const DEFAULT_PATH: String = "res://engine/data/crew.json"
-const FORMAT_VERSION: int = 1
+const FORMAT_VERSION: int = 2
 
 const KEY_ID: String = "id"
 const KEY_NAME: String = "name"
-const KEY_TRIGGER: String = "trigger"
+const KEY_TAG: String = "tag"
+const KEY_MOMENT: String = "moment"
 const KEY_VERB: String = "verb"
 const KEY_AMOUNT: String = "amount"
+const KEY_AMOUNT_2: String = "amount_2"
 const KEY_OPTIONAL: String = "optional"
 const KEY_USES: String = "uses"
 const KEY_SCOPE: String = "scope"
 const KEY_TEXT: String = "text"
-## Every key a Crew entry must hold, and those whose value must be a string.
-const ALL_KEYS: Array[String] = [
-	KEY_ID, KEY_NAME, KEY_TRIGGER, KEY_VERB, KEY_AMOUNT, KEY_OPTIONAL, KEY_USES, KEY_SCOPE, KEY_TEXT
-]
-const STRING_KEYS: Array[String] = [KEY_ID, KEY_NAME, KEY_TRIGGER, KEY_VERB, KEY_SCOPE, KEY_TEXT]
+## The keys whose value must be a non-empty string.
+const STRING_KEYS: Array[String] = [KEY_ID, KEY_NAME, KEY_TAG, KEY_MOMENT, KEY_VERB, KEY_TEXT]
 
 # Error prefixes, stable so tests and callers can match on them.
 const ERR_FILE: String = "crew file"
@@ -38,20 +38,14 @@ const ERR_JSON: String = "bad JSON"
 const ERR_SHAPE: String = "bad shape"
 const ERR_VERSION: String = "unsupported version"
 const ERR_DUPLICATE: String = "duplicate crew id"
-const ERR_TRIGGER: String = "unknown trigger"
-const ERR_VERB: String = "unknown verb"
-const ERR_PAIR: String = "verb not allowed on trigger"
+const ERR_TAG: String = "unknown tag"
+const ERR_MOMENT: String = CardAbility.ERR_MOMENT
+const ERR_VERB: String = CardAbility.ERR_VERB
+const ERR_PAIR: String = CardAbility.ERR_PAIR
+const ERR_AMOUNT: String = CardAbility.ERR_AMOUNT
 const ERR_OPTIONAL: String = "bad optional"
-const ERR_SCOPE: String = "bad scope"
-const ERR_USES: String = "bad uses"
-
-## Whether this pool's Crew fire in a match (DC-11 T10; cycle 8 R45-R51): true for every
-## loaded pool. A test seam, as StubCrew is for TurnStart.fire: the suites written before
-## the Crew (DC-05 to DC-09) build their matches on a pool with it cleared
-## (FixtureDecks.crew()), so their pinned walks, hands and events hold while MATCH_STARTED,
-## the views and MatchState.crew_uses still name the Crew. MatchCards.build() reads it, so
-## a replay over the same pool fires the same Crew (none).
-var fires: bool = true
+const ERR_SCOPE: String = CardAbility.ERR_SCOPE
+const ERR_USES: String = CardAbility.ERR_USES
 
 var _crew: Array[CrewDef] = []
 var _index_by_id: Dictionary[String, int] = {}
@@ -87,9 +81,9 @@ static func from_json(text: String) -> CrewPool:
 	if not data is Dictionary:
 		return _failed("%s: top level is not an object" % ERR_SHAPE)
 	var root: Dictionary = data
-	if not root.has("version") or not _is_whole_number(root["version"]):
+	if not root.has("version") or not CardAbility.is_whole_number(root["version"]):
 		return _failed("%s: missing or non-integer version" % ERR_SHAPE)
-	var version: int = _as_int(root["version"])
+	var version: int = CardAbility.as_int(root["version"])
 	if version != FORMAT_VERSION:
 		return _failed("%s: %d (expected %d)" % [ERR_VERSION, version, FORMAT_VERSION])
 	if not root.has("crew") or not root["crew"] is Array:
@@ -117,8 +111,8 @@ func load_error() -> String:
 	return _error
 
 
-## "" when the pool loaded and every Crew passed the checks (R39, R41); otherwise the first
-## problem found, as load_error() reports it.
+## "" when the pool loaded and every Crew passed the checks; otherwise the first problem
+## found, as load_error() reports it.
 func validate() -> String:
 	return _error
 
@@ -166,74 +160,84 @@ static func _failed(message: String) -> CrewPool:
 static func _entry_problem(entry: Variant, i: int) -> String:
 	if not _has_fields(entry):
 		return (
-			"%s: crew %d needs a non-empty string id and name, string trigger, verb, scope %s"
-			% [ERR_SHAPE, i, "and text, a whole amount >= 0, a bool optional and whole uses"]
+			"%s: crew %d needs non-empty string id, name, tag, moment, verb and text"
+			% [ERR_SHAPE, i]
 		)
 	var d: Dictionary = entry
-	if not d[KEY_OPTIONAL] is bool:
-		return "%s: crew %d has optional %s" % [ERR_OPTIONAL, i, JSON.stringify(d[KEY_OPTIONAL])]
+	var tag: String = d[KEY_TAG]
+	if not CardDef.TAGS.has(tag):
+		return '%s: crew %d has tag "%s"' % [ERR_TAG, i, tag]
 	var name_problem: String = _name_problem(d, i)
 	if name_problem != "":
 		return name_problem
+	var amount_problem: String = _amount_problem(d, i)
+	if amount_problem != "":
+		return amount_problem
 	return _limit_problem(d, i)
 
 
-## An error message for one entry's trigger and verb, or "": both known, the verb on its
-## own trigger (CrewDef.VERB_TRIGGER).
+## An error message for one entry's moment and verb, or "": both known, the verb on its
+## own moment (CrewDef.VERBS).
 static func _name_problem(d: Dictionary, i: int) -> String:
-	var trigger_text: String = d[KEY_TRIGGER]
-	var trigger_value: int = CrewDef.trigger_from_name(trigger_text)
-	if trigger_value < 0:
-		return '%s: crew %d has trigger "%s"' % [ERR_TRIGGER, i, trigger_text]
-	var verb_text: String = d[KEY_VERB]
-	var verb_value: int = CrewDef.verb_from_name(verb_text)
-	if verb_value < 0:
-		return '%s: crew %d has verb "%s"' % [ERR_VERB, i, verb_text]
-	if not CrewDef.is_allowed_pair(trigger_value, verb_value):
-		return '%s: crew %d has verb "%s" on "%s"' % [ERR_PAIR, i, verb_text, trigger_text]
+	var moment: String = d[KEY_MOMENT]
+	if not CardAbility.is_moment(moment):
+		return '%s: crew %d has moment "%s"' % [ERR_MOMENT, i, moment]
+	var verb: String = d[KEY_VERB]
+	if not CrewDef.is_verb(verb):
+		return '%s: crew %d has verb "%s"' % [ERR_VERB, i, verb]
+	if not CrewDef.is_allowed_pair(moment, verb):
+		return '%s: crew %d has verb "%s" on "%s"' % [ERR_PAIR, i, verb, moment]
 	return ""
 
 
-## An error message for one entry's scope and uses, or "": a known scope, whole uses >= 0,
-## 0 for "none" and > 0 otherwise.
+## An error message for one entry's `amount` and `amount_2`, or "": each absent or whole and
+## within the verb's range.
+static func _amount_problem(d: Dictionary, i: int) -> String:
+	var verb: String = d[KEY_VERB]
+	for key: String in [KEY_AMOUNT, KEY_AMOUNT_2]:
+		var raw: Variant = d.get(key, 0)
+		if not CardAbility.is_whole_number(raw):
+			return "%s: crew %d has %s %s" % [ERR_AMOUNT, i, key, JSON.stringify(raw)]
+		var value: int = CardAbility.as_int(raw)
+		var bounds: Array[int] = CrewDef.range_of(verb, key)
+		if value < bounds[0] or value > bounds[1]:
+			return (
+				'%s: crew %d "%s" %s %d (allowed %d..%d)'
+				% [ERR_AMOUNT, i, verb, key, value, bounds[0], bounds[1]]
+			)
+	return ""
+
+
+## An error message for one entry's optional, uses and scope, or "": a bool optional, whole
+## uses >= 0 and a scope in CardAbility.SCOPES or "", each when present.
 static func _limit_problem(d: Dictionary, i: int) -> String:
-	var scope_text: String = d[KEY_SCOPE]
-	var scope_value: int = CrewDef.scope_from_name(scope_text)
-	if scope_value < 0:
-		return (
-			'%s: crew %d has scope "%s" (allowed %s)'
-			% [ERR_SCOPE, i, scope_text, str(CrewDef.SCOPE_NAMES)]
-		)
-	var raw_uses: Variant = d[KEY_USES]
-	if not _is_whole_number(raw_uses):
+	if d.has(KEY_OPTIONAL) and not d[KEY_OPTIONAL] is bool:
+		return "%s: crew %d has optional %s" % [ERR_OPTIONAL, i, JSON.stringify(d[KEY_OPTIONAL])]
+	var raw_uses: Variant = d.get(KEY_USES, 0)
+	if not CardAbility.is_whole_number(raw_uses) or CardAbility.as_int(raw_uses) < 0:
 		return "%s: crew %d has uses %s" % [ERR_USES, i, JSON.stringify(raw_uses)]
-	var uses: int = _as_int(raw_uses)
-	var limited: bool = scope_value != CrewDef.Scope.NONE
-	if uses < 0 or (limited and uses == 0) or (not limited and uses != 0):
-		return (
-			'%s: crew %d has uses %d with scope "%s" (0 for none, > 0 otherwise)'
-			% [ERR_USES, i, uses, scope_text]
-		)
+	var raw_scope: Variant = d.get(KEY_SCOPE, "")
+	if not raw_scope is String:
+		return "%s: crew %d has scope %s" % [ERR_SCOPE, i, JSON.stringify(raw_scope)]
+	var scope: String = raw_scope
+	if scope != "" and not CardAbility.SCOPES.has(scope):
+		return '%s: crew %d has scope "%s"' % [ERR_SCOPE, i, scope]
 	return ""
 
 
-## Whether `entry` is a Dictionary with every Crew key, string id, name, trigger, verb,
-## scope and text, a non-empty id and name and a whole amount >= 0. `optional` and `uses`
-## need only be present here: they are checked on their own, for their own error codes.
+## Whether `entry` is a Dictionary whose STRING_KEYS each hold a non-empty string.
 static func _has_fields(entry: Variant) -> bool:
 	if not entry is Dictionary:
 		return false
 	var d: Dictionary = entry
-	for key: String in ALL_KEYS:
-		if not d.has(key):
-			return false
 	for key: String in STRING_KEYS:
-		if not d[key] is String:
+		var raw: Variant = d.get(key)
+		if not raw is String:
 			return false
-	var crew_id: String = d[KEY_ID]
-	var crew_name: String = d[KEY_NAME]
-	var amount_ok: bool = _is_whole_number(d[KEY_AMOUNT]) and _as_int(d[KEY_AMOUNT]) >= 0
-	return crew_id != "" and crew_name != "" and amount_ok
+		var value: String = raw
+		if value == "":
+			return false
+	return true
 
 
 ## Builds a CrewDef from an entry already accepted by _entry_problem().
@@ -241,41 +245,17 @@ static func _build_entry(entry: Variant) -> CrewDef:
 	var d: Dictionary = entry
 	var crew_id: String = d[KEY_ID]
 	var crew_name: String = d[KEY_NAME]
-	var trigger_text: String = d[KEY_TRIGGER]
-	var verb_text: String = d[KEY_VERB]
-	var scope_text: String = d[KEY_SCOPE]
+	var moment: String = d[KEY_MOMENT]
+	var verb: String = d[KEY_VERB]
 	var text: String = d[KEY_TEXT]
-	var optional: bool = d[KEY_OPTIONAL]
-	var trigger_value: int = CrewDef.trigger_from_name(trigger_text)
-	var verb_value: int = CrewDef.verb_from_name(verb_text)
-	var scope_value: int = CrewDef.scope_from_name(scope_text)
-	return CrewDef.new(
-		crew_id,
-		crew_name,
-		trigger_value as CrewDef.Trigger,
-		verb_value as CrewDef.Verb,
-		_as_int(d[KEY_AMOUNT]),
-		optional,
-		_as_int(d[KEY_USES]),
-		scope_value as CrewDef.Scope,
-		text
-	)
-
-
-## Converts a value already checked by _is_whole_number to int without an unsafe call.
-static func _as_int(value: Variant) -> int:
-	if value is int:
-		var whole: int = value
-		return whole
-	var number: float = value
-	return int(number)
-
-
-## JSON numbers arrive as floats; accept ints and floats with no fractional part.
-static func _is_whole_number(value: Variant) -> bool:
-	if value is int:
-		return true
-	if value is float:
-		var f: float = value
-		return is_finite(f) and f == floorf(f)
-	return false
+	var out: CrewDef = CrewDef.new(crew_id, crew_name, moment, verb, text)
+	var tag: String = d[KEY_TAG]
+	out.tag = tag
+	out.amount = CardAbility.as_int(d.get(KEY_AMOUNT, 0))
+	out.amount_2 = CardAbility.as_int(d.get(KEY_AMOUNT_2, 0))
+	var optional: bool = d.get(KEY_OPTIONAL, false)
+	out.optional = optional
+	out.uses = CardAbility.as_int(d.get(KEY_USES, 0))
+	var scope: String = d.get(KEY_SCOPE, "")
+	out.scope = scope
+	return out

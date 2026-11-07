@@ -2,7 +2,8 @@ class_name TestFullMatch
 extends FullMatchHarness
 ## Full bot-vs-bot matches (C11): R33 (replay through JSON reaches an equal full state),
 ## R37 (the bot is a function of its seed and view, so a seed always plays the same match),
-## R38 (the engine never rejects a bot action): seed 1 ends, no hand exceeds 7, no commit
+## R38 (the engine never rejects a bot action): seed 1 ends, no hand exceeds the harness's
+## HAND_BOUND (DC-13 T02: the opening hand plus a draw a turn, no cap until T03), no commit
 ## exceeds the seat's budget (carry and the free first card included), no view or redacted
 ## event leaks a hidden card (prompts included) and the log replays to an equal state.
 ## DC-06 (T03, R25): the leak scan covers destroyed face-down cards (their redacted
@@ -10,10 +11,11 @@ extends FullMatchHarness
 ## The 50-seed sweep and its "Sweep: ..." / "Sweep pairing ..." lines live in
 ## sweep/test_sweep.gd, outside the gate (NSC-133: `make sweep`); the shared play-and-check
 ## helpers are in fixtures/full_match_harness.gd.
-## Cycle 8 (DC-09 T04; R8, R10, R31): the seeded pairing draws from four decks (ruin, drift,
-## bloom, echo); a commit's cost reads the card's memory (an ability's cost reduction); the
-## leak scan covers memory on hidden cards (a private STATS_CHANGED or CARD_RETURNED never
-## names one to the other seat, and a face-down row entry shows no cost, growth or uses).
+## Cycle 8 (DC-09 T04; R8, R10, R31): the seeded pairing draws from the shipped decks
+## (greed and ramp since DC-13 T02); a commit's cost reads the card's memory (an ability's
+## cost reduction); the leak scan covers memory on hidden cards (a private STATS_CHANGED or
+## CARD_RETURNED never names one to the other seat, and a face-down row entry shows no cost,
+## growth or uses).
 ## DC-09 T06 review: the other seat's redacted STATS_CHANGED shows neutral stats
 ## (FullMatchRun.check_neutral_stats) and the view's pile_entries name no hidden pile card.
 ##

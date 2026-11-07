@@ -5,9 +5,10 @@ extends GdUnitTestSuite
 ## enumeration the bot chooses from), Phase 3 R5 (multi-card subset-sum); DC-05 R5, R6
 ## (positional slots, BAD_SLOTS), R9 (budget with carry) and R10 (the free first card).
 ##
-## Instance ids are seat * 20 + index (plan), so with the fixture deck on both seats:
-## 0..3 = c01..c04 (cost 1), 4..7 = c05..c08 (cost 2), 8 = c09 (3), 11 = c12 (4),
-## 12 = c13 (4), 14 = c15 (5), 16 = c17 (6), 18 = c19 (7); seat 1 adds 20.
+## Instance ids are seat * DECK_SIZE + index, and the fixture deck (DC-13 T02: 40 plain
+## bodies, FixtureDecks) repeats the DC-05 costs: 0..3 cost 1, 4..7 cost 2, 8 cost 3,
+## 11 and 12 cost 4, 14 cost 5, 16 cost 6, 18 cost 7, and 20..39 the same again (so 20 is
+## a second copy of 0's definition, held by no hand here); seat 1 adds 40.
 
 
 func _db() -> CardDb:

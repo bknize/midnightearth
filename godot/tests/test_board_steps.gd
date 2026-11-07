@@ -143,7 +143,7 @@ func test_reveal_steps_carry_engine_order_and_flat() -> void:
 		assert_int(step.card).is_greater_equal(0)
 		var def: CardDef = cards.card_at(step.card % MatchRules.DECK_SIZE)
 		assert_object(def).is_not_null()
-		assert_int(def.flat).is_equal(step.flat)
+		assert_int(def.power).is_equal(step.flat)
 		next_order += 1
 	assert_int(reveals).is_greater(0)
 

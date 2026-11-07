@@ -39,21 +39,14 @@ func test_any_field_makes_it_not_empty() -> void:
 	assert_bool(unread.is_empty()).is_false()
 
 
-func test_to_dict_from_dict_round_trips() -> void:
+## The plain form (the v6 test reader, MemoryFixture, went with DC-13 T02; T04 rewrites
+## CardMemory for the v2 growth).
+func test_to_dict_is_plain_data() -> void:
 	var kept: CardMemory = _grown()
 	var plain: Dictionary = kept.to_dict()
 	assert_dict(plain).is_equal({"flat": 2, "times": 50, "plus": 1, "cost": 3, "uses_left": 0})
-	# The reader is a test fixture since the DC-09 T06 review (MemoryFixture).
-	var back: CardMemory = MemoryFixture.from_dict(plain)
-	assert_dict(back.to_dict()).is_equal(plain)
-	# Through JSON, whose numbers come back as floats.
-	var parsed: Variant = JSON.parse_string(JSON.stringify(plain))
-	assert_bool(parsed is Dictionary).is_true()
-	var parsed_dict: Dictionary = parsed
-	assert_dict(MemoryFixture.from_dict(parsed_dict).to_dict()).is_equal(plain)
-	# The empty memory round-trips to an empty one.
-	var empty: CardMemory = MemoryFixture.from_dict(CardMemory.new().to_dict())
-	assert_bool(empty.is_empty()).is_true()
+	plain["flat"] = 9
+	assert_int(kept.flat).is_equal(2)
 
 
 func test_copy_is_independent() -> void:

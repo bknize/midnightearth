@@ -20,7 +20,8 @@ extends RefCounted
 ## tie-break depends on it): subsets are listed by ascending bitmask over the hand's
 ## order, where bit i stands for hand[i], and each subset keeps the hand's order. So the
 ## empty set (mask 0) always comes first, then {hand[0]}, {hand[1]}, {hand[0], hand[1]},
-## {hand[2]}, and so on. A hand holds at most HAND_CAP = 7 cards, so at most 128 subsets.
+## {hand[2]}, and so on. Under DC-13 T02 a hand holds at most OPENING_HAND + TURNS = 11
+## cards in a Round (no cap, no discard-down until T03), so at most 2048 subsets.
 ##
 ## Nothing here prints, asserts or pushes an error; failures are EngineError codes. Static
 ## and pure.

@@ -1,13 +1,13 @@
 class_name TestMatchCards
 extends GdUnitTestSuite
-## MatchCards (DC-07 T01; R5, R8, plan P3): instance `origin * 20 + index` resolves to
-## index `index` of its origin seat's deck, whichever decks the seats play. DC-11 T08
-## (cycle 8 R42, P12): crew_for(seat) is that seat's deck's three Crew in slot order.
+## MatchCards (DC-13 T02; cycle 9 plan P6, spec R69): instance `origin * DECK_SIZE + index`
+## resolves to index `index` of its origin seat's deck, whichever decks the seats play, so
+## the two Decks take 0 .. 79; created cards take ids from CREATED_BASE (80) up and answer
+## def_of() and origin_of() once recorded. crew_for(seat) is that seat's deck's three Crew
+## in slot order.
 
-const FIXTURE_CARDS: String = "res://tests/fixtures/dc05_cards.json"
-const FIXTURE_DECKS: String = "res://tests/fixtures/dc05_decks.json"
-const CREW_A: Array[String] = ["salvager", "veil", "quartermaster"]
-const CREW_B: Array[String] = ["shade", "lookout", "quartermaster"]
+const CREW_A: Array[String] = ["tallyman", "void", "engineer"]
+const CREW_B: Array[String] = ["navigator", "captain", "dredger"]
 
 var _cached_cards: CardDb = null
 var _cached_crew: CrewPool = null
@@ -17,7 +17,7 @@ var _cached_crew: CrewPool = null
 
 func _cards() -> CardDb:
 	if _cached_cards == null:
-		_cached_cards = CardDb.load_from_path(FIXTURE_CARDS)
+		_cached_cards = CardDb.load_default()
 	return _cached_cards
 
 
@@ -27,22 +27,30 @@ func _crew() -> CrewPool:
 	return _cached_crew
 
 
-## The 20 fixture ids c01..c20, in order.
+## 40 ids over the shipped pool: ev01..ev30 then gr01..gr10, each once.
 func _ids() -> Array[String]:
 	var out: Array[String] = []
-	for i: int in range(MatchRules.DECK_SIZE):
-		out.append("c%02d" % (i + 1))
+	for i: int in range(30):
+		out.append("ev%02d" % (i + 1))
+	for i: int in range(10):
+		out.append("gr%02d" % (i + 1))
 	return out
 
 
-## Two decks over the fixture pool: "a" in file order, "b" reversed.
+func _deck(deck_id: String, card_ids: Array[String], crew: Array[String]) -> Dictionary:
+	var crew_list: Array = []
+	crew_list.assign(crew)
+	return {
+		"id": deck_id, "name": deck_id, "tag": "evergreen", "theme": "", "cards": card_ids,
+		"crew": crew_list,
+	}
+
+
+## Two decks over the shipped pool: "a" in order, "b" reversed.
 func _pair() -> DeckList:
 	var reversed: Array[String] = _ids()
 	reversed.reverse()
-	var decks: Array[Dictionary] = [
-		{"id": "a", "name": "A", "theme": "File order.", "cards": _ids(), "crew": CREW_A},
-		{"id": "b", "name": "B", "theme": "Reversed.", "cards": reversed, "crew": CREW_B},
-	]
+	var decks: Array[Dictionary] = [_deck("a", _ids(), CREW_A), _deck("b", reversed, CREW_B)]
 	return DeckList.from_json(JSON.stringify({"version": DeckList.FORMAT_VERSION, "decks": decks}))
 
 
@@ -54,19 +62,19 @@ func _seats(first: String, second: String) -> Array[String]:
 # --- Resolution -----------------------------------------------------------------------
 
 
-func test_def_of_25_is_seat_1s_deck_index_5() -> void:
+func test_def_of_45_is_seat_1s_deck_index_5() -> void:
 	var decks: DeckList = _pair()
 	var cards: MatchCards = MatchCards.build(_cards(), decks, _seats("a", "b"), _crew())
 	assert_bool(cards.is_valid()).override_failure_message(cards.build_error()).is_true()
 	assert_int(cards.size()).is_equal(2 * MatchRules.DECK_SIZE)
 	var expected_id: String = decks.card_ids("b")[5]
-	assert_str(expected_id).is_equal("c15")
-	var def: CardDef = cards.def_of(25)
+	assert_str(expected_id).is_equal("gr05")
+	var instance: int = MatchRules.DECK_SIZE + 5
+	var def: CardDef = cards.def_of(instance)
 	assert_object(def).is_not_null()
 	assert_str(def.id).is_equal(expected_id)
 	assert_object(def).is_same(_cards().card_by_id(expected_id))
-	assert_int(cards.origin_of(25)).is_equal(1)
-	# Seat 0's index 5 comes from deck "a".
+	assert_int(cards.origin_of(instance)).is_equal(1)
 	assert_str(cards.def_of(5).id).is_equal(decks.card_ids("a")[5])
 	assert_int(cards.origin_of(5)).is_equal(0)
 
@@ -81,22 +89,22 @@ func test_every_instance_resolves_through_its_origin_deck() -> void:
 		for index: int in range(MatchRules.DECK_SIZE):
 			var instance: int = seat * MatchRules.DECK_SIZE + index
 			assert_str(cards.def_of(instance).id).is_equal(listed[index])
+			assert_int(cards.origin_of(instance)).is_equal(seat)
 
 
-func test_two_seats_on_the_same_deck_resolve_to_equal_definitions() -> void:
-	var decks: DeckList = DeckList.load_from_path(FIXTURE_DECKS)
-	var cards: MatchCards = MatchCards.build(_cards(), decks, _seats("fixture", "fixture"), _crew())
+## The shipped decks hold copies: the four copies of a card are four instances sharing one
+## definition.
+func test_copies_are_instances_of_one_definition() -> void:
+	var decks: DeckList = DeckList.load_default()
+	var cards: MatchCards = MatchCards.build(_cards(), decks, _seats("greed", "ramp"), _crew())
 	assert_bool(cards.is_valid()).override_failure_message(cards.build_error()).is_true()
-	for index: int in range(MatchRules.DECK_SIZE):
-		var own: CardDef = cards.def_of(index)
-		var other: CardDef = cards.def_of(MatchRules.DECK_SIZE + index)
-		assert_object(own).is_not_null()
-		assert_dict(other.to_dict()).is_equal(own.to_dict())
-		assert_object(other).is_same(own)
-	# The fixture deck is the pool in file order, so instances keep the DC-05 numbering.
-	for instance: int in range(2 * MatchRules.DECK_SIZE):
-		var by_index: CardDef = _cards().card_at(instance % MatchRules.DECK_SIZE)
-		assert_object(cards.def_of(instance)).is_same(by_index)
+	for copy: int in range(1, MatchRules.MAX_COPIES):
+		assert_object(cards.def_of(copy)).is_same(cards.def_of(0))
+	assert_str(cards.def_of(0).id).is_equal("gr01")
+	assert_str(cards.def_of(MatchRules.DECK_SIZE).id).is_equal("ra01")
+	assert_bool(cards.has_verb("discard_own")).is_true()
+	assert_bool(cards.has_verb("cost_on_turn")).is_true()
+	assert_bool(cards.has_verb("copy_stats")).is_false()
 
 
 func test_out_of_range_instances_have_no_definition() -> void:
@@ -105,6 +113,38 @@ func test_out_of_range_instances_have_no_definition() -> void:
 	assert_object(cards.def_of(2 * MatchRules.DECK_SIZE)).is_null()
 	assert_int(cards.origin_of(-1)).is_equal(-1)
 	assert_int(cards.origin_of(2 * MatchRules.DECK_SIZE)).is_equal(-1)
+
+
+# --- Created cards (P6) ---------------------------------------------------------------
+
+
+func test_created_ids_start_after_both_decks() -> void:
+	assert_int(MatchCards.CREATED_BASE).is_equal(2 * MatchRules.DECK_SIZE)
+	assert_int(MatchCards.CREATED_BASE).is_equal(80)
+	assert_bool(MatchCards.is_created(MatchCards.CREATED_BASE)).is_true()
+	assert_bool(MatchCards.is_created(MatchCards.CREATED_BASE - 1)).is_false()
+
+
+## A created card answers def_of() and origin_of() (its Owner) once recorded, without
+## touching a Deck card; a second record of the id, an id in the Deck range, no definition
+## or no seat is refused.
+func test_a_recorded_created_card_resolves() -> void:
+	var cards: MatchCards = MatchCards.build(_cards(), _pair(), _seats("a", "b"), _crew())
+	var created: int = MatchCards.CREATED_BASE
+	assert_object(cards.def_of(created)).is_null()
+	assert_int(cards.origin_of(created)).is_equal(-1)
+	var copy: CardDef = _cards().card_by_id("ev05")
+	assert_bool(cards.record_created(created, copy, 1)).is_true()
+	assert_object(cards.def_of(created)).is_same(copy)
+	assert_int(cards.origin_of(created)).is_equal(1)
+	assert_bool(cards.record_created(created, copy, 0)).is_false()
+	assert_int(cards.origin_of(created)).is_equal(1)
+	assert_bool(cards.record_created(5, copy, 0)).is_false()
+	assert_str(cards.def_of(5).id).is_equal("ev06")
+	assert_bool(cards.record_created(created + 1, null, 0)).is_false()
+	assert_bool(cards.record_created(created + 1, copy, 2)).is_false()
+	assert_object(cards.def_of(created + 1)).is_null()
+	assert_int(cards.size()).is_equal(2 * MatchRules.DECK_SIZE)
 
 
 # --- Failed builds --------------------------------------------------------------------
@@ -122,9 +162,7 @@ func test_a_bad_build_holds_no_definitions() -> void:
 
 	var short: Array[String] = _ids()
 	short.remove_at(0)
-	var short_decks: Array[Dictionary] = [
-		{"id": "s", "name": "S", "theme": "", "cards": short, "crew": CREW_A}
-	]
+	var short_decks: Array[Dictionary] = [_deck("s", short, CREW_A)]
 	var bad_list: DeckList = DeckList.from_json(
 		JSON.stringify({"version": DeckList.FORMAT_VERSION, "decks": short_decks})
 	)
@@ -144,7 +182,7 @@ func test_a_bad_build_holds_no_definitions() -> void:
 	assert_array(unknown.crew_for(0)).is_empty()
 
 
-# --- Crew (DC-11 T08) -----------------------------------------------------------------
+# --- Crew ----------------------------------------------------------------------------
 
 
 ## Each seat holds its own deck's three Crew in slot order: the pool's own definitions.
@@ -159,11 +197,14 @@ func test_crew_for_is_each_seats_deck_crew_in_slot_order() -> void:
 		for slot: int in range(MatchRules.CREW_SIZE):
 			var crew_id: String = listed[slot]
 			assert_object(defs[slot]).is_same(_crew().crew_of(crew_id))
+			assert_int(cards.crew_slot(seat, crew_id)).is_equal(slot)
+			assert_object(cards.crew_def(seat, slot)).is_same(defs[slot])
 		var plain: Array = []
 		plain.append_array(listed)
 		assert_array(cards.crew_ids(seat)).is_equal(plain)
 	assert_array(cards.crew_for(-1)).is_empty()
 	assert_array(cards.crew_for(2)).is_empty()
+	assert_int(cards.crew_slot(0, "gardener")).is_equal(-1)
 	# A new array each call: changing it changes nothing held.
 	var taken: Array[CrewDef] = cards.crew_for(0)
 	taken.clear()

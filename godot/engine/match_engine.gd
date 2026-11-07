@@ -7,19 +7,19 @@ extends RefCounted
 ##
 ## Flow: _begin_round() -> _begin_turn() -> commit (first, face down, with its slots) ->
 ## commit (second) -> _resolve() (both commits merge into their rows, then the walk starts)
-## -> _run_walk() (ScoreWalk pulses every card on both rows; an effect with two or more
-## targets pauses it on a prompt, phase AWAIT_CHOICE, until apply(CHOOSE) from the prompted
-## seat resumes it, DC-05 T05; a multi-select prompt, DC-07 P7, opens even for one target
-## and is answered by apply(CHOOSE_SET) instead) -> _end_turn() (return marks, destroyed
-## cards, the echo flip, energy) -> next _begin_turn(), or after turn 7 _end_round() ->
-## _after_round(), which either ends the match (R20-R22) or begins the next round.
-## Concede goes straight to _end_match().
+## -> _run_walk() (ScoreWalk pulses every card on both rows; an open prompt pauses it,
+## phase AWAIT_CHOICE, until apply(CHOOSE), apply(CHOOSE_SET) or apply(DECLINE) from the
+## prompted seat resumes it) -> _end_turn() (energy, the turn's winner) -> next
+## _begin_turn(), or after turn 7 _end_round() -> _after_round(), which either ends the
+## match (R20-R22) or begins the next round. Concede goes straight to _end_match().
+##
+## DC-13 T02 (cycle 9 plan, wave 2): the v6 structure (deal, draw, energy, walk) with the v2
+## cards and rules version 7; every ability fizzles (Abilities.fire), so no prompt opens and
+## no Crew fires until T05-T07, and T03 rewrites the turn flow.
 ##
 ## Randomness: one MatchRng seeded from the match seed. Each round start draws seat 0's
 ## shuffle, seat 1's shuffle, then a coin flip only while no round has been won (plan,
-## replay contract). The only other draw is the random destroy (plan P11, R27): one
-## pick_index at the moment the effect fires in the walk. Walk order is deterministic given
-## the log, so ActionLog replay reproduces every destroy.
+## replay contract). No T02 ability draws from the stream.
 ##
 ## Round boundaries (orchestrator, DC-05 T04): round start clears `energy.carry`,
 ## `energy.free_first` and `bonus_zero_pending` along with the rows, so an effect that
@@ -51,8 +51,6 @@ var _state: MatchState = null
 var _accepted: Array[EngineAction] = []
 ## Events of the call in progress.
 var _events: Array[MatchEvent] = []
-## The turn start's Crew and its pause (cycle 8 P11).
-var _turn_start: TurnStart = TurnStart.new()
 
 
 ## A match on `match_seed` where seat s plays the deck `deck_ids[s]` of `decks`, its cards
@@ -112,9 +110,9 @@ func apply(action: EngineAction) -> ApplyResult:
 	if accepted.kind == EngineAction.Kind.CONCEDE:
 		_concede(accepted.seat)
 	elif accepted.kind == EngineAction.Kind.CHOOSE:
-		_choose(accepted.index)
+		_choose(accepted.zone, accepted.index)
 	elif accepted.kind == EngineAction.Kind.CHOOSE_SET:
-		_choose_set(accepted.indices)
+		_choose_set(accepted.zone, accepted.indices)
 	elif accepted.kind == EngineAction.Kind.DECLINE:
 		_decline()
 	else:
@@ -405,7 +403,6 @@ func _end_round() -> void:
 	# Each destroyed pile empties into its burn pile (DC-07 R17, P6), after the last turn's
 	# clear has filled it.
 	_state.burn_destroyed_piles()
-	_events.append_array(CrewEffects.round_end(_state, _cards))  # Gardener (DC-11 T10, R45).
 	var winner: int = _leader()
 	if winner >= 0:
 		_state.wins[winner] += 1
@@ -451,11 +448,9 @@ func _after_round(winner: int) -> void:
 # --- Turns ----------------------------------------------------------------------------
 
 
-## Turn start (R12, R13, R17, plan P14): set the first committer, clear this turn's
-## spend, then draw 1 card per seat. `energy` is the base (the turn); `budgets` and
-## `free_first` are per seat. Then the turn start's Crew fire (cycle 8 R45, R54, P11;
-## TurnStart): a Crew prompt pauses the turn before any commit (AWAIT_CHOICE, the walk
-## inactive) until its seat's choice or decline (_resume); else AWAIT_FIRST.
+## Turn start (R12, R13, R17): set the first committer, clear this turn's spend, then draw
+## 1 card per seat, and await the first committer. `energy` is the base (the turn);
+## `budgets` and `free_first` are per seat. No Crew fires yet (DC-13 T07).
 func _begin_turn() -> void:
 	_state.turn += 1
 	if _state.turn > 1 and _state.last_turn_winner >= 0:
@@ -478,7 +473,6 @@ func _begin_turn() -> void:
 	)
 	for seat: int in range(SEATS):
 		_draw_card(seat)
-	_turn_start.begin(_state, _cards, _rng, _events)
 
 
 ## The two-step commit (R5, R7, R14, R15). `slots` are explicit (already resolved). The
@@ -564,14 +558,13 @@ static func _merge_row(state: MatchState, seat: int, cards: Array[int], slots: A
 	piles.board.assign(merged)
 
 
-## The walk (R11-R17, plan P3): pulses until the walk ends, then ends the turn. Every walk
+## The walk (R11-R17): pulses until the walk ends, then ends the turn. Every walk
 ## recomputes every card on both rows, so cards played in earlier turns score again (they
-## are already revealed: no second CARD_REVEALED). Effects fire inside the pulses
-## (ScoreWalk, EffectResolver) with the engine stream, and their
-## events reach `_events` through `_emit` with their owners. A pulse that opens a prompt
-## (DC-05 T05) pauses the walk here: phase AWAIT_CHOICE, the prompted seat awaited, the
-## turn not ended. _choose() applies the answer and calls this again, and the walk resumes
-## in the same pulse (ScoreWalk.step).
+## are already revealed: no second CARD_REVEALED). Abilities fire inside the pulses
+## (ScoreWalk, Abilities: the T02 stub fizzles them) with the engine stream, and their
+## events reach `_events` through `_emit` with their owners. A pulse finding an open prompt
+## pauses the walk here: phase AWAIT_CHOICE, the prompted seat awaited, the turn not ended;
+## no T02 ability opens one.
 func _run_walk() -> void:
 	var sink: Callable = _emit
 	while _state.walk.active:
@@ -581,42 +574,39 @@ func _run_walk() -> void:
 	_end_turn()
 
 
-## An accepted choice (R32, plan P3): the prompt closes, the choice applies (CHOICE_MADE and
-## the verb's events), and the walk resumes where it paused (_resume: or the turn start, for
-## a Crew prompt it opened). The phase returns to the one a walk runs in (AWAIT_SECOND)
-## until the walk pauses again or the turn ends.
-func _choose(index: int) -> void:
+## An accepted choice of position `index` of `zone` (R32): the prompt closes (CHOICE_MADE,
+## Abilities.answer) and what it paused resumes. The phase returns to the one a walk runs
+## in (AWAIT_SECOND) until the walk pauses again or the turn ends.
+func _choose(zone: int, index: int) -> void:
 	var resume: String = Choice.resume_of(_state.prompt)
 	_state.phase = MatchState.Phase.AWAIT_SECOND
-	_events.append_array(EffectResolver.answer(_state, _cards, index, _rng))
+	var picked: Array[int] = [index]
+	_events.append_array(Abilities.answer(_state, zone, picked))
 	_resume(resume)
 
 
-## An accepted set choice (DC-07 P7, R24), as _choose(): the prompt closes, the set applies
-## (CHOICE_MADE with `indices`, then the verb's events, or EFFECT_FIZZLED for the empty set)
-## with the engine stream for its random destroys (R35), and the walk resumes.
-func _choose_set(indices: Array[int]) -> void:
+## An accepted set choice (R24), as _choose().
+func _choose_set(zone: int, indices: Array[int]) -> void:
 	var resume: String = Choice.resume_of(_state.prompt)
 	_state.phase = MatchState.Phase.AWAIT_SECOND
-	_events.append_array(EffectResolver.answer_set(_state, _cards, _rng, indices))
+	_events.append_array(Abilities.answer(_state, zone, indices))
 	_resume(resume)
 
 
-## An accepted decline (cycle 8 R52, P10), as _choose(): the optional prompt closes without
-## its ability (CHOICE_DECLINED, no use counted) and what it paused resumes.
+## An accepted decline, as _choose(): the optional prompt closes without its ability
+## (CHOICE_DECLINED) and what it paused resumes.
 func _decline() -> void:
 	var resume: String = Choice.resume_of(_state.prompt)
 	_state.phase = MatchState.Phase.AWAIT_SECOND
-	_events.append_array(EffectResolver.decline(_state))
+	_events.append_array(Abilities.decline(_state))
 	_resume(resume)
 
 
-## Resumes after an answered prompt per its `resume` (cycle 8 P9-P11): the paused walk, or
-## the turn start's remaining Crew (TurnStart.run), which end by awaiting the first
-## committer unless another Crew prompt pauses the turn again.
+## Resumes after an answered prompt per its `resume`: the paused walk, or for a turn-start
+## prompt the first committer's decision (no T02 Crew prompts at turn start).
 func _resume(resume: String) -> void:
 	if resume == Choice.RESUME_TURN_START:
-		_turn_start.run(_state, _cards, _rng, _events)
+		_state.phase = MatchState.Phase.AWAIT_FIRST
 	else:
 		_run_walk()
 
@@ -625,26 +615,16 @@ func _resume(resume: String) -> void:
 func _prompt_seat() -> int:
 	if _state.prompt.is_empty():
 		return -1
-	var seat: int = _state.prompt.get(EffectResolver.KEY_SEAT, -1)
+	var seat: int = _state.prompt.get(Abilities.KEY_SEAT, -1)
 	return seat
 
 
-## Turn end (R17, R24, plan P14), only once the walk is complete: the return marks resolve
-## first (EffectResolver.resolve_returns: each marked card goes back to its owner's hand,
-## or burns at the cap; a destroyed card is skipped), then the destroyed cards leave their
-## rows for their seat's destroyed pile (EffectResolver.clear_destroyed, DC-06 R18, P6;
-## DC-07 R16), then every revealed live card carrying the ongoing turn-end flip turns face
-## down in its slot (EffectResolver.flip_echoes, cycle 8 R18, P6), then per-seat
-## energy is settled (EffectResolver.settle_energy: a revealed carry card on the row
-## carries `budget - spent`, else the carry is 0, so a returned or destroyed carry card
-## carries nothing); then the scores are the walk totals and the higher one wins the turn,
-## as cycle 1 R16 did from power. Rows shrink only here.
+## Turn end (R17), only once the walk is complete: the energy carry is 0 for both seats (no
+## T02 ability carries, grants or returns), then the scores are the walk totals and the
+## higher one wins the turn. DC-13 T03 replaces this with the v2 turn end (P14).
 func _end_turn() -> void:
-	_events.append_array(EffectResolver.resolve_returns(_state, _cards))
-	_events.append_array(EffectResolver.clear_destroyed(_state, _cards))
-	_events.append_array(EffectResolver.flip_echoes(_state, _cards))
-	_events.append_array(CrewEffects.drain_all(_state, _cards))  # Their Crew (DC-11 T10).
-	_events.append_array(EffectResolver.settle_energy(_state, _cards))
+	for seat: int in range(SEATS):
+		_state.energy.carry[seat] = 0
 	var winner: int = _leader()
 	_state.last_turn_winner = winner
 	_emit(
@@ -710,12 +690,17 @@ func _deal_card(seat: int) -> void:
 	_emit(MatchEvent.Kind.CARD_DEALT, {"seat": seat, "card": card}, seat)
 
 
-## Draw (R12): the top card goes to the hand, or is burned when the hand is at the cap.
-## The same draw as the DRAW effect's (EffectResolver.draw_card, R25).
+## Draw (canon R13): the top card of `seat`'s Deck goes to its hand, CARD_DRAWN {seat,
+## card} private to the seat; nothing when the Deck is empty. There is no hand cap and no
+## burn under rules 7 (the discard-down lands with DC-13 T03).
 func _draw_card(seat: int) -> void:
-	var drawn: MatchEvent = EffectResolver.draw_card(_state, seat)
-	if drawn != null:
-		_events.append(drawn)
+	var piles: MatchState.SeatPiles = _state.seats[seat]
+	if piles.deck.is_empty():
+		return
+	var card: int = piles.deck[0]
+	piles.deck.remove_at(0)
+	piles.hand.append(card)
+	_emit(MatchEvent.Kind.CARD_DRAWN, {"seat": seat, "card": card}, seat)
 
 
 ## The seat with the higher board score, or -1 when they are equal.

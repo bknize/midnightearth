@@ -136,15 +136,10 @@ func note_step(step: BoardStep) -> void:
 		new_round()
 
 
-## A round starts: a per-round Crew's badge returns to its full uses (R60). A match-scope
-## Crew keeps what is left.
+## A round starts: nothing to refill, since a v2 Crew's uses are for the match (cycle 9
+## plan P4; the board reconciles its Crew line with DC-13 T09). Kept as the CLEAR_TABLE hook.
 func new_round() -> void:
-	for seat: int in range(_defs.size()):
-		for slot: int in range(_defs[seat].size()):
-			var raw: Object = _defs[seat][slot]
-			var def: CrewDef = raw as CrewDef
-			if def != null and def.scope == CrewDef.Scope.ROUND:
-				set_uses(seat, slot, def.uses)
+	pass
 
 
 ## A Crew fires (CREW_FIRE, R61): it lifts toward the camera and settles over `seconds`, and

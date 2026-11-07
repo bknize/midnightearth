@@ -63,29 +63,20 @@ var walk: WalkState = WalkState.new()
 ## (MatchEngine).
 var bonus_zero_pending: Array[bool] = [false, false]
 ## The open prompt (plan P9): {seat, card, verb, zone, options, multi, optional, resume,
-## crew}, with `verb` a CardEffect.Verb (a CrewDef.Verb for a Crew prompt), `zone` a
-## Choice.Zone, `options` a plain Array of positions in that zone (Choice), `multi` true
-## when it takes a set (EngineAction.CHOOSE_SET, DC-07 P7) rather than one position,
-## `optional` true when it may be declined (EngineAction.DECLINE), `resume` what its answer
-## resumes (Choice.RESUME_WALK or RESUME_TURN_START) and `crew` the Crew id ("" for a card
-## prompt, whose `card` is then the source; cycle 8 P9). Empty when no prompt is open.
+## crew}, with `verb` the ability's verb name, `zone` a Choice.Zone, `options` a plain
+## Array of positions in that zone (Choice), `multi` true when it takes a set
+## (EngineAction.CHOOSE_SET) rather than one position, `optional` true when it may be
+## declined (EngineAction.DECLINE), `resume` what its answer resumes (Choice.RESUME_WALK or
+## RESUME_TURN_START) and `crew` the Crew id ("" for a card prompt, whose `card` is then the
+## source). Empty when no prompt is open; no DC-13 T02 ability opens one.
 var prompt: Dictionary = {}
-## The turn start's Crew cursor (cycle 8 R54, plan P11; TurnStart): the position, in
-## first-committer order (the first seat's slots 0..2, then the other seat's), of the next
-## Crew to consider, so a Crew prompt that pauses the turn start resumes with the Crew after
-## it. TurnStart.DONE (-1) outside the turn start.
+## The turn start's Crew cursor (v6, kept until DC-13 T03 rewrites the turn flow): -1.
 var turn_start_at: int = -1
-## Per seat, the uses left of each of its Crew in slot order (cycle 8 R43, plan P13):
-## CrewDef.UNLIMITED (-1) for a Crew of scope NONE, else the uses its ability has left.
-## Empty per seat until the first round starts; reset_crew_uses() fills it then and resets
-## each ROUND Crew at every round start, keeping MATCH Crew. Public: SeatView shows it.
+## Per seat, the uses left of each of its Crew in slot order: CrewDef.UNLIMITED (-1) for an
+## unlimited Crew, else the uses its ability has left. Empty per seat until the first round
+## starts; reset_crew_uses() fills it then. Public: SeatView shows it.
 var crew_uses: Array[Array] = [[], []]
-## The Crew trigger queue (cycle 8 R45, R46, plan P13; DC-11 T10, CrewEffects): each entry
-## {trigger: a CrewDef.Trigger, seat: the card's controller, card: its instance id, slot:
-## the next of that seat's Crew slots to consider}, in the order the causes happened. An
-## effect appends (a destroy, a move, a return, an un-reveal) and the queue drains once
-## that effect has resolved, so a Crew never fires inside one; a Crew prompt opened by the
-## drain leaves its entry at the head until it is answered. Empty between drains.
+## The v6 Crew trigger queue, kept empty until DC-13 T05 replaces it with the trigger queue.
 var crew_queue: Array[Dictionary] = []
 
 
@@ -216,22 +207,18 @@ func memory_for(card: int) -> CardMemory:
 	return memory[card]
 
 
-## Round start (cycle 8 R43, plan P13): each seat's Crew uses from `cards`. A seat with no
-## counts yet (the first round) takes each Crew's CrewDef.initial_uses(); after that a
-## ROUND Crew is reset to its `uses`, a MATCH Crew keeps what it has left and a NONE Crew
-## stays CrewDef.UNLIMITED.
+## Round start: each seat's Crew uses from `cards`. A seat with no counts yet (the first
+## round) takes each Crew's CrewDef.initial_uses(); after that every Crew keeps what it has
+## left, since a v2 Crew's uses are for the match (CrewDef.UNLIMITED for an unlimited one).
 func reset_crew_uses(cards: MatchCards) -> void:
 	for seat: int in range(crew_uses.size()):
 		var defs: Array[CrewDef] = cards.crew_for(seat)
 		var held: Array = crew_uses[seat]
-		var fresh: bool = held.size() != defs.size()
+		if held.size() == defs.size():
+			continue
 		var out: Array = []
-		for slot: int in range(defs.size()):
-			var def: CrewDef = defs[slot]
-			var left: int = def.initial_uses()
-			if not fresh and def.scope == CrewDef.Scope.MATCH:
-				left = held[slot]
-			out.append(left)
+		for def: CrewDef in defs:
+			out.append(def.initial_uses())
 		crew_uses[seat] = out
 
 
@@ -241,7 +228,7 @@ func clear_card_state(card: int) -> bool:
 
 
 ## Whether `card` is destroyed (DC-06 R12, P4): still on its row, scoring and firing
-## nothing, until turn end clears it (EffectResolver.clear_destroyed).
+## nothing, until turn end clears it (the v6 turn-end clear; no T02 ability destroys).
 func is_destroyed(card: int) -> bool:
 	var held: CardState = card_state(card)
 	return held != null and held.destroyed
@@ -438,7 +425,7 @@ class EnergyState:
 ## seat, the number of that row's slots the walk has passed (R1), so the next slot of a row
 ## is its cursor; `scored` holds every card scored at least once in this walk (a card moved
 ## in front of the cursor scores again, CARD_SCORED `again`); `mult` is each seat's
-## running multiplier in hundredths, MatchRules.MULT_ONE (×1.00) at walk start (DC-07 P4).
+## running multiplier in hundredths, MatchRules.BONUS_ONE (×1.00) at walk start (DC-07 P4).
 ## `paused_card` is the card whose stage a prompt interrupted (-1 when none): the card
 ## revealing or scoring in the pulse, which may not be the card the pulse started on (DC-06
 ## C23). `paused_slot` is the slot of the pulse's row it was pulsing (-1 when none), so a
@@ -454,7 +441,7 @@ class WalkState:
 	var next_seat: int = 0
 	var cursor: Array[int] = [0, 0]
 	var scored: Dictionary[int, bool] = {}
-	var mult: Array[int] = [MatchRules.MULT_ONE, MatchRules.MULT_ONE]
+	var mult: Array[int] = [MatchRules.BONUS_ONE, MatchRules.BONUS_ONE]
 	## Cards revealed so far in this walk: the CARD_REVEALED `order` the board still reads
 	## (kept until the board moves to the walk's events, DC-05 T08 and T11).
 	var reveals: int = 0

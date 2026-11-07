@@ -14,16 +14,16 @@ extends RefCounted
 ## `return_marked` does not change stats: the card goes back at the end of the turn (R24).
 ## `destroyed` (DC-06 R12-R22, P4) does not change stats either: the card keeps its slot,
 ## scores nothing and fires nothing, and leaves for its seat's destroyed pile at turn end
-## (EffectResolver.clear_destroyed), which ends the mark with the rest of the entry.
+## (the v6 turn-end clear; no T02 ability destroys), which ends the mark with the rest of the entry.
 
 ## The base below is in use instead of the definition's stats (set by a copy, DC-07 T07).
 var has_base: bool = false
 ## The base flat once `has_base` is set.
 var base_flat: int = 0
-## The base ×-part once `has_base` is set, in hundredths (MatchRules.MULT_ONE for none). A
+## The base ×-part once `has_base` is set, in hundredths (MatchRules.BONUS_ONE for none). A
 ## copy stores the target's whole shown bonus, so the base may hold a ×-part and a +-part
 ## at once (R34, C22).
-var base_times: int = MatchRules.MULT_ONE
+var base_times: int = MatchRules.BONUS_ONE
 ## The base +-part once `has_base` is set, in whole units (0 for none). Both base parts go
 ## with the entry when the card leaves the board or is un-revealed.
 var base_plus: int = 0
@@ -38,7 +38,7 @@ var return_marked: bool = false
 ## The card is destroyed (DC-06 R12): it stays in its slot until the turn ends.
 var destroyed: bool = false
 ## Salvager was accepted for this destroyed card (cycle 8 R51, P14; DC-11 T10); at turn end
-## EffectResolver.clear_destroyed() sends it to its controller's hand, not to the pile.
+## the v6 turn-end clear sent it to its controller's hand, not to the pile.
 var salvaged: bool = false
 
 
