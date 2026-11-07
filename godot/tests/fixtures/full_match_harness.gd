@@ -399,6 +399,10 @@ func _scan_leaks(
 				if FullMatchRun.is_memory_kind(event.kind):
 					run.memory_hidden_seen += 1
 					run.check_neutral_stats(event, where)
+			# A seat's own CARD_LOOKED names what it was shown (Lookout, Delve), even when the
+			# card is revealed later in the step and leaves `looked`.
+			if event.kind == MatchEvent.Kind.CARD_LOOKED and event.owner_seat == seat:
+				continue
 			for card: int in FullMatchRun.event_card_ids(event):
 				if _public_at(windows, card, at):
 					continue

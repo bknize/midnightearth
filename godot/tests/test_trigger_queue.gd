@@ -420,8 +420,9 @@ func test_on_commit_brackets_and_on_start_for_revealed_cards_only() -> void:
 	assert_array(commit.cards_of(FIRED)).is_equal(_typed([r1, h1]))
 	var fired: Array[MatchEvent] = commit.of_kind(FIRED)
 	assert_int(fired[0].owner_seat).is_equal(MatchEvent.PUBLIC)
-	assert_int(fired[1].owner_seat).is_equal(0)
-	assert_int(_int_of(fired[1].redacted_for(1), "card")).is_equal(MatchEvent.HIDDEN_CARD)
+	# C14: a trigger fired from the hand is public and names its card for both seats.
+	assert_int(fired[1].owner_seat).is_equal(MatchEvent.PUBLIC)
+	assert_int(_int_of(fired[1].redacted_for(1), "card")).is_equal(h1)
 	assert_str(_str_of(fired[1], "moment")).is_equal("on_commit")
 	var start: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TurnFlow.on_start(state, cards, rng, start.record)).is_false()
