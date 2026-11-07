@@ -277,7 +277,7 @@ static func _bracket_problem(d: Dictionary) -> String:
 		return "%s: %s" % [ERR_ZONE, JSON.stringify(d[KEY_ZONE])]
 	if d.has(KEY_USES):
 		var raw_uses: Variant = d[KEY_USES]
-		if not is_whole_number(raw_uses) or as_int(raw_uses) < 0:
+		if not EngineAction.is_whole_number(raw_uses) or EngineAction.as_int(raw_uses) < 0:
 			return "%s: %s (a whole number >= 0)" % [ERR_USES, JSON.stringify(raw_uses)]
 	return ""
 
@@ -288,9 +288,9 @@ static func _amount_problem(d: Dictionary) -> String:
 	var verb_name: String = d[KEY_VERB]
 	for key: String in RANGED_KEYS:
 		var raw: Variant = d.get(key, 0)
-		if not is_whole_number(raw):
+		if not EngineAction.is_whole_number(raw):
 			return "%s: %s %s is not a whole number" % [ERR_AMOUNT, key, JSON.stringify(raw)]
-		var value: int = as_int(raw)
+		var value: int = EngineAction.as_int(raw)
 		var bounds: Array[int] = range_of(verb_name, key)
 		if value < bounds[0] or value > bounds[1]:
 			return (
@@ -323,25 +323,8 @@ static func _string_of(d: Dictionary, key: String, fallback: String) -> String:
 ## `d[key]` as an int, 0 when absent or not a whole number.
 static func _int_of(d: Dictionary, key: String) -> int:
 	var raw: Variant = d.get(key, 0)
-	if not is_whole_number(raw):
+	if not EngineAction.is_whole_number(raw):
 		return 0
-	return as_int(raw)
+	return EngineAction.as_int(raw)
 
 
-## Converts a value already checked by is_whole_number to int without an unsafe call.
-static func as_int(value: Variant) -> int:
-	if value is int:
-		var whole: int = value
-		return whole
-	var number: float = value
-	return int(number)
-
-
-## JSON numbers arrive as floats; accept ints and floats with no fractional part.
-static func is_whole_number(value: Variant) -> bool:
-	if value is int:
-		return true
-	if value is float:
-		var f: float = value
-		return is_finite(f) and f == floorf(f)
-	return false

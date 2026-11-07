@@ -121,28 +121,6 @@ static func on_moment(card: int, cards: MatchCards, moment: String) -> Array[Car
 	return out
 
 
-## The T02 stub for one card and moment outside the queue, kept for its callers: one public
-## TRIGGER_FIZZLED {seat, card, crew: "", verb, reason: REASON_NO_TARGET} per ability on
-## that moment, in printed order; empty for a card with none and for a Muted card. The
-## match itself fires abilities only through the trigger queue (prepare(), resolve()).
-static func fire(
-	state: MatchState, cards: MatchCards, _rng: MatchRng, seat: int, card: int, moment: String
-) -> Array[MatchEvent]:
-	var out: Array[MatchEvent] = []
-	if state != null and not Statuses.fires(state, card):
-		return out
-	for ability: CardAbility in on_moment(card, cards, moment):
-		var fizzled: Dictionary = {
-			"seat": seat,
-			"card": card,
-			"crew": "",
-			"verb": ability.verb,
-			"reason": REASON_NO_TARGET,
-		}
-		out.append(MatchEvent.new(MatchEvent.Kind.TRIGGER_FIZZLED, fizzled))
-	return out
-
-
 # --- The queue's protocol ---------------------------------------------------------------
 
 
@@ -166,19 +144,19 @@ static func prepare(ctx: TriggerContext) -> void:
 		VERB_DISCARD_OWN:
 			_prepare_discard_own(ctx)
 		VERB_DISCARD_HAND, VERB_GROW_HAND_POWER:
-			_need(ctx, not ctx.state.seats[ctx.seat].hand.is_empty())
+			need(ctx, not ctx.state.seats[ctx.seat].hand.is_empty())
 		VERB_CONDEMN_SELF, VERB_SCAPEGOAT:
-			_need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
+			need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
 		VERB_RIGHT_POWER, VERB_COST_DOWN_RIGHT:
-			_need(ctx, right_of(ctx.state, ctx.card) >= 0)
+			need(ctx, right_of(ctx.state, ctx.card) >= 0)
 		VERB_GROW_RIGHT_MULT_TIMES:
-			_need(ctx, has_mult(ctx.state, ctx.cards, right_of(ctx.state, ctx.card)))
+			need(ctx, has_mult(ctx.state, ctx.cards, right_of(ctx.state, ctx.card)))
 		VERB_OTHERS_POWER:
-			_need(ctx, not _others_revealed(ctx.state, ctx.seat, ctx.card).is_empty())
+			need(ctx, not _others_revealed(ctx.state, ctx.seat, ctx.card).is_empty())
 		VERB_PASS_POWER_ADD:
-			_need(ctx, _passed(ctx.state, ctx.seat))
+			need(ctx, _passed(ctx.state, ctx.seat))
 		VERB_MOVE_SELF_RIGHT:
-			_need(ctx, _can_shift(ctx))
+			need(ctx, _can_shift(ctx))
 		VERB_COPY_STATS:
 			_target_opposing(ctx, true)
 		VERB_LOOK:
@@ -340,14 +318,14 @@ static func has_mult(state: MatchState, cards: MatchCards, card: int) -> bool:
 
 
 ## Fizzles `ctx` `no_target` unless `ready`.
-static func _need(ctx: TriggerContext, ready: bool) -> void:
+static func need(ctx: TriggerContext, ready: bool) -> void:
 	if not ready:
 		ctx.fizzle(REASON_NO_TARGET)
 
 
 ## Ember, Cinder: the Controller chooses `amount` cards of its hand (one: a single choice).
 static func _prepare_discard_own(ctx: TriggerContext) -> void:
-	var options: Array[int] = _positions(ctx.state.seats[ctx.seat].hand.size())
+	var options: Array[int] = positions(ctx.state.seats[ctx.seat].hand.size())
 	var count: int = mini(maxi(ctx.ability.amount, 1), options.size())
 	if count > 1:
 		if ctx.choose(Choice.Zone.OWN_HAND, options, true, count, count):
@@ -387,7 +365,7 @@ static func _prepare_delve(ctx: TriggerContext) -> void:
 			"zone": LOOKED_DECK_TOP,
 		}
 		ctx.emit(MatchEvent.Kind.CARD_LOOKED, looked, ctx.seat)
-	if ctx.choose(Choice.Zone.OWN_DECK_TOP, _positions(count)):
+	if ctx.choose(Choice.Zone.OWN_DECK_TOP, positions(count)):
 		pass  # One card: chosen at once.
 
 
@@ -487,7 +465,7 @@ static func _discard_chosen(ctx: TriggerContext) -> void:
 	for at: int in range(ctx.indices.size()):
 		chosen.append(ctx.chosen_card(at))
 	for card: int in chosen:
-		_discard(ctx, card)
+		discard(ctx, card)
 
 
 ## Jackpot: every hand card, in hand order, each Discarded with its own On discard Batch.
@@ -495,12 +473,12 @@ static func _discard_hand(ctx: TriggerContext) -> void:
 	var hand: Array[int] = []
 	hand.assign(ctx.state.seats[ctx.seat].hand)
 	for card: int in hand:
-		_discard(ctx, card)
+		discard(ctx, card)
 
 
 ## `card` leaves the Controller's hand for its Owner's Pile as a Discard (CARD_DISCARDED,
 ## public) and its On discard Batch is queued (Q1).
-static func _discard(ctx: TriggerContext, card: int) -> void:
+static func discard(ctx: TriggerContext, card: int) -> void:
 	var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
 	if card < 0 or not piles.hand.has(card):
 		return
@@ -537,14 +515,14 @@ static func _grow_power(ctx: TriggerContext, card: int, scope: String) -> void:
 		_turn_power(ctx.state, card, amount)
 	else:
 		ctx.state.card_state_for(card).power_delta += amount
-	_stats_changed(ctx, card, scope == SCOPE_MATCH)
+	stats_changed(ctx, card, scope == SCOPE_MATCH)
 
 
 ## Idler on a Pass: Power +amount and Add +amount_2 until end of turn.
 static func _pass_bonus(ctx: TriggerContext) -> void:
 	_turn_power(ctx.state, ctx.card, ctx.ability.amount)
 	ctx.state.card_state_for(ctx.card).grant(CardState.KIND_ADD, ctx.ability.amount_2, SCOPE_TURN)
-	_stats_changed(ctx, ctx.card, false)
+	stats_changed(ctx, ctx.card, false)
 
 
 ## A Power change of `amount` on `card` until end of turn (end_turn_changes takes it back).
@@ -572,7 +550,7 @@ static func _grow_mult(ctx: TriggerContext, card: int, additive: bool) -> void:
 	else:
 		kept.mult_times_steps.append(ctx.ability.amount)
 	kept.mult_cap = maxi(kept.mult_cap, cap)
-	_stats_changed(ctx, card, true)
+	stats_changed(ctx, card, true)
 
 
 ## Tinker, Layaway: Cost -amount for the match (Memory); an effective Cost never goes below
@@ -581,7 +559,7 @@ static func _cost_down(ctx: TriggerContext, card: int) -> void:
 	if card < 0:
 		return
 	ctx.state.memory_for(card).cost_delta -= ctx.ability.amount
-	_stats_changed(ctx, card, true)
+	stats_changed(ctx, card, true)
 
 
 ## Mirror: the chosen revealed opposing card's current Power and Bonuses (Q5) become this
@@ -592,13 +570,11 @@ static func _copy_stats(ctx: TriggerContext) -> void:
 	if target < 0 or not other.board.has(target) or not other.is_revealed(target):
 		return
 	var read: Scoring.Stats = Scoring.stats(target, ctx.state, ctx.cards)
-	var adds: Array = []
-	adds.assign(read.adds)
-	var mults: Array = []
-	mults.assign(read.mults)
-	var base: Dictionary = {"power": read.power, "adds": adds, "mults": mults}
+	var base: Dictionary = {
+		"power": read.power, "adds": MatchState.plain(read.adds), "mults": MatchState.plain(read.mults)
+	}
 	ctx.state.card_state_for(ctx.card).copied_base = base
-	_stats_changed(ctx, ctx.card, false)
+	stats_changed(ctx, ctx.card, false)
 
 
 ## Lookout: the chosen face-down opposing card joins the Controller's `looked` (until it is
@@ -645,7 +621,7 @@ static func _delve(ctx: TriggerContext) -> void:
 
 
 ## Positions 0 .. count - 1.
-static func _positions(count: int) -> Array[int]:
+static func positions(count: int) -> Array[int]:
 	var out: Array[int] = []
 	for index: int in range(count):
 		out.append(index)
@@ -664,7 +640,7 @@ static func _others_revealed(state: MatchState, seat: int, card: int) -> Array[i
 
 ## STATS_CHANGED {card, power, mult, add, cost, permanent, cause} for `card` now, private
 ## to the seat holding it while it is hidden (hidden_holder()).
-static func _stats_changed(ctx: TriggerContext, card: int, permanent: bool) -> void:
+static func stats_changed(ctx: TriggerContext, card: int, permanent: bool) -> void:
 	var read: Scoring.Stats = Scoring.stats(card, ctx.state, ctx.cards)
 	var changed: Dictionary = {
 		"card": card,

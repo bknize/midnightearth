@@ -122,7 +122,7 @@ static func handles(verb: String) -> bool:
 static func prepare(ctx: TriggerContext) -> void:
 	match ctx.verb:
 		VERB_FUSE, VERB_RESET, VERB_SKIP, VERB_EDDY:
-			_need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
+			Abilities.need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
 		VERB_TITHE:
 			_prepare_tithe(ctx)
 		VERB_RELIQUARY:
@@ -135,19 +135,19 @@ static func prepare(ctx: TriggerContext) -> void:
 			_prepare_shepherd(ctx)
 		VERB_REVIVE:
 			var pile: Array[int] = ctx.state.seats[ctx.seat].pile
-			if ctx.choose(Choice.Zone.OWN_PILE, _positions(pile.size())):
+			if ctx.choose(Choice.Zone.OWN_PILE, Abilities.positions(pile.size())):
 				pass  # One card in the Pile: chosen at once.
 		VERB_EXHUME:
 			_prepare_exhume(ctx)
 		VERB_PIN:
 			var both: int = Choice.zone_cards(ctx.state, ctx.seat, Choice.Zone.BOTH_BOARDS).size()
-			if ctx.choose(Choice.Zone.BOTH_BOARDS, _positions(both)):
+			if ctx.choose(Choice.Zone.BOTH_BOARDS, Abilities.positions(both)):
 				pass  # One card on the rows: chosen at once.
 		VERB_SHAKE:
 			var widest: int = maxi(ctx.state.seats[0].board.size(), ctx.state.seats[1].board.size())
-			_need(ctx, widest >= 2)
+			Abilities.need(ctx, widest >= 2)
 		VERB_TEMPEST:
-			_need(ctx, ctx.state.seats[1 - ctx.seat].board.size() >= 2)
+			Abilities.need(ctx, ctx.state.seats[1 - ctx.seat].board.size() >= 2)
 		VERB_CULL:
 			_prepare_cull(ctx)
 		_:
@@ -320,12 +320,6 @@ static func shake_row(
 # --- Preparing --------------------------------------------------------------------------
 
 
-## Fizzles `ctx` `no_target` unless `ready`.
-static func _need(ctx: TriggerContext, ready: bool) -> void:
-	if not ready:
-		ctx.fizzle(Abilities.REASON_NO_TARGET)
-
-
 ## Tithe: a Condemned card Discarded by the exit pass, a next Turn in the Round, and fewer
 ## than `cap` grants from this Tithe this turn end.
 static func _prepare_tithe(ctx: TriggerContext) -> void:
@@ -346,7 +340,7 @@ static func _prepare_reliquary(ctx: TriggerContext) -> void:
 		ctx.fizzle(Abilities.REASON_SPENT)
 	elif ctx.ability.cap > 0:
 		var mult: int = Scoring.stats(ctx.card, ctx.state, ctx.cards).mult()
-		_need(ctx, mult < ctx.ability.cap)
+		Abilities.need(ctx, mult < ctx.ability.cap)
 
 
 ## The row positions of `ctx`'s other cards that can be Condemned (Glutton, Immolator).
@@ -393,7 +387,7 @@ static func _prepare_exhume(ctx: TriggerContext) -> void:
 	var most: int = maxi(ctx.ability.amount, 0)
 	if ctx.choose(
 		Choice.Zone.BOTH_PILES,
-		_positions(count),
+		Abilities.positions(count),
 		true,
 		Choice.ANY_SIZE,
 		0,
@@ -430,7 +424,7 @@ static func _cull_next(ctx: TriggerContext, after: int) -> int:
 static func _cull_ask(ctx: TriggerContext, by_seat: int) -> void:
 	var keep: int = ctx.ability.amount
 	ctx.data[DATA_ASKED] = by_seat
-	var options: Array[int] = _positions(ctx.state.seats[by_seat].board.size())
+	var options: Array[int] = Abilities.positions(ctx.state.seats[by_seat].board.size())
 	if ctx.choose(Choice.Zone.OWN_BOARD, options, true, keep, keep, false, by_seat):
 		pass  # Only when every card must be kept, which Cull never asks.
 
@@ -442,7 +436,7 @@ static func _cull_ask(ctx: TriggerContext, by_seat: int) -> void:
 ## itself and one random opposing card.
 static func _fuse(ctx: TriggerContext) -> void:
 	ctx.state.card_state_for(ctx.card).power_delta += ctx.ability.amount
-	_stats_changed(ctx, ctx.card, false)
+	Abilities.stats_changed(ctx, ctx.card, false)
 	if Scoring.stats(ctx.card, ctx.state, ctx.cards).power < ctx.ability.amount_2:
 		return
 	_condemn(ctx, ctx.card)
@@ -470,7 +464,7 @@ static func _reliquary(ctx: TriggerContext) -> void:
 	var kept: CardMemory = ctx.state.memory_for(ctx.card)
 	kept.mult_times_steps.append(ctx.ability.amount)
 	kept.mult_cap = maxi(kept.mult_cap, ctx.ability.cap)
-	_stats_changed(ctx, ctx.card, true)
+	Abilities.stats_changed(ctx, ctx.card, true)
 
 
 ## Glutton: the chosen card is Condemned; Glutton gains its Power (read now) until it
@@ -482,7 +476,7 @@ static func _glutton(ctx: TriggerContext) -> void:
 	var gained: int = Scoring.stats(target, ctx.state, ctx.cards).power
 	_condemn(ctx, target)
 	ctx.state.card_state_for(ctx.card).power_delta += gained
-	_stats_changed(ctx, ctx.card, false)
+	Abilities.stats_changed(ctx, ctx.card, false)
 
 
 ## Revive: the chosen Pile card is placed face down in the slot right of Revive (Placement:
@@ -579,7 +573,7 @@ static func _resolve_control(ctx: TriggerContext) -> void:
 	match ctx.verb:
 		VERB_EDDY:
 			ctx.state.card_state_for(ctx.card).grant(CardState.KIND_ADD, ctx.ability.amount, SCOPE_TURN)
-			_stats_changed(ctx, ctx.card, false)
+			Abilities.stats_changed(ctx, ctx.card, false)
 		VERB_PIN:
 			var target: int = ctx.chosen_card()
 			var cease: Dictionary = Statuses.cessation(
@@ -656,14 +650,6 @@ static func _cull(ctx: TriggerContext) -> void:
 # --- Helpers ----------------------------------------------------------------------------
 
 
-## Positions 0 .. count - 1.
-static func _positions(count: int) -> Array[int]:
-	var out: Array[int] = []
-	for index: int in range(count):
-		out.append(index)
-	return out
-
-
 ## Condemns `card` (a protection may block it: Bastion); true when the mark landed. A
 ## Condemned card still Scores and fires this Walk (Q10).
 static func _condemned(ctx: TriggerContext, card: int) -> bool:
@@ -727,17 +713,3 @@ static func _read_anywhere(state: MatchState, cards: MatchCards, verb: String) -
 	return false
 
 
-## STATS_CHANGED {card, power, mult, add, cost, permanent, cause} for `card` now, private
-## to the seat holding it while it is hidden (Abilities.hidden_holder).
-static func _stats_changed(ctx: TriggerContext, card: int, permanent: bool) -> void:
-	var read: Scoring.Stats = Scoring.stats(card, ctx.state, ctx.cards)
-	var changed: Dictionary = {
-		"card": card,
-		"power": read.power,
-		"mult": read.mult(),
-		"add": read.add(),
-		"cost": maxi(Scoring.effective_cost(card, ctx.state, ctx.cards), 0),
-		"permanent": permanent,
-		"cause": ctx.verb,
-	}
-	ctx.emit(MatchEvent.Kind.STATS_CHANGED, changed, Abilities.hidden_holder(ctx.state, card))

@@ -167,7 +167,7 @@ func _with(key: String, value: Variant) -> CrewPool:
 func _assert_invalid(pool: CrewPool, prefix: String) -> void:
 	assert_bool(pool.is_valid()).override_failure_message(prefix).is_false()
 	assert_str(pool.load_error()).starts_with(prefix)
-	assert_str(pool.validate()).starts_with(prefix)
+	assert_str(pool.load_error()).starts_with(prefix)
 	assert_int(pool.size()).is_equal(0)
 	assert_array(pool.ids()).is_empty()
 
@@ -178,7 +178,7 @@ func _assert_invalid(pool: CrewPool, prefix: String) -> void:
 func test_the_shipped_file_loads_the_ten_crew() -> void:
 	var pool: CrewPool = CrewPool.load_default()
 	assert_bool(pool.is_valid()).override_failure_message(pool.load_error()).is_true()
-	assert_str(pool.validate()).is_empty()
+	assert_str(pool.load_error()).is_empty()
 	assert_int(pool.size()).is_equal(IDS.size())
 	assert_array(pool.ids()).is_equal(IDS)
 

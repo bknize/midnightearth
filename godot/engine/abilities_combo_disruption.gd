@@ -109,7 +109,6 @@ const KEY_OWNER: String = "owner"
 ## and the cards kept so far.
 const DATA_STAGE: String = "stage"
 const DATA_KEPT: String = "kept"
-const MOMENT_DISCARD: String = "on_discard"
 const MOMENT_ONGOING: String = "ongoing"
 
 # --- The dispatch -------------------------------------------------------------------------
@@ -133,15 +132,15 @@ static func prepare(ctx: TriggerContext) -> void:
 		VERB_MUTE_OPPOSING, VERB_SQUELCH_OPPOSING, VERB_SILENCE_OPPOSING, VERB_GAG:
 			_choose_opposing(ctx)
 		VERB_WICK, VERB_COPY_SELF, VERB_REVERB, VERB_FINALE:
-			_need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
+			Abilities.need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
 		VERB_MOVE_TO_OPPOSING:
-			_need(ctx, _can_cross(ctx))
+			Abilities.need(ctx, _can_cross(ctx))
 		VERB_CREATE_DROSS:
-			_need(ctx, ctx.cards.pool_def(DROSS_ID) != null)
+			Abilities.need(ctx, ctx.cards.pool_def(DROSS_ID) != null)
 		VERB_MUTE_CHOSEN:
-			_need(ctx, kept_choice(ctx.state, ctx.card) >= 0)
+			Abilities.need(ctx, kept_choice(ctx.state, ctx.card) >= 0)
 		VERB_MUTE_RANDOM:
-			_need(ctx, _jam_count(ctx) > 0)
+			Abilities.need(ctx, _jam_count(ctx) > 0)
 		VERB_QUORUM:
 			_prepare_quorum(ctx)
 		VERB_SCORES_TWICE, VERB_RETRIGGER:
@@ -249,12 +248,6 @@ static func create_in_hand(ctx: TriggerContext, def: CardDef, seat: int) -> int:
 # --- Preparing ----------------------------------------------------------------------------
 
 
-## Fizzles `ctx` `no_target` unless `ready`.
-static func _need(ctx: TriggerContext, ready: bool) -> void:
-	if not ready:
-		ctx.fizzle(Abilities.REASON_NO_TARGET)
-
-
 ## Swell: the Controller's other cards on its row (Q9).
 static func _choose_own_other(ctx: TriggerContext) -> void:
 	var row: Array[int] = ctx.state.seats[ctx.seat].board
@@ -269,20 +262,20 @@ static func _choose_own_other(ctx: TriggerContext) -> void:
 ## Reprieve, Hex: every card on either row (zone both_boards, the Controller's row first).
 static func _choose_either_row(ctx: TriggerContext) -> void:
 	var count: int = ctx.state.seats[0].board.size() + ctx.state.seats[1].board.size()
-	if ctx.choose(Choice.Zone.BOTH_BOARDS, _positions(count)):
+	if ctx.choose(Choice.Zone.BOTH_BOARDS, Abilities.positions(count)):
 		pass  # One card: chosen at once.
 
 
 ## Scrap: one card of the Controller's hand.
 static func _choose_hand(ctx: TriggerContext) -> void:
-	var options: Array[int] = _positions(ctx.state.seats[ctx.seat].hand.size())
+	var options: Array[int] = Abilities.positions(ctx.state.seats[ctx.seat].hand.size())
 	if ctx.choose(Choice.Zone.OWN_HAND, options):
 		pass  # One card: chosen at once.
 
 
 ## Hush, Muzzle, Eclipse, Gag: every opposing card, face up or down, by slot.
 static func _choose_opposing(ctx: TriggerContext) -> void:
-	var options: Array[int] = _positions(ctx.state.seats[1 - ctx.seat].board.size())
+	var options: Array[int] = Abilities.positions(ctx.state.seats[1 - ctx.seat].board.size())
 	if ctx.choose(Choice.Zone.OPPONENT_BOARD, options):
 		pass  # One card: chosen at once.
 
@@ -343,7 +336,7 @@ static func _wick(ctx: TriggerContext) -> void:
 		if ctx.draw(ctx.seat) < 0:
 			pass  # Empty: DRAW_EMPTY, its On empty draw Batch queued (Q11).
 	ctx.state.card_state_for(ctx.card).power_delta -= amount
-	_stats_changed(ctx, ctx.card, false)
+	Abilities.stats_changed(ctx, ctx.card, false)
 	if Scoring.stats(ctx.card, ctx.state, ctx.cards).power <= 0:
 		_mark(ctx, ctx.card, Statuses.FLEETING)
 
@@ -363,14 +356,14 @@ static func _scrap(ctx: TriggerContext) -> void:
 	if discarded < 0 or not ctx.state.seats[ctx.seat].hand.has(discarded):
 		return
 	var cost: int = maxi(Scoring.effective_cost(discarded, ctx.state, ctx.cards), 0)
-	_discard(ctx, discarded)
+	Abilities.discard(ctx, discarded)
 	var add: int = ctx.ability.amount * cost
 	if ctx.ability.cap > 0:
 		add = mini(add, ctx.ability.cap)
 	if add <= 0 or Statuses.row_seat(ctx.state, ctx.card) < 0:
 		return
 	ctx.state.card_state_for(ctx.card).grant(CardState.KIND_ADD, add, Abilities.SCOPE_TURN)
-	_stats_changed(ctx, ctx.card, false)
+	Abilities.stats_changed(ctx, ctx.card, false)
 
 
 ## Twin: a created copy of this card's definition (base values, no Memory) into the
@@ -385,7 +378,7 @@ static func _twin(ctx: TriggerContext) -> void:
 static func _reverb(ctx: TriggerContext) -> void:
 	_mark(ctx, ctx.card, Statuses.FLEETING)
 	ctx.state.memory_for(ctx.card).cost_delta -= ctx.ability.amount
-	_stats_changed(ctx, ctx.card, true)
+	Abilities.stats_changed(ctx, ctx.card, true)
 
 
 ## Finale: Power +amount until end of turn per other card of the Controller's row revealed
@@ -402,7 +395,7 @@ static func _finale(ctx: TriggerContext) -> void:
 	var held: CardState = ctx.state.card_state_for(ctx.card)
 	held.power_delta += gain
 	held.grant(Abilities.KIND_POWER, gain, Abilities.SCOPE_TURN)
-	_stats_changed(ctx, ctx.card, false)
+	Abilities.stats_changed(ctx, ctx.card, false)
 
 
 # --- Resolving: Disruption ----------------------------------------------------------------
@@ -559,14 +552,6 @@ static func _resolve_quorum(ctx: TriggerContext) -> void:
 # --- Helpers ------------------------------------------------------------------------------
 
 
-## Positions 0 .. count - 1.
-static func _positions(count: int) -> Array[int]:
-	var out: Array[int] = []
-	for index: int in range(count):
-		out.append(index)
-	return out
-
-
 ## The Turn's commit order: the first seat, then the second.
 static func _commit_order(state: MatchState) -> Array[int]:
 	var order: Array[int] = [state.first_seat, 1 - state.first_seat]
@@ -614,28 +599,3 @@ static func _dross_amounts(state: MatchState, cards: MatchCards, seat: int) -> A
 	return out
 
 
-## `card` leaves the Controller's hand for its Owner's Pile as a Discard (CARD_DISCARDED,
-## public) and its own On discard Batch is queued (Q1).
-static func _discard(ctx: TriggerContext, card: int) -> void:
-	ctx.state.seats[ctx.seat].hand.erase(card)
-	TurnFlow.to_pile(
-		ctx.state, ctx.cards, ctx.sink, card, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD
-	)
-	var subjects: Array[int] = [card]
-	ctx.wake(MOMENT_DISCARD, subjects)
-
-
-## STATS_CHANGED {card, power, mult, add, cost, permanent, cause} for `card` now, private to
-## the seat holding it while it is hidden (Abilities.hidden_holder).
-static func _stats_changed(ctx: TriggerContext, card: int, permanent: bool) -> void:
-	var read: Scoring.Stats = Scoring.stats(card, ctx.state, ctx.cards)
-	var changed: Dictionary = {
-		"card": card,
-		"power": read.power,
-		"mult": read.mult(),
-		"add": read.add(),
-		"cost": maxi(Scoring.effective_cost(card, ctx.state, ctx.cards), 0),
-		"permanent": permanent,
-		"cause": ctx.verb,
-	}
-	ctx.emit(MatchEvent.Kind.STATS_CHANGED, changed, Abilities.hidden_holder(ctx.state, card))

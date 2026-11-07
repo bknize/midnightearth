@@ -57,7 +57,6 @@ const VERB_SHADE: String = "shade_unreveal"
 const VERB_VEIL: String = "veil_fleeting"
 const VERB_QUARTERMASTER: String = "quartermaster_hand"
 const VERB_SALVAGER: String = "salvager_cycle"
-const MOMENT_DISCARD: String = "on_discard"
 ## On score context keys (ScoreWalk.score_stage): the seat's Score count in the Walk right
 ## after that Score, and the slot the card Scored from.
 const KEY_SCORED_COUNT: String = "scored_count"
@@ -334,11 +333,6 @@ static func _salvage(ctx: TriggerContext) -> void:
 	var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
 	if card < 0 or not piles.hand.has(card):
 		return
-	piles.hand.erase(card)
-	TurnFlow.to_pile(
-		ctx.state, ctx.cards, ctx.sink, card, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD
-	)
-	var subjects: Array[int] = [card]
-	ctx.wake(MOMENT_DISCARD, subjects)
+	Abilities.discard(ctx, card)
 	if ctx.draw(ctx.seat) < 0:
 		pass  # An empty Deck: DRAW_EMPTY, its On empty draw Batch queued (Q11).

@@ -277,8 +277,8 @@ func test_each_ability_fires_on_its_moment() -> void:
 func test_ongoing_and_plain_cards_fire_nothing() -> void:
 	var state: MatchState = _state(_typed([BANNER, PIP]), _typed([]), 0)
 	for moment: String in ["on_reveal", "on_score"]:
-		assert_array(Abilities.fire(state, _defs(), null, 0, BANNER, moment)).is_empty()
-		assert_array(Abilities.fire(state, _defs(), null, 0, PIP, moment)).is_empty()
+		assert_array(Abilities.on_moment(BANNER, _defs(), moment)).is_empty()
+		assert_array(Abilities.on_moment(PIP, _defs(), moment)).is_empty()
 	assert_int(Abilities.on_moment(BANNER, _defs(), "ongoing").size()).is_equal(1)
 	assert_array(Abilities.on_moment(-1, _defs(), "ongoing")).is_empty()
 	var recorder: Recorder = Recorder.new()
