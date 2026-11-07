@@ -505,13 +505,26 @@ func _after_round(winner: int) -> void:
 	_begin_round()
 
 
-## Stalemate (Ben, spec C12): both Decks and both hands are empty, so no later Round can
-## be won. The higher Match total Score (`match_scores`) takes the Match; equal totals draw.
+## Stalemate (Ben, spec C12): both Decks and both hands are empty and no seat can refill
+## (review 3a: a seat whose Crew shuffles its Pile in on an empty draw, with a non-empty
+## Pile, can still play), so no later Round can be won. The higher Match total Score
+## (`match_scores`) takes the Match; equal totals draw.
 func _stalled() -> bool:
-	for held: MatchState.SeatPiles in _state.seats:
+	for seat: int in range(_state.seats.size()):
+		var held: MatchState.SeatPiles = _state.seats[seat]
 		if not held.deck.is_empty() or not held.hand.is_empty():
 			return false
+		if not held.pile.is_empty() and _refills_from_pile(seat):
+			return false
 	return true
+
+
+## True when `seat` has a Crew that shuffles its Pile into its Deck (Dredger).
+func _refills_from_pile(seat: int) -> bool:
+	for crew: CrewDef in _cards.crew_for(seat):
+		if crew.verb == CrewAbilities.VERB_DREDGE:
+			return true
+	return false
 
 
 ## Concede: the other seat wins at once, whoever was awaited. A concede always falls inside

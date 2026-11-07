@@ -486,6 +486,10 @@ func test_a_stalemate_ends_on_the_match_total_score() -> void:
 		for seat: int in range(MatchEngine.SEATS):
 			assert_array(_seat_list(engine, "deck", seat)).is_empty()
 			assert_array(_seat_list(engine, "hand", seat)).is_empty()
+			# Review 3a: a seat that could shuffle a non-empty Pile back in is not stalled.
+			if not _seat_list(engine, "pile", seat).is_empty():
+				for crew: CrewDef in engine.match_cards().crew_for(seat):
+					assert_str(crew.verb).is_not_equal(CrewAbilities.VERB_DREDGE)
 		var totals: Array[int] = _state_ints(engine, "match_scores")
 		var expected: int = TurnFlow.leader(totals)
 		var winner: int = result["winner"]
