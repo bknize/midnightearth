@@ -81,7 +81,7 @@ func to_json() -> String:
 	}
 	# A log parsed from a header without decks writes none back, so it round-trips.
 	if not deck_ids.is_empty():
-		data[KEY_DECKS] = _plain_strings(deck_ids)
+		data[KEY_DECKS] = MatchState.plain_strings(deck_ids)
 	data[KEY_ACTIONS] = entries
 	return JSON.stringify(data, "", false)
 
@@ -177,13 +177,6 @@ static func _parse_decks(value: Variant) -> Array[String]:
 			return out
 		var deck_id: String = entry
 		out.append(deck_id)
-	return out
-
-
-## An untyped copy of the deck ids, for to_json().
-static func _plain_strings(values: Array[String]) -> Array:
-	var out: Array = []
-	out.assign(values)
 	return out
 
 

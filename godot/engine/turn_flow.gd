@@ -108,9 +108,8 @@ static func begin_round(state: MatchState, rng: MatchRng, sink: Callable) -> voi
 	for seat: int in range(SEATS):
 		state.scores[seat] = 0
 		state.totals[seat] = 0
-	state.last_turn_winner = -1
-	for seat: int in range(SEATS):
 		state.turn_wins[seat] = 0
+	state.last_turn_winner = -1
 	state.pending.clear()
 	state.pending_slots.clear()
 	state.walk = MatchState.WalkState.new()
@@ -182,10 +181,7 @@ static func _draws_from(
 static func draw(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int
 ) -> bool:
-	var piles: MatchState.SeatPiles = state.seats[seat]
-	if not piles.deck.is_empty():
-		var card: int = _take_top(state, seat)
-		sink.call(MatchEvent.Kind.CARD_DRAWN, {"seat": seat, "card": card}, seat)
+	if resumed_draw(state, sink, seat):
 		return false
 	sink.call(MatchEvent.Kind.DRAW_EMPTY, {"seat": seat})
 	if on_empty_draw(state, cards, rng, sink, seat):
@@ -218,6 +214,8 @@ static func budget(state: MatchState, cards: MatchCards, seat: int) -> int:
 ## amount of every "your Hand size is +N" Ongoing its revealed row cards make apply (Pantry):
 ## Quartermaster with one Pantry is 7 + 2 = 9.
 static func hand_size(state: MatchState, cards: MatchCards, seat: int) -> int:
+	if seat < 0 or seat >= SEATS:
+		return MatchRules.HAND_SIZE
 	var size: int = CrewAbilities.hand_size_set(cards, seat)
 	if size <= 0:
 		size = MatchRules.HAND_SIZE
@@ -337,10 +335,11 @@ static func is_discard_down(prompt: Dictionary) -> bool:
 ## Answers the open discard-down with the hand positions `indices` (already validated: R14):
 ## the prompt closes (CHOICE_MADE, private), each chosen card goes to its Owner's Pile as a
 ## Discard in hand order (CARD_DISCARDED, reason discard_down), then their On discard
-## Batches drain (D4 or D6). Returns the seat that discarded; the caller resumes its Commit.
+## Batches drain (D4 or D6). True when that drain paused on a prompt; otherwise the caller
+## resumes the discarding seat's Commit.
 static func answer_discard_down(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, indices: Array[int]
-) -> int:
+) -> bool:
 	var prompt: Dictionary = state.prompt
 	var seat: int = prompt.get(Abilities.KEY_SEAT, -1)
 	var step: String = Choice.step_of(prompt)
@@ -357,9 +356,7 @@ static func answer_discard_down(
 	for card: int in chosen:
 		piles.hand.erase(card)
 		to_pile(state, cards, sink, card, FROM_HAND, REASON_DISCARD_DOWN)
-	if on_discard(state, cards, rng, sink, chosen, step, seat):
-		pass  # Paused at D4 or D6: the prompt is open and the engine resumes the Commit.
-	return seat
+	return on_discard(state, cards, rng, sink, chosen, step, seat)
 
 
 ## Sends `card`, already taken from its hand or row, to its Owner's Pile as a Discard
@@ -520,18 +517,12 @@ static func leader(values: Array[int]) -> int:
 static func on_empty_draw(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int
 ) -> bool:
-	var none: Array[int] = []
-	if TriggerQueue.wake(state, cards, MOMENT_EMPTY_DRAW, none, seat).is_empty():
-		pass  # Nothing watches this empty draw.
-	return TriggerQueue.drain(state, cards, rng, sink, STEP_EMPTY_DRAW, seat)
+	return _wake_and_drain(state, cards, rng, sink, MOMENT_EMPTY_DRAW, STEP_EMPTY_DRAW, seat)
 
 
 ## The On start Batch of revealed cards and Crew wakes and drains (D2).
 static func on_start(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> bool:
-	var none: Array[int] = []
-	if TriggerQueue.wake(state, cards, MOMENT_START, none).is_empty():
-		pass  # Nothing watches turn start.
-	return TriggerQueue.drain(state, cards, rng, sink, STEP_ON_START)
+	return _wake_and_drain(state, cards, rng, sink, MOMENT_START, STEP_ON_START)
 
 
 ## `seat`'s On commit Batch (its revealed row cards, its hand cards with `zone: hand`, its
@@ -540,11 +531,8 @@ static func on_start(state: MatchState, cards: MatchCards, rng: MatchRng, sink: 
 static func on_commit(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int
 ) -> bool:
-	var none: Array[int] = []
-	if TriggerQueue.wake(state, cards, MOMENT_COMMIT, none, seat).is_empty():
-		pass  # Nothing watches this Commit.
 	var step: String = STEP_FIRST_COMMIT if seat == state.first_seat else STEP_SECOND_COMMIT
-	return TriggerQueue.drain(state, cards, rng, sink, step, seat)
+	return _wake_and_drain(state, cards, rng, sink, MOMENT_COMMIT, step, seat)
 
 
 ## Each card of `discarded`, in order, wakes its On discard Batch (at Round end, D12, the
@@ -586,10 +574,24 @@ static func at_turn_end(
 	moment: String,
 	step: String
 ) -> bool:
+	return _wake_and_drain(state, cards, rng, sink, moment, step)
+
+
+## Wakes the Batch of `moment` with no subject cards (for `seat`, -1 for both) and drains the
+## queue at `step` for the same seat. True when the drain paused.
+static func _wake_and_drain(
+	state: MatchState,
+	cards: MatchCards,
+	rng: MatchRng,
+	sink: Callable,
+	moment: String,
+	step: String,
+	seat: int = -1
+) -> bool:
 	var none: Array[int] = []
-	if TriggerQueue.wake(state, cards, moment, none).is_empty():
-		pass  # Nothing watches this turn end.
-	return TriggerQueue.drain(state, cards, rng, sink, step)
+	if TriggerQueue.wake(state, cards, moment, none, seat).is_empty():
+		pass  # Nothing watches this moment.
+	return TriggerQueue.drain(state, cards, rng, sink, step, seat)
 
 
 ## The exit pass (R41, Statuses.exit_pass) in Q3 order, the first seat's row first, each in

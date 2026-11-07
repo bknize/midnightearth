@@ -83,17 +83,20 @@ static func def_costs(card_ids: Array[int], cards: MatchCards) -> Array[int]:
 static func enumerate_masks_with(hand: Array[int], costs: Array[int], energy: int) -> Array[int]:
 	var out: Array[int] = [0]
 	var subset_count: int = 1 << hand.size()
+	# totals[mask]: the summed cost of the subset `mask`, or -1 when it holds an unpriced
+	# card; each mask is built from the one without its highest bit (2^n steps, not n * 2^n).
+	var totals: PackedInt64Array = PackedInt64Array()
+	if totals.resize(subset_count) != OK:
+		return out
+	for i: int in range(hand.size()):
+		var bit: int = 1 << i
+		var cost: int = costs[i] if i < costs.size() else -1
+		for rest: int in range(bit):
+			var below: int = totals[rest]
+			totals[bit | rest] = -1 if below < 0 or cost < 0 else below + cost
 	for mask: int in range(1, subset_count):
-		var total: int = 0
-		var priced: bool = true
-		for i: int in range(hand.size()):
-			if (mask & (1 << i)) == 0:
-				continue
-			if i >= costs.size() or costs[i] < 0:
-				priced = false
-				break
-			total += costs[i]
-		if priced and total <= energy:
+		var total: int = totals[mask]
+		if total >= 0 and total <= energy:
 			out.append(mask)
 	return out
 

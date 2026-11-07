@@ -83,8 +83,7 @@ func start() -> ApplyResult:
 	_events.clear()
 	# The seed stays out of every event: it would predict each shuffle.
 	var crew: Array = [_cards.crew_ids(0), _cards.crew_ids(1)]
-	var decks: Array = []
-	decks.assign(_state.deck_ids)
+	var decks: Array = MatchState.plain_strings(_state.deck_ids)
 	_emit(MatchEvent.Kind.MATCH_STARTED, {"decks": decks, "crew": crew})
 	TurnFlow.start_match(_state, _cards, _rng, _emit)
 	_begin_round()
@@ -160,8 +159,6 @@ func budgets() -> Array[int]:
 
 ## `seat`'s Hand size now (R11): TurnFlow.hand_size. The base for a seat other than 0 or 1.
 func hand_size_for(seat: int) -> int:
-	if seat < 0 or seat >= SEATS:
-		return MatchRules.HAND_SIZE
 	return TurnFlow.hand_size(_state, _cards, seat)
 
 
@@ -357,10 +354,9 @@ func _commit(seat: int, picked: Array[int], slots: Array[int]) -> void:
 ## `seat`'s Commit step is complete (its discard-down done): the second seat is awaited
 ## after the first's, and the Walk starts after the second's.
 func _commit_done(seat: int) -> void:
-	if seat == _state.first_seat:
-		_state.phase = MatchState.Phase.AWAIT_SECOND
-		return
 	_state.phase = MatchState.Phase.AWAIT_SECOND
+	if seat == _state.first_seat:
+		return
 	ScoreWalk.begin(_state)
 	_emit(MatchEvent.Kind.WALK_STARTED, {"first_seat": _state.first_seat})
 	_run_walk()
@@ -384,8 +380,10 @@ func _run_walk() -> void:
 func _answer(zone: int, indices: Array[int], declined: bool) -> void:
 	var resume: String = Choice.resume_of(_state.prompt)
 	if TurnFlow.is_discard_down(_state.prompt):
-		var seat: int = TurnFlow.answer_discard_down(_state, _cards, _rng, _emit, indices)
-		if not _paused():
+		var seat: int = _prompt_seat()
+		if TurnFlow.answer_discard_down(_state, _cards, _rng, _emit, indices):
+			_state.phase = MatchState.Phase.AWAIT_CHOICE
+		else:
 			_commit_done(seat)
 		return
 	_state.phase = MatchState.Phase.AWAIT_SECOND
@@ -436,14 +434,6 @@ func _resume_after(step: String, seat: int) -> void:
 			_turn_over()
 	elif resume == Choice.RESUME_ROUND_END:
 		_after_round(TurnFlow.award_round(_state, _emit))
-
-
-## True, with the phase AWAIT_CHOICE, when a prompt is open.
-func _paused() -> bool:
-	if _state.prompt.is_empty():
-		return false
-	_state.phase = MatchState.Phase.AWAIT_CHOICE
-	return true
 
 
 ## The open prompt's seat, or -1 when none is open.
@@ -522,10 +512,7 @@ func _stalled() -> bool:
 
 ## True when `seat` has a Crew that shuffles its Pile into its Deck (Dredger).
 func _refills_from_pile(seat: int) -> bool:
-	for crew: CrewDef in _cards.crew_for(seat):
-		if crew.verb == CrewAbilities.VERB_DREDGE:
-			return true
-	return false
+	return CrewAbilities.crew_with(_cards, seat, CrewAbilities.VERB_DREDGE) != null
 
 
 ## Concede: the other seat wins at once, whoever was awaited. A concede always falls inside

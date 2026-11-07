@@ -122,7 +122,7 @@ func to_dict() -> Dictionary:
 		looked.append(plain(held.looked_ids()))
 	return {
 		"seed": match_seed,
-		"deck_ids": _plain_strings(deck_ids),
+		"deck_ids": plain_strings(deck_ids),
 		"rng_state": rng_state,
 		"round": round_number,
 		"turn": turn,
@@ -344,8 +344,8 @@ func _seat_protections_list() -> Array:
 	return out
 
 
-## An untyped copy of the deck ids, for to_dict().
-static func _plain_strings(values: Array[String]) -> Array:
+## An untyped copy of a String array (the deck ids), for to_dict() and the serialized forms.
+static func plain_strings(values: Array[String]) -> Array:
 	var out: Array = []
 	out.assign(values)
 	return out
