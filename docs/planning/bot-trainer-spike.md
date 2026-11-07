@@ -4,7 +4,7 @@ tags: [planning, bot, training, llm, spike, windows, ssh]
 status: growing
 related: ["[[planning/bot-trainer-architecture]]", "[[planning/planning-moc]]", "[[systems/bot-training]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-07
 uid: 6ff633e9-bfe0-48b8-af55-206e04d5aa3b
 linear:
 supersedes:
@@ -313,6 +313,33 @@ else: shutil.rmtree(out, ignore_errors=True)
 
 ### B6. Which model, and how fast? (about 2 h)
 
+**Done 2026-11-07 with one model (Ben chose b: Qwen only).** `unsloth/Qwen3.5-9B-GGUF`,
+file `Qwen3.5-9B-Q4_K_M.gguf`, 5,680,522,464 bytes, SHA-256
+`03B74727A860A56338E042C4420BB3F04B2FEC5734175F4CB9FA853DAF52B7E8` (matches Hugging Face),
+in `C:\Users\trainer\models\`. Downloaded with `curl.exe` through the runner, not `hf download`.
+Ministral-3-8B-Instruct-2512 (5.20 GB) and gemma-4-12b-it at Q3_K_M (5.69 GB) were the other
+candidates and stay untested; Gemma 4 12B at Q4_K_M (7.12 GB) leaves no room for four slots.
+
+- **The server line in the checklist below is wrong for 8 GB.** `-ngl 99 -c 65536 -np 4` with an
+  f16 cache overflows the card (7.85 GB used); Windows then pages into shared memory and every
+  slot crawls at about 7 tok/s (24 tok/s aggregate). The working line is
+  `llama-server.exe -m <model> -c 40960 -np 4 -fa on -ctk q8_0 -ctv q8_0 --jinja`
+  (10k tokens a slot, 7.0 GB). Swept: 64k q8 cache 47 tok/s; 40k f16 cache 63 tok/s; 40k q8
+  cache 107 tok/s with or without `-ngl 99`.
+- **Thinking off.** Qwen3.5 thinks by default. `chat_template_kwargs: {enable_thinking: false}`
+  per request. With thinking on, the plan prompt spent 8,000 tokens (158 s) reasoning and never
+  answered.
+- **The plan prompt** is 8,952 tokens: rules-v2, the card-table key, the Combo and Graveyard
+  sections of cards-v2 (with their R62 plans), the six Crew rows, the plan language, and the
+  Combo seat's view at Round 2, Turn 1 of seed 1 (a throwaway `spike_position.gd` dumps it). The
+  reply is constrained to a JSON schema. Two slots of 20k for this test.
+- **For cycle C:** one schema per plan term (`oneOf`, no shared filler fields); reject any plan
+  that names a card outside the seat's hand, Deck or Crew, or that holds and pairs the same card;
+  and trim the prompt so it fits a 10k slot with room for the reply (rules digest, not the full
+  rules note). At about 1,000 tokens a reply and 107 tok/s, the PC proposes roughly 6 plan sets a
+  minute, or 350 an hour, alongside the play-out farm. Play-out scores, not reading, decide
+  whether the plans are any good.
+
 - [ ] **Download 2–3 GGUF models at Q4_K_M** with `hf download` into `models\`. Candidates: a
       Qwen ~8–9B instruct (the current Qwen3 / Qwen3.5 build), a Llama 3.x 8B instruct, and a
       Gemma ~9–12B instruct, which needs a smaller context. Confirm the exact repos on Hugging
@@ -391,10 +418,10 @@ if __name__ == "__main__":
 | B4 | `digest=` on the PC and on the Mac, equal? | **Pass**: `c3b954706528fc4b` (1–50), `e5f48322e7e3b68d` (1–400) on both |
 | B5 | Games per minute at 16 / 12 / 8 workers (and the Mac at 8) | 1,246 / 1,083 / 1,040 (Mac 1,783), random vs random, full matches |
 | B5 | First vs last 5 min of the 30-min run (throttling) | **No throttling**: 45,000 matches in 30.75 min at 16 workers (batches of 100), 0 failures, 1,464 a minute overall. The running average rose from 1,308 (first 5 min, including startup) to 1,489, so the last 5 min ran at about 1,525 a minute. Bigger batches cut the per-process startup cost (1,246 a minute with batches of 25). |
-| B6 | Each model: `pp2048`, `tg256`, VRAM used | |
-| B6 | Server with 4 slots: aggregate tok/s, median s/request | |
-| B6 | Play-outs + LLM together: games/min and tok/s, each vs alone | |
-| B6 | Plan JSON valid and sensible? (each model) | |
+| B6 | Each model: `pp2048`, `tg256`, VRAM used | Qwen3.5-9B Q4_K_M: pp2048 1,922 tok/s, tg256 59.8 tok/s; 7.0 GB with the 4-slot server |
+| B6 | Server with 4 slots: aggregate tok/s, median s/request | 107 tok/s, 8.9 s (855-token prompt, 256 out), at `-c 40960 -fa on -ctk q8_0 -ctv q8_0`. The checklist's f16 cache overflowed VRAM: 24 tok/s |
+| B6 | Play-outs + LLM together: games/min and tok/s, each vs alone | 16 workers: 1,172 → 940 games/min (−20%), LLM 107 → 74 tok/s (−31%). 12 workers: 1,177 → 892, LLM 81–105. Digest `7ae72eeb21c8d00d` (seeds 1–2000) unchanged by the load. GPU peaked at 80 °C |
+| B6 | Plan JSON valid and sensible? (each model) | **Valid, half sensible.** 18–28 s a reply, three plans each, always schema-valid. It reads the deck's R62 plan (hold Encore and Finale for the late Turns, Wick and Twin early, Shade to re-reveal) but misreads details: holds a card it also pairs, calls Reverb a 6/5, says Shade "checks the board", and fills required fields with filler (`n`, `mode`, `cards: ["4"]`). Thinking on: no answer in 8,000 tokens |
 | B7 | MCP `health` from the Mac: reply and round trip | |
 | B1 | Tools installed | **Pass**: Python 3.14.10 (NuGet), Godot 4.6.3, llama.cpp b12180 CUDA 12.4, mcp 2.3.0, huggingface_hub 2.4.0 |
 | — | Driver version, CUDA version, peak CPU temperature | Driver 566.36 (CUDA 12.x; not updated in A8), 136 GB free on C:; temperature pending |
