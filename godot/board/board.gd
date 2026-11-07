@@ -133,10 +133,11 @@ func _ready() -> void:
 	var decks_err: int = hud.decks_pressed.connect(decks_requested.emit)
 	if lifted_err != OK or down_err != OK or action_err != OK or decks_err != OK:
 		push_warning("Board: could not connect the card lift or action signals")
-	if hud.confirm_pressed.connect(_on_confirm_pressed) != OK:
-		push_warning("Board: could not connect the confirm button")
-	if hud.skip_pressed.connect(_on_skip_pressed) != OK:
-		push_warning("Board: could not connect the skip button")
+	var prompt_err: int = hud.confirm_pressed.connect(_on_confirm_pressed)
+	prompt_err += hud.skip_pressed.connect(_on_skip_pressed)
+	prompt_err += hud.pile_pressed.connect(_on_pile_pressed)
+	if prompt_err != OK:
+		push_warning("Board: could not connect the confirm, skip or Pile buttons")
 	_cards = CardDb.load_default()
 	if not _cards.is_valid():
 		push_error("Card data failed to load: %s" % _cards.load_error())
@@ -244,18 +245,9 @@ func submit_player(action: EngineAction) -> bool:
 func may_act() -> bool:
 	if driver == null or _autoplay or _input_locked or _paused or _halted:
 		return false
-	if card_lift.is_holding():
-		return false
-	if driver.is_over():
+	if card_lift.is_holding() or driver.is_over():
 		return false
 	return _awaited
-
-
-## A turn starts (R15, R16): staging is emptied for the turn's energy; Commit waits for seat 0.
-func _on_turn_started(step: BoardStep) -> void:
-	_turn_energy = step.budget
-	_free_first = step.free_first
-	_unstage_all()
 
 
 ## Applies a seat-0 action through the driver with no lock check, then queues its steps.
@@ -392,22 +384,25 @@ func _apply(step: BoardStep) -> void:
 	_crew_line.note_step(step)
 	staging.clear_view_costs()
 	_tracker.apply(step)
-	hud.set_destroyed(_tracker.destroyed)
+	hud.set_piles(_tracker.piles)
 	match step.kind:
 		BoardStep.Kind.CLEAR_TABLE:
 			_clear_table(step)
 		BoardStep.Kind.DEAL, BoardStep.Kind.DRAW:
 			_deal(step)
-		BoardStep.Kind.BURN:
-			_burn(step)
 		BoardStep.Kind.TURN_START:
 			hud.set_round_turn(step.round_number, step.turn, step.round_number > MatchRules.ROUNDS)
 			hud.set_energy(step.budget, step.budget, step.free_first)
-			_on_turn_started(step)
+			_turn_energy = step.budget
+			_free_first = step.free_first
+			_unstage_all()
 		BoardStep.Kind.WALK_START:
 			_refresh_tally(true)
-		BoardStep.Kind.TURN_END:
+		BoardStep.Kind.WALK_END:
+			_refresh_tally(false)
 			_tally.fly_in(step.scores, hud, $Camera3D as Camera3D, speed)
+		BoardStep.Kind.TURN_END:
+			_refresh_scores()
 		BoardStep.Kind.OPPONENT_COMMIT:
 			_opponent_commit(step)
 		BoardStep.Kind.PLAYER_COMMIT:
@@ -436,15 +431,25 @@ func _apply_effect(step: BoardStep) -> void:
 			_fx.choice_show(step)
 		BoardStep.Kind.STATS:
 			_fx.stats(step)
-		BoardStep.Kind.DESTROY:
-			_fx.destroy(step)
-		BoardStep.Kind.CLEAR_DESTROYED:
-			_fx.clear_destroyed(step)
+		BoardStep.Kind.STATUS:
+			_fx.status(step)
+		BoardStep.Kind.EXIT:
+			_fx.exit_card(step)
+		BoardStep.Kind.LOOK:
+			_fx.look(step)
+		BoardStep.Kind.EMPTY_DRAW:
+			hud.note_deck(step.seat, "Deck empty", step.duration)
+		BoardStep.Kind.SHUFFLE_IN:
+			hud.note_deck(step.seat, "Pile shuffled in", step.duration)
+		BoardStep.Kind.ENERGY_GRANT:
+			if step.seat == MatchDriver.PLAYER_SEAT:
+				_turn_energy += step.amount
+				_unstage_all()
 		BoardStep.Kind.UNREVEAL:
 			_fx.unreveal(step)
-		BoardStep.Kind.RECOVER:
-			_fx.recover(step)
-		BoardStep.Kind.STRIP_HIDE:
+		BoardStep.Kind.PILE_SHOW:
+			_on_pile_pressed(step.seat)
+		BoardStep.Kind.PILE_HIDE:
 			_prompt.hide_strip(step.duration)
 			_fx.strip = null
 		BoardStep.Kind.MOVE:
@@ -467,10 +472,10 @@ func _refresh_scores() -> void:
 ## The row tallies follow the tracker's walk numbers (R32); `reveal` also shows them.
 func _refresh_tally(reveal: bool) -> void:
 	if reveal or _tally.is_shown(0) or _tally.is_shown(1):
-		_tally.show_values(_tracker.tally, _tracker.tally_mults)
+		_tally.show_values(_tracker.tally)
 
 
-## R31: the chips above the pulsed card; nothing for a destroyed pulse.
+## R31: the chips above the pulsed card; none for a pulse with no score.
 func _pulse_chips(step: BoardStep) -> void:
 	if ScoreChips.chip_texts(step).is_empty():
 		return
@@ -490,19 +495,6 @@ func _deal(step: BoardStep) -> void:
 		_player_cards[step.card] = card
 	else:
 		card.face_down = true
-
-
-func _burn(step: BoardStep) -> void:
-	if _fx.burn_from_row(step):
-		return
-	var card: BoardCard = _spawn_card()
-	_loose.add_child(card)
-	card.global_position = _entry.global_position
-	if step.seat == 0:
-		_fx.show(card, step)
-	else:
-		card.face_down = true
-	_fx.fly_out(card, step.duration)
 
 
 func _opponent_commit(step: BoardStep) -> void:
@@ -586,7 +578,7 @@ func _open_prompt(step: BoardStep) -> void:
 
 
 ## Clears the banner, glows and dim, and lets a held runner continue (R57). `keep_strip` leaves
-## the deck strip up for the recovery that flies a card out of it (STRIP_HIDE clears it).
+## the Pile strip up for a choice that flies a card out of it (PILE_HIDE clears it).
 func _close_prompt(keep_strip: bool = false) -> void:
 	_prompt.close(keep_strip)
 	_fx.strip = _prompt.strip_collection()
@@ -604,7 +596,7 @@ func _answer(result: ApplyResult) -> void:
 	var strip_up: bool = _prompt.strip_up()
 	_enqueue(driver.last_events())
 	if strip_up:
-		_queue.append(BoardSteps.strip_step(false, speed))
+		_queue.append(BoardSteps.pile_step(false, speed))
 	_close_prompt(strip_up)
 	_prompt.put_down(strip_up)
 
@@ -617,6 +609,14 @@ func _on_action_pressed() -> void:
 ## The HUD confirm (R48): submits the selected set.
 func _on_confirm_pressed() -> void:
 	_answer(_prompt.confirm())
+
+
+## A Pile count was tapped (R78): the Pile face up in the strip, or the strip away.
+func _on_pile_pressed(seat: int) -> void:
+	if driver == null or _halted:
+		return
+	_prompt.toggle_pile(seat, driver.view())
+	_fx.strip = _prompt.strip_collection()
 
 
 ## The Skip button (R63): declines the optional prompt.
@@ -662,7 +662,7 @@ func _clear_table_now() -> void:
 	_tally.hide_all()
 	_chips.clear()
 	_fx.reset()
-	hud.set_destroyed(_tracker.destroyed)
+	hud.set_piles(_tracker.piles)
 	_refresh_scores()
 	var zeros: Array[int] = [0, 0]
 	hud.set_wins(zeros)
@@ -719,7 +719,7 @@ func _cost_of(id: int) -> int:
 
 ## Commit is on only while the player may act (R18); the label follows the staging (R16).
 func _refresh_commit_enabled() -> void:
-	hud.set_commit_enabled(may_act())
+	hud.set_commit_enabled(may_act() and not _prompt.is_open())
 
 
 func _refresh_staging_ui() -> void:

@@ -1,166 +1,97 @@
 class_name TestScoreTracker
 extends GdUnitTestSuite
-## ScoreTracker (R32-R34): after every scoring pulse the tally and multiplier of its side
-## equal the pulse's own, over a real seed-1 match's steps (the fixture deck on both
-## seats, DC-07 T02).
-
-const SEED: int = 1
-const MAX_ACTIONS: int = 2000
+## ScoreTracker (R77, R78, plan P17): the walking total follows each scoring pulse, the Walk end
+## sets the HUD Score, the turn end settles it, and the Pile counts follow Discards and shuffles.
+## Steps are hand-built.
 
 
-func _steps() -> Array[BoardStep]:
-	var cards: CardDb = FixtureDecks.cards()
-	var engine: MatchEngine = FixtureDecks.engine(SEED, cards)
-	var collected: Array[MatchEvent] = []
-	var started: ApplyResult = engine.start()
-	assert_bool(started.ok).is_true()
-	collected.append_array(started.events_for(0))
-	var bots: Array[RandomBot] = []
-	for seat: int in range(MatchEngine.SEATS):
-		bots.append(RandomBot.new(BotRegistry.seed_for(SEED, seat), engine.match_cards()))
-	var actions: int = 0
-	while not engine.is_over() and actions < MAX_ACTIONS:
-		var awaited: int = engine.awaited_seat()
-		var action: EngineAction = bots[awaited].choose(engine.view_for(awaited), engine)
-		var result: ApplyResult = engine.apply(action)
-		assert_bool(result.ok).is_true()
-		if not result.ok:
-			break
-		collected.append_array(result.events_for(0))
-		actions += 1
-	return BoardSteps.from_events(collected, 1.0)
-
-
-func _pulse(seat: int, score: int, mult: int) -> BoardStep:
+func _pulse(seat: int, total: int, scored: bool = true) -> BoardStep:
 	var step: BoardStep = BoardStep.new()
 	step.kind = BoardStep.Kind.PULSE
 	step.seat = seat
-	step.score = score
-	step.mult = mult
+	step.total = total
+	step.scored = scored
 	return step
 
 
-func test_tally_equals_each_pulses_score_over_a_real_match() -> void:
-	var tracker: ScoreTracker = ScoreTracker.new()
-	var checked: int = 0
-	for step: BoardStep in _steps():
-		tracker.apply(step)
-		if step.kind == BoardStep.Kind.PULSE and step.score >= 0:
-			assert_int(tracker.tally[step.seat]).is_equal(step.score)
-			assert_int(tracker.tally_mults[step.seat]).is_equal(step.mult)
-			checked += 1
-	assert_int(checked).is_greater(0)
-
-
-func _kind_step(kind: int) -> BoardStep:
+func _kind_step(kind: int, seat: int = 0) -> BoardStep:
 	var step: BoardStep = BoardStep.new()
 	step.kind = kind
+	step.seat = seat
 	return step
 
 
-func test_held_never_changes_during_a_walk_and_the_tally_follows_pulses() -> void:
-	var tracker: ScoreTracker = ScoreTracker.new()
-	tracker.held.assign([5, 8])
-	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
-	assert_array(tracker.tally).is_equal([0, 0])
-	assert_array(tracker.tally_mults).is_equal([100, 100])
-	tracker.apply(_pulse(0, 3, 200))
-	tracker.apply(_pulse(1, 7, 300))
-	tracker.apply(_pulse(0, 9, 400))
-	assert_array(tracker.tally).is_equal([9, 7])
-	assert_array(tracker.tally_mults).is_equal([400, 300])
-	assert_array(tracker.held).is_equal([5, 8])
-
-
-func test_a_destroyed_pulse_leaves_the_tally_alone() -> void:
+func test_the_tally_follows_each_scoring_pulse_per_seat() -> void:
 	var tracker: ScoreTracker = ScoreTracker.new()
 	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
-	var step: BoardStep = BoardStep.new()
-	step.kind = BoardStep.Kind.PULSE
-	step.seat = 0
-	step.destroyed = true
-	step.flat = 4
-	tracker.apply(step)
-	assert_array(tracker.tally).is_equal([0, 0])
+	tracker.apply(_pulse(0, 43750))
+	tracker.apply(_pulse(1, -15000))
+	assert_array(tracker.tally).is_equal([43750, -15000])
+	tracker.apply(_pulse(0, 160000))
+	assert_array(tracker.tally).is_equal([160000, -15000])
 
 
-func test_a_pulse_without_a_score_leaves_the_tally_alone() -> void:
-	# c12's reveal paused on its prompt: no CARD_SCORED yet, so the tally holds (R35).
+func test_a_pulse_with_no_score_leaves_the_tally_alone() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	tracker.apply(_pulse(0, 20000))
+	tracker.apply(_pulse(0, 0, false))
+	assert_array(tracker.tally).is_equal([20000, 0])
+
+
+func test_the_hud_score_is_held_until_the_walk_end() -> void:
 	var tracker: ScoreTracker = ScoreTracker.new()
 	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
-	tracker.apply(_pulse(0, 4, 200))
-	var step: BoardStep = BoardStep.new()
-	step.kind = BoardStep.Kind.PULSE
-	step.seat = 0
-	step.flat = 4
-	step.score = -1
-	tracker.apply(step)
-	assert_array(tracker.tally).is_equal([4, 0])
-	assert_array(tracker.tally_mults).is_equal([200, 100])
-
-
-func test_turn_end_moves_the_total_into_held_and_clears_the_tally() -> void:
-	var tracker: ScoreTracker = ScoreTracker.new()
-	tracker.apply(_kind_step(BoardStep.Kind.WALK_START))
-	tracker.apply(_pulse(0, 4, 200))
-	var end: BoardStep = _kind_step(BoardStep.Kind.TURN_END)
-	end.scores.assign([4, 6])
-	tracker.apply(end)
-	assert_array(tracker.held).is_equal([4, 6])
-	assert_array(tracker.tally).is_equal([0, 0])
-	assert_array(tracker.tally_mults).is_equal([100, 100])
-
-
-func test_clear_table_resets_held_and_the_tally() -> void:
-	var tracker: ScoreTracker = ScoreTracker.new()
-	tracker.held.assign([4, 6])
-	tracker.apply(_pulse(0, 4, 200))
-	tracker.apply(_kind_step(BoardStep.Kind.CLEAR_TABLE))
+	tracker.apply(_pulse(0, 43750))
 	assert_array(tracker.held).is_equal([0, 0])
+	var walk_end: BoardStep = _kind_step(BoardStep.Kind.WALK_END)
+	walk_end.scores.assign([4, 16])
+	walk_end.totals.assign([43750, 160000])
+	tracker.apply(walk_end)
+	assert_array(tracker.held).is_equal([4, 16])
+	assert_array(tracker.tally).is_equal([43750, 160000])
+
+
+func test_turn_end_settles_the_scores_and_clears_the_tally() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	tracker.apply(_pulse(0, 43750))
+	var turn_end: BoardStep = _kind_step(BoardStep.Kind.TURN_END)
+	turn_end.scores.assign([4, 16])
+	tracker.apply(turn_end)
+	assert_array(tracker.held).is_equal([4, 16])
 	assert_array(tracker.tally).is_equal([0, 0])
 
 
-func test_the_destroyed_piles_count_clears_and_recovers_and_reset_at_the_table_clear() -> void:
+func test_clear_table_clears_the_tally_but_not_the_piles() -> void:
 	var tracker: ScoreTracker = ScoreTracker.new()
-	var cleared: BoardStep = _kind_step(BoardStep.Kind.CLEAR_DESTROYED)
-	cleared.seat = 1
-	cleared.pile = true
-	tracker.apply(cleared)
-	tracker.apply(cleared)
-	assert_array(tracker.destroyed).is_equal([0, 2])
-	var recovered: BoardStep = _kind_step(BoardStep.Kind.RECOVER)
-	recovered.seat = 0
-	recovered.from_seat = 1
-	tracker.apply(recovered)
-	assert_array(tracker.destroyed).is_equal([0, 1])
-	var no_pile: BoardStep = _kind_step(BoardStep.Kind.CLEAR_DESTROYED)
-	no_pile.seat = 0
-	tracker.apply(no_pile)
-	assert_array(tracker.destroyed).is_equal([0, 1])
+	tracker.apply(_pulse(0, 20000))
+	var discard: BoardStep = _kind_step(BoardStep.Kind.DISCARD, 1)
+	discard.pile_index = 2
+	tracker.apply(discard)
 	tracker.apply(_kind_step(BoardStep.Kind.CLEAR_TABLE))
-	assert_array(tracker.destroyed).is_equal([0, 0])
+	assert_array(tracker.tally).is_equal([0, 0])
+	assert_array(tracker.piles).is_equal([0, 3])
 
 
-func test_the_destroyed_piles_empty_at_the_round_end() -> void:
+func test_a_discard_sets_the_pile_count_from_its_index_and_a_shuffle_in_empties_it() -> void:
 	var tracker: ScoreTracker = ScoreTracker.new()
-	var cleared: BoardStep = _kind_step(BoardStep.Kind.CLEAR_DESTROYED)
-	cleared.seat = 0
-	cleared.pile = true
-	tracker.apply(cleared)
-	cleared.seat = 1
-	tracker.apply(cleared)
-	assert_array(tracker.destroyed).is_equal([1, 1])
-	tracker.apply(_kind_step(BoardStep.Kind.ROUND_END))
-	assert_array(tracker.destroyed).is_equal([0, 0])
+	for index: int in range(3):
+		var discard: BoardStep = _kind_step(BoardStep.Kind.DISCARD, 0)
+		discard.pile_index = index
+		tracker.apply(discard)
+	assert_array(tracker.piles).is_equal([3, 0])
+	var shuffle: BoardStep = _kind_step(BoardStep.Kind.SHUFFLE_IN, 0)
+	shuffle.count = 3
+	tracker.apply(shuffle)
+	assert_array(tracker.piles).is_equal([0, 0])
 
 
-func test_a_recovery_into_a_full_hand_burns_the_card_it_added() -> void:
-	var viewer_hand: Array[int] = [4, 5, 9]
-	assert_int(EffectPlayer.hand_burn_index(viewer_hand, 9, 0, 0)).is_equal(2)
-	assert_int(EffectPlayer.hand_burn_index(viewer_hand, 7, 0, 0)).is_equal(-1)
-	var backs: Array[int] = [-1, -1, -1]
-	assert_int(EffectPlayer.hand_burn_index(backs, -1, 1, 1)).is_equal(2)
-	# A deck burn at the cap (no recovery just before) leaves the hand alone.
-	assert_int(EffectPlayer.hand_burn_index(backs, -1, 1, -1)).is_equal(-1)
-	assert_int(EffectPlayer.hand_burn_index(backs, -1, 1, 0)).is_equal(-1)
-	assert_int(EffectPlayer.hand_burn_index(viewer_hand, -1, 0, 0)).is_equal(-1)
+func test_reset_clears_everything() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	var discard: BoardStep = _kind_step(BoardStep.Kind.DISCARD, 1)
+	discard.pile_index = 0
+	tracker.apply(discard)
+	tracker.apply(_pulse(0, 5000))
+	tracker.reset()
+	assert_array(tracker.piles).is_equal([0, 0])
+	assert_array(tracker.tally).is_equal([0, 0])
+	assert_array(tracker.held).is_equal([0, 0])

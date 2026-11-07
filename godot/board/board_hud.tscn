@@ -75,7 +75,7 @@ color = Color(0.2, 0.22, 0.3, 1)
 [node name="DestroyedLabel0" type="Label" parent="Root/SeatPanel0/Box"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Destroyed 0"
+text = "Pile 0"
 
 [node name="SeatPanel1" type="PanelContainer" parent="Root"]
 layout_mode = 1
@@ -139,7 +139,7 @@ color = Color(0.2, 0.22, 0.3, 1)
 [node name="DestroyedLabel1" type="Label" parent="Root/SeatPanel1/Box"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Destroyed 0"
+text = "Pile 0"
 
 [node name="TopInfo" type="PanelContainer" parent="Root"]
 layout_mode = 1

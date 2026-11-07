@@ -1,10 +1,11 @@
 class_name DeckStrip
 extends RefCounted
 ## A temporary line of cards above the rows for viewing and choosing from an off-screen
-## collection (DC-07 R47, C19, plan P16): today the two destroyed piles of a recover prompt,
-## later a deck or a discard pile. It is built from a list of entries (an instance id, or
-## MatchEvent.HIDDEN_CARD for a card the viewer may not see, shown as a back), the entries that
-## may be chosen, and a callback; it knows nothing of the recover verb. The DC-06 reader and
+## collection (DC-07 R47, C19, plan P16; spec R78, plan P17): a Pile face up, in Pile order,
+## when a prompt targets it or its count is tapped; the opponent's Pile is public too. It is
+## built from a list of entries (an instance id, or MatchEvent.HIDDEN_CARD for a card the
+## viewer may not see, shown as a back), the entries that may be chosen, and a callback; it
+## knows nothing of the verb that opened it. The DC-06 reader and
 ## its action button sit on top of it as for any other eligible card.
 
 ## Where the strip rests: between the opponent's row and its hand, in front of both.
@@ -24,6 +25,18 @@ var collection: CardCollection3D = null
 
 var _eligible: Array[int] = []
 var _on_choose: Callable = Callable()
+
+
+## `seat`'s Pile as the view lists it, in Pile order: ids, all public (plan P15 `own_pile`,
+## `opponent_pile`; seat 0 is the viewer).
+static func pile_of(view: SeatView, seat: int) -> Array[int]:
+	# Read by property name: the v7 SeatView fields (plan P15), absent from the rules 6 view.
+	var raw: Variant = view.get("own_pile" if seat == 0 else "opponent_pile")
+	var out: Array[int] = []
+	if raw is Array:
+		var ids: Array = raw
+		out.assign(ids)
+	return out
 
 
 func is_up() -> bool:

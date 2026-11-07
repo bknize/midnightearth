@@ -1,8 +1,8 @@
 class_name RowTally
 extends Node3D
-## The running tally beside each row (R32, R34, plan P13): one Label3D per seat reading
-## "score ×mult", shown from the walk start to the turn end. At the turn end it flies to the
-## seat's HUD score and hides. Pure view: the board feeds it the tracker's numbers.
+## The running tally beside each row (R77, plan P13, P17): one Label3D per seat reading the
+## walking total ("4.38" or "16"), shown from the walk start to the Walk end. At the Walk end
+## it flies to the seat's HUD score and hides. Pure view: the board feeds it the tracker's numbers.
 
 const FLY_TIME: float = 0.3
 const PIXEL_SIZE: float = 0.014
@@ -35,9 +35,9 @@ func _ready() -> void:
 		_tweens.append(null)
 
 
-## The text of one tally; `mult` is in hundredths.
-static func tally_text(score: int, mult: int) -> String:
-	return "%d %s" % [score, ScoreChips.mult_text(mult)]
+## The text of one tally from the walking total (ten-thousandths): "4.38" or "16" (R77).
+static func tally_text(total: int) -> String:
+	return ScoreChips.total_text(total)
 
 
 ## Puts `seat`'s tally at a world position (the row's right end).
@@ -47,14 +47,14 @@ func place(seat: int, world_position: Vector3) -> void:
 
 
 ## Shows both tallies with these numbers (the walk start, and each pulse).
-func show_values(tally: Array[int], mults: Array[int]) -> void:
+func show_values(tally: Array[int]) -> void:
 	for seat: int in range(_labels.size()):
 		_stop(seat)
-		_labels[seat].text = tally_text(tally[seat], mults[seat])
+		_labels[seat].text = tally_text(tally[seat])
 		_labels[seat].visible = true
 
 
-## R34: flies each tally to its seat's HUD score, then the HUD counts from the total on show
+## R77: flies each tally to its seat's HUD score, then the HUD counts from the total on show
 ## to `scores`. `speed` divides both durations (R36). The plane is that of the tallies.
 func fly_in(scores: Array[int], hud: BoardHud, camera: Camera3D, speed: float) -> void:
 	_kill_count()

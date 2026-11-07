@@ -1,9 +1,9 @@
 class_name ScoreChips
 extends Node3D
-## The chips above a scoring card (R31, plan P12): a gold "×M" when the card's bonus is not 0,
-## then a "+N" in the seat's colour, each rising and fading over CHIP_TIME. A destroyed pulse,
-## or one the engine sent no score for, shows nothing. The text and timing are pure statics;
-## spawn() makes the Label3Ds as children, each owning its tween.
+## The chips above a scoring card (R31, plan P12, P17): a "+P" for its Power in the seat's
+## colour, then a gold "×B" when its Bonus value is not 1, each rising and fading over
+## CHIP_TIME. A pulse the engine sent no score for shows nothing. The text and timing are
+## pure statics; spawn() makes the Label3Ds as children, each owning its tween.
 
 const CHIP_TIME: float = 0.25
 const RISE: float = 1.2
@@ -16,24 +16,59 @@ const FONT_SIZE: int = 96
 const OUTLINE_SIZE: int = 24
 
 
+## Ten-thousandths in one whole (the walking total, the Bonus value and the HUD Score).
+const SCALE: int = MatchRules.SCALE
+## Hundredths in one whole (the face's Bonus and the Bonus chip).
+const HUNDRED: int = 100
+## Ten-thousandths in one hundredth.
+const PER_HUNDREDTH: int = 100
+
+
+## `value / divisor` rounded half up, on ints: 437.5 reads 438 and -149.5 reads -149 (P7).
+static func half_up(value: int, divisor: int) -> int:
+	return floori(float(2 * value + divisor) / float(2 * divisor))
+
+
 ## The mult as text, two decimals, from hundredths: 156 reads "×1.56" (R45).
 static func mult_text(mult: int) -> String:
-	return "×%.2f" % (float(mult) / 100.0)
+	return "×%.2f" % (float(mult) / float(HUNDRED))
 
 
-## Whether the card's bonus changed the mult: a ×bonus other than x1.00, or a +bonus.
+## An add as text, two decimals, from hundredths: 50 reads "+0.50", -25 reads "-0.25" (R76).
+static func add_text(add: int) -> String:
+	var sign_text: String = "-" if add < 0 else "+"
+	return "%s%.2f" % [sign_text, float(absi(add)) / float(HUNDRED)]
+
+
+## A walking total (ten-thousandths) as text: "4.38" while it has a fraction (two decimals,
+## rounded half up), "16" when it has none, "-1.50" below zero (R77, round 3 3a).
+static func total_text(total: int) -> String:
+	if total % SCALE == 0:
+		return str(floori(float(total) / float(SCALE)))
+	var hundredths: int = half_up(total, PER_HUNDREDTH)
+	var sign_text: String = "-" if hundredths < 0 else ""
+	return "%s%.2f" % [sign_text, float(absi(hundredths)) / float(HUNDRED)]
+
+
+## The rounded Score of a walking total (the HUD shows it at Walk end): 43750 reads 4.
+static func score_of(total: int) -> int:
+	return half_up(total, SCALE)
+
+
+## Whether the pulse's Bonus value changed the total: anything but SCALE.
 static func has_bonus(step: BoardStep) -> bool:
-	return step.times != ScoreTracker.MULT_ONE or step.plus != 0
+	return step.bonus_value != SCALE
 
 
-## The chip texts of a pulse step, in order: ["×M", "+N"], ["+N"], or [] (R31, R28).
+## The chip texts of a pulse step, in order: ["+P", "×B"] or ["+P"], or [] when the engine
+## sent no CARD_SCORED for the card (R31): the Power rises first, then the Bonus multiplies.
 static func chip_texts(step: BoardStep) -> Array[String]:
 	var texts: Array[String] = []
-	if step.destroyed or step.score < 0:
+	if not step.scored:
 		return texts
+	texts.append("%+d" % step.power)
 	if has_bonus(step):
-		texts.append(mult_text(step.mult))
-	texts.append("+%d" % step.added)
+		texts.append(mult_text(half_up(step.bonus_value, PER_HUNDREDTH)))
 	return texts
 
 
@@ -52,7 +87,7 @@ func spawn(card: Node3D, step: BoardStep, speed: float) -> void:
 	var texts: Array[String] = chip_texts(step)
 	var divisor: float = speed if speed > 0.0 else 1.0
 	for i: int in range(texts.size()):
-		var is_mult: bool = has_bonus(step) and i == 0
+		var is_mult: bool = has_bonus(step) and i == 1
 		var color: Color = MULT_COLOR if is_mult else seat_color(step.seat)
 		var delay: float = step.chip_delay + float(i) * CHIP_TIME / divisor
 		_chip(texts[i], color, card.global_position, delay, divisor)
