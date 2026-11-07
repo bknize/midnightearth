@@ -141,9 +141,26 @@ class StoreTest(unittest.TestCase):
         b = self.store.create_run({"run_seed": 1}, "s", "c", run_id="b", state="stopping")
         c = self.store.create_run({"run_seed": 1}, "s", "c", run_id="c", state="stopped")
         d = self.store.create_run({"run_seed": 1}, "s", "c", run_id="d", state="done")
-        self.assertEqual(self.store.mark_interrupted(), [a, b])
+        q = self.store.create_run({"run_seed": 1}, "s", "c", run_id="q", state="queued")
+        self.assertEqual(self.store.mark_interrupted(), [a, b, q])
         states = {r["id"]: r["state"] for r in self.store.list_runs()}
-        self.assertEqual(states, {a: "interrupted", b: "interrupted", c: "stopped", d: "done"})
+        self.assertEqual(states, {a: "interrupted", b: "interrupted", c: "stopped", d: "done",
+                                  q: "interrupted"})
+
+    def test_checkpoint_time_and_position_info(self) -> None:
+        rid = self.new_run()
+        run = self.store.get_run(rid)
+        assert run is not None
+        self.assertEqual(run["checkpoint"], 0)
+        positions, labels = make_batch(0, 1)
+        positions[0]["info"] = {"round": 2, "turn": 1, "hand": [{"card": "c1", "name": "One"}]}
+        self.store.commit_batch(rid, 0, positions, labels)
+        run = self.store.get_run(rid)
+        assert run is not None
+        self.assertGreater(run["checkpoint"], 0)
+        row = self.store.db.execute("SELECT info FROM positions WHERE run_id = ?",
+                                    (rid,)).fetchone()
+        self.assertEqual(json.loads(row["info"])["round"], 2)
 
     def test_set_state_validates(self) -> None:
         rid = self.new_run()

@@ -57,10 +57,15 @@ class _Proc:
         if log_path is not None:
             log_path.parent.mkdir(parents=True, exist_ok=True)
             self._log = open(log_path, "ab")
-        self.popen = subprocess.Popen(
-            list(command), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=self._log if self._log is not None else subprocess.DEVNULL,
-            text=True, encoding="utf-8", bufsize=1)
+        try:
+            self.popen = subprocess.Popen(
+                list(command), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=self._log if self._log is not None else subprocess.DEVNULL,
+                text=True, encoding="utf-8", bufsize=1)
+        except BaseException:
+            if self._log is not None:
+                self._log.close()
+            raise
         self._reader = threading.Thread(target=self._read, daemon=True)
         self._reader.start()
 
@@ -152,6 +157,8 @@ class Farm:
         self._pending: Dict[int, _Job] = {}
         self._ids = itertools.count(1)
         self._stop = threading.Event()
+        self._inflight = 0
+        self._closed = False  # set under _lock once the farm has failed or stopped
         self._ready: List[threading.Event] = []
         self._threads: List[threading.Thread] = []
         self._procs: Dict[int, _Proc] = {}
@@ -172,7 +179,13 @@ class Farm:
             raise FarmError(self.error)
 
     def stop(self) -> None:
-        self._stop.set()
+        self._close("farm stopped")
+        # Kill the workers first: a slot blocked on a reply sees end-of-output at once
+        # instead of waiting out its request timeout.
+        with self._lock:
+            live = list(self._procs.values())
+        for p in live:
+            p.kill()
         for t in self._threads:
             t.join(timeout=30)
         with self._lock:
@@ -188,17 +201,18 @@ class Farm:
     def __exit__(self, *exc: Any) -> None:
         self.stop()
 
+    def busy(self) -> int:
+        """Workers serving a request right now."""
+        with self._lock:
+            return self._inflight
+
     # requests
 
     def request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Send a request (the farm sets its `id`), block for the reply. Raises FarmError."""
-        if self.error:
-            raise FarmError(self.error)
         job = _Job(next(self._ids), dict(request, id=0))
         job.request["id"] = job.id
-        with self._lock:
-            self._pending[job.id] = job
-        self._jobs.put(job)
+        self._enqueue(job)
         job.done.wait()
         with self._lock:
             self._pending.pop(job.id, None)
@@ -212,10 +226,8 @@ class Farm:
         for req in requests:
             job = _Job(next(self._ids), dict(req))
             job.request["id"] = job.id
-            with self._lock:
-                self._pending[job.id] = job
             jobs.append(job)
-            self._jobs.put(job)
+            self._enqueue(job)
         out: List[Dict[str, Any]] = []
         for job in jobs:
             job.done.wait()
@@ -228,16 +240,33 @@ class Farm:
 
     # internals
 
-    def _fail(self, message: str) -> None:
+    def _enqueue(self, job: _Job) -> None:
+        """Queue a job, or fail it at once when the farm has failed or stopped (so a late
+        request never waits for a slot that is gone)."""
         with self._lock:
-            if not self.error:
+            if self._closed:
+                job.error = self.error or "farm stopped"
+                job.done.set()
+            else:
+                self._pending[job.id] = job
+                self._jobs.put(job)
+
+    def _close(self, message: str) -> None:
+        """Close the farm: every pending job gets an error, later requests fail at once."""
+        with self._lock:
+            self._closed = True
+            if message != "farm stopped" and not self.error:
                 self.error = message
             pending = list(self._pending.values())
+            reason = self.error or message
         for job in pending:
             if not job.done.is_set():
-                job.error = self.error
+                job.error = reason
                 job.done.set()
         self._stop.set()
+
+    def _fail(self, message: str) -> None:
+        self._close(message)
 
     def _spawn(self, slot: int) -> _Proc:
         """Start a worker and wait for its hello line."""
@@ -280,8 +309,9 @@ class Farm:
         try:
             try:
                 proc = self._spawn(slot)
-            except (FarmError, OSError) as e:
-                self._fail(str(e))
+            except Exception as e:
+                self._fail(str(e) if isinstance(e, FarmError) else
+                           "%s: %s" % (type(e).__name__, e))
                 return
             finally:
                 ready.set()
@@ -292,11 +322,17 @@ class Farm:
                     continue
                 if job.done.is_set():
                     continue
+                with self._lock:
+                    self._inflight += 1
                 try:
                     proc = self._serve(slot, proc, job)
-                except (FarmError, OSError) as e:
-                    self._fail(str(e))
+                except Exception as e:  # whatever it is, the job gets an error reply
+                    job.error = "%s: %s" % (type(e).__name__, e)
+                    self._fail(str(e) if isinstance(e, FarmError) else job.error)
                     return
+                finally:
+                    with self._lock:
+                        self._inflight -= 1
         finally:
             ready.set()
             if proc is not None and self._stop.is_set():
@@ -320,6 +356,8 @@ class Farm:
                 if reply is None or reply.get("id") == job.id:
                     break
                 # A reply for another id: a stale line from before a restart; drop it.
+        if self._stop.is_set():
+            raise FarmError(self.error or "farm stopped")
         if timed_out:
             job.timeouts += 1
             if job.timeouts > 1:

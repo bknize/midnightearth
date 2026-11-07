@@ -21,7 +21,8 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 RunFn = Callable[[List[str], Optional[Path], Mapping[str, str]], Tuple[int, str]]
 
 ERROR_RE = re.compile(r"SCRIPT ERROR|Parse Error|Failed to load script|ERROR:")
-COMMIT_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
+# A full object name: `git fetch <bundle> <hash>` cannot resolve an abbreviation.
+COMMIT_RE = re.compile(r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 RULES_RE = re.compile(r"^const\s+RULES_VERSION\s*:\s*int\s*=\s*(\d+)", re.M)
 
@@ -66,7 +67,7 @@ def sync_code(commit: str, bundle_b64: str = "", inbox_file: str = "", *, root: 
     if run_active:
         return {"error": "run %s is active; stop it before syncing" % run_active}
     if not COMMIT_RE.match(commit or ""):
-        return {"error": "commit must be a hex hash"}
+        return {"error": "commit must be a full 40-hex commit hash"}
     if bool(bundle_b64) == bool(inbox_file):
         return {"error": "give exactly one of bundle_b64 and inbox_file"}
     root = Path(root)
@@ -91,28 +92,48 @@ def sync_code(commit: str, bundle_b64: str = "", inbox_file: str = "", *, root: 
         if not bundle.is_file():
             return {"error": "no such file in the inbox: %s" % inbox_file}
 
-    rc, out = runf([git, "bundle", "verify", str(bundle)], None, env)
-    if rc != 0:
-        return {"error": "bundle verify failed: %s" % _tail(out)}
-
     first_time = not repo.exists()
     if first_time:
         root.mkdir(parents=True, exist_ok=True)
         rc, out = runf([git, "init", "--bare", str(repo)], None, env)
         if rc != 0:
             return {"error": "git init failed: %s" % _tail(out)}
-    rc, out = runf([git, "-C", str(repo), "fetch", str(bundle), commit], None, env)
-    if rc != 0:
+
+    def abandon_repo() -> None:
         if first_time:
             shutil.rmtree(str(repo), ignore_errors=True)
+
+    # `git bundle verify` needs a repository, so it runs in the training repo.
+    rc, out = runf([git, "bundle", "verify", str(bundle)], repo, env)
+    if rc != 0:
+        abandon_repo()
+        return {"error": "bundle verify failed: %s" % _tail(out)}
+    rc, out = runf([git, "-C", str(repo), "fetch", str(bundle), commit], None, env)
+    if rc != 0:
+        abandon_repo()
         return {"error": "fetch failed (commit not in bundle?): %s" % _tail(out)}
 
-    if (work / ".git").exists():
+    previous = ""
+    had_work = (work / ".git").exists()
+    if had_work:
+        rc, out = runf([git, "-C", str(work), "rev-parse", "HEAD"], None, env)
+        previous = out.strip() if rc == 0 else ""
         argv = [git, "-C", str(work), "checkout", "--detach", commit]
     else:
         argv = [git, "-C", str(repo), "worktree", "add", "--detach", str(work), commit]
+
+    def rollback() -> None:
+        """R52: a failed sync never leaves the checkout on the bad commit."""
+        if had_work:
+            if previous:
+                runf([git, "-C", str(work), "checkout", "--detach", previous], None, env)
+        else:
+            runf([git, "-C", str(repo), "worktree", "remove", "--force", str(work)], None, env)
+            shutil.rmtree(str(work), ignore_errors=True)
+
     rc, out = runf(argv, None, env)
     if rc != 0:
+        rollback()
         return {"error": "checkout failed: %s" % _tail(out)}
 
     t0 = time.monotonic()
@@ -121,13 +142,16 @@ def sync_code(commit: str, bundle_b64: str = "", inbox_file: str = "", *, root: 
     import_s = round(time.monotonic() - t0, 2)
     if ERROR_RE.search(out):
         bad = [ln for ln in out.splitlines() if ERROR_RE.search(ln)]
+        rollback()
         return {"error": "import errors: %s" % "; ".join(bad[:5])}
     if rc != 0:
+        rollback()
         return {"error": "import exited %d: %s" % (rc, _tail(out))}
 
     try:
         stamp = stamp_of(work)
     except (OSError, ValueError) as e:
+        rollback()
         return {"error": "stamp: %s" % e}
     src = work / "trainer" / "windows" / "runner.ps1"
     dest = Path(runner_dest) if runner_dest else Path.home() / "trainer" / "runner.ps1"

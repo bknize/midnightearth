@@ -21,10 +21,12 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 from trainer.config import RunConfig
 from trainer.farm import REPO_ROOT, Farm, FarmError, godot_bin, worker_command
 from trainer.run import execute, git_commit
-from trainer.store import Store
+from trainer.store import Store, default_data_dir
 from trainer.sync import stamp_of, sync_code
 
 ACTIVE_STATES = ("queued", "running", "stopping")
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+LOCK_NAME = "serve.lock"
 WINDOWS_TOKEN = r"C:\Users\trainer\.trainer\token"
 Reply = Dict[str, Any]
 
@@ -122,6 +124,9 @@ class Service:
         self.lock = threading.RLock()
         self.started_at = time.time()
         self.interrupted = self.store.mark_interrupted()
+        self._syncing = False
+        self._farm: Optional[Farm] = None
+        self._probes: Dict[str, str] = {}
         self._farm_factory = farm_factory or self._default_farm
         self._stamp_fn = stamp_fn or self._default_stamp
         self._sync_fn = sync_fn or sync_code
@@ -130,8 +135,21 @@ class Service:
         self._stop_flag = threading.Event()
         self._session: Dict[str, Any] = {}
 
-    def close(self) -> None:
-        self.join()
+    def close(self, timeout: float = 60.0) -> None:
+        """Signal stop, wait up to `timeout` for the run thread, then stop the farm (which
+        fails the run's requests so the thread ends) and wait a little more."""
+        self._stop_flag.set()
+        self.join(timeout)
+        t = self._thread
+        if t is not None and t.is_alive():
+            farm = self._farm
+            if farm is not None:
+                farm.stop()
+            t.join(15.0)
+            rid = self._active_id
+            run = self.store.get_run(rid) if rid else None
+            if run is not None and run["state"] in ("failed",) + ACTIVE_STATES:
+                self.store.set_state(run["id"], "interrupted", "service shut down mid-run")
         self.store.close()
 
     def join(self, timeout: Optional[float] = None) -> None:
@@ -178,31 +196,67 @@ class Service:
 
     # tools
 
-    def health(self) -> Reply:
-        with self.lock:
-            try:
-                stamp = stamp_of(self._work())
-            except (OSError, ValueError) as e:
-                stamp = "unavailable: %s" % e
-            gpu = ""
-            smi = shutil.which("nvidia-smi")
-            if smi:
-                gpu = _run_version([smi, "--query-gpu=name", "--format=csv,noheader"])
-            now = time.time()
-            return {
-                "host": platform.node(), "python": platform.python_version(),
-                "godot": _run_version([godot_bin(), "--version"]) or "unavailable",
-                "gpu": gpu or "none", "free_disk_gb": round(
-                    shutil.disk_usage(str(self.data_dir)).free / 1e9, 1),
-                "code_stamp": stamp, "active_run": self._active(),
-                "interrupted_at_start": list(self.interrupted),
-                "started_at": self.started_at, "uptime_s": round(now - self.started_at, 1)}
+    def _probe(self, key: str, fn: Callable[[], str]) -> str:
+        """A slow version probe, run outside the service lock and cached until a sync."""
+        cached = self._probes.get(key)
+        if cached is None:
+            cached = fn()
+            self._probes[key] = cached
+        return cached
 
-    def sync_code(self, commit: str, bundle_b64: str = "", inbox_file: str = "") -> Reply:
+    def _gpu(self) -> str:
+        smi = shutil.which("nvidia-smi")
+        if not smi:
+            return ""
+        return _run_version([smi, "--query-gpu=name,memory.total", "--format=csv,noheader"])
+
+    def _checked_out(self) -> str:
+        work = self.root / "work"
+        if not (work / ".git").exists():
+            return ""
+        return _run_version(["git", "-C", str(work), "rev-parse", "HEAD"])
+
+    def health(self) -> Reply:
+        try:
+            stamp = stamp_of(self._work())
+        except (OSError, ValueError) as e:
+            stamp = "unavailable: %s" % e
+        godot = self._probe("godot", lambda: _run_version([godot_bin(), "--version"]))
+        gpu = self._probe("gpu", self._gpu)
+        commit = self._probe("commit", self._checked_out)
         with self.lock:
             active = self._active()
+            syncing = self._syncing
+            farm = self._farm if active else None
+        now = time.time()
+        return {
+            "host": platform.node(), "python": platform.python_version(),
+            "mcp": mcp_version(), "godot": godot or "unavailable", "gpu": gpu or "none",
+            "free_disk_gb": round(shutil.disk_usage(str(self.data_dir)).free / 1e9, 1),
+            "commit": commit or "unknown", "code_stamp": stamp,
+            "workers_busy": farm.busy() if farm is not None else 0,
+            "workers_total": farm.workers if farm is not None else 0,
+            "active_run": active, "syncing": syncing,
+            "interrupted_at_start": list(self.interrupted),
+            "started_at": self.started_at, "uptime_s": round(now - self.started_at, 1)}
+
+    def sync_code(self, commit: str, bundle_b64: str = "", inbox_file: str = "") -> Reply:
+        # The claim is taken under the lock; the minutes of git and Godot work run outside
+        # it, so run_status and the other tools stay answerable.
+        with self.lock:
+            active = self._active()
+            if active:
+                return {"error": "run %s is active; stop it before syncing" % active}
+            if self._syncing:
+                return {"error": "a sync is already in progress"}
+            self._syncing = True
+        try:
             return self._sync_fn(commit, bundle_b64, inbox_file, root=self.root,
-                                 godot_bin=godot_bin(), run_active=active)
+                                 godot_bin=godot_bin(), run_active=None)
+        finally:
+            with self.lock:
+                self._syncing = False
+                self._probes.clear()
 
     def start_run(self, config: Dict[str, Any]) -> Reply:
         try:
@@ -213,6 +267,8 @@ class Service:
             active = self._active()
             if active:
                 return {"error": "run %s is active" % active}
+            if self._syncing:
+                return {"error": "a sync is in progress"}
             try:
                 stamp = self._stamp_fn()
             except (OSError, ValueError) as e:
@@ -236,6 +292,7 @@ class Service:
             run = store.get_run(run_id)
             cfg = RunConfig.from_dict(run["config"] if run else {})
             farm = self._farm_factory(cfg, self.data_dir / "logs")
+            self._farm = farm
             try:
                 farm.start()
             except FarmError as e:
@@ -252,7 +309,25 @@ class Service:
             except Exception:
                 pass
         finally:
+            self._finalize(store, run_id, stop)
             store.close()
+
+    def _finalize(self, store: Store, run_id: str, stop: threading.Event) -> None:
+        """The thread never ends with its run in a live state: with no thread behind it,
+        `stopping` (or `running`) would block every new run and sync."""
+        try:
+            run = store.get_run(run_id)
+            if run is None or run["state"] not in ACTIVE_STATES:
+                return
+            total = int(run["config"].get("positions", 0))
+            if store.resume_point(run_id) >= total:
+                store.set_state(run_id, "done")
+            elif stop.is_set():
+                store.set_state(run_id, "stopped")
+            else:
+                store.set_state(run_id, "failed", "run thread ended while %s" % run["state"])
+        except Exception:
+            pass
 
     def _write_report(self, store: Store, run_id: str) -> None:
         report = self._report(store, run_id)
@@ -308,11 +383,16 @@ class Service:
                     eta = round((total - c["positions"]) * span / new, 1)
                     rate = round(new / span, 3)
             wall = elapsed
+            checkpoint = float(run.get("checkpoint", 0.0))
             out: Reply = {
                 "run_id": run_id, "state": run["state"], "positions_done": c["positions"],
-                "positions_total": total, "batches": c["batches"],
-                "restarts": run["restarts"], "positions_per_s": rate,
+                "positions_total": total, "batches": c["batches"], "labels": c["labels"],
+                "rollouts": c["rollouts"], "restarts": run["restarts"],
+                "positions_per_s": rate,
                 "rollouts_per_s": round(c["rollouts"] / wall, 2) if wall > 0 else 0.0,
+                "rollouts_per_min": round(c["rollouts"] * 60 / wall, 1) if wall > 0 else 0.0,
+                "labels_per_hour": round(c["labels"] * 3600 / wall, 1) if wall > 0 else 0.0,
+                "last_checkpoint": checkpoint if checkpoint > 0 else None,
                 "elapsed_s": round(elapsed, 1), "eta_s": eta,
                 "last_error": run["last_error"]}
             if run["state"] == "done":
@@ -324,10 +404,24 @@ class Service:
             run = self._need_run(run_id)
             if "error" in run:
                 return run
-            if run["state"] not in ("queued", "running", "stopping"):
+            if run["state"] not in ACTIVE_STATES:
                 return {"error": "run %s is %s, not running" % (run_id, run["state"])}
+            t = self._thread
+            live = self._active_id == run_id and t is not None and t.is_alive()
+            if not live:
+                # No thread behind the run (cannot happen after recovery, but never leave
+                # a live state with nobody to end it).
+                self.store.set_state(run_id, "stopped")
+                return {"run_id": run_id, "state": "stopped"}
             self._stop_flag.set()
-            self.store.set_state(run_id, "stopping")
+            # Atomic against the run thread's own final write: only a queued or running
+            # run becomes stopping, so a run that just finished stays done.
+            if not self.store.request_stop(run_id):
+                after = self.store.get_run(run_id)
+                state = after["state"] if after else "unknown"
+                if state == "stopping":
+                    return {"run_id": run_id, "state": "stopping"}
+                return {"error": "run %s is %s, not running" % (run_id, state)}
             return {"run_id": run_id, "state": "stopping"}
 
     def resume_run(self, run_id: str) -> Reply:
@@ -341,6 +435,8 @@ class Service:
             active = self._active()
             if active:
                 return {"error": "run %s is active" % active}
+            if self._syncing:
+                return {"error": "a sync is in progress"}
             try:
                 now_stamp = self._stamp_fn()
             except (OSError, ValueError) as e:
@@ -402,9 +498,11 @@ class Service:
                                   "spread": c["spread"], "n": c["n"], "wins": c["wins"],
                                   "draws": c["draws"], "losses": c["losses"],
                                   "capped": bool(c["capped"])})
-                out.append({"position": i, "seat": p["seat"], "prefix_len": p["prefix_len"],
-                            "seed": str(p["seed"]), "decks": json.loads(p["decks"]),
-                            "candidates": cands})
+                info = json.loads(p["info"])
+                out.append({"position": i, "seat": p["seat"], "round": info.get("round"),
+                            "turn": info.get("turn"), "hand": info.get("hand", []),
+                            "prefix_len": p["prefix_len"], "seed": str(p["seed"]),
+                            "decks": json.loads(p["decks"]), "candidates": cands})
             return {"run_id": run_id, "positions": out}
 
 
@@ -470,12 +568,30 @@ def build_mcp(service: Service) -> Any:
     return mcp
 
 
-def build_app(mcp: Any, token: str) -> Any:
-    """The streamable-HTTP ASGI app of the MCP server, behind the bearer check."""
+def build_app(mcp: Any, token: str, host: str = "127.0.0.1") -> Any:
+    """The streamable-HTTP ASGI app of the MCP server, behind the bearer check.
+
+    `host` is the address the server binds. mcp 2.x turns DNS-rebinding protection on for a
+    loopback bind and then accepts only loopback Host headers; a LAN bind would answer 421
+    to every request. For a non-loopback bind the protection is switched off explicitly:
+    the bearer token (checked first, in BearerMiddleware) is the guard on the LAN."""
     make = getattr(mcp, "streamable_http_app", None)
     if make is None:
         raise RuntimeError("this mcp version has no streamable_http_app()")
-    return BearerMiddleware(make(), token)
+    kwargs: Dict[str, Any] = {"host": host}
+    if host not in LOOPBACK_HOSTS:
+        from mcp.server.transport_security import TransportSecuritySettings
+        kwargs["transport_security"] = TransportSecuritySettings(
+            enable_dns_rebinding_protection=False)
+    return BearerMiddleware(make(**kwargs), token)
+
+
+def mcp_version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("mcp")
+    except Exception:
+        return "unavailable"
 
 
 def _opt(args: List[str], name: str, default: str) -> str:
@@ -486,8 +602,29 @@ def _opt(args: List[str], name: str, default: str) -> str:
     return default
 
 
+def acquire_serve_lock(data_dir: Path) -> Any:
+    """Take the exclusive serve lock in the data dir and return the open file, to be held for
+    the life of the process (the OS drops it on exit, however the process dies). Raises
+    RuntimeError when another serve holds it. Touches nothing else in the data dir."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    fh = open(data_dir / LOCK_NAME, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        raise RuntimeError("trainer serve: another serve already uses %s" % data_dir)
+    return fh
+
+
 def serve(args: List[str]) -> int:
-    """`serve [--host H] [--port 8765] [--data DIR]`. Exit 2 without a usable token."""
+    """`serve [--host H] [--port 8765] [--data DIR]`. Exit 2 without a usable token, 1 when
+    another serve holds the data dir (checked before the store is opened or recovered)."""
     try:
         token = load_token()
     except TokenError as e:
@@ -496,11 +633,18 @@ def serve(args: List[str]) -> int:
     host = _opt(args, "--host", "0.0.0.0")
     port = int(_opt(args, "--port", "8765"))
     data = _opt(args, "--data", "")
-    service = Service(Path(data) if data else None)
+    data_dir = Path(data) if data else default_data_dir()
+    try:
+        lock = acquire_serve_lock(data_dir)
+    except RuntimeError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    service = Service(data_dir)
     try:
         import uvicorn
-        app = build_app(build_mcp(service), token)
+        app = build_app(build_mcp(service), token, host)
         uvicorn.run(app, host=host, port=port, log_level="info")
     finally:
         service.close()
+        lock.close()
     return 0

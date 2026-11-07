@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import json
 import os
 import subprocess
@@ -11,8 +12,9 @@ from typing import Any, Dict, List
 
 from trainer.config import RunConfig
 from trainer.farm import Farm
-from trainer.server import (BearerMiddleware, Service, TokenError, build_mcp, check_bearer,
-                            load_token)
+from trainer.store import Store
+from trainer.server import (BearerMiddleware, Service, TokenError, acquire_serve_lock,
+                            build_app, build_mcp, check_bearer, load_token)
 
 STUB = str(Path(__file__).resolve().parent / "stub_worker.py")
 STAMP = "r7-stub"
@@ -95,6 +97,38 @@ class TokenTest(unittest.TestCase):
             self.assertEqual(p.stdout, "")
 
 
+class ServeLockTest(unittest.TestCase):
+    def test_second_lock_refused_and_released(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            first = acquire_serve_lock(Path(d))
+            with self.assertRaises(RuntimeError):
+                acquire_serve_lock(Path(d))
+            first.close()
+            acquire_serve_lock(Path(d)).close()
+
+    def test_second_serve_exits_1_and_touches_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            data = Path(d) / "data"
+            tmp = data / "runs" / "r1" / "labels-00000.jsonl.tmp"
+            tmp.parent.mkdir(parents=True)
+            tmp.write_text("in flight", encoding="utf-8")
+            token = Path(d) / "token"
+            token.write_text("s3cret", encoding="utf-8")
+            held = acquire_serve_lock(data)
+            try:
+                env = dict(os.environ, TRAINER_TOKEN_FILE=str(token))
+                p = subprocess.run([sys.executable, "-I", str(ROOT / "trainer"), "serve",
+                                    "--data", str(data), "--port", "0"], env=env,
+                                   capture_output=True, text=True, timeout=60)
+            finally:
+                held.close()
+            self.assertEqual(p.returncode, 1)
+            self.assertIn("another serve", p.stderr)
+            self.assertNotIn("s3cret", p.stderr + p.stdout)
+            self.assertTrue(tmp.is_file())
+            self.assertFalse((data / "trainer.db").exists())
+
+
 class ServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -127,6 +161,11 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual((st["positions_done"], st["positions_total"], st["batches"]),
                          (40, 40, 2))
         self.assertEqual(len(st["digest"]), 64)
+        self.assertGreater(st["labels"], 0)
+        self.assertGreater(st["rollouts"], 0)
+        self.assertGreater(st["last_checkpoint"], 0)
+        self.assertIn("labels_per_hour", st)
+        self.assertIn("rollouts_per_min", st)
         rep = self.svc.get_report(rid)
         self.assertEqual(rep["digest"], st["digest"])
         self.assertEqual(rep["positions"], 40)
@@ -136,6 +175,10 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(len(s1["positions"]), 3)
         self.assertEqual(s1, self.svc.sample_positions(rid, 3, 9))
         for p in s1["positions"]:
+            self.assertIsInstance(p["round"], int)
+            self.assertIsInstance(p["turn"], int)
+            self.assertEqual(len(p["hand"]), 5)
+            self.assertEqual(set(p["hand"][0]), {"instance", "card", "name"})
             means = [c["mean"] for c in p["candidates"]]
             self.assertEqual(means, sorted(means, reverse=True))
 
@@ -153,14 +196,95 @@ class ServiceTest(unittest.TestCase):
         whole = self.svc.start_run(cfg_dict(positions=60))["run_id"]
         want = self.wait(whole)["digest"]
         rid = self.svc.start_run(cfg_dict(positions=60))["run_id"]
-        self.svc.stop_run(rid)
+        # The flag is set before the thread has even started its workers, so the run must
+        # end stopped (never done): no vacuous branch.
+        self.assertEqual(self.svc.stop_run(rid)["state"], "stopping")
         st = self.wait(rid, ("stopped", "done"))
-        if st["state"] == "stopped":
-            self.assertIn("error", self.svc.stop_run(rid))
-            self.assertNotIn("error", self.svc.resume_run(rid))
-            st = self.wait(rid, ("done",))
+        self.assertEqual(st["state"], "stopped")
+        self.assertIn("error", self.svc.stop_run(rid))
+        self.assertNotIn("error", self.svc.resume_run(rid))
+        st = self.wait(rid, ("done",))
+        self.assertEqual(st["state"], "done")
         self.assertEqual(st["digest"], want)
         self.assertIn("error", self.svc.resume_run(rid))
+
+    def test_stop_after_finish_keeps_done(self) -> None:
+        rid = self.svc.start_run(cfg_dict(positions=20))["run_id"]
+        self.assertEqual(self.wait(rid)["state"], "done")
+        self.assertIn("error", self.svc.stop_run(rid))
+        self.assertEqual(self.svc.run_status(rid)["state"], "done")
+        self.assertFalse(self.svc.store.request_stop(rid))
+
+    def test_no_live_state_without_a_thread(self) -> None:
+        rid = self.svc.store.create_run(cfg_dict(), STAMP, "abc", state="stopping")
+        self.assertEqual(self.svc.stop_run(rid)["state"], "stopped")
+        run = self.svc.store.create_run(cfg_dict(positions=5), STAMP, "abc", state="running")
+        self.svc._finalize(self.svc.store, run, threading.Event())
+        self.assertEqual(self.svc.run_status(run)["state"], "failed")
+        run2 = self.svc.store.create_run(cfg_dict(positions=5), STAMP, "abc", state="stopping")
+        flag = threading.Event()
+        flag.set()
+        self.svc._finalize(self.svc.store, run2, flag)
+        self.assertEqual(self.svc.run_status(run2)["state"], "stopped")
+
+    def test_queued_run_is_interrupted_at_start(self) -> None:
+        rid = self.svc.store.create_run(cfg_dict(), STAMP, "abc", state="queued")
+        s2 = self.service()
+        self.assertEqual(s2.interrupted, [rid])
+        self.assertNotIn("error", s2.start_run(cfg_dict(positions=20)))
+        s2.join(60)
+
+    def test_sync_does_not_hold_the_lock(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow(commit: str, bundle: str, inbox: str, **kw: Any) -> Dict[str, Any]:
+            entered.set()
+            release.wait(30)
+            return {"commit": commit, "stamp": STAMP, "import_s": 0.0}
+
+        svc = self.service(slow)
+        result: List[Dict[str, Any]] = []
+        t = threading.Thread(target=lambda: result.append(svc.sync_code("a" * 40, "", "x.b")))
+        t.start()
+        try:
+            self.assertTrue(entered.wait(30))
+            t0 = time.monotonic()
+            self.assertIn("error", svc.run_status("nope"))
+            self.assertTrue(svc.health()["syncing"])
+            self.assertLess(time.monotonic() - t0, 5.0)
+            self.assertIn("sync", svc.start_run(cfg_dict())["error"])
+            self.assertIn("in progress", svc.sync_code("a" * 40, "", "x.b")["error"])
+        finally:
+            release.set()
+            t.join(30)
+        self.assertEqual(result[0]["commit"], "a" * 40)
+        self.assertFalse(svc.health()["syncing"])
+        self.assertNotIn("error", svc.start_run(cfg_dict(positions=20)))
+        svc.join(60)
+
+    def test_close_stops_a_hung_run(self) -> None:
+        def hung(cfg: RunConfig, log_dir: Path) -> Farm:
+            return Farm([sys.executable, "-I", STUB, "--stamp", STAMP, "--hang-after", "0"],
+                        1, timeout=60.0, start_timeout=30.0)
+
+        svc = Service(self.root / "data2", self.root / "me", farm_factory=hung,
+                      stamp_fn=lambda: STAMP)
+        rid = svc.start_run(cfg_dict(workers=1))["run_id"]
+        for _ in range(100):
+            if svc.run_status(rid)["state"] == "running":
+                break
+            time.sleep(0.1)
+        t0 = time.monotonic()
+        svc.close(timeout=0.5)
+        self.assertLess(time.monotonic() - t0, 25.0)
+        store = Store(self.root / "data2", recover_on_open=False)
+        try:
+            run = store.get_run(rid)
+            assert run is not None
+            self.assertEqual(run["state"], "interrupted")
+        finally:
+            store.close()
 
     def test_interrupted_on_start_and_resume(self) -> None:
         rid = self.svc.store.create_run(cfg_dict(), STAMP, "abc", state="running")
@@ -178,6 +302,8 @@ class ServiceTest(unittest.TestCase):
         h = self.svc.health()
         self.assertIsNone(h["active_run"])
         self.assertIn("uptime_s", h)
+        for key in ("mcp", "commit", "workers_busy", "workers_total", "godot", "gpu"):
+            self.assertIn(key, h)
         json.dumps(h)
 
     def test_sync_code_passes_active_run(self) -> None:
@@ -203,7 +329,30 @@ class McpTest(unittest.TestCase):
                 mcp = build_mcp(svc)
                 tools = asyncio.run(mcp.list_tools())
                 names = {t.name for t in getattr(tools, "tools", tools)}
-                self.assertEqual(len(names), 9)
+                self.assertEqual(names, {
+                    "health", "sync_code", "start_run", "run_status", "stop_run", "resume_run",
+                    "list_runs", "get_report", "sample_positions"})
+            finally:
+                svc.close()
+
+    def test_lan_host_passes_dns_rebinding_check_with_token(self) -> None:
+        from starlette.testclient import TestClient
+        with tempfile.TemporaryDirectory() as d:
+            svc = Service(Path(d) / "data", Path(d) / "me", farm_factory=stub_farm,
+                          stamp_fn=lambda: STAMP)
+            try:
+                app = build_app(build_mcp(svc), "s3cret", "0.0.0.0")
+                headers = {"Accept": "application/json, text/event-stream",
+                           "Content-Type": "application/json"}
+                body = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                    "protocolVersion": "2025-03-26", "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "0"}}}
+                with TestClient(app, base_url="http://192.168.68.63:8765") as client:
+                    bad = client.post("/mcp", json=body, headers=headers)
+                    self.assertEqual(bad.status_code, 401)
+                    ok = client.post("/mcp", json=body,
+                                     headers=dict(headers, Authorization="Bearer s3cret"))
+                    self.assertNotIn(ok.status_code, (401, 421), ok.text)
             finally:
                 svc.close()
 

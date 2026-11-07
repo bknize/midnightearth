@@ -62,6 +62,8 @@ func handle_line(line: String) -> Dictionary:
 	var reply: Dictionary = {}
 	if kind == PlayoutProtocol.KIND_PLAY:
 		reply = _play(request, began)
+	elif kind == PlayoutProtocol.KIND_INSPECT:
+		reply = _inspect(request, began)
 	else:
 		reply = _label(request, began)
 	return reply
@@ -122,6 +124,40 @@ func _play(request: Dictionary, began: int) -> Dictionary:
 	var log: Dictionary = PlayoutProtocol.log_object(engine.action_log())
 	var us: int = Time.get_ticks_usec() - began
 	return PlayoutProtocol.play_reply(request_id, _stamp, log, result, commits, us)
+
+
+# --- inspect --------------------------------------------------------------------------
+
+
+## What `seat` sees after the prefix: Round, Turn and its hand as card ids and names.
+func _inspect(request: Dictionary, began: int) -> Dictionary:
+	var request_id: Variant = request["id"]
+	var seat: int = request["seat"]
+	var match_seed: int = request["seed"]
+	var inspect_decks: Array[String] = []
+	inspect_decks.assign(_as_array(request["decks"]))
+	var engine: MatchEngine = _new_engine(match_seed, inspect_decks)
+	var started: ApplyResult = engine.start()
+	if not started.ok:
+		return PlayoutProtocol.error_reply(request_id, "match failed to start: %d" % started.error)
+	var prefix: Array[EngineAction] = []
+	prefix.assign(_as_array(request["actions"]))
+	for index: int in range(prefix.size()):
+		var applied: ApplyResult = engine.apply(prefix[index])
+		if not applied.ok:
+			return PlayoutProtocol.error_reply(
+				request_id, "prefix action %d rejected: %d" % [index, applied.error]
+			)
+	var view: SeatView = engine.view_for(seat)
+	var match_cards: MatchCards = engine.match_cards()
+	var hand: Array = []
+	for instance: int in view.own_hand:
+		var def: CardDef = match_cards.def_of(instance)
+		if def == null:
+			continue
+		hand.append({"instance": instance, "card": def.id, "name": def.name})
+	var us: int = Time.get_ticks_usec() - began
+	return PlayoutProtocol.inspect_reply(request_id, _stamp, view.round_number, view.turn, hand, us)
 
 
 # --- label ----------------------------------------------------------------------------

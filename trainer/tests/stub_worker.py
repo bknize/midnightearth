@@ -44,6 +44,14 @@ def label(req: Dict[str, Any]) -> Dict[str, Any]:
     return {"legal": legal, "candidates": cands, "values": vals, "rollouts": count * n}
 
 
+def inspect(req: Dict[str, Any]) -> Dict[str, Any]:
+    seed = int(req["seed"])
+    plen = len(req["actions"])
+    hand = [{"instance": j, "card": "c%d" % (_h("c", seed, plen, j) % 50),
+             "name": "Card %d" % (_h("c", seed, plen, j) % 50)} for j in range(5)]
+    return {"round": 1 + plen // 6, "turn": plen % 6, "hand": hand}
+
+
 def main() -> int:
     argv = sys.argv[1:]
 
@@ -73,7 +81,8 @@ def main() -> int:
             sys.stdin.read()
             return 0
         served += 1
-        body = play(req) if req["kind"] == "play" else label(req)
+        kind = req["kind"]
+        body = play(req) if kind == "play" else inspect(req) if kind == "inspect" else label(req)
         reply: Dict[str, Any] = {"id": req["id"], "stamp": reply_stamp}
         reply.update(body)
         reply["us"] = 1000 + served

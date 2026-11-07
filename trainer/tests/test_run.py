@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List
+from unittest import mock
 
 from trainer.config import RunConfig
 from trainer.farm import Farm, FarmError
@@ -65,6 +66,60 @@ class FarmTest(unittest.TestCase):
         farm = Farm([sys.executable, "-I", "-c", "pass"], 1, start_timeout=10.0)
         with self.assertRaises(FarmError):
             farm.start()
+
+
+    def test_request_after_stop_or_failure_errors_at_once(self) -> None:
+        farm = make_farm(1)
+        farm.start()
+        farm.stop()
+        with self.assertRaises(FarmError):
+            farm.request(play_req(1))
+        with self.assertRaises(FarmError):
+            farm.map([play_req(2)])
+        failed = make_farm(1, 0.5, "--hang-after", "0")
+        failed.start()
+        try:
+            with self.assertRaises(FarmError):
+                failed.request(play_req(1))
+            with self.assertRaises(FarmError):
+                failed.request(play_req(2))
+        finally:
+            failed.stop()
+
+    def test_proc_closes_log_when_popen_fails(self) -> None:
+        import trainer.farm as farm_mod
+        opened: List[Any] = []
+        real_open = open
+
+        def spy(*a: Any, **kw: Any) -> Any:
+            fh = real_open(*a, **kw)
+            opened.append(fh)
+            return fh
+
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(farm_mod.subprocess, "Popen", side_effect=OSError("nope")), \
+                    mock.patch("builtins.open", spy):
+                with self.assertRaises(OSError):
+                    farm_mod._Proc(["x"], Path(d) / "w.log")
+            self.assertEqual(len(opened), 1)
+            self.assertTrue(opened[0].closed)
+
+    def test_unexpected_exception_in_slot_fails_the_job(self) -> None:
+        farm = make_farm(1)
+
+        def boom(slot: int, proc: Any, job: Any) -> Any:
+            raise RuntimeError("boom")
+
+        farm._serve = boom  # type: ignore[method-assign]
+        farm.start()
+        try:
+            with self.assertRaises(FarmError) as ctx:
+                farm.request(play_req(1))
+            self.assertIn("boom", str(ctx.exception))
+            with self.assertRaises(FarmError):
+                farm.request(play_req(2))
+        finally:
+            farm.stop()
 
 
 class RunTest(unittest.TestCase):
