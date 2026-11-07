@@ -70,3 +70,14 @@ func _apply_pulse(step: BoardStep) -> void:
 	# holds until a score arrives (R35).
 	if step.scored:
 		tally[step.seat] = step.total
+
+
+## The walking totals before the Walk end for the seats that held Dross (the engine's `dross`
+## count per seat), else the settled tally: only a seat the Walk end multiplied shows a step.
+func dross_before(dross: Array[int]) -> Array[int]:
+	var out: Array[int] = []
+	out.assign(tally)
+	for seat: int in range(mini(dross.size(), out.size())):
+		if dross[seat] > 0:
+			out[seat] = pre_end[seat]
+	return out

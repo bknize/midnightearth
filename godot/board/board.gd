@@ -396,7 +396,7 @@ func _apply(step: BoardStep) -> void:
 			_refresh_tally(true)
 		BoardStep.Kind.WALK_END:
 			_refresh_tally(false)
-			_tally.show_multiplied(_tracker.pre_end, _tracker.tally)
+			_tally.show_multiplied(_tracker.dross_before(step.dross), _tracker.tally)
 			_tally.fly_in(step.scores, hud, $Camera3D as Camera3D, speed)
 		BoardStep.Kind.TURN_END:
 			_refresh_scores()
@@ -437,9 +437,11 @@ func _apply_effect(step: BoardStep) -> void:
 		BoardStep.Kind.EMPTY_DRAW:
 			hud.note_deck(step.seat, "Deck empty", step.duration)
 		BoardStep.Kind.SHUFFLE_IN:
+			_arrivals.shuffle_in(step)
 			hud.note_deck(step.seat, "Pile shuffled in", step.duration)
 		BoardStep.Kind.ENERGY_GRANT:
-			if step.seat == MatchDriver.PLAYER_SEAT:
+			# Tithe's grant lands next Turn: this Turn's Energy stays as it is.
+			if step.seat == MatchDriver.PLAYER_SEAT and not step.next_turn:
 				_turn_energy += step.amount
 				_unstage_all()
 		BoardStep.Kind.UNREVEAL:

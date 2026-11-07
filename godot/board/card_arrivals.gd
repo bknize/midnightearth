@@ -102,6 +102,18 @@ func place(step: BoardStep) -> void:
 		card.instance_id = -1
 
 
+## PILE_SHUFFLED_IN with `pile_cards` (Exhume): the Pile strip's cards that went into the
+## Deck leave the strip, so the prompt that follows (the next pick) lists what is left.
+func shuffle_in(step: BoardStep) -> void:
+	for id: int in step.cards:
+		var held: Card3D = _strip_card(id)
+		if held == null:
+			continue
+		var index: int = fx.strip.cards.find(held)
+		var removed: Card3D = fx.strip.remove_card(index)
+		removed.queue_free()
+
+
 ## A new card inserted at the step's slot of its seat's row, starting at `start`.
 func _land(step: BoardStep, start: Vector3) -> BoardCard:
 	var row: CardCollection3D = fx.player_row if step.seat == 0 else fx.opponent_row

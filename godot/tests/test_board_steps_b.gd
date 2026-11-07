@@ -56,19 +56,22 @@ func test_a_control_change_moves_the_card_to_the_controllers_row() -> void:
 
 
 func test_a_pile_zone_prompt_carries_its_zone_for_the_strip() -> void:
-	var event: MatchEvent = BoardEvents.make(
-		"PROMPT_OPENED",
-		{
-			"seat": 0,
-			"card": 5,
-			"verb": "revive",
-			"zone": "own_pile",
-			"options": [0, 2],
-			"multi": false,
-			"exact": -1,
-			"text": "Choose a card in your Pile",
-			"step": "D2",
-		}
+	var event: MatchEvent = (
+		BoardEvents
+		. make(
+			"PROMPT_OPENED",
+			{
+				"seat": 0,
+				"card": 5,
+				"verb": "revive",
+				"zone": "own_pile",
+				"options": [0, 2],
+				"multi": false,
+				"exact": -1,
+				"text": "Choose a card in your Pile",
+				"step": "D2",
+			}
+		)
 	)
 	var step: BoardStep = BoardEvents.one(event)
 	assert_int(step.kind).is_equal(BoardStep.Kind.PROMPT)
@@ -117,3 +120,46 @@ func test_the_walk_end_multiply_shows_before_and_after() -> void:
 	assert_int(tracker.tally[0]).is_equal(120000)
 	assert_str(RowTally.multiplied_text(160000, 120000)).is_equal("16 → 12")
 	assert_str(RowTally.multiplied_text(120000, 120000)).is_equal("12")
+
+
+func test_a_tithe_grant_lands_next_turn() -> void:
+	var event: MatchEvent = BoardEvents.make(
+		"ENERGY_GRANTED", {"seat": 0, "amount": 2, "source": 5, "next_turn": true}
+	)
+	var step: BoardStep = BoardEvents.one(event)
+	assert_int(step.kind).is_equal(BoardStep.Kind.ENERGY_GRANT)
+	assert_bool(step.next_turn).is_true()
+
+
+func test_the_walk_end_reads_the_engines_dross_count() -> void:
+	var event: MatchEvent = BoardEvents.make(
+		"WALK_ENDED", {"totals": [120000, 0], "scores": [12, 0], "dross": [1, 0]}
+	)
+	var step: BoardStep = BoardEvents.one(event)
+	assert_int(step.dross[0]).is_equal(1)
+	var tracker: ScoreTracker = ScoreTracker.new()
+	tracker.tally.assign([160000, 90000])
+	tracker.pre_end.assign([170000, 95000])
+	var before: Array[int] = tracker.dross_before(step.dross)
+	assert_int(before[0]).is_equal(170000)
+	assert_int(before[1]).is_equal(90000)
+
+
+func test_an_exhume_shuffle_lists_its_pile_cards() -> void:
+	var event: MatchEvent = BoardEvents.make(
+		"PILE_SHUFFLED_IN", {"seat": 1, "count": 1, "pile_cards": [33]}
+	)
+	var step: BoardStep = BoardEvents.one(event)
+	assert_int(step.kind).is_equal(BoardStep.Kind.SHUFFLE_IN)
+	assert_int(step.cards[0]).is_equal(33)
+
+
+func test_a_return_after_its_exit_to_hand_adds_no_step() -> void:
+	var resolved: MatchEvent = BoardEvents.make(
+		"EXIT_RESOLVED", {"card": 4, "mark": "fleeting", "owner": 0, "to": "hand"}
+	)
+	var returned: MatchEvent = BoardEvents.make("CARD_RETURNED", {"owner": 0, "card": 4})
+	var events: Array[MatchEvent] = [resolved, returned]
+	var steps: Array[BoardStep] = BoardSteps.from_events(events, 1.0, 0)
+	assert_int(steps.size()).is_equal(1)
+	assert_int(steps[0].kind).is_equal(BoardStep.Kind.EXIT)

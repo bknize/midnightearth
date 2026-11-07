@@ -20,6 +20,23 @@ const ACTION_LABELS: Dictionary[String, String] = {
 	"delve": "Take",
 	"revive": "Revive",
 	"exhume": "Exhume",
+	"cull": "Keep",
+	"quorum": "Keep",
+	"hex_choose": "Hex",
+	"fade_other_own": "Fade",
+	"fleeting_chosen": "Fleeting",
+	"scrap": "Discard",
+	"mute_opposing": "Mute",
+	"squelch_opposing": "Squelch",
+	"silence_opposing": "Silence",
+	"gag": "Gag",
+	"condemn_other_gain": "Condemn",
+	"immolate": "Condemn",
+	"pin": "Pin",
+	"swap_self": "Swap",
+	"shade_unreveal": "Flip down",
+	"veil_fleeting": "Save",
+	"salvager_cycle": "Cycle",
 }
 ## The verb of the discard-down prompt (TurnFlow.VERB_DISCARD_DOWN).
 const VERB_DISCARD_DOWN: String = "discard_down"
