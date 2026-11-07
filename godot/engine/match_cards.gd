@@ -130,8 +130,9 @@ static func is_created(instance: int) -> bool:
 ## repeat is refused harmlessly. Two copies that diverge and then both create would hand one
 ## id two definitions; the first recorded wins here. The engine never runs diverging copies
 ## (no preview since C10, so one live state per match); a test that copies a state must not
-## create cards on both. A verb added here stays in has_verb() for the match, which only
-## makes a hot path do work it could skip.
+## create cards on both. The training copies (MatchEngine.from_state) take a copy() of their
+## own, so their rollouts never write here. A verb added here stays in has_verb() for the
+## match, which only makes a hot path do work it could skip.
 func record_created(instance: int, def: CardDef, owner: int) -> bool:
 	if instance < CREATED_BASE or _created.has(instance) or def == null:
 		return false
@@ -141,6 +142,24 @@ func record_created(instance: int, def: CardDef, owner: int) -> bool:
 	_created_owner[instance] = owner
 	_add_verbs(def)
 	return true
+
+
+## An independent copy for a training copy of the match (MatchEngine.from_state, cycle 11
+## plan P5): its own created-card records and verb set, so cards created in the copy are
+## never recorded on this one. Definitions, Crew, the pool and the verb table are shared
+## (never written after build()).
+func copy() -> MatchCards:
+	var out: MatchCards = MatchCards.new()
+	out._defs.assign(_defs)
+	out._deck_ids.assign(_deck_ids)
+	out._error = _error
+	out._created.assign(_created)
+	out._created_owner.assign(_created_owner)
+	out._verbs.assign(_verbs)
+	out._crew.assign(_crew)
+	out._verb_handler = _verb_handler
+	out._pool = _pool
+	return out
 
 
 ## The pool's definition with the id `card_id` (a created-only card such as Dross, or any
