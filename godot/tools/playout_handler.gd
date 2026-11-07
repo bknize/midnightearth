@@ -137,21 +137,10 @@ func _play(request: Dictionary, began: int) -> Dictionary:
 func _inspect(request: Dictionary, began: int) -> Dictionary:
 	var request_id: Variant = request["id"]
 	var seat: int = request["seat"]
-	var match_seed: int = request["seed"]
-	var inspect_decks: Array[String] = []
-	inspect_decks.assign(_as_array(request["decks"]))
-	var engine: MatchEngine = _new_engine(match_seed, inspect_decks)
-	var started: ApplyResult = engine.start()
-	if not started.ok:
-		return PlayoutProtocol.error_reply(request_id, "match failed to start: %d" % started.error)
-	var prefix: Array[EngineAction] = []
-	prefix.assign(_as_array(request["actions"]))
-	for index: int in range(prefix.size()):
-		var applied: ApplyResult = engine.apply(prefix[index])
-		if not applied.ok:
-			return PlayoutProtocol.error_reply(
-				request_id, "prefix action %d rejected: %d" % [index, applied.error]
-			)
+	var replayed: Dictionary = _replayed(request_id, request)
+	if replayed.has("error"):
+		return replayed["error"]
+	var engine: MatchEngine = replayed["engine"]
 	var view: SeatView = engine.view_for(seat)
 	var match_cards: MatchCards = engine.match_cards()
 	var hand: Array = []
@@ -170,21 +159,10 @@ func _inspect(request: Dictionary, began: int) -> Dictionary:
 func _label(request: Dictionary, began: int) -> Dictionary:
 	var request_id: Variant = request["id"]
 	var seat: int = request["seat"]
-	var match_seed: int = request["seed"]
-	var label_decks: Array[String] = []
-	label_decks.assign(_as_array(request["decks"]))
-	var engine: MatchEngine = _new_engine(match_seed, label_decks)
-	var started: ApplyResult = engine.start()
-	if not started.ok:
-		return PlayoutProtocol.error_reply(request_id, "match failed to start: %d" % started.error)
-	var prefix: Array[EngineAction] = []
-	prefix.assign(_as_array(request["actions"]))
-	for index: int in range(prefix.size()):
-		var applied: ApplyResult = engine.apply(prefix[index])
-		if not applied.ok:
-			return PlayoutProtocol.error_reply(
-				request_id, "prefix action %d rejected: %d" % [index, applied.error]
-			)
+	var replayed: Dictionary = _replayed(request_id, request)
+	if replayed.has("error"):
+		return replayed["error"]
+	var engine: MatchEngine = replayed["engine"]
 	if engine.is_over() or engine.awaited_seat() != seat or not engine.open_prompt().is_empty():
 		return PlayoutProtocol.error_reply(
 			request_id, "the position is not seat %d's commit decision" % seat
@@ -249,6 +227,34 @@ static func _large_hand_candidates(
 		seen[key] = true
 		out.append(action)
 	return out
+
+
+## The engine for a request's seed and decks, started and advanced through its prefix
+## `actions`: {"engine": MatchEngine}, or {"error": reply} when the match fails to start or
+## a prefix action is rejected.
+func _replayed(request_id: Variant, request: Dictionary) -> Dictionary:
+	var match_seed: int = request["seed"]
+	var ids: Array[String] = []
+	ids.assign(_as_array(request["decks"]))
+	var engine: MatchEngine = _new_engine(match_seed, ids)
+	var started: ApplyResult = engine.start()
+	if not started.ok:
+		return {
+			"error": PlayoutProtocol.error_reply(
+				request_id, "match failed to start: %d" % started.error
+			)
+		}
+	var prefix: Array[EngineAction] = []
+	prefix.assign(_as_array(request["actions"]))
+	for index: int in range(prefix.size()):
+		var applied: ApplyResult = engine.apply(prefix[index])
+		if not applied.ok:
+			return {
+				"error": PlayoutProtocol.error_reply(
+					request_id, "prefix action %d rejected: %d" % [index, applied.error]
+				)
+			}
+	return {"engine": engine}
 
 
 ## A created, not yet started engine for `ids` (empty = the seeded pick).

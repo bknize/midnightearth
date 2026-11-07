@@ -6,6 +6,7 @@ answers 401 before any MCP handling. `build_mcp` and `build_app` are the only pl
 import `mcp`; `serve` ties them together with uvicorn. Auth uses the middleware path (P15's
 fallback): a static bearer token is a poor fit for the OAuth-shaped verifier hook.
 """
+import hmac
 import json
 import os
 import platform
@@ -83,7 +84,6 @@ def default_root() -> Path:
 # --- bearer check -------------------------------------------------------------------------
 
 def check_bearer(header: str, token: str) -> bool:
-    import hmac
     scheme, _, value = header.partition(" ")
     if scheme.lower() != "bearer" or not value:
         return False
@@ -129,7 +129,8 @@ def _run_version(argv: List[str]) -> str:
                            stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return ""
-    return (p.stdout or p.stderr).strip().splitlines()[0] if (p.stdout or p.stderr).strip() else ""
+    text = (p.stdout or p.stderr).strip()
+    return text.splitlines()[0] if text else ""
 
 
 class Service:
@@ -200,20 +201,10 @@ class Service:
 
     def _active(self) -> Optional[str]:
         """Id of the run in a live state, or None. Caller holds the lock."""
-        for r in self.store.list_runs():
-            if r["state"] in ACTIVE_STATES:
-                return str(r["id"])
-        return None
+        return self.store.active_run_id()
 
     def _counts(self, run_id: str) -> Dict[str, int]:
-        db = self.store.db
-        pos = db.execute("SELECT COUNT(*) AS c FROM positions WHERE run_id = ?",
-                         (run_id,)).fetchone()["c"]
-        lab = db.execute("SELECT COUNT(*) AS c, COALESCE(SUM(n), 0) AS r FROM labels"
-                         " WHERE run_id = ?", (run_id,)).fetchone()
-        return {"positions": int(pos), "labels": int(lab["c"]), "rollouts": int(lab["r"]),
-                "skipped": self.store.skipped_count(run_id),
-                "batches": len(self.store.committed_batches(run_id))}
+        return self.store.counts(run_id)
 
     def _need_run(self, run_id: str) -> Any:
         if not isinstance(run_id, str) or not run_id:
@@ -403,24 +394,20 @@ class Service:
 
     def _report(self, store: Store, run_id: str) -> Reply:
         run = store.get_run(run_id) or {}
-        db = store.db
-        pos = int(db.execute("SELECT COUNT(*) AS c FROM positions WHERE run_id = ?",
-                             (run_id,)).fetchone()["c"])
-        lab = db.execute("SELECT COUNT(*) AS c, COALESCE(SUM(n), 0) AS r FROM labels"
-                         " WHERE run_id = ?", (run_id,)).fetchone()
+        c = store.counts(run_id)
         hist: Dict[str, int] = {}
         spreads: List[float] = []
-        for row in db.execute(
+        for row in store.db.execute(
                 "SELECT position_index, COUNT(*) AS c, MAX(mean) - MIN(mean) AS s FROM labels"
                 " WHERE run_id = ? GROUP BY position_index", (run_id,)):
             hist[str(row["c"])] = hist.get(str(row["c"]), 0) + 1
             spreads.append(float(row["s"]))
         wall = max(0.0, float(run.get("active_s", 0.0)))  # active time, not created to updated
-        rollouts = int(lab["r"])
+        rollouts = c["rollouts"]
         return {
             "run_id": run_id, "state": run.get("state"), "config": run.get("config"),
-            "stamp": run.get("stamp"), "commit": run.get("commit"), "positions": pos,
-            "skipped": store.skipped_count(run_id), "labels": int(lab["c"]), "rollouts": rollouts, "wall_s": round(wall, 2),
+            "stamp": run.get("stamp"), "commit": run.get("commit"), "positions": c["positions"],
+            "skipped": c["skipped"], "labels": c["labels"], "rollouts": rollouts, "wall_s": round(wall, 2),
             "rollouts_per_s": round(rollouts / wall, 2) if wall > 0 else 0.0,
             "restarts": run.get("restarts", 0), "candidate_count_histogram": hist,
             "mean_value_spread": round(sum(spreads) / len(spreads), 4) if spreads else 0.0,
@@ -450,16 +437,15 @@ class Service:
                 if span > 0 and new > 0:
                     eta = round((total - c["positions"]) * span / new, 1)
                     rate = round(new / span, 3)
-            wall = elapsed
             checkpoint = float(run.get("checkpoint", 0.0))
             out: Reply = {
                 "run_id": run_id, "state": run["state"], "positions_done": c["positions"],
                 "positions_total": total, "skipped": c["skipped"], "batches": c["batches"], "labels": c["labels"],
                 "rollouts": c["rollouts"], "restarts": run["restarts"],
                 "positions_per_s": rate,
-                "rollouts_per_s": round(c["rollouts"] / wall, 2) if wall > 0 else 0.0,
-                "rollouts_per_min": round(c["rollouts"] * 60 / wall, 1) if wall > 0 else 0.0,
-                "labels_per_hour": round(c["labels"] * 3600 / wall, 1) if wall > 0 else 0.0,
+                "rollouts_per_s": round(c["rollouts"] / elapsed, 2) if elapsed > 0 else 0.0,
+                "rollouts_per_min": round(c["rollouts"] * 60 / elapsed, 1) if elapsed > 0 else 0.0,
+                "labels_per_hour": round(c["labels"] * 3600 / elapsed, 1) if elapsed > 0 else 0.0,
                 "last_checkpoint": checkpoint if checkpoint > 0 else None,
                 "elapsed_s": round(elapsed, 1), "eta_s": eta,
                 "last_error": run["last_error"]}
@@ -520,10 +506,10 @@ class Service:
     def list_runs(self) -> Reply:
         with self.lock:
             runs = []
-            for r in self.store.list_runs():
+            for r in self.store.list_runs_progress():
                 runs.append({"run_id": r["id"], "state": r["state"], "stamp": r["stamp"],
                              "commit": r["commit"], "created": r["created"],
-                             "positions_done": self.store.resume_point(r["id"]),
+                             "positions_done": r["done"],
                              "positions_total": r["config"].get("positions")})
             return {"runs": runs}
 

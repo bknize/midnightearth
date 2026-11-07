@@ -123,6 +123,36 @@ class Store:
                 out.append(run)
         return out
 
+    def active_run_id(self) -> Optional[str]:
+        """Id of the first run (by creation) in a live state, or None."""
+        row = self.db.execute(
+            "SELECT id FROM runs WHERE state IN ('queued', 'running', 'stopping')"
+            " ORDER BY created, id LIMIT 1").fetchone()
+        return None if row is None else str(row["id"])
+
+    def list_runs_progress(self) -> List[Dict[str, Any]]:
+        """Every run as `list_runs` gives it, plus `done`: the first position index after
+        its last committed batch (as `resume_point`), in two queries."""
+        done = {r["run_id"]: int(r["done"]) for r in self.db.execute(
+            'SELECT run_id, MAX("index") + 1 AS done FROM positions GROUP BY run_id')}
+        out: List[Dict[str, Any]] = []
+        for row in self.db.execute("SELECT * FROM runs ORDER BY created, id"):
+            run: Dict[str, Any] = dict(row)
+            run["config"] = json.loads(run["config"])
+            run["done"] = done.get(run["id"], 0)
+            out.append(run)
+        return out
+
+    def counts(self, run_id: str) -> Dict[str, int]:
+        """Committed positions, labels, rollouts, skipped positions and batches of a run."""
+        pos = self.db.execute("SELECT COUNT(*) AS c FROM positions WHERE run_id = ?",
+                              (run_id,)).fetchone()["c"]
+        lab = self.db.execute("SELECT COUNT(*) AS c, COALESCE(SUM(n), 0) AS r FROM labels"
+                              " WHERE run_id = ?", (run_id,)).fetchone()
+        return {"positions": int(pos), "labels": int(lab["c"]), "rollouts": int(lab["r"]),
+                "skipped": self.skipped_count(run_id),
+                "batches": len(self.committed_batches(run_id))}
+
     def set_state(self, run_id: str, state: str, last_error: Optional[str] = None) -> None:
         if state not in STATES:
             raise ValueError("unknown run state %r" % (state,))
