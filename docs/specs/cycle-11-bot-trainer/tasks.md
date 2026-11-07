@@ -6,7 +6,7 @@ related: ["[[specs/cycle-11-bot-trainer/spec]]", "[[specs/cycle-11-bot-trainer/p
 created: 2026-11-07
 updated: 2026-11-07
 uid: 091e8cb1-63a1-43fe-9c19-8554d6a5fc73
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-11-bot-trainer-cycle-a-play-outs-ladder-from-random-trainer-11ab3927f350
 supersedes:
 ---
 
@@ -63,13 +63,29 @@ Task T07 (A1) and task T14 (A2), owned by the orchestrator:
 A1: (1) T01, T04; (2) T02; (3) T03, T05; (4) T06; (5) T07.
 A2: (1) T08; (2) T09, T11; (3) T10; (4) T12; (5) T13 (when unblocked), T14.
 
-## Linear
+## Linear (exercised 2026-11-07)
 
-Filled by `/exercise <slug>`. Empty until then.
+- Project: [P-NSC-13 Cycle 11 — bot trainer, cycle A](https://linear.app/night-science-llc/project/cycle-11-bot-trainer-cycle-a-play-outs-ladder-from-random-trainer-11ab3927f350), state Planned
+- Label `spec/cycle-11-bot-trainer`; every issue in Todo with its Depends column as `blockedBy`
+  (T08 is blocked by T07: A2 starts after A1 merges)
+- Milestones: DC-15 (A1, T01–T07) and DC-16 (A2, T08–T14), created and numbered at `/cycle plan`
 
-- Project: <URL>
-- Milestones: DC-15 (A1), DC-16 (A2), numbers confirmed at `/cycle plan`
-- Issue mapping: task n is issue <KEY-m> (T01 = <KEY-…> … T14 = <KEY-…>)
+| Task | Issue |
+|---|---|
+| T01 | NSC-192 |
+| T02 | NSC-193 |
+| T03 | NSC-194 |
+| T04 | NSC-195 |
+| T05 | NSC-196 |
+| T06 | NSC-197 |
+| T07 | NSC-198 |
+| T08 | NSC-199 |
+| T09 | NSC-200 |
+| T10 | NSC-201 |
+| T11 | NSC-202 |
+| T12 | NSC-203 |
+| T13 | NSC-204 |
+| T14 | NSC-205 |
 
 ## Commit plan
 

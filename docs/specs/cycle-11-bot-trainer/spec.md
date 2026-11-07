@@ -6,7 +6,7 @@ related: ["[[specs/cycle-11-bot-trainer/plan]]", "[[specs/cycle-11-bot-trainer/t
 created: 2026-11-07
 updated: 2026-11-07
 uid: 98fa6820-8ac6-4413-8a30-e30ed6cb3a6b
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-11-bot-trainer-cycle-a-play-outs-ladder-from-random-trainer-11ab3927f350
 supersedes:
 ---
 
