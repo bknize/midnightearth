@@ -161,19 +161,22 @@ func test_an_empty_deck_draws_nothing_and_emits_draw_empty() -> void:
 	state.seats[1].hand.assign(_typed([40, 41]))
 	var recorder: Recorder = _recorder()
 	assert_bool(TurnFlow.draw(state, _defs(), MatchRng.new(SEED), recorder.record, 1)).is_false()
-	assert_int(recorder.events.size()).is_equal(1)
+	# DRAW_EMPTY, then the On empty draw drain (D1): the fixture's Void fizzles until T07.
 	assert_int(recorder.events[0].kind).is_equal(MatchEvent.Kind.DRAW_EMPTY)
 	assert_int(recorder.events[0].owner_seat).is_equal(MatchEvent.PUBLIC)
 	assert_dict(recorder.events[0].payload).is_equal({"seat": 1})
+	var seen: int = recorder.events.size()
+	for event: MatchEvent in recorder.events.slice(1):
+		assert_int(event.kind).is_equal(MatchEvent.Kind.TRIGGER_FIZZLED)
 	assert_array(state.seats[1].hand).is_equal(_typed([40, 41]))
 	assert_bool(MatchEvent.Kind.keys().has("CARD_BURNED")).is_false()
 	# The resumed draw (Q11) finds the Deck still empty: nothing, and no second DRAW_EMPTY.
 	assert_bool(TurnFlow.resumed_draw(state, recorder.record, 1)).is_false()
-	assert_int(recorder.events.size()).is_equal(1)
+	assert_int(recorder.events.size()).is_equal(seen)
 	# Once the Deck holds a card, the resumed draw takes it.
 	state.seats[1].deck.assign(_typed([42]))
 	assert_bool(TurnFlow.resumed_draw(state, recorder.record, 1)).is_true()
-	assert_int(recorder.events[1].kind).is_equal(MatchEvent.Kind.CARD_DRAWN)
+	assert_int(recorder.events[seen].kind).is_equal(MatchEvent.Kind.CARD_DRAWN)
 	assert_array(state.seats[1].hand).is_equal(_typed([40, 41, 42]))
 
 

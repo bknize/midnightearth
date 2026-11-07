@@ -3,10 +3,11 @@ extends RefCounted
 ## The dispatch of card abilities (cycle 9 plan P3, P12). Pure: no nodes, no clock; the only
 ## randomness is the engine stream passed in.
 ##
-## DC-13 T02 stub: every ability is a known name with no behaviour yet. fire() finds the
-## abilities of a card that sit on a moment and fizzles each of them with the reason
-## REASON_NO_TARGET, so the engine plays every card as a plain body until T05 adds the
-## trigger queue and T06 the verbs. No ability opens a prompt yet (the discard-down is
+## DC-13 T02 stub: every ability is a known name with no behaviour yet. The trigger queue
+## (TriggerQueue, T05) calls prepare() and resolve() per queued ability; prepare() fizzles
+## each with the reason REASON_NO_TARGET, so the engine plays every card as a plain body
+## until T06 fills the verbs. fire() is the same stub for one card and moment, outside the
+## queue. No ability opens a prompt yet (the discard-down is
 ## TurnFlow's), so answer() and decline() are reached only by a hand-made prompt; they close
 ## it.
 ##
@@ -60,6 +61,21 @@ static func fire(
 		}
 		out.append(MatchEvent.new(MatchEvent.Kind.TRIGGER_FIZZLED, fizzled))
 	return out
+
+
+## The trigger queue's entry point (DC-13 T05, the VerbHandler protocol): `ctx`'s card
+## ability came up (its card is not Muted: the queue read that at the pop). The T02 stub
+## fizzles it `no_target`; DC-13 T06 dispatches the verbs here, each fizzling, targeting
+## through ctx.choose() (Q9) or leaving the trigger to resolve().
+static func prepare(ctx: TriggerContext) -> void:
+	ctx.fizzle(REASON_NO_TARGET)
+
+
+## `ctx`'s card ability resolves (after prepare() left it, or after its prompt's answer in
+## ctx.indices): the T02 stub does nothing; DC-13 T06 applies the verbs, reading every
+## amount now (Q5) and waking what they cause through ctx.wake() (Q1).
+static func resolve(_ctx: TriggerContext) -> void:
+	return
 
 
 ## The rules text of the source of `prompt` (a card's text, or a Crew's), "" when unknown.

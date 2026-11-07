@@ -30,6 +30,9 @@ var _created_owner: Dictionary[int, int] = {}
 var _verbs: Dictionary[String, bool] = {}
 ## Each seat's Crew in slot order, seat 0's MatchRules.CREW_SIZE then seat 1's.
 var _crew: Array[CrewDef] = []
+## Extra verbs the trigger queue asks before Abilities (DC-13 T05): none in a shipped match;
+## the test fixtures set one for their stub verbs (set_verb_handler).
+var _verb_handler: VerbHandler = null
 
 
 ## Resolves the definitions of a match where seat s plays the deck `deck_ids[s]` of
@@ -130,6 +133,28 @@ func record_created(instance: int, def: CardDef, owner: int) -> bool:
 ## seat's deck. False after a failed build. Fixed at build(): a deck never changes.
 func has_verb(verb: String) -> bool:
 	return _verbs.has(verb)
+
+
+## The extra verb table of this match (VerbHandler), or null: the shipped game has none.
+func verb_handler() -> VerbHandler:
+	return _verb_handler
+
+
+## Installs `handler` as this match's extra verb table (the test fixtures' stub verbs).
+func set_verb_handler(handler: VerbHandler) -> void:
+	_verb_handler = handler
+
+
+## Replaces the definition of the Deck instance `instance` with `def` (test fixtures: a card
+## carrying a stub verb). False, changing nothing, for an id outside the Decks or a null
+## `def`. The deck lists and every other instance keep theirs.
+func replace_def(instance: int, def: CardDef) -> bool:
+	if def == null or instance < 0 or instance >= _defs.size():
+		return false
+	_defs[instance] = def
+	for ability: CardAbility in def.abilities:
+		_verbs[ability.verb] = true
+	return true
 
 
 ## `seat`'s Crew in slot order: MatchRules.CREW_SIZE definitions, or none for a seat out of

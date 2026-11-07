@@ -77,6 +77,9 @@ var crew_uses: Array[Array] = [[], []]
 ## Muted", DC-13 T04, plan P9): status to cessation, as CardState.statuses. Written by
 ## Statuses; the `turn` ones end at turn end.
 var seat_protections: Array[Dictionary] = [{}, {}]
+## The trigger queue (DC-13 T05, plan P11): its Batches, the drain in progress and the entry
+## a drain paused on, so a full state taken while paused replays and resumes alike.
+var queue: TriggerQueue = TriggerQueue.new()
 
 
 func _init(p_match_seed: int = 0) -> void:
@@ -133,6 +136,7 @@ func to_dict() -> Dictionary:
 		"prompt": prompt.duplicate(true),
 		"crew_uses": _crew_uses_list(),
 		"seat_protections": _seat_protections_list(),
+		"queue": queue.to_dict(),
 	}
 
 
@@ -171,6 +175,7 @@ func duplicate() -> MatchState:
 	out.prompt = prompt.duplicate(true)
 	out.crew_uses.assign(_crew_uses_list())
 	out.seat_protections.assign(_seat_protections_list())
+	out.queue = queue.copy()
 	return out
 
 
@@ -384,7 +389,13 @@ class EnergyState:
 ## next pulse; `cursor` is, per seat, the number of that row's slots the Walk has passed, so
 ## the next slot of a row is its cursor (cycle 5 cursor rules); `scored` holds every card
 ## that Scored at least once this Walk; `scored_count` the Scores per seat this Walk (a card
-## Scoring twice counts twice; Navigator and Tallyman read it, T07).
+## Scoring twice counts twice; Navigator and Tallyman read it, T07). DC-13 T05:
+## `resolutions` counts the trigger resolutions of the pulse in progress (Q4, reset at each
+## pulse); `pulse_seat` and `pulse_slot` name that pulse (a drain paused in its D7 resumes
+## its score stage); `scores_twice` (Q7) runs the score stage of every later pulse twice
+## (`pulse_twice` is its value when the pulse in progress started), and
+## `retrigger_on_reveal[seat]` lists the cards whose retrigger applies to that seat's other
+## On reveals (Q6); both last the Turn (TurnFlow clears them at turn end).
 class WalkState:
 	extends RefCounted
 
@@ -393,6 +404,12 @@ class WalkState:
 	var cursor: Array[int] = [0, 0]
 	var scored: Dictionary[int, bool] = {}
 	var scored_count: Array[int] = [0, 0]
+	var resolutions: int = 0
+	var pulse_seat: int = -1
+	var pulse_slot: int = -1
+	var scores_twice: bool = false
+	var pulse_twice: bool = false
+	var retrigger_on_reveal: Array[Array] = [[], []]
 
 	## The ids of the cards Scored this Walk, ascending.
 	func scored_ids() -> Array[int]:
@@ -408,6 +425,12 @@ class WalkState:
 		out.cursor.assign(cursor)
 		out.scored.assign(scored)
 		out.scored_count.assign(scored_count)
+		out.resolutions = resolutions
+		out.pulse_seat = pulse_seat
+		out.pulse_slot = pulse_slot
+		out.scores_twice = scores_twice
+		out.pulse_twice = pulse_twice
+		out.retrigger_on_reveal.assign(_retriggers())
 		return out
 
 	func to_dict() -> Dictionary:
@@ -417,4 +440,23 @@ class WalkState:
 			"cursor": MatchState.plain(cursor),
 			"scored": MatchState.plain(scored_ids()),
 			"scored_count": MatchState.plain(scored_count),
+			"resolutions": resolutions,
+			"pulse_seat": pulse_seat,
+			"pulse_slot": pulse_slot,
+			"scores_twice": scores_twice,
+			"pulse_twice": pulse_twice,
+			"retrigger_on_reveal": _retriggers(),
 		}
+
+	## Clears the Turn's retriggers and Scores twice (turn end).
+	func clear_turn_effects() -> void:
+		scores_twice = false
+		for sources: Array in retrigger_on_reveal:
+			sources.clear()
+
+	## The retrigger sources per seat as plain, copied lists.
+	func _retriggers() -> Array:
+		var out: Array = []
+		for sources: Array in retrigger_on_reveal:
+			out.append(sources.duplicate())
+		return out

@@ -13,16 +13,19 @@ extends RefCounted
 ##
 ## One pulse (resolution section 3): the reveal stage flips a face-down card
 ## (CARD_REVEALED {seat, card, slot, power, mult, add, statuses}) and runs its On reveal
-## (reveal_stage(): Abilities.fire, the T02 stub; DC-13 T05 replaces it with the Batch and
-## the D7 drain); then the score stage belongs to the card in the slot once the reveal
+## (reveal_stage(): its On reveal Batch and the D7 drain, TriggerQueue, DC-13 T05); then
+## the score stage belongs to the card in the slot once the reveal
 ## stage has resolved (score_slot(), cycle 5 C23): a card that landed there by a Move Scores
 ## now (revealing in full first when face down), the pulsed card moved ahead is reached
 ## later, one moved behind the cursor waits for the next Walk (R44; Movement keeps the row's
 ## length, so the cursor does not change). When that card Scores (scores_now(): revealed and
 ## not Squelched or Silenced, R33), the score stage adds its Power to its Controller's
 ## walking total and multiplies the total by its Bonus value (Scoring.step_total, R26),
-## CARD_SCORED {seat, card, slot, power, bonus_value, total, pass: 1}, and runs its On score
-## (score_stage(); T05: the Batch and D8). Integer only, so every platform agrees.
+## CARD_SCORED {seat, card, slot, power, bonus_value, total, pass}, and wakes its On score
+## (score_stage(): twice under Scores twice, then the D8 drain). Each pulse starts a new
+## trigger budget (`walk.resolutions`, Q4); a drain paused on a prompt returns true from
+## step() and the engine resumes it (TriggerQueue.answer, then resume_pulse() after a D7).
+## Integer only, so every platform agrees.
 ##
 ## Events go to `sink` as sink.call(kind, payload) for the Walk's own public events and
 ## sink.call(kind, payload, owner) for an ability's events. A Walk with no valid sink emits
@@ -30,6 +33,9 @@ extends RefCounted
 
 const MOMENT_REVEAL: String = "on_reveal"
 const MOMENT_SCORE: String = "on_score"
+## The Walk's two drain points (resolution section 2).
+const STEP_REVEAL: String = "D7"
+const STEP_SCORE: String = "D8"
 
 
 ## Starts a Walk on `state` (R25): both walking totals 0, both cursors at slot 0, nothing
@@ -85,6 +91,11 @@ static func step(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Call
 	# The slot is passed before anything the pulse fires resolves.
 	walk.cursor[seat] = at.y + 1
 	walk.next_seat = 1 - walk.next_seat
+	# A new pulse: a new budget of 50 (Q4).
+	walk.resolutions = 0
+	walk.pulse_seat = seat
+	walk.pulse_slot = at.y
+	walk.pulse_twice = walk.scores_twice
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	var card: int = piles.board[at.y]
 	if not piles.is_revealed(card):
@@ -110,9 +121,18 @@ static func score_slot(
 		if reveal_stage(state, cards, rng, sink, seat, card):
 			return true
 	if scores_now(state, seat, card):
-		score(state, cards, sink, seat, card)
 		return score_stage(state, cards, rng, sink, seat, card)
 	return false
+
+
+## Resumes the pulse whose D7 drain paused on a prompt, once that drain has finished: its
+## score stage (score_slot() on `walk.pulse_seat`, `walk.pulse_slot`). True when it paused
+## again.
+static func resume_pulse(
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable
+) -> bool:
+	var walk: MatchState.WalkState = state.walk
+	return score_slot(state, cards, rng, sink, walk.pulse_seat, walk.pulse_slot)
 
 
 ## Runs the Walk from its current point to its end or to a prompt; true on a prompt.
@@ -163,14 +183,16 @@ static func reveal(
 	sink.call(MatchEvent.Kind.CARD_REVEALED, revealed)
 
 
-## The reveal stage's abilities (hook): the T02 stub fires `card`'s On reveal through
-## Abilities.fire. DC-13 T05 wakes the On reveal Batch here and drains D7; true when the
-## drain paused on a prompt.
+## The reveal stage's abilities (DC-13 T05): `card`'s On reveal wakes a Batch
+## (TriggerQueue.wake) and the queue drains (D7) on the pulse's budget; true when the drain
+## paused on a prompt.
 static func reveal_stage(
-	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int, card: int
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, _seat: int, card: int
 ) -> bool:
-	_forward(Abilities.fire(state, cards, rng, seat, card, MOMENT_REVEAL), sink)
-	return false
+	var subjects: Array[int] = [card]
+	if TriggerQueue.wake(state, cards, MOMENT_REVEAL, subjects).is_empty():
+		pass  # Nothing watches this reveal: the drain is empty.
+	return TriggerQueue.drain(state, cards, rng, sink, STEP_REVEAL)
 
 
 ## Whether `card` on `seat`'s row Scores this pulse (R33): it is revealed and not Squelched
@@ -182,9 +204,15 @@ static func scores_now(state: MatchState, seat: int, card: int) -> bool:
 
 ## The Score of `card` on `seat`'s row (R26, R28, R29): its Controller's walking total gains
 ## its Power, then is multiplied by its Bonus value; `walk.scored_count[seat]` counts it;
-## CARD_SCORED {seat, card, slot, power, bonus_value, total, pass: 1} is public.
+## CARD_SCORED {seat, card, slot, power, bonus_value, total, pass} is public, `pass` 2 for
+## the second run of a score stage under Scores twice (Q7).
 static func score(
-	state: MatchState, cards: MatchCards, sink: Callable, seat: int, card: int
+	state: MatchState,
+	cards: MatchCards,
+	sink: Callable,
+	seat: int,
+	card: int,
+	pass_number: int = 1
 ) -> void:
 	var walk: MatchState.WalkState = state.walk
 	var piles: MatchState.SeatPiles = state.seats[seat]
@@ -202,19 +230,25 @@ static func score(
 		"power": stats.power,
 		"bonus_value": bonus,
 		"total": state.totals[seat],
-		"pass": 1,
+		"pass": pass_number,
 	}
 	sink.call(MatchEvent.Kind.CARD_SCORED, scored)
 
 
-## The score stage's abilities (hook): the T02 stub fires `card`'s On score through
-## Abilities.fire. DC-13 T05 wakes the On score Batch here and drains D8; true when the
-## drain paused on a prompt.
+## The score stage of `card` (DC-13 T05): it Scores (score()) and its On score wakes a
+## Batch; when Scores twice applied as the pulse started (`walk.pulse_twice`: Q7, the
+## pulses after the one that set it) it Scores again (pass 2) and wakes a second Batch;
+## then the queue drains (D8) on the pulse's budget. True when the drain paused on a prompt.
 static func score_stage(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int, card: int
 ) -> bool:
-	_forward(Abilities.fire(state, cards, rng, seat, card, MOMENT_SCORE), sink)
-	return false
+	var subjects: Array[int] = [card]
+	var runs: int = 2 if state.walk.pulse_twice else 1
+	for run: int in range(runs):
+		score(state, cards, sink, seat, card, run + 1)
+		if TriggerQueue.wake(state, cards, MOMENT_SCORE, subjects).is_empty():
+			pass  # Nothing watches this Score.
+	return TriggerQueue.drain(state, cards, rng, sink, STEP_SCORE)
 
 
 ## An untyped copy of `words`, so a payload holds plain data.
@@ -222,11 +256,3 @@ static func _plain_words(words: Array[String]) -> Array:
 	var out: Array = []
 	out.assign(words)
 	return out
-
-
-## Sends an ability's events to `sink` with their owners when the sink is valid.
-static func _forward(events: Array[MatchEvent], sink: Callable) -> void:
-	if not sink.is_valid():
-		return
-	for event: MatchEvent in events:
-		sink.call(event.kind, event.payload, event.owner_seat)
