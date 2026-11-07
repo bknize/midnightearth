@@ -33,9 +33,12 @@ func _typed(values: Array) -> Array[int]:
 	return out
 
 
-## Stub-deck definitions with Ramp's Crew (no Engineer: the Budget is the Turn plus grants).
+## Stub-deck definitions with the stub Crew (Tallyman, Void, Engineer): none of them acts on
+## a reveal, a Score or a Commit, so the cases count the card abilities alone (Ramp's
+## Navigator and Captain grow Scoring cards since DC-13 T07). Budgets are compared as
+## deltas, so Engineer's +1 from Turn 3 cancels out.
 func _cards() -> MatchCards:
-	return StubAbilities.defs(StubAbilities.RAMP_CREW)
+	return StubAbilities.defs()
 
 
 ## Gives `instances` the shipped card `id`.
