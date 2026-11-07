@@ -23,9 +23,9 @@ func _steps() -> Array[BoardStep]:
 	var started: ApplyResult = engine.start()
 	assert_bool(started.ok).is_true()
 	collected.append_array(started.events_for(0))
-	var bots: Array[GreedyBot] = []
+	var bots: Array[RandomBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), engine.match_cards()))
+		bots.append(RandomBot.new(BotRegistry.seed_for(SEED, seat), engine.match_cards()))
 	var actions: int = 0
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var awaited: int = engine.awaited_seat()
@@ -53,6 +53,16 @@ func _commit_ids(step: BoardStep) -> Array[int]:
 	var ids: Array[int] = []
 	ids.assign(raw)
 	return ids
+
+
+## Seat 0's first PLAYER_COMMIT that commits at least one card (the random bot may pass
+## first); null if none.
+func _first_card_commit() -> BoardStep:
+	for step: BoardStep in _steps():
+		if step.kind == BoardStep.Kind.PLAYER_COMMIT and step.seat == 0:
+			if not _commit_ids(step).is_empty():
+				return step
+	return null
 
 
 # --- may_lift -------------------------------------------------------------------------
@@ -103,7 +113,7 @@ func test_turn_start_touches_only_a_staged_card() -> void:
 
 
 func test_player_commit_touches_a_held_hand_card_in_the_list() -> void:
-	var step: BoardStep = _first(BoardStep.Kind.PLAYER_COMMIT, 0)
+	var step: BoardStep = _first_card_commit()
 	assert_object(step).is_not_null()
 	var ids: Array[int] = _commit_ids(step)
 	assert_array(ids).is_not_empty()
@@ -118,7 +128,7 @@ func test_player_commit_ignores_a_card_not_in_the_list() -> void:
 
 func test_player_commit_touches_a_held_staged_card_on_the_row() -> void:
 	# The commit now flips the staged cards face down in place (R46).
-	var step: BoardStep = _first(BoardStep.Kind.PLAYER_COMMIT, 0)
+	var step: BoardStep = _first_card_commit()
 	assert_object(step).is_not_null()
 	var ids: Array[int] = _commit_ids(step)
 	assert_array(ids).is_not_empty()
@@ -159,19 +169,6 @@ func test_stats_touch_only_the_held_card() -> void:
 	assert_bool(LiftRules.step_touches(step, 6, LiftRules.Place.ROW, false)).is_false()
 
 
-func test_destroy_touches_only_the_held_card() -> void:
-	var step: BoardStep = _named(BoardStep.Kind.DESTROY, 1, 25)
-	var place: LiftRules.Place = LiftRules.Place.OPPONENT_ROW
-	assert_bool(LiftRules.step_touches(step, 25, place, false)).is_true()
-	assert_bool(LiftRules.step_touches(step, 26, place, false)).is_false()
-
-
-func test_hidden_destroy_never_touches_a_face_up_held_card() -> void:
-	var step: BoardStep = _named(BoardStep.Kind.DESTROY, 1, -1)
-	var place: LiftRules.Place = LiftRules.Place.OPPONENT_ROW
-	assert_bool(LiftRules.step_touches(step, 25, place, false)).is_false()
-
-
 func test_return_touches_only_the_held_card() -> void:
 	var step: BoardStep = _named(BoardStep.Kind.RETURN, 0, 7)
 	assert_bool(LiftRules.step_touches(step, 7, LiftRules.Place.ROW, false)).is_true()
@@ -182,12 +179,6 @@ func test_discard_touches_only_the_held_card() -> void:
 	var step: BoardStep = _named(BoardStep.Kind.DISCARD, 0, 9)
 	assert_bool(LiftRules.step_touches(step, 9, LiftRules.Place.HAND, false)).is_true()
 	assert_bool(LiftRules.step_touches(step, 10, LiftRules.Place.HAND, false)).is_false()
-
-
-func test_burn_touches_a_held_row_card() -> void:
-	var step: BoardStep = _named(BoardStep.Kind.BURN, 0, 11)
-	assert_bool(LiftRules.step_touches(step, 11, LiftRules.Place.ROW, false)).is_true()
-	assert_bool(LiftRules.step_touches(step, 12, LiftRules.Place.ROW, false)).is_false()
 
 
 func test_move_touches_a_card_on_the_moved_row() -> void:
@@ -211,6 +202,16 @@ func test_effect_fizzle_and_choice_show_never_touch() -> void:
 		assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.ROW, true)).is_false()
 
 
+## C14: a public trigger of the viewer's own hand card pulses it in the fan, so a held copy of
+## that card is set down first; another held card is not.
+func test_an_own_hand_trigger_touches_the_held_hand_card() -> void:
+	for kind: int in [BoardStep.Kind.EFFECT, BoardStep.Kind.FIZZLE]:
+		var step: BoardStep = _named(kind, 0, 5)
+		step.from_hand = true
+		assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.HAND, false)).is_true()
+		assert_bool(LiftRules.step_touches(step, 6, LiftRules.Place.HAND, false)).is_false()
+
+
 # --- DC-06 steps (R37) ------------------------------------------------------------------
 
 
@@ -222,8 +223,9 @@ func _card_step(kind: int, seat: int, card: int) -> BoardStep:
 	return step
 
 
-func test_destroy_mark_and_clear_destroyed_touch_only_the_held_card() -> void:
-	for kind: int in [BoardStep.Kind.DESTROY, BoardStep.Kind.CLEAR_DESTROYED]:
+func test_status_and_exit_touch_only_the_held_card() -> void:
+	# R9, R81: a badge change or an exit names the card it moves.
+	for kind: int in [BoardStep.Kind.STATUS, BoardStep.Kind.EXIT]:
 		var named: BoardStep = _card_step(kind, 0, 7)
 		var other: BoardStep = _card_step(kind, 0, 8)
 		assert_bool(LiftRules.step_touches(named, 7, LiftRules.Place.ROW, false)).is_true()

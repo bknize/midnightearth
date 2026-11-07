@@ -17,6 +17,8 @@ signal action_pressed
 signal confirm_pressed
 ## The Skip button of an optional prompt was pressed (cycle 8 R63).
 signal skip_pressed
+## A Pile count was tapped (R78): the seat whose Pile to show.
+signal pile_pressed(seat: int)
 
 const PIPS_PER_SEAT: int = 4
 const PIP_ON: Color = Color(0.95, 0.78, 0.25, 1.0)
@@ -27,7 +29,7 @@ const FLASH_SECONDS: float = 0.45
 var _energy_tween: Tween
 ## The prompt reader's button; built in code, present only while a prompt has a card lifted.
 var _action_button: Button = null
-## The multi-select confirm button, built in code; "Destroy N" while that prompt is open.
+## The multi-select confirm button, built in code; "Discard N" while that prompt is open.
 var _confirm_button: Button = null
 ## The confirm is out of sight while a card is lifted, so it never meets the action button.
 var _confirm_suspended: bool = false
@@ -36,7 +38,7 @@ var _confirm_wanted: bool = false
 var _skip_button: Button = null
 
 var _score_labels: Array[Label] = []
-var _destroyed_labels: Array[Label] = []
+var _pile_labels: Array[Label] = []
 var _pip_rows: Array[HBoxContainer] = []
 ## The number each score label is heading for (what it shows once any count ends).
 var _shown: Array[int] = [0, 0]
@@ -64,8 +66,13 @@ var _count_tweens: Array[Tween] = [null, null]
 func _ready() -> void:
 	_score_labels.append(_score_label_0)
 	_score_labels.append(_score_label_1)
-	_destroyed_labels.append(_destroyed_label_0)
-	_destroyed_labels.append(_destroyed_label_1)
+	_pile_labels.append(_destroyed_label_0)
+	_pile_labels.append(_destroyed_label_1)
+	for seat: int in range(_pile_labels.size()):
+		_pile_labels[seat].mouse_filter = Control.MOUSE_FILTER_STOP
+		var err: int = _pile_labels[seat].gui_input.connect(_on_pile_input.bind(seat))
+		if err != OK:
+			push_warning("BoardHud: could not connect the Pile count")
 	_pip_rows.append(_pips_0)
 	_pip_rows.append(_pips_1)
 
@@ -129,10 +136,44 @@ func score_label_text(seat: int) -> String:
 	return _score_labels[seat].text
 
 
-## Each side's destroyed-pile count (R46), seat 0 first.
-func set_destroyed(counts: Array[int]) -> void:
-	for seat: int in range(mini(counts.size(), _destroyed_labels.size())):
-		_destroyed_labels[seat].text = "Destroyed %d" % counts[seat]
+## Each side's Pile count (R78), seat 0 first. A tap on a count asks for that Pile's strip.
+func set_piles(counts: Array[int]) -> void:
+	for seat: int in range(mini(counts.size(), _pile_labels.size())):
+		_pile_labels[seat].text = "Pile %d" % counts[seat]
+
+
+## The text of `seat`'s Pile count label.
+func pile_label_text(seat: int) -> String:
+	return _pile_labels[seat].text
+
+
+## A note on `seat`'s deck for `seconds` (R82): "Deck empty" shows beside its Pile count.
+func note_deck(seat: int, text: String, seconds: float) -> void:
+	if seat < 0 or seat >= _pile_labels.size():
+		return
+	var label: Label = _pile_labels[seat]
+	var base: String = label.text.split(" - ")[0]
+	label.text = "%s - %s" % [base, text]
+	var tween: Tween = create_tween()
+	var wait: IntervalTweener = tween.tween_interval(maxf(seconds, 0.01))
+	var done: CallbackTweener = tween.tween_callback(_clear_deck_note.bind(seat))
+	if wait == null or done == null:
+		_clear_deck_note(seat)
+
+
+func _clear_deck_note(seat: int) -> void:
+	var label: Label = _pile_labels[seat]
+	label.text = label.text.split(" - ")[0]
+
+
+func _on_pile_input(event: InputEvent, seat: int) -> void:
+	var click: InputEventMouseButton = event as InputEventMouseButton
+	if click != null and click.pressed and click.button_index == MOUSE_BUTTON_LEFT:
+		pile_pressed.emit(seat)
+		return
+	var touch: InputEventScreenTouch = event as InputEventScreenTouch
+	if touch != null and touch.pressed:
+		pile_pressed.emit(seat)
 
 
 func set_wins(wins: Array[int]) -> void:
@@ -236,9 +277,10 @@ func _on_action_button_pressed() -> void:
 	action_pressed.emit()
 
 
-## Shows the multi-select confirm button with `text` ("Destroy 2"); calling it again updates
-## the text (R48). A plain Theme Button above Commit.
-func show_confirm(text: String) -> void:
+## Shows the multi-select confirm button with `text` ("Discard 2"); calling it again updates
+## the text (R48). `enabled` is false until the selection is a legal size (R80). A plain Theme
+## Button above Commit.
+func show_confirm(text: String, enabled: bool = true) -> void:
 	if _confirm_button == null:
 		_confirm_button = Button.new()
 		_confirm_button.name = "ConfirmButton"
@@ -252,6 +294,7 @@ func show_confirm(text: String) -> void:
 			push_warning("BoardHud: could not connect the confirm button")
 		$Root.add_child(_confirm_button)
 	_confirm_button.text = text
+	_confirm_button.disabled = not enabled
 	_confirm_wanted = true
 	_confirm_button.visible = not _confirm_suspended
 
@@ -273,6 +316,11 @@ func set_confirm_suspended(suspended: bool) -> void:
 ## The confirm button's text, or "" while there is none.
 func confirm_text() -> String:
 	return "" if _confirm_button == null else _confirm_button.text
+
+
+## Whether the confirm button can be pressed (R80).
+func confirm_enabled() -> bool:
+	return _confirm_button != null and not _confirm_button.disabled
 
 
 func confirm_visible() -> bool:
@@ -330,6 +378,10 @@ static func reason_text(reason: String, winner: int, rounds: int) -> String:
 			return "Most round wins after %d rounds" % rounds
 		"sudden_death":
 			return "Won in sudden death"
+		"stalemate":
+			if winner >= 0:
+				return "Both seats out of cards: higher total Score"
+			return "Both seats out of cards: total Scores level"
 		"concede":
 			return "You conceded" if winner == 1 else "Opponent conceded"
 	push_warning("Unknown match end reason: %s" % reason)

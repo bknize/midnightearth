@@ -130,6 +130,8 @@ milestone A as DC-09 (Ben, [[specs/cycle-8-ramp-bounce-crew/spec]] C12); until t
 After a retrain or a large change to the bots, `make bot-calibrate` refreshes the
 [Calibration](#calibration) table.
 
+**DC-13 (2026-11-06): rerun provision suspended.** Cycle 9 milestone A moved the game to rules version 7 and removed every bot except `random` (spec [[specs/cycle-9-rules-v2/spec]] C9, R70–R75). No `bot-eval`, no re-stamp and no ledger row follow until a new bot spec rebuilds a bot and a yardstick; `scripts/bot/` and the `make bot-*` targets are kept but drive nothing.
+
 ## Related
 
 - [[specs/cycle-7-bot-players/spec]] (R21–R23, R33–R38)

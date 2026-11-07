@@ -1,6 +1,6 @@
 class_name LegalPlays
 extends RefCounted
-## Legal card sets for a turn (R5, R13, R26, R36; Phase 3 R5).
+## Legal card sets for a turn (R5, R13, R26, R36; Phase 3 R5; cycle 9 R8, R9, R13, R14).
 ##
 ## A card set is legal when every card is in the hand, no card appears twice, and the
 ## total cost is at most the energy given (enumeration) or the seat's budget with the
@@ -8,20 +8,24 @@ extends RefCounted
 ##
 ## Two families (cycle 8 R4, R21, plan P3). The `_with` functions (enumerate_masks_with,
 ## validate_with, commit_cost_with) take the costs as an array parallel to the cards: the
-## engine and the shipped bots pass effective costs (ScoreWalk.effective_cost, the view's
+## engine and the random bot pass effective costs (Scoring.effective_cost, the view's
 ## `own_hand_costs`), so a card whose cost an ability reduced is priced as the engine
 ## accepts it. The printed-cost functions (cost_of, total_cost, enumerate_masks, enumerate,
 ## validate, commit_cost) read the definition's cost from MatchCards by instance id
-## (MatchCards.def_of: origin * DECK_SIZE + index into the origin's deck, DC-07 P3) and stay
-## for the frozen GreedyV1Bot (cycle 7 R21, R22), whose printed costs are never below the
-## effective ones, so its commits stay legal. They are the `_with` functions over printed
-## costs, so both families agree whenever no cost is reduced.
+## (MatchCards.def_of: origin * DECK_SIZE + index into the origin's deck, DC-07 P3). They
+## are the `_with` functions over printed costs, so both families agree whenever no cost is
+## reduced.
 ##
 ## Enumeration order is deterministic and part of the contract (the bot's seeded
 ## tie-break depends on it): subsets are listed by ascending bitmask over the hand's
 ## order, where bit i stands for hand[i], and each subset keeps the hand's order. So the
 ## empty set (mask 0) always comes first, then {hand[0]}, {hand[1]}, {hand[0], hand[1]},
-## {hand[2]}, and so on. A hand holds at most HAND_CAP = 7 cards, so at most 128 subsets.
+## {hand[2]}, and so on. Under rules 7 (DC-13 T03) a hand at its Commit holds its Hand size
+## plus the Turn's draws, so a few cards (the discard-down brings it back after each Commit).
+##
+## The discard-down (cycle 9 R13, R14, plan P12): excess() is the number of cards a hand
+## must Discard after its Commit, and set_size_ok() checks a set answer's size against a
+## prompt's `exact` and `min` (Choice.is_valid_set).
 ##
 ## Nothing here prints, asserts or pushes an error; failures are EngineError codes. Static
 ## and pure.
@@ -214,3 +218,18 @@ static func costs_in_hand(picked: Array[int], hand: Array[int], costs: Array[int
 		var at: int = hand.find(card)
 		out.append(costs[at] if at >= 0 and at < costs.size() else -1)
 	return out
+
+
+## The cards a hand of `hand_count` must Discard down to `hand_size` (R13): the excess, 0
+## when it is within the Hand size.
+static func excess(hand_count: int, hand_size: int) -> int:
+	return maxi(hand_count - hand_size, 0)
+
+
+## Whether a set of `count` cards answers a multi-select whose `exact` and `min` are given
+## (plan P12): exactly `exact` when it is 0 or more (Choice.ANY_SIZE is -1), and at least
+## `min_count`.
+static func set_size_ok(count: int, exact: int, min_count: int) -> bool:
+	if exact >= 0 and count != exact:
+		return false
+	return count >= min_count

@@ -11,8 +11,6 @@ extends GdUnitTestSuite
 
 const SEED: int = 1
 const MAX_ACTIONS: int = 2000
-## Seeds tried, in order (1 first), until the prompt a case needs turns up.
-const PROMPT_SEEDS: int = 10
 ## An index no prompt offers (options are positions in a zone of at most a few cards).
 const NOT_AN_OPTION: int = 99
 ## Sentinel line meaning "not pinned yet".
@@ -24,41 +22,26 @@ const LINE_UNPINNED: String = ""
 ## rounds=7 end=wins actions=120", the DC-05 line "... wins=4-2 rounds=6 ... actions=114".
 ## While it is LINE_UNPINNED the pinned-line test is skipped with LINE_SKIP_NOTE; the
 ## autoplay test still compares against a direct bot-vs-bot engine run.
-## DC-08 T07 (R5): the line gains `bot=<name>` after the decks and the greedy bot is
-## unchanged, so this pin is built with "greedy" explicitly. The pre-bot literal was
-## "Board: match ended seed=1 decks=ruin/ruin winner=1 wins=1-4 rounds=5 end=wins actions=88".
-## DC-09 T04 (cycle 8 R10, R30): the pool and list gain Bloom and Echo, so seed 1's seeded
-## pairing draws from four decks and both pins are emptied until the orchestrator re-pins
-## them at T07. The DC-08 lines were "Board: match ended seed=1 decks=ruin/ruin bot=greedy
-## winner=1 wins=1-4 rounds=5 end=wins actions=88" (EXPECTED_LINE) and the same with
-## `bot=tuned` (GOLDEN_TUNED).
-## Re-pinned at DC-09 T07 (headless --fixed-fps 60 autoplay agrees, greedy and tuned alike).
+## DC-08 T07 (R5) added `bot=<name>` after the decks; the DC-09 T07 pin under the greedy
+## bot was "Board: match ended seed=1 decks=bloom/ruin bot=greedy winner=0 wins=4-0
+## rounds=4 end=wins actions=72". Emptied at DC-13 T01 (cycle 9 R70: only the random bot
+## is left); re-pinned at DC-13 T11 (rules 7, the random bot).
 const EXPECTED_LINE: String = (
-	"Board: match ended seed=1 decks=bloom/ruin bot=greedy winner=0 wins=4-0 rounds=4 end=wins"
-	+ " actions=72"
+	"Board: match ended seed=1 decks=greed/greed bot=random winner=0 wins=3-1 rounds=7"
+	+ " end=rounds actions=121"
 )
-## Seed 1's result line under the default bot (tuned, level 20, k 24); pinned at DC-08 T11,
-## moved at DC-11 T10 (live Crew: actions 64 -> 72, same result: "Board: match ended seed=1
-## decks=bloom/ruin bot=tuned winner=0 wins=4-0 rounds=4 end=wins actions=72"). Emptied at
-## DC-11 T11 (the tuned bot may decline an optional Crew prompt and answers Shade by rule,
-## cycle 8 R56, R57); re-pinned at DC-11 T14.
-## While empty the test prints the line and checks only `bot=tuned`.
-const GOLDEN_TUNED: String = (
-	"Board: match ended seed=1 decks=bloom/ruin bot=tuned winner=0 wins=4-0 rounds=4 end=wins"
-	+ " actions=74"
-)
-## The bot the helpers build: the greedy bot, whose play the goldens pin (R5).
-const GREEDY: String = "greedy"
-const FULL_LEVEL: int = 20
+## The bot the helpers build: the random bot, the only one (cycle 9 R70).
+const BOT: String = "random"
 const LINE_SKIP_NOTE: String = (
-	"unpinned at DC-09 T04 (Bloom and Echo shipped, four-deck pairing): pin EXPECTED_LINE"
-	+ " from seed 1's greedy 'Board: match ended' line"
+	"unpinned at DC-13 T01 (only the random bot is left): pin EXPECTED_LINE"
+	+ " from seed 1's random 'Board: match ended' line"
 )
-## Event kinds whose card ids are private to their owner.
+## Event kinds whose card ids are private to their owner (rules 7: nothing is burned; a
+## look-at is private, DC-13 T03).
 const PRIVATE_KINDS: Array[int] = [
 	MatchEvent.Kind.CARD_DEALT,
 	MatchEvent.Kind.CARD_DRAWN,
-	MatchEvent.Kind.CARD_BURNED,
+	MatchEvent.Kind.CARD_LOOKED,
 	MatchEvent.Kind.COMMITTED,
 ]
 
@@ -89,8 +72,7 @@ func _driver(match_seed: int, autoplay: bool) -> MatchDriver:
 		FixtureDecks.decks(),
 		FixtureDecks.ids(),
 		autoplay,
-		GREEDY,
-		FULL_LEVEL,
+		BOT,
 		FixtureDecks.crew()
 	)
 
@@ -113,8 +95,7 @@ func _event_card_ids(event: MatchEvent) -> Array[int]:
 
 
 ## The seat-1 card ids named by the private events in `events`, as strings for the message.
-## A public burn is skipped: since DC-05 T05 a card returned to a full hand burns in public,
-## having been face up on its row.
+## A public event is skipped: a Discard enters a public Pile (rules 7).
 func _opponent_leaks(events: Array[MatchEvent]) -> Array[String]:
 	var found: Array[String] = []
 	for event: MatchEvent in events:
@@ -132,9 +113,9 @@ func _smoke_line() -> String:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	if not engine.start().ok:
 		return "smoke match did not start"
-	var bots: Array[GreedyBot] = [
-		GreedyBot.new(GreedyBot.seed_for(SEED, 0), _defs()),
-		GreedyBot.new(GreedyBot.seed_for(SEED, 1), _defs()),
+	var bots: Array[RandomBot] = [
+		RandomBot.new(BotRegistry.seed_for(SEED, 0), _defs()),
+		RandomBot.new(BotRegistry.seed_for(SEED, 1), _defs()),
 	]
 	var ended: Dictionary = {}
 	var actions: int = 0
@@ -162,7 +143,7 @@ func _smoke_line() -> String:
 			"Board: match ended seed=%d decks=%s/%s bot=%s winner=%d wins=%d-%d rounds=%d end=%s"
 			+ " actions=%d"
 		)
-		% [SEED, decks[0], decks[1], GREEDY, winner, wins[0], wins[1], rounds, reason, actions]
+		% [SEED, decks[0], decks[1], BOT, winner, wins[0], wins[1], rounds, reason, actions]
 	)
 
 
@@ -183,26 +164,24 @@ func _prompted_seat(driver: MatchDriver) -> int:
 	return seat
 
 
-## A human-seat driver for `match_seed`, started and played until a prompt opens for seat 0
-## (or the match ends, or the cap): seat 1 by play_bot(), seat 0 by submit_player() with
-## the commit a GreedyBot of its own would choose. Null when a step was rejected.
-func _drive_to_player_prompt(match_seed: int) -> MatchDriver:
-	var driver: MatchDriver = _driver(match_seed, false)
-	driver.start()
-	var bot: GreedyBot = GreedyBot.new(GreedyBot.seed_for(match_seed, 0), _defs())
-	var steps: int = 0
-	while not driver.is_over() and steps < MAX_ACTIONS:
-		if not driver.open_prompt().is_empty():
-			return driver
-		var result: ApplyResult = null
-		if driver.bot_turn_due():
-			result = driver.play_bot()
-		else:
-			result = driver.submit_player(bot.choose(driver.view(), driver._engine))
-		if not result.ok:
-			return null
-		steps += 1
-	return driver
+## Opens a hand-made prompt for `seat` on `driver`'s started match, at turn start (resume
+## `turn_start`, so the answer hands the turn back to the first committer): over positions
+## 0 and 1 of the seat's hand, a multi-select when `multi`. No DC-13 T02 ability opens a
+## prompt, so the driver's prompt paths are driven this way until T05 and T06.
+func _open_prompt(driver: MatchDriver, seat: int, multi: bool) -> void:
+	var state: MatchState = driver._engine._state
+	state.prompt = {
+		"seat": seat,
+		"card": -1,
+		"verb": "discard_own",
+		Choice.KEY_ZONE: Choice.Zone.OWN_HAND,
+		Choice.KEY_OPTIONS: [0, 1],
+		Choice.KEY_MULTI: multi,
+		Choice.KEY_OPTIONAL: false,
+		Choice.KEY_RESUME: Choice.RESUME_TURN_START,
+		Choice.KEY_CREW: "",
+	}
+	state.phase = MatchState.Phase.AWAIT_CHOICE
 
 
 # --- Tests ----------------------------------------------------------------------------
@@ -243,8 +222,7 @@ func test_seed_1_autoplay_prints_the_pinned_line(
 		DeckList.load_default(),
 		seeded,
 		true,
-		GREEDY,
-		FULL_LEVEL,
+		BOT,
 		CrewPool.load_default()
 	)
 	driver.start()
@@ -265,19 +243,19 @@ func test_result_line_names_both_decks_after_the_seed() -> void:
 	driver.start()
 	assert_bool(driver.submit_player(EngineAction.concede(0)).ok).is_true()
 	var line: String = driver.result_line()
-	var head: String = "Board: match ended seed=%d decks=fixture/fixture bot=greedy winner=" % SEED
+	var head: String = "Board: match ended seed=%d decks=fixture/fixture bot=random winner=" % SEED
 	assert_bool(line.begins_with(head)).override_failure_message(line).is_true()
 	var seeded: Array[String] = ["", ""]
 	var decks: DeckList = FixtureDecks.decks()
 	var picked: MatchDriver = MatchDriver.create(
-		7, _db(), decks, seeded, true, GREEDY, FULL_LEVEL, FixtureDecks.crew()
+		7, _db(), decks, seeded, true, BOT, FixtureDecks.crew()
 	)
 	var expected: Array[String] = [decks.seeded_pick(7, 0), decks.seeded_pick(7, 1)]
 	assert_array(picked.deck_ids()).is_equal(expected)
 	assert_bool(picked.start().is_empty()).is_false()
 	var unknown: Array[String] = ["fixture", "nope"]
 	var refused: MatchDriver = MatchDriver.create(
-		SEED, _db(), decks, unknown, true, GREEDY, FULL_LEVEL, FixtureDecks.crew()
+		SEED, _db(), decks, unknown, true, BOT, FixtureDecks.crew()
 	)
 	assert_array(refused.start()).is_empty()
 
@@ -302,14 +280,22 @@ func test_bot_turn_is_due_exactly_when_seat_0_is_not_awaited() -> void:
 	driver.start()
 	var passes: int = 0
 	var bot_moves: int = 0
+	var discards: int = 0
 	var steps: int = 0
 	while not driver.is_over() and steps < 100:
 		var awaited: int = driver.view().awaited_seat
 		assert_bool(driver.bot_turn_due()).is_equal(awaited != 0)
 		var result: ApplyResult = null
+		var prompt: Dictionary = driver.open_prompt()
 		if driver.bot_turn_due():
 			result = driver.play_bot()
 			bot_moves += 1
+		elif not prompt.is_empty():
+			# Seat 0's discard-down after a pass (rules 7): its first `exact` hand cards.
+			var picked: Array[int] = []
+			picked.assign(Choice.options_of(prompt).slice(0, Choice.exact_of(prompt)))
+			result = driver.submit_set(Choice.zone_of(prompt), picked)
+			discards += 1
 		else:
 			var none: Array[int] = []
 			result = driver.submit_player(EngineAction.commit(0, none))
@@ -320,6 +306,8 @@ func test_bot_turn_is_due_exactly_when_seat_0_is_not_awaited() -> void:
 		steps += 1
 	assert_int(passes).is_greater(0)
 	assert_int(bot_moves).is_greater(0)
+	# Passing grows seat 0's hand past its Hand size, so it met its discard-down.
+	assert_int(discards).is_greater(0)
 
 
 func test_play_bot_refuses_when_the_human_is_awaited() -> void:
@@ -338,34 +326,19 @@ func test_play_bot_refuses_when_the_human_is_awaited() -> void:
 
 ## A bot's prompt (DC-05 T07): play_bot() answers it with a CHOICE action the engine
 ## accepts, and seat 0 sees the CHOICE_MADE. open_prompt() is seat 0's prompt only: empty
-## while seat 1 is prompted, set while seat 0 is. Stops at the first answered prompt.
+## while seat 1 is prompted. The prompt is hand-made (_open_prompt, DC-13 T02).
 func test_play_bot_answers_a_bot_prompt() -> void:
-	var answered: int = 0
-	for match_seed: int in range(1, PROMPT_SEEDS + 1):
-		var driver: MatchDriver = _driver(match_seed, true)
-		driver.start()
-		var steps: int = 0
-		while driver.bot_turn_due() and steps < MAX_ACTIONS:
-			var prompted: int = _prompted_seat(driver)
-			if prompted == 1:
-				assert_dict(driver.open_prompt()).is_empty()
-			elif prompted == 0:
-				assert_bool(driver.open_prompt().is_empty()).is_false()
-			var result: ApplyResult = driver.play_bot()
-			var where: String = "seed %d action %d" % [match_seed, steps]
-			assert_bool(result.ok).override_failure_message(where + " rejected").is_true()
-			if not result.ok:
-				return
-			if prompted >= 0:
-				answered += 1
-				var made: bool = _has_kind(driver.last_events(), MatchEvent.Kind.CHOICE_MADE)
-				assert_bool(made).override_failure_message(where + ": no CHOICE_MADE").is_true()
-			steps += 1
-			if answered > 0:
-				break
-		if answered > 0:
-			break
-	assert_int(answered).override_failure_message("no bot prompt in the seeds").is_greater(0)
+	var driver: MatchDriver = _driver(SEED, false)
+	driver.start()
+	_open_prompt(driver, 1, false)
+	assert_int(_prompted_seat(driver)).is_equal(1)
+	assert_dict(driver.open_prompt()).is_empty()
+	assert_bool(driver.bot_turn_due()).is_true()
+	var result: ApplyResult = driver.play_bot()
+	assert_bool(result.ok).is_true()
+	var made: bool = _has_kind(driver.last_events(), MatchEvent.Kind.CHOICE_MADE)
+	assert_bool(made).override_failure_message("no CHOICE_MADE").is_true()
+	assert_int(_prompted_seat(driver)).is_equal(-1)
 
 
 ## Seat 0's prompt (DC-05 T07): with no prompt open submit_choice() fails with NO_PROMPT;
@@ -378,17 +351,9 @@ func test_submit_choice_answers_the_open_player_prompt() -> void:
 	var early: ApplyResult = idle.submit_choice(Choice.Zone.OWN_HAND, 0)
 	assert_bool(early.ok).is_false()
 	assert_int(early.error).is_equal(EngineError.Code.NO_PROMPT)
-	var driver: MatchDriver = null
-	for match_seed: int in range(1, PROMPT_SEEDS + 1):
-		var candidate: MatchDriver = _drive_to_player_prompt(match_seed)
-		var rejected: String = "seed %d: a step was rejected" % match_seed
-		assert_bool(candidate != null).override_failure_message(rejected).is_true()
-		if candidate != null and not candidate.open_prompt().is_empty():
-			driver = candidate
-			break
-	assert_object(driver).override_failure_message("no seat-0 prompt in the seeds").is_not_null()
-	if driver == null:
-		return
+	var driver: MatchDriver = _driver(SEED, false)
+	driver.start()
+	_open_prompt(driver, MatchDriver.PLAYER_SEAT, false)
 	var prompt: Dictionary = driver.open_prompt()
 	var seat: int = prompt.get("seat", -1)
 	assert_int(seat).is_equal(MatchDriver.PLAYER_SEAT)
@@ -411,33 +376,23 @@ func test_submit_choice_answers_the_open_player_prompt() -> void:
 	assert_bool(made).override_failure_message("no CHOICE_MADE for seat 0").is_true()
 
 
-## DC-07 T05 (P7): submit_set() reaches the engine. With c02 given sacrifice_destroy and
-## seat 0's row [c04, c08, c02] set by hand, open_prompt() says `multi`, a set naming the
-## source fails with BAD_SET, and a valid set is accepted with CHOICE_MADE `indices`.
+## DC-07 T05 (P7): submit_set() reaches the engine. With a hand-made multi-select prompt
+## for seat 0 over hand positions 0 and 1, open_prompt() says `multi`, a set naming a
+## position it does not offer fails with BAD_SET, and a valid set is accepted with
+## CHOICE_MADE `indices`.
 func test_submit_set_answers_the_open_multi_prompt() -> void:
-	var driver: MatchDriver = MatchDriver.create(
-		SEED,
-		FixtureDecks.sacrifice_cards(),
-		FixtureDecks.decks(),
-		FixtureDecks.ids(),
-		false,
-		GREEDY,
-		FULL_LEVEL,
-		FixtureDecks.crew()
-	)
+	var driver: MatchDriver = _driver(SEED, false)
 	driver.start()
-	var own: Array[int] = [3, 7, FixtureDecks.C02_SACRIFICE]
-	var none: Array[int] = []
-	assert_bool(FixtureDecks.play_table(driver._engine, own, none)).is_true()
+	_open_prompt(driver, MatchDriver.PLAYER_SEAT, true)
 	var prompt: Dictionary = driver.open_prompt()
 	var multi: bool = prompt.get(Choice.KEY_MULTI, false)
 	assert_bool(multi).is_true()
 	var count: int = driver.action_count()
 	var bad: Array[int] = [2]
-	var refused: ApplyResult = driver.submit_set(Choice.Zone.OWN_BOARD, bad)
+	var refused: ApplyResult = driver.submit_set(Choice.Zone.OWN_HAND, bad)
 	assert_int(refused.error).is_equal(EngineError.Code.BAD_SET)
 	var chosen: Array[int] = [1]
-	var result: ApplyResult = driver.submit_set(Choice.Zone.OWN_BOARD, chosen)
+	var result: ApplyResult = driver.submit_set(Choice.Zone.OWN_HAND, chosen)
 	assert_bool(result.ok).is_true()
 	assert_int(driver.action_count()).is_equal(count + 1)
 	var indices: Array = []
@@ -447,11 +402,10 @@ func test_submit_set_answers_the_open_multi_prompt() -> void:
 	assert_array(indices).is_equal([1])
 
 
-## DC-08 T07 (R4): the default bot is tuned at level 20. Seed 1 autoplays on the shipped pool
-## under it and the result line carries `bot=tuned`; the line is printed for pinning and
-## compared with GOLDEN_TUNED once that is set.
-func test_default_bot_is_tuned_and_named_in_the_result_line() -> void:
-	assert_str(BotRegistry.default_name()).is_equal("tuned")
+## Cycle 9 R73: the default bot is `random`. Seed 1 autoplays on the shipped pool under it
+## and the result line carries `bot=random`.
+func test_default_bot_is_random_and_named_in_the_result_line() -> void:
+	assert_str(BotRegistry.default_name()).is_equal("random")
 	var seeded: Array[String] = ["", ""]
 	var driver: MatchDriver = MatchDriver.create(
 		SEED,
@@ -460,7 +414,6 @@ func test_default_bot_is_tuned_and_named_in_the_result_line() -> void:
 		seeded,
 		true,
 		BotRegistry.default_name(),
-		FULL_LEVEL,
 		CrewPool.load_default()
 	)
 	assert_object(driver).is_not_null()
@@ -473,48 +426,22 @@ func test_default_bot_is_tuned_and_named_in_the_result_line() -> void:
 			break
 		steps += 1
 	var line: String = driver.result_line()
-	print("TUNED_LINE %s" % line)
-	assert_bool(line.contains(" bot=tuned ")).override_failure_message(line).is_true()
-	if GOLDEN_TUNED != "":
-		assert_str(line).is_equal(GOLDEN_TUNED)
+	print("RANDOM_LINE %s" % line)
+	assert_bool(line.contains(" bot=random ")).override_failure_message(line).is_true()
 
 
-## DC-08 T07 (R4, R16): the random bot takes only the full level; a lower level makes create
-## return null, and level 20 builds a driver whose bots play.
-func test_create_with_random_accepts_only_the_full_level() -> void:
-	var full: MatchDriver = MatchDriver.create(
-		SEED,
-		_db(),
-		FixtureDecks.decks(),
-		FixtureDecks.ids(),
-		true,
-		"random",
-		FULL_LEVEL,
-		FixtureDecks.crew()
+## Cycle 9 R73: `random` builds a driver whose bots play; a removed or unknown bot makes
+## create return null.
+func test_create_with_an_unknown_bot_is_null() -> void:
+	var made: MatchDriver = MatchDriver.create(
+		SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), true, "random", FixtureDecks.crew()
 	)
-	assert_object(full).is_not_null()
-	if full != null:
-		assert_bool(full.start().is_empty()).is_false()
-		assert_bool(full.bot_turn_due()).is_true()
-	var low: MatchDriver = MatchDriver.create(
-		SEED,
-		_db(),
-		FixtureDecks.decks(),
-		FixtureDecks.ids(),
-		true,
-		"random",
-		5,
-		FixtureDecks.crew()
-	)
-	assert_object(low).is_null()
-	var unknown: MatchDriver = MatchDriver.create(
-		SEED,
-		_db(),
-		FixtureDecks.decks(),
-		FixtureDecks.ids(),
-		true,
-		"nope",
-		FULL_LEVEL,
-		FixtureDecks.crew()
-	)
-	assert_object(unknown).is_null()
+	assert_object(made).is_not_null()
+	if made != null:
+		assert_bool(made.start().is_empty()).is_false()
+		assert_bool(made.bot_turn_due()).is_true()
+	for unknown: String in ["tuned", "nope"]:
+		var refused: MatchDriver = MatchDriver.create(
+			SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), true, unknown, FixtureDecks.crew()
+		)
+		assert_object(refused).is_null()

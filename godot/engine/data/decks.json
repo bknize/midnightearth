@@ -1,33 +1,43 @@
 {
-  "version": 2,
+  "version": 3,
   "decks": [
     {
-      "id": "ruin",
-      "name": "Ruin",
-      "theme": "Burn your own cards for bodies above the curve and random enemy destroys.",
-      "cards": ["r01", "r02", "r03", "r04", "r05", "r06", "r07", "r08", "r09", "r10", "r11", "r12", "r13", "r14", "r15", "r16", "r17", "r18", "r19", "r20"],
-      "crew": ["salvager", "veil", "quartermaster"]
+      "id": "greed",
+      "name": "Greed",
+      "tag": "greed",
+      "theme": "Raw numbers early. Cheap, efficient bodies for the first Rounds, a few cards that pay a Discard or a card for Power, and one finisher.",
+      "cards": [
+        "gr01", "gr01", "gr01", "gr01",
+        "gr02", "gr02", "gr02", "gr02",
+        "gr03", "gr03", "gr03", "gr03",
+        "gr04", "gr04", "gr04", "gr04",
+        "gr05", "gr05", "gr05", "gr05",
+        "gr06", "gr06", "gr06", "gr06",
+        "gr07", "gr07", "gr07", "gr07",
+        "gr08", "gr08", "gr08", "gr08",
+        "gr09", "gr09", "gr09", "gr09",
+        "gr10", "gr10", "gr10", "gr10"
+      ],
+      "crew": ["tallyman", "void", "engineer"]
     },
     {
-      "id": "drift",
-      "name": "Drift",
-      "theme": "Positional bonuses and moving cards on both rows.",
-      "cards": ["d01", "d02", "d03", "d04", "d05", "d06", "d07", "d08", "d09", "d10", "d11", "d12", "d13", "d14", "d15", "d16", "d17", "d18", "d19", "d20"],
-      "crew": ["navigator", "veil", "tallyman"]
-    },
-    {
-      "id": "bloom",
-      "name": "Bloom",
-      "theme": "Grow your cards for good: bonuses that stay for the match.",
-      "cards": ["b01", "b02", "b03", "b04", "b05", "b06", "b07", "b08", "b09", "b10", "b11", "b12", "b13", "b14", "b15", "b16", "b17", "b18", "b19", "b20"],
-      "crew": ["gardener", "tallyman", "quartermaster"]
-    },
-    {
-      "id": "echo",
-      "name": "Echo",
-      "theme": "Replay your reveals: returns, flips and cards that remember.",
-      "cards": ["e01", "e02", "e03", "e04", "e05", "e06", "e07", "e08", "e09", "e10", "e11", "e12", "e13", "e14", "e15", "e16", "e17", "e18", "e19", "e20"],
-      "crew": ["shade", "lookout", "quartermaster"]
+      "id": "ramp",
+      "name": "Ramp",
+      "tag": "ramp",
+      "theme": "Persistent card improvements across the Match, so late Rounds belong to the seat that invested.",
+      "cards": [
+        "ra01", "ra01", "ra01", "ra01",
+        "ra02", "ra02", "ra02", "ra02",
+        "ra03", "ra03", "ra03", "ra03",
+        "ra04", "ra04", "ra04", "ra04",
+        "ra05", "ra05", "ra05", "ra05",
+        "ra06", "ra06", "ra06", "ra06",
+        "ra07", "ra07", "ra07", "ra07",
+        "ra08", "ra08", "ra08", "ra08",
+        "ra09", "ra09", "ra09", "ra09",
+        "ra10", "ra10", "ra10", "ra10"
+      ],
+      "crew": ["navigator", "captain", "dredger"]
     }
   ]
 }

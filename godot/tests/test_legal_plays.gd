@@ -5,9 +5,10 @@ extends GdUnitTestSuite
 ## enumeration the bot chooses from), Phase 3 R5 (multi-card subset-sum); DC-05 R5, R6
 ## (positional slots, BAD_SLOTS), R9 (budget with carry) and R10 (the free first card).
 ##
-## Instance ids are seat * 20 + index (plan), so with the fixture deck on both seats:
-## 0..3 = c01..c04 (cost 1), 4..7 = c05..c08 (cost 2), 8 = c09 (3), 11 = c12 (4),
-## 12 = c13 (4), 14 = c15 (5), 16 = c17 (6), 18 = c19 (7); seat 1 adds 20.
+## Instance ids are seat * DECK_SIZE + index, and the fixture deck (DC-13 T02: 40 plain
+## bodies, FixtureDecks) repeats the DC-05 costs: 0..3 cost 1, 4..7 cost 2, 8 cost 3,
+## 11 and 12 cost 4, 14 cost 5, 16 cost 6, 18 cost 7, and 20..39 the same again (so 20 is
+## a second copy of 0's definition, held by no hand here); seat 1 adds 40.
 
 
 func _db() -> CardDb:
@@ -387,13 +388,13 @@ func test_commit_cost_with_and_without_the_free_first_card() -> void:
 
 
 ## The effective costs of `hand` with `reductions` (card -> cost reduction) written into a
-## fresh state's memory.
+## fresh state's Memory as a negative cost change (cycle 9 P8: CardMemory.cost_delta).
 func _effective(hand: Array[int], reductions: Dictionary) -> Array[int]:
 	var state: MatchState = MatchState.new(1)
 	for card: int in reductions:
 		var amount: int = reductions[card]
-		state.memory_for(card).cost = amount
-	return ScoreWalk.effective_costs(hand, state, _defs())
+		state.memory_for(card).cost_delta = -amount
+	return Scoring.effective_costs(hand, state, _defs())
 
 
 ## A budget-2 commit of c09 (printed cost 3) passes with a reduction of 1 and fails
@@ -457,3 +458,24 @@ func test_commit_cost_with_free_first_and_unpriced() -> void:
 	assert_int(LegalPlays.commit_cost_with(cards, _typed([5, -1]), false)).is_equal(-1)
 	assert_int(LegalPlays.commit_cost_with(cards, _typed([5]), false)).is_equal(-1)
 	assert_int(LegalPlays.commit_cost_with(_typed([]), _typed([]), true)).is_equal(0)
+
+
+# --- Cycle 9 (DC-13 T03): the discard-down's size (R13, R14, plan P12) -----------------
+
+
+## The excess over the Hand size is what the discard-down takes; none within it.
+func test_excess_is_the_cards_over_the_hand_size() -> void:
+	assert_int(LegalPlays.excess(6, 4)).is_equal(2)
+	assert_int(LegalPlays.excess(5, 4)).is_equal(1)
+	assert_int(LegalPlays.excess(4, 4)).is_equal(0)
+	assert_int(LegalPlays.excess(2, 6)).is_equal(0)
+
+
+## An `exact` set takes exactly that many; with Choice.ANY_SIZE any size of at least `min`.
+func test_set_size_ok_reads_exact_then_min() -> void:
+	assert_bool(LegalPlays.set_size_ok(1, 1, 1)).is_true()
+	assert_bool(LegalPlays.set_size_ok(2, 1, 1)).is_false()
+	assert_bool(LegalPlays.set_size_ok(0, 1, 1)).is_false()
+	assert_bool(LegalPlays.set_size_ok(0, Choice.ANY_SIZE, 0)).is_true()
+	assert_bool(LegalPlays.set_size_ok(3, Choice.ANY_SIZE, 0)).is_true()
+	assert_bool(LegalPlays.set_size_ok(0, Choice.ANY_SIZE, 1)).is_false()

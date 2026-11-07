@@ -1,12 +1,13 @@
 class_name EffectPlayer
 extends RefCounted
 ## Plays the walk and the effects on the table (R51, R53, plan P17, P18): the pulse lift,
-## stats, destroy, move, return, discard, fizzle and the opponent's pick glowing. Also the card
+## stats, status, exit, move, return, discard, fizzle, the opponent's pick glowing and the
+## public hand trigger (C14: HandTelegraph). Also the card
 ## motions the board shares (flip, lift, sweep off, move between collections). It holds no
 ## state of its own: the board hands in the collections and the id
 ## dictionaries it owns (same objects, never reassigned).
 ##
-## Every tween belongs to the card it moves, so a card freed mid-tween (a destroy, a new
+## Every tween belongs to the card it moves, so a card freed mid-tween (an exit, a new
 ## match) takes its tweens along and nothing errors.
 
 ## Shortest tween the collections are given, so a zero-length step never divides or stalls.
@@ -24,7 +25,7 @@ var match_cards: MatchCards = null
 ## Returns seat 0's current SeatView (cycle 8 P16): the hand faces read their effective cost
 ## and memory from it. Unset, faces show the printed card.
 var view_source: Callable = Callable()
-## The deck strip of a recover prompt (T10 sets it); null while there is none.
+## The Pile strip (a Pile prompt or a tap on a Pile count); null while there is none.
 var strip: CardCollection3D = null
 ## The board's zone-glow material, copied per card for CHOICE_SHOW (and T12's prompts).
 var glow_material: Material = null
@@ -32,9 +33,6 @@ var glow_material: Material = null
 var player_cards: Dictionary[int, BoardCard] = {}
 var committed_ids: Dictionary[int, bool] = {}
 var face_down_ids: Dictionary[int, bool] = {}
-## The seat whose RECOVER played just before the current step; -1 when none.
-var _recovered_seat: int = -1
-
 # --- The walk ---------------------------------------------------------------------------
 
 
@@ -45,15 +43,14 @@ func card_for(step: BoardStep) -> BoardCard:
 	return _find_in_row(step.seat, step.card, step.slot)
 
 
-## A pulse (R51): the card lifts and settles; a first reveal also flips it face up. A
-## destroyed reveal only flips (no lift, R28); an `again` pulse is the short revealed pulse.
+## A pulse (R51): the card lifts and settles; a first reveal also flips it face up; an `again`
+## pulse is the short revealed pulse.
 func pulse(step: BoardStep) -> void:
 	if step.revealed:
 		var seen: BoardCard = _find_in_row(step.seat, step.card, step.slot)
 		if seen != null:
 			_lift_and_settle(seen, step.duration)
 		return
-	var lift: bool = not step.destroyed
 	# The flip keeps the reveal's own time; a scoring reveal's step is longer only so its
 	# chips can follow the flip (chip_delay, R31).
 	var flip_time: float = step.chip_delay if step.chip_delay > 0.0 else step.duration
@@ -63,8 +60,7 @@ func pulse(step: BoardStep) -> void:
 			return
 		# The public payload dresses the face: a row card is not in the hand row's entries.
 		show(own, step, reveal_entry(step))
-		if lift:
-			_lift_and_settle(own, step.duration)
+		_lift_and_settle(own, step.duration)
 		if face_down_ids.erase(step.card):
 			_flip_up(own, flip_time)
 		return
@@ -74,49 +70,121 @@ func pulse(step: BoardStep) -> void:
 		return
 	card.instance_id = step.card
 	show(card, step, reveal_entry(step))
-	if lift:
-		_lift_and_settle(card, step.duration)
+	_lift_and_settle(card, step.duration)
 	_flip_up(card, flip_time)
 
 
 # --- Effect steps (P18, R53) ---------------------------------------------------------------
 
 
-## The source card lifts briefly.
+## The source card lifts briefly. A public hand trigger (C14) pulses the viewer's own card in
+## its fan (`from_hand`), or shows the opponent's card above its hand (TELEGRAPH).
 func effect(step: BoardStep) -> void:
-	var card: BoardCard = _find_in_row(step.seat, step.card, -1)
-	if card != null:
-		_lift_and_settle(card, step.duration)
+	if step.kind == BoardStep.Kind.TELEGRAPH:
+		if HandTelegraph.play(step, opponent_hand, loose, match_cards) == null:
+			push_warning("Board: no telegraph for the opponent's hand card %d" % step.card)
+		return
+	var card: BoardCard = _trigger_card(step)
+	if card == null:
+		return
+	_lift_and_settle(card, step.duration)
+	if step.from_hand and glow_material != null:
+		card.pulse_glow(glow_material, step.duration)
 
 
-## "no target" fades on the source card.
+## "no target" or "exhausted" fades on the source card (R83), in the fan for the viewer's
+## own hand trigger (`from_hand`, C14).
 func fizzle(step: BoardStep) -> void:
-	var card: BoardCard = _find_in_row(step.seat, step.card, -1)
+	var card: BoardCard = _trigger_card(step)
 	if card != null:
 		card.flash_note(fizzle_note(step.reason), step.duration)
 
 
-## The note a fizzle flashes: "spent" for a once-only effect, otherwise "no target".
+## The card a trigger step is about: the viewer's hand card for `from_hand`, else the row card.
+func _trigger_card(step: BoardStep) -> BoardCard:
+	if step.from_hand:
+		return _player_card(step.card)
+	return _find_in_row(step.seat, step.card, -1)
+
+
+## The note a fizzle flashes: "spent" for a once-only effect, "exhausted" when the trigger
+## budget ran out (R83), otherwise "no target".
 static func fizzle_note(reason: String) -> String:
-	return "spent" if reason == "spent" else "no target"
+	if reason == "spent" or reason == "exhausted":
+		return reason
+	return "no target"
 
 
-## The numbers change and the one that changed pulses (R42).
+## The numbers change and the one that changed pulses (R42, R76). The row card with the
+## step's id (either row; the event names no seat for a public change), else the hand card.
 func stats(step: BoardStep) -> void:
 	var card: BoardCard = null
 	if not step.in_hand:
-		card = _find_in_row(step.seat, step.card, -1)
+		card = _find_on_any_row(step.card)
 	if card == null:
 		_restat_hand(step)
 		return
-	card.show_stats(step.flat, step.times, step.plus, step.cost, step.permanent)
+	card.show_stats(step.power, step.mult, step.add, step.cost, step.permanent)
 
 
 ## A change to a card in the player's hand plays on the hand's face (cycle 8 R24, R26).
 func _restat_hand(step: BoardStep) -> void:
 	var card: BoardCard = _player_card(step.card)
 	if card != null:
-		card.show_stats(step.flat, step.times, step.plus, step.cost, step.permanent)
+		card.show_stats(step.power, step.mult, step.add, step.cost, step.permanent)
+
+
+## A badge word appears on, or goes from, the card (R79). The card is found by id on either
+## row, else in the player's hand.
+func status(step: BoardStep) -> void:
+	var card: BoardCard = _find_on_any_row(step.card)
+	if card == null:
+		card = _player_card(step.card)
+	if card == null:
+		return
+	var words: Array[String] = card.badge_words()
+	if step.old_word != "":
+		words = BoardCard.badges_after(words, step.old_word, false)
+	card.set_badges(BoardCard.badges_after(words, step.word, step.status_on))
+
+
+## The exit pass resolves a card (R81): to its Owner's Pile it flies off its row, to its
+## Owner's fan it returns, and a Fade card flips face down in its slot. The card is found by
+## id on either row, since a card on a row it does not own exits too.
+func exit_card(step: BoardStep) -> void:
+	var row_seat: int = _row_seat_of(step.card)
+	if row_seat < 0:
+		push_warning("Board: an exit found no card %d on either row" % step.card)
+		return
+	var card: BoardCard = _find_in_row(row_seat, step.card, -1)
+	match step.exit_to:
+		"pile":
+			_sweep_off_row(row_seat, card, step.duration)
+		"hand":
+			var hand: CardCollection3D = _hand_of(step.seat)
+			move_card(card, _row_of(row_seat), hand, step.duration)
+			_hide_if_opponent(card, step.seat, step.duration)
+			if step.seat == 0:
+				_forget_flags(step.card)
+		"face_down":
+			flip_down(card, step.duration)
+			if row_seat == 0:
+				face_down_ids[step.card] = true
+			else:
+				_hide_if_opponent(card, 1, step.duration)
+
+
+## A note on the looked-at card (CARD_LOOKED): it glows and says "looked".
+func look(step: BoardStep) -> void:
+	var row: CardCollection3D = _row_of(step.from_seat)
+	if step.slot < 0 or step.slot >= row.cards.size():
+		return
+	var card: BoardCard = row.cards[step.slot] as BoardCard
+	if card == null:
+		return
+	if glow_material != null:
+		card.pulse_glow(glow_material, step.duration)
+	card.flash_note("looked", step.duration)
 
 
 ## Redresses every face in the player's hand from the view (turn start, cycle 8 P16).
@@ -145,87 +213,10 @@ func _hand_rows() -> Array[Dictionary]:
 	return view.own_hand_row
 
 
-## The card is marked in place (R26): dim, tilt and crack fade in; it stays on its row,
-## face up or down.
-func destroy(step: BoardStep) -> void:
-	var card: BoardCard = _find_in_row(step.seat, step.card, step.slot)
-	if card == null:
-		push_warning("Board: a destroy found no card on seat %d's row" % step.seat)
-		return
-	card.set_destroyed(true, _row_of(step.seat).cards.find(card), step.duration)
-
-
-## At turn end the destroyed card sweeps off its row and leaves the collection (R29).
-func clear_destroyed(step: BoardStep) -> void:
-	var card: BoardCard = _find_in_row(step.seat, step.card, step.slot)
-	if card == null:
-		push_warning("Board: a clear found no card on seat %d's row" % step.seat)
-		return
-	_sweep_off_row(step.seat, card, step.duration)
-
-
-## A burn of a card the board already holds: a returned card that found a full hand (on a row)
-## or a recovered one that found a full hand (in the hand, R19). True when the card has swept
-## off; false when it is a deck burn the board spawns itself.
-func burn_from_row(step: BoardStep) -> bool:
-	if step.row_seat >= 0:
-		# A row burn names its row and slot, public even when the card's id is hidden.
-		var on_row: BoardCard = _find_in_row(step.row_seat, step.card, step.slot)
-		if on_row != null and on_row.instance_id == step.card:
-			_sweep_off_row(step.row_seat, on_row, step.duration)
-			return true
-	elif step.card >= 0:
-		var card: BoardCard = _find_in_row(step.seat, step.card, -1)
-		if card != null and card.instance_id == step.card:
-			_sweep_off_row(step.seat, card, step.duration)
-			return true
-	return _burn_from_hand(step)
-
-
-## Tells the player which step just played, so a hidden burn right after the seat's RECOVER
-## is known to be that recovered card (the opponent's id is hidden). A turn start redresses
-## the hand from the view.
+## Tells the player which step just played: a turn start redresses the hand from the view.
 func note_step(step: BoardStep) -> void:
-	if step.kind == BoardStep.Kind.RECOVER:
-		_recovered_seat = step.seat
-	elif step.kind != BoardStep.Kind.BURN:
-		_recovered_seat = -1
 	if step.kind == BoardStep.Kind.TURN_START:
 		_refresh_hand()
-
-
-## Which hand card a burn takes, by index into `hand_ids` (the instance id of each hand card,
-## -1 for a back): the player's by its id; the opponent's hidden burn takes the last card when
-## `recovered_seat` says its recovery came just before. -1 for a deck burn.
-static func hand_burn_index(
-	hand_ids: Array[int], step_card: int, seat: int, recovered_seat: int
-) -> int:
-	if step_card >= 0:
-		return hand_ids.find(step_card) if seat == 0 else -1
-	if seat != 0 and recovered_seat == seat and not hand_ids.is_empty():
-		return hand_ids.size() - 1
-	return -1
-
-
-func _burn_from_hand(step: BoardStep) -> bool:
-	var hand: CardCollection3D = _hand_of(step.seat)
-	var ids: Array[int] = []
-	for held: Card3D in hand.cards:
-		var named: BoardCard = held as BoardCard
-		ids.append(-1 if named == null else named.instance_id)
-	var index: int = hand_burn_index(ids, step.card, step.seat, _recovered_seat)
-	_recovered_seat = -1
-	if index < 0:
-		return false
-	var card: BoardCard = hand.cards[index] as BoardCard
-	var placed: Transform3D = card.global_transform
-	hand.card_move_tween_duration = maxf(step.duration, MIN_TWEEN_TIME)
-	var removed: Card3D = hand.remove_card(index)
-	loose.add_child(removed)
-	removed.global_transform = placed
-	_forget(card.instance_id)
-	fly_out(removed, step.duration)
-	return true
 
 
 ## The row slides to its new order in one re-layout: every card of the step goes from its row
@@ -276,7 +267,6 @@ func unreveal(step: BoardStep) -> void:
 		return
 	flip_down(card, step.duration)
 	if step.seat == 0:
-		card.set_destroyed(false)  # Veil makes a destroyed card live again (cycle 8 R65).
 		face_down_ids[step.card] = true
 		return
 	card.instance_id = -1
@@ -287,37 +277,6 @@ func unreveal(step: BoardStep) -> void:
 		card.clear_def()
 
 
-## A card leaves the deck strip for `seat`'s hand. With no strip card to fly (the strip is
-## not up) nothing moves here. The strip card is found by its id, else by the pile and place
-## the engine names (a card the viewer had only as a back); a viewer's own recovery turns it up.
-func recover(step: BoardStep) -> void:
-	if strip == null:
-		return
-	var card: BoardCard = null
-	var from_pile: BoardCard = null
-	for candidate: Card3D in strip.cards:
-		var named: BoardCard = candidate as BoardCard
-		if named == null:
-			continue
-		if step.card >= 0 and named.instance_id == step.card:
-			card = named
-		var pile_seat: int = named.get_meta(DeckStrip.META_SEAT, -1)
-		var pile_place: int = named.get_meta(DeckStrip.META_POSITION, -1)
-		if pile_seat == step.from_seat and pile_place == step.slot:
-			from_pile = named
-	if card == null:
-		card = from_pile
-	if card == null:
-		return
-	if step.seat == 0:
-		if card.face_down:
-			show(card, step)
-			_flip_up(card, step.duration)
-		if step.card >= 0:
-			player_cards[step.card] = card
-	move_card(card, strip, _hand_of(step.seat), step.duration)
-
-
 ## The card flies to its owner's hand: face up for the player, face down for the opponent.
 func return_card(step: BoardStep) -> void:
 	var card: BoardCard = _find_in_row(step.seat, step.card, step.slot)
@@ -325,7 +284,6 @@ func return_card(step: BoardStep) -> void:
 		push_warning("Board: a return found no card on seat %d's row" % step.seat)
 		return
 	var hand: CardCollection3D = _hand_of(step.seat)
-	card.set_destroyed(false)  # A salvaged card leaves the row still marked (cycle 8 R65).
 	move_card(card, _row_of(step.seat), hand, step.duration)
 	if step.seat == 0:
 		_forget_flags(card.instance_id)
@@ -341,8 +299,15 @@ func return_card(step: BoardStep) -> void:
 
 
 ## The card leaves the hand off the exit side. The opponent's hand cards are all backs, so
-## its discard takes the fan's last card.
+## its discard takes the fan's last card. A discard from a row (`from_row`: a Condemned card,
+## a round-end clear) sweeps the card off its row when an EXIT or the table clear has not
+## already taken it (R81).
 func discard(step: BoardStep) -> void:
+	if step.from_row:
+		var row_seat: int = _row_seat_of(step.card)
+		if row_seat >= 0:
+			_sweep_off_row(row_seat, _find_in_row(row_seat, step.card, -1), step.duration)
+		return
 	var hand: CardCollection3D = _hand_of(step.seat)
 	var card: BoardCard = null
 	if step.seat == 0:
@@ -410,6 +375,35 @@ func _find_in_row(seat: int, id: int, slot: int) -> BoardCard:
 	return null
 
 
+## The seat whose row holds the card with this id, or -1.
+func _row_seat_of(id: int) -> int:
+	if id < 0:
+		return -1
+	for seat: int in range(2):
+		if _find_in_row(seat, id, -1) != null:
+			return seat
+	return -1
+
+
+## The card with this id on either row, or null.
+func _find_on_any_row(id: int) -> BoardCard:
+	var seat: int = _row_seat_of(id)
+	return null if seat < 0 else _find_in_row(seat, id, -1)
+
+
+## The opponent's copy is a back again: forget which card it was once the move ends.
+func _hide_if_opponent(card: BoardCard, seat: int, duration: float) -> void:
+	if seat == 0:
+		return
+	card.instance_id = -1
+	flip_down(card, duration)
+	var wipe: Tween = card.create_tween()
+	var wait: IntervalTweener = wipe.tween_interval(maxf(duration, MIN_TWEEN_TIME))
+	var done: CallbackTweener = wipe.tween_callback(card.clear_def)
+	if wait == null or done == null:
+		card.clear_def()
+
+
 ## The face-down opponent card to reveal at a row slot; the first one without an id when the
 ## slot does not name one.
 func _opponent_card_at(slot: int) -> BoardCard:
@@ -449,6 +443,20 @@ func reset() -> void:
 	strip = null
 
 
+## A new Round clears the rows only: hands persist (rules 7), so the player's hand cards keep
+## their ids; the committed and face-down books and the strip are dropped.
+func reset_rows() -> void:
+	var stale: Array[int] = []
+	for id: int in player_cards.keys():
+		if not player_hand.cards.has(player_cards[id]):
+			stale.append(id)
+	for id: int in stale:
+		_forget(id)
+	committed_ids.clear()
+	face_down_ids.clear()
+	strip = null
+
+
 # --- Card motions (shared with the board) --------------------------------------------------
 
 
@@ -465,19 +473,20 @@ func show(card: BoardCard, step: BoardStep, entry: Dictionary = {}) -> void:
 	card.show_entry(def, face)
 
 
-## The face entry a reveal step carries (cost, bonus and grown mark are public), or an empty
-## dictionary when the event named no effective cost.
+## The face entry a reveal step carries (CARD_REVEALED: Power, Mult, Add and the status words
+## are public). The effective cost is not on the event, so the face keeps the printed one.
 static func reveal_entry(step: BoardStep) -> Dictionary:
-	if step.cost < 0:
-		return {}
-	return {
+	var entry: Dictionary = {
 		"card": step.card,
-		"cost": step.cost,
-		"flat": step.flat,
-		"times": step.times,
-		"plus": step.plus,
+		"power": step.power,
+		"mult": step.mult,
+		"add": step.add,
+		"statuses": step.statuses,
 		"grown": step.grown,
 	}
+	if step.cost >= 0:
+		entry["cost"] = step.cost
+	return entry
 
 
 ## Takes a card off a row, onto the loose layer where it is, and sweeps it off. The row

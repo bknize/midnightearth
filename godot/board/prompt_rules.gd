@@ -13,20 +13,88 @@ enum Tap { NOTHING, CHOOSE, LIFT, LIFT_ELIGIBLE, SWAP_LIFT, PUT_DOWN, TOGGLE_SEL
 
 ## The action button's text for each prompt verb (R41, R49), by the verb's JSON name.
 const ACTION_LABELS: Dictionary[String, String] = {
-	"swap_places": "Swap",
-	"draw_then_discard": "Discard",
-	"return_at_turn_end": "Return",
 	"discard_own": "Discard",
-	"destroy_own_then_draw": "Destroy",
-	"destroy_own_then_flat_up": "Destroy",
-	"sacrifice_destroy": "Destroy",
+	"discard_down": "Discard",
 	"copy_stats": "Copy",
-	"move_opponent_left": "Move",
-	"swap_opponent_right": "Swap",
-	"recover_destroyed": "Recover",
+	"look_at_opposing": "Look",
+	"delve": "Take",
 }
+## The verb of the discard-down prompt (TurnFlow.VERB_DISCARD_DOWN).
+const VERB_DISCARD_DOWN: String = "discard_down"
 const SELECT_LABEL: String = "Select"
 const DESELECT_LABEL: String = "Deselect"
+
+
+## The name of a prompt's zone ("own_hand", "opponent_pile"), "" when unknown.
+static func zone_name_of(prompt: Dictionary) -> String:
+	return Choice.zone_name(Choice.zone_of(prompt))
+
+
+## Whether a zone name is the Deck top of a Delve prompt (private, read from the view).
+static func is_deck_top_zone(zone_label: String) -> bool:
+	return zone_label == Choice.zone_name(Choice.Zone.OWN_DECK_TOP)
+
+
+## Whether a zone name is a Pile ("own_pile", "opponent_pile", "both_piles"): the board lays
+## the Pile strip out for such a prompt (R78).
+static func is_pile_zone(zone_label: String) -> bool:
+	return zone_label.contains("pile")
+
+
+## The seats whose Piles a Pile zone shows, in strip order, for the asked seat: an "own"
+## zone the asked seat's, an "opponent" zone the other's, "both" the asked seat's then the
+## other's. Empty for a zone that is not a Pile.
+static func pile_seats(zone_label: String, asked: int) -> Array[int]:
+	var out: Array[int] = []
+	if not is_pile_zone(zone_label):
+		return out
+	if zone_label.begins_with("own"):
+		out.append(asked)
+	elif zone_label.begins_with("opponent"):
+		out.append(1 - asked)
+	else:
+		out.append(asked)
+		out.append(1 - asked)
+	return out
+
+
+## The verb name of a prompt (the engine holds it by name), "" when absent.
+static func verb_name_of(prompt: Dictionary) -> String:
+	var raw: Variant = prompt.get("verb", "")
+	if not raw is String:
+		return ""
+	var named: String = raw
+	return named
+
+
+## The set size a multi-select prompt requires: its `exact` (the discard-down's excess), or
+## -1 when any size up to the options is legal (plan P12).
+static func exact_of(prompt: Dictionary) -> int:
+	return Choice.exact_of(prompt)
+
+
+## Whether the prompt is the discard-down (R80): its verb says so (TurnFlow.VERB_DISCARD_DOWN).
+static func is_discard_down(prompt: Dictionary) -> bool:
+	return verb_name_of(prompt) == VERB_DISCARD_DOWN
+
+
+## Whether Confirm is on with `count` cards selected (R80): the count equals `exact` when the
+## prompt has one; otherwise it is at least `min` and at most the options.
+static func confirm_enabled(prompt: Dictionary, count: int) -> bool:
+	var exact: int = exact_of(prompt)
+	if exact >= 0:
+		return count == exact
+	var raw: Array = prompt.get("options", [])
+	var least: int = Choice.min_of(prompt)
+	return count >= least and count <= raw.size()
+
+
+## The banner for an open prompt: "Discard N" for the discard-down (R80), else the prompt's
+## own text with a Crew's name in front (banner_text).
+static func banner_for(prompt: Dictionary, text: String, crew_name: String) -> String:
+	if is_discard_down(prompt):
+		return "Discard %d" % maxi(exact_of(prompt), 0)
+	return banner_text(text, crew_name)
 
 
 ## The spots to glow, in option order (R55). `own_size` is the asker's row size, which splits
@@ -37,8 +105,7 @@ static func spots(prompt: Dictionary, own_size: int) -> Array[CardSpot]:
 	if prompt.is_empty():
 		return out
 	var asked: int = prompt.get("seat", 0)
-	var zone: int = prompt.get("zone", Choice.NO_ZONE)
-	var zone_label: String = Choice.zone_name(zone)
+	var zone_label: String = zone_name_of(prompt)
 	var raw: Array = prompt.get("options", [])
 	for entry: Variant in raw:
 		var option: int = entry
@@ -120,10 +187,12 @@ static func banner_text(text: String, crew_name: String) -> String:
 	return "%s: %s" % [crew_name, text]
 
 
-## The HUD confirm button's text for a multi prompt with `count` cards selected (R48).
+## The HUD confirm button's text for a multi prompt with `count` cards selected (R48, R80):
+## "Discard 2" for the discard-down, "<Verb> <count>" for the rest.
 static func confirm_text(prompt: Dictionary, count: int) -> String:
-	var verb: int = prompt.get("verb", -1)
-	var label: String = action_label(CardEffect.verb_name(verb))
+	var label: String = action_label(verb_name_of(prompt))
+	if is_discard_down(prompt):
+		label = "Discard"
 	return "%s %d" % [label if label != "" else "Confirm", count]
 
 
@@ -148,11 +217,10 @@ static func action_label(verb: String, multi: bool = false, selected: bool = fal
 
 
 ## The action button's text for an open prompt as the engine holds it
-## (MatchEngine.open_prompt): its `verb` is the CardEffect.Verb value, not the name (R41).
+## (MatchEngine.open_prompt) (R41).
 static func action_label_for(prompt: Dictionary, selected: bool = false) -> String:
-	var verb: int = prompt.get("verb", -1)
 	var multi: bool = prompt.get("multi", false)
-	return action_label(CardEffect.verb_name(verb), multi, selected)
+	return action_label(verb_name_of(prompt), multi, selected)
 
 
 static func same_spot(a: CardSpot, b: CardSpot) -> bool:

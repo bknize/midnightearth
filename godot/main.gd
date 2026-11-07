@@ -3,7 +3,9 @@ extends Node3D
 ## DC-07 P14), then shows the deck picker, or the board at once when `--autoplay`, `--deck=`
 ## or `--bot-deck=` is given (R42), and prints the lines the build gate looks for: the
 ## "Engine smoke:" line, then "Main ready" once the picker or the board is in the tree.
-## An unknown deck id is a push_error and no board.
+## An unknown deck id is a push_error and no board. Under rules 7 (cycle 9 R86, DC-13 T08)
+## the smoke line is "Engine smoke: seed=1 decks=a/b bot=random winner=.. wins=..-..
+## rounds=.. end=<reason> actions=..", the winner -1 on a stalemate draw (spec C12).
 
 const SMOKE_SEED: int = 1
 const MAX_ACTIONS: int = 2000
@@ -13,7 +15,6 @@ const AUTOPLAY_ARG: String = "--autoplay"
 const DECK_ARG: String = "--deck="
 const BOT_DECK_ARG: String = "--bot-deck="
 const BOT_ARG: String = "--bot="
-const BOT_LEVEL_ARG: String = "--bot-level="
 
 var _cards: CardDb = null
 var _decks: DeckList = null
@@ -26,7 +27,6 @@ var _seed: int = 0
 var _seed_fixed: bool = false
 var _autoplay: bool = false
 var _bot_name: String = BotRegistry.default_name()
-var _bot_level: int = BotPlayer.FULL_LEVEL
 
 
 func _ready() -> void:
@@ -35,9 +35,6 @@ func _ready() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	if not _read_bot_args(args):
 		return
-	var weights: BotWeights = BotRegistry.default_weights(_bot_name)
-	if weights.load_error != "":
-		print("Bot weights: %s; using defaults" % weights.load_error)
 	if not _run_smoke(_cards):
 		return
 	_board_scene = load(BOARD_PATH) as PackedScene
@@ -93,31 +90,14 @@ func _load_data() -> bool:
 	return true
 
 
-## Reads --bot=<name> and --bot-level=<0..20> (R4: default tuned at 20). Returns false after
-## a push_error for an unknown name, a bad level, or a level on a bot without an evaluator.
+## Reads --bot=<name> (cycle 9 R73: `random` is the only bot and the default). Returns false
+## after a push_error naming the known bots for an unknown name.
 func _read_bot_args(args: PackedStringArray) -> bool:
 	for arg: String in args:
 		if arg.begins_with(BOT_ARG):
 			_bot_name = arg.substr(BOT_ARG.length())
-		elif arg.begins_with(BOT_LEVEL_ARG):
-			var text: String = arg.substr(BOT_LEVEL_ARG.length())
-			if not text.is_valid_int():
-				push_error(
-					"Bad bot level: '%s' (use a whole number 0..%d)" % [text, BotPlayer.FULL_LEVEL]
-				)
-				return false
-			_bot_level = text.to_int()
 	if not BotRegistry.NAMES.has(_bot_name):
 		push_error("Unknown bot: '%s' (known: %s)" % [_bot_name, ", ".join(BotRegistry.NAMES)])
-		return false
-	if BotRegistry.PENDING.has(_bot_name):
-		push_error("Bot '%s' is not built yet (cycle 7 milestone B)" % _bot_name)
-		return false
-	if _bot_level < 0 or _bot_level > BotPlayer.FULL_LEVEL:
-		push_error("Bot level %d is outside 0..%d" % [_bot_level, BotPlayer.FULL_LEVEL])
-		return false
-	if _bot_level != BotPlayer.FULL_LEVEL and BotRegistry.NO_LEVEL.has(_bot_name):
-		push_error("Bot '%s' has no levels: only level %d" % [_bot_name, BotPlayer.FULL_LEVEL])
 		return false
 	return true
 
@@ -129,7 +109,6 @@ func _start_board(deck_ids: Array[String]) -> void:
 		_board.fixed_seed = _seed
 	_board.autoplay = _autoplay
 	_board.bot = _bot_name
-	_board.level = _bot_level
 	add_child(_board)
 	var err: int = _board.decks_requested.connect(_on_decks_requested)
 	if err != OK:
@@ -181,14 +160,10 @@ func _run_smoke(cards: CardDb) -> bool:
 	var bots: Array[BotPlayer] = []
 	for seat: int in MatchEngine.SEATS:
 		var bot: BotPlayer = BotRegistry.make(
-			_bot_name,
-			BotRegistry.seed_for(SMOKE_SEED, seat),
-			engine.match_cards(),
-			null,
-			_bot_level
+			_bot_name, BotRegistry.seed_for(SMOKE_SEED, seat), engine.match_cards()
 		)
 		if bot == null:
-			push_error("Engine smoke: cannot build bot '%s' at level %d" % [_bot_name, _bot_level])
+			push_error("Engine smoke: cannot build bot '%s'" % _bot_name)
 			return false
 		bots.append(bot)
 	var actions: int = 0

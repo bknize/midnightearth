@@ -215,6 +215,9 @@ to slot 0 and wraps A to slot 2. B stays in slot 1 (R36, R39).
   and slots of a face-down Commit (R53).
 - While a card is in a hand or face down, its effects, stats and Memory are private to its
   Owner. They become public when the card is revealed or enters a Pile (R54).
+- A card in a hand that triggers ("while in your hand") is shown to both seats as it fires:
+  the card and its ability become public knowledge, then it stays in the hand. The telegraph
+  is deliberate and is part of the card's power budget (Ben, DC-13, cycle 9 spec C14).
 
 ## 9. Changed from today
 

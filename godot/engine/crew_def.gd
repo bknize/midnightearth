@@ -1,128 +1,103 @@
 class_name CrewDef
 extends RefCounted
-## One Crew from the Crew pool file (cycle 8 R39, plan P12, P13): an id, a name, a trigger,
-## a verb, an amount, an optional flag, a uses count, a scope and the rules text. Immutable
-## by convention. A Crew is not a card: it has no cost, flat or bonus (R39, R42).
+## One Crew from the Crew pool file, v2 (cycle 9 plan P4, spec R62): an id, a name, a tag,
+## a moment, a verb, up to two amounts, an optional flag, a uses count, a scope and the rules
+## text. Immutable by convention. A Crew is not a card: it has no Cost, Power or Bonus.
 ##
 ## JSON form, as in crew.json:
-## {"id": "shade", "name": "Shade", "trigger": "turn_start", "verb": "unreveal_own_one",
-##  "amount": 4, "optional": true, "uses": 0, "scope": "none", "text": "..."}
-## Trigger, verb and scope names are the snake_case names in TRIGGER_NAMES, VERB_NAMES and
-## SCOPE_NAMES, indexed by the enum values. A Crew of scope NONE is unlimited and carries
-## uses 0; a ROUND or MATCH Crew carries uses > 0, its uses left resetting at round start
-## (ROUND) or never (MATCH) (R43, MatchState.reset_crew_uses). `amount` is the verb's: the
-## turn a TURN_START Crew fires on, a ×-part in hundredths, a flat step, or 0.
-##
-## Each verb belongs to one trigger (VERB_TRIGGER), which the loader checks. The abilities
-## themselves land with DC-11 T10; this class is data only.
+## {"id": "void", "name": "Void", "tag": "greed", "moment": "on_empty_draw",
+##  "verb": "void_grant", "amount": 10, "amount_2": 50, "optional": false, "uses": 0,
+##  "scope": "turn", "text": "..."}
+## Moments are CardAbility.MOMENTS. VERBS is the milestone A Crew table: each verb with the
+## one moment it sits on and the inclusive range of each amount it takes (a verb without a
+## range for a key allows only 0). The amounts, by verb:
+## - tallyman_fifth (ongoing): every `amount`th Scoring card of the seat's Walk gets a Mult
+##   of `amount_2` hundredths for that Score (5, ×2 = 200);
+## - void_grant (on_empty_draw): the seat's next Scoring card gets Power +`amount`, Add
+##   +`amount_2` hundredths and Mult ×VOID_MULT until it Scores or turn end (10, 50);
+## - engineer_energy (ongoing): Budget +`amount` from Turn `amount_2` (1, 3);
+## - navigator_second (on_score): the seat's `amount_2`th Scoring card of the Walk gets Power
+##   +`amount` for the match after it Scores (2, 2);
+## - captain_leftmost (on_score): the card in the seat's leftmost slot gets Power +`amount`
+##   for the match after it Scores (1);
+## - dredge (on_empty_draw): the seat's Pile is shuffled into its Deck (no amount).
+## `uses` 0 is unlimited (every v2 Crew); `scope` is the cessation of the change it gives
+## (CardAbility.SCOPES, or "" for none). The behaviour lands with DC-13 T07 (CrewAbilities);
+## this class is data only.
 
-enum Trigger { TURN_START, ROUND_END, OWN_DESTROYED, OWN_MOVED, OWN_RETURNED, ONGOING }
-
-enum Verb {
-	DRAW_EXTRA,
-	EVEN_FLAT_TIMES,
-	UNREVEAL_OWN_ONE,
-	SALVAGE_DESTROYED,
-	UNREVEAL_ALL_OWN,
-	MOVED_FLAT,
-	GROW_ROW_FLAT,
-	DRAW_ON_RETURN,
+## The milestone A Crew verbs (plan P4): verb name to {moment, and for `amount` and
+## `amount_2` an inclusive [low, high] range when the verb takes it}.
+const VERBS: Dictionary[String, Dictionary] = {
+	"tallyman_fifth": {"moment": "ongoing", "amount": [2, 10], "amount_2": [101, 400]},
+	"void_grant": {"moment": "on_empty_draw", "amount": [0, 20], "amount_2": [0, 100]},
+	"engineer_energy": {"moment": "ongoing", "amount": [1, 3], "amount_2": [1, 7]},
+	"navigator_second": {"moment": "on_score", "amount": [1, 5], "amount_2": [1, 7]},
+	"captain_leftmost": {"moment": "on_score", "amount": [1, 5]},
+	"dredge": {"moment": "on_empty_draw"},
 }
-
-enum Scope { NONE, ROUND, MATCH }
-
-## JSON names of Trigger, indexed by the enum value.
-const TRIGGER_NAMES: Array[String] = [
-	"turn_start", "round_end", "own_destroyed", "own_moved", "own_returned", "ongoing"
-]
-## JSON names of Verb, indexed by the enum value.
-const VERB_NAMES: Array[String] = [
-	"draw_extra",
-	"even_flat_times",
-	"unreveal_own_one",
-	"salvage_destroyed",
-	"unreveal_all_own",
-	"moved_flat",
-	"grow_row_flat",
-	"draw_on_return",
-]
-## JSON names of Scope, indexed by the enum value.
-const SCOPE_NAMES: Array[String] = ["none", "round", "match"]
-## The one Trigger each Verb may sit on, indexed by the Verb value.
-const VERB_TRIGGER: Array[int] = [
-	Trigger.TURN_START,
-	Trigger.ONGOING,
-	Trigger.TURN_START,
-	Trigger.OWN_DESTROYED,
-	Trigger.OWN_DESTROYED,
-	Trigger.OWN_MOVED,
-	Trigger.ROUND_END,
-	Trigger.OWN_RETURNED,
-]
-## The uses left of an unlimited Crew (scope NONE) in MatchState.crew_uses.
+## Void's granted Mult, in hundredths (×1.25, canon crew-v2 C31): the third number of the
+## grant, which has no amount key of its own.
+const VOID_MULT: int = 125
+## The uses left of an unlimited Crew (uses 0) in MatchState.crew_uses.
 const UNLIMITED: int = -1
 
 var id: String = ""
 var name: String = ""
-var trigger: Trigger = Trigger.TURN_START
-var verb: Verb = Verb.DRAW_EXTRA
+var tag: String = ""
+var moment: String = ""
+var verb: String = ""
 var amount: int = 0
+var amount_2: int = 0
 var optional: bool = false
 var uses: int = 0
-var scope: Scope = Scope.NONE
+var scope: String = ""
 var text: String = ""
 
 
 func _init(
 	p_id: String = "",
 	p_name: String = "",
-	p_trigger: Trigger = Trigger.TURN_START,
-	p_verb: Verb = Verb.DRAW_EXTRA,
-	p_amount: int = 0,
-	p_optional: bool = false,
-	p_uses: int = 0,
-	p_scope: Scope = Scope.NONE,
+	p_moment: String = "",
+	p_verb: String = "",
 	p_text: String = ""
 ) -> void:
 	id = p_id
 	name = p_name
-	trigger = p_trigger
+	moment = p_moment
 	verb = p_verb
-	amount = p_amount
-	optional = p_optional
-	uses = p_uses
-	scope = p_scope
 	text = p_text
 
 
-## The uses left this Crew holds at the start of a match (and of every round, for ROUND):
-## `uses`, or UNLIMITED when its scope is NONE.
+## The uses left this Crew holds at the start of a match: `uses`, or UNLIMITED when 0.
 func initial_uses() -> int:
-	if scope == Scope.NONE:
-		return UNLIMITED
-	return uses
+	return UNLIMITED if uses <= 0 else uses
 
 
-## The Trigger value of a JSON name, or -1 when unknown.
-static func trigger_from_name(trigger_name: String) -> int:
-	return TRIGGER_NAMES.find(trigger_name)
+## Whether `verb_name` is a known Crew verb (VERBS).
+static func is_verb(verb_name: String) -> bool:
+	return VERBS.has(verb_name)
 
 
-## The Verb value of a JSON name, or -1 when unknown.
-static func verb_from_name(verb_name: String) -> int:
-	return VERB_NAMES.find(verb_name)
-
-
-## The Scope value of a JSON name, or -1 when unknown.
-static func scope_from_name(scope_name: String) -> int:
-	return SCOPE_NAMES.find(scope_name)
-
-
-## Whether `verb_value` (a Verb) may sit on `trigger_value` (a Trigger).
-static func is_allowed_pair(trigger_value: int, verb_value: int) -> bool:
-	if verb_value < 0 or verb_value >= VERB_TRIGGER.size():
+## Whether the known `verb_name` sits on `moment_name` (its one moment in VERBS).
+static func is_allowed_pair(moment_name: String, verb_name: String) -> bool:
+	if not VERBS.has(verb_name):
 		return false
-	return VERB_TRIGGER[verb_value] == trigger_value
+	var entry: Dictionary = VERBS[verb_name]
+	var own: String = entry["moment"]
+	return own == moment_name
+
+
+## The inclusive [low, high] range of `key` ("amount" or "amount_2") for `verb_name`, or
+## [0, 0] when the verb takes no such amount (or is unknown).
+static func range_of(verb_name: String, key: String) -> Array[int]:
+	var out: Array[int] = [0, 0]
+	if not VERBS.has(verb_name):
+		return out
+	var entry: Dictionary = VERBS[verb_name]
+	if entry.has(key):
+		var listed: Array = entry[key]
+		out.assign(listed)
+	return out
 
 
 ## The definition in its JSON form, as crew.json holds it.
@@ -130,11 +105,13 @@ func to_dict() -> Dictionary:
 	return {
 		"id": id,
 		"name": name,
-		"trigger": TRIGGER_NAMES[trigger],
-		"verb": VERB_NAMES[verb],
+		"tag": tag,
+		"moment": moment,
+		"verb": verb,
 		"amount": amount,
+		"amount_2": amount_2,
 		"optional": optional,
 		"uses": uses,
-		"scope": SCOPE_NAMES[scope],
+		"scope": scope,
 		"text": text,
 	}

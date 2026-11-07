@@ -1,23 +1,38 @@
 class_name RandomBot
 extends BotPlayer
-## The random bot (cycle 7 R20, C11): a reference floor that chooses uniformly, with its
-## per-decision seed, among the legal candidate commits and among a prompt's options.
+## The random bot (cycle 7 R20; cycle 9 R70, P16): the engine's one bot. It chooses
+## uniformly, with its per-decision seed, among the legal candidate commits and among a
+## prompt's legal answers.
 ##
-## Commits: one pick_index over GreedyBot.candidates_for(view) (every legal set of the
-## view's hand and budget, its ordered variants and both row ends, each a commit the engine
-## accepts), drawn from decision_rng(view, COMMIT_TAG). Prompts: a single-target prompt
-## picks one of its options by pick_index; a multi-select prompt keeps each option on a
-## coin flip, so each of its 2^n subsets (the empty decline among them) is equally likely;
-## both draw from decision_rng(view, PROMPT_TAG, [the prompt's source card]).
+## Commits: one pick_index over candidates_for(view, cards), drawn from
+## decision_rng(view, COMMIT_TAG). The candidates are every legal set of the view's hand
+## within its budget (LegalPlays.enumerate_masks_with over the view's effective costs,
+## ascending bitmask), each in the hand's order at the row's left end and, for a non-empty
+## row, its right end. While the free first card is granted the sets are enumerated up to
+## the budget plus the hand's highest cost, the costliest-first order is listed too when it
+## differs, and an order is kept only when LegalPlays.commit_cost_with() of it fits the
+## budget, so every set the discount makes affordable has a candidate and none costs more
+## than the engine accepts.
 ##
-## R2: the bot reads only its own SeatView and its seed; it never asks the engine anything,
-## not even for a hypothetical score. R3: every commit is one of the enumerated legal candidates and
-## every answer uses only the prompt's offered options, so the engine accepts it.
+## Prompts (cycle 9 R70, P16), every v2 shape: a multi-select prompt with an `exact` size
+## (the discard-down, DC-13 T03) gets a uniform set of exactly that many options; an
+## any-size one keeps each option on a coin flip, redrawn while the set falls short of its
+## `min` (at most SET_TRIES draws), so each of its subsets of at least `min` is equally
+## likely; a single-target prompt picks one of its options by pick_index, or the decline as
+## one more equally likely answer when the prompt is optional. Both draw from
+## decision_rng(view, PROMPT_TAG, [the prompt's source card]).
+##
+## R2: the bot reads only its own SeatView and its seed; it never asks the engine anything.
+## R3: every commit is one of the enumerated legal candidates and every answer uses only
+## the prompt's offered options (or the decline it allows), so the engine accepts it.
 
 ## Separates the commit draw ("rnd" in ASCII).
 const COMMIT_TAG: int = 0x726E64
 ## Separates a prompt answer's draw from the commit's ("rna").
 const PROMPT_TAG: int = 0x726E61
+## The coin-flip draws an any-size set gets to reach its `min` before it is topped up from
+## the front (a `min` above half the options rarely needs more than a few).
+const SET_TRIES: int = 64
 
 
 func _init(bot_seed: int, cards: MatchCards) -> void:
@@ -36,7 +51,7 @@ func choose(view: SeatView, _engine: MatchEngine) -> EngineAction:
 	var asked: int = view.prompt.get("seat", -1)
 	if open and asked == view.seat:
 		return _answer(view)
-	var listed: Array[EngineAction] = GreedyBot.candidates_for(view, _cards)
+	var listed: Array[EngineAction] = candidates_for(view, _cards)
 	if listed.is_empty():
 		var none: Array[int] = []
 		return EngineAction.commit(view.seat, none, none)
@@ -44,21 +59,145 @@ func choose(view: SeatView, _engine: MatchEngine) -> EngineAction:
 	return listed[rng.pick_index(listed.size())]
 
 
-## A uniform answer to the prompt open for `view.seat`: a uniform subset of a multi-select
-## prompt's options (ascending position), else one uniform option (-1 with none offered).
+## Every candidate commit for `view` over `cards` (see the class comment), in order: legal
+## sets by ascending bitmask; per set the hand order, then (with the free first card) the
+## costliest-first order when it differs; per order the left end, then the right end when
+## the row is not empty. The empty set is one candidate with no slots.
+static func candidates_for(view: SeatView, cards: MatchCards) -> Array[EngineAction]:
+	var out: Array[EngineAction] = []
+	var row_size: int = view.own_board.size()
+	var costs: Array[int] = hand_costs(view, cards)
+	var cap: int = view.energy
+	if view.free_first:
+		cap += _highest(costs)
+	for mask: int in LegalPlays.enumerate_masks_with(view.own_hand, costs, cap):
+		var picked: Array[int] = LegalPlays.subset(view.own_hand, mask)
+		if picked.is_empty():
+			var none: Array[int] = []
+			out.append(EngineAction.commit(view.seat, picked, none))
+			continue
+		var orders: Array[Array] = [picked]
+		if view.free_first:
+			var costly: Array[int] = _costliest_first(picked, view.own_hand, costs)
+			if costly != picked:
+				orders.append(costly)
+		for order: Array in orders:
+			var ordered: Array[int] = []
+			ordered.assign(order)
+			var order_costs: Array[int] = LegalPlays.costs_in_hand(ordered, view.own_hand, costs)
+			if LegalPlays.commit_cost_with(ordered, order_costs, view.free_first) <= view.energy:
+				_add_ends(out, view.seat, ordered, row_size)
+	return out
+
+
+## The costs of `view.own_hand`, parallel to it: the view's effective `own_hand_costs` when
+## it carries one per hand card, else each card's definition cost over `cards`. With no
+## usable `cards` every card is unpriced (-1), so the only candidate is the empty set.
+static func hand_costs(view: SeatView, cards: MatchCards) -> Array[int]:
+	if cards == null or not cards.is_valid() or cards.size() == 0:
+		var unpriced: Array[int] = []
+		for _card: int in view.own_hand:
+			unpriced.append(-1)
+		return unpriced
+	if view.own_hand_costs.size() == view.own_hand.size():
+		var given: Array[int] = []
+		given.assign(view.own_hand_costs)
+		return given
+	return LegalPlays.def_costs(view.own_hand, cards)
+
+
+## A set answer over `options` drawn from `rng`, in ascending position: with `exact` 0 or
+## more, a uniform set of exactly that many (a partial Fisher-Yates over a copy, each draw
+## one pick_index); with Choice.ANY_SIZE, each option kept on a coin flip, redrawn until
+## the set holds at least `min_count` (rejection, so every such subset is equally likely);
+## after SET_TRIES short draws the last one is topped up from the front to `min_count`.
+static func set_answer(
+	options: Array[int], exact: int, min_count: int, rng: MatchRng
+) -> Array[int]:
+	var kept: Array[int] = []
+	if exact >= 0:
+		var pool: Array[int] = []
+		pool.assign(options)
+		for _pick: int in range(mini(exact, pool.size())):
+			var at: int = rng.pick_index(pool.size())
+			kept.append(pool[at])
+			pool.remove_at(at)
+		kept.sort()
+		return kept
+	for _try: int in range(SET_TRIES):
+		kept.clear()
+		for option: int in options:
+			if rng.coin_flip() == 1:
+				kept.append(option)
+		if kept.size() >= min_count:
+			kept.sort()
+			return kept
+	for option: int in options:
+		if kept.size() >= min_count:
+			break
+		if not kept.has(option):
+			kept.append(option)
+	kept.sort()
+	return kept
+
+
+## The highest of `costs` (0 when empty or all unpriced).
+static func _highest(costs: Array[int]) -> int:
+	var highest: int = 0
+	for cost: int in costs:
+		highest = maxi(highest, cost)
+	return highest
+
+
+## `picked` with its costliest card (costs parallel to `hand`) moved to the front, the
+## first of equals keeping its place, the rest in their order.
+static func _costliest_first(
+	picked: Array[int], hand: Array[int], costs: Array[int]
+) -> Array[int]:
+	var prices: Array[int] = LegalPlays.costs_in_hand(picked, hand, costs)
+	var best: int = 0
+	for index: int in range(picked.size()):
+		if prices[index] > prices[best]:
+			best = index
+	var out: Array[int] = [picked[best]]
+	for index: int in range(picked.size()):
+		if index != best:
+			out.append(picked[index])
+	return out
+
+
+## Appends `cards` committed at the left end and, for a non-empty row, the right end.
+static func _add_ends(
+	out: Array[EngineAction], seat: int, cards: Array[int], row_size: int
+) -> void:
+	var count: int = cards.size()
+	out.append(EngineAction.commit(seat, cards, LegalPlays.append_slots(0, count)))
+	if row_size > 0:
+		out.append(EngineAction.commit(seat, cards, LegalPlays.append_slots(row_size, count)))
+
+
+## A uniform answer to the prompt open for `view.seat`: for a multi-select, a uniform set of
+## exactly its `exact` options (the discard-down's excess, R70) or, with no `exact`, a
+## uniform subset of at least its `min` (ascending position, set_answer()); else one
+## uniform option, the decline counted as one more when the prompt is optional (-1 with
+## nothing offered and no decline).
 func _answer(view: SeatView) -> EngineAction:
-	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	var zone: int = Choice.zone_of(view.prompt)
 	var options: Array[int] = Choice.options_of(view.prompt)
 	var source: int = view.prompt.get("card", -1)
 	var extra: Array[int] = [source]
 	var rng: MatchRng = decision_rng(view, PROMPT_TAG, extra)
 	if Choice.is_multi_prompt(view.prompt):
-		var kept: Array[int] = []
-		for option: int in options:
-			if rng.coin_flip() == 1:
-				kept.append(option)
-		kept.sort()
+		var kept: Array[int] = set_answer(
+			options, Choice.exact_of(view.prompt), Choice.min_of(view.prompt), rng
+		)
 		return EngineAction.choose_set(view.seat, zone, kept)
-	if options.is_empty():
+	var answers: int = options.size()
+	if Choice.is_optional_prompt(view.prompt):
+		answers += 1
+	if answers == 0:
 		return EngineAction.choose(view.seat, zone, -1)
-	return EngineAction.choose(view.seat, zone, options[rng.pick_index(options.size())])
+	var pick: int = rng.pick_index(answers)
+	if pick >= options.size():
+		return EngineAction.decline(view.seat)
+	return EngineAction.choose(view.seat, zone, options[pick])
