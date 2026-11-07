@@ -390,7 +390,7 @@ if __name__ == "__main__":
 | B3 | `driver.py selftest` on Windows | Skipped: the bot tooling drives nothing after DC-13 |
 | B4 | `digest=` on the PC and on the Mac, equal? | **Pass**: `c3b954706528fc4b` (1–50), `e5f48322e7e3b68d` (1–400) on both |
 | B5 | Games per minute at 16 / 12 / 8 workers (and the Mac at 8) | 1,246 / 1,083 / 1,040 (Mac 1,783), random vs random, full matches |
-| B5 | First vs last 5 min of the 30-min run (throttling) | |
+| B5 | First vs last 5 min of the 30-min run (throttling) | **No throttling**: 45,000 matches in 30.75 min at 16 workers (batches of 100), 0 failures, 1,464 a minute overall. The running average rose from 1,308 (first 5 min, including startup) to 1,489, so the last 5 min ran at about 1,525 a minute. Bigger batches cut the per-process startup cost (1,246 a minute with batches of 25). |
 | B6 | Each model: `pp2048`, `tg256`, VRAM used | |
 | B6 | Server with 4 slots: aggregate tok/s, median s/request | |
 | B6 | Play-outs + LLM together: games/min and tok/s, each vs alone | |
