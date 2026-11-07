@@ -112,8 +112,7 @@ func choose(
 		zone = p_zone
 		indices.assign(options if multi else options.slice(0, 1))
 		return true
-	var plain_options: Array = []
-	plain_options.assign(options)
+	var plain_options: Array = MatchState.plain(options)
 	prompt = {
 		Abilities.KEY_SEAT: seat if by_seat < 0 else by_seat,
 		Abilities.KEY_CARD: card,
@@ -147,12 +146,10 @@ func chosen_card(at: int = 0) -> int:
 func wake(
 	p_moment: String, subjects: Array[int], event_seat: int = -1, p_context: Dictionary = {}
 ) -> void:
-	var listed: Array = []
-	listed.assign(subjects)
 	woken.append(
 		{
 			"moment": p_moment,
-			"subjects": listed,
+			"subjects": MatchState.plain(subjects),
 			"seat": event_seat,
 			"context": p_context.duplicate(true),
 		}
@@ -184,10 +181,9 @@ func draw(by_seat: int) -> int:
 		var none: Array[int] = []
 		wake(MOMENT_EMPTY_DRAW, none, by_seat, {TriggerQueue.KEY_THEN_DRAW: by_seat})
 		return -1
-	var top: int = piles.deck[0]
-	piles.deck.remove_at(0)
-	piles.hand.append(top)
-	emit(MatchEvent.Kind.CARD_DRAWN, {"seat": by_seat, "card": top}, by_seat)
+	if TurnFlow.resumed_draw(state, sink, by_seat):
+		pass  # The Deck is not empty: the top card is now the last of the hand.
+	var top: int = piles.hand.back()
 	return top
 
 

@@ -189,13 +189,13 @@ static func ongoing_stats(
 ) -> void:
 	if state == null or cards == null:
 		return
-	var boneyard: CardAbility = _own_ongoing(state, cards, card, VERB_BONEYARD)
+	var boneyard: CardAbility = own_ongoing(state, cards, card, VERB_BONEYARD)
 	if boneyard != null and boneyard.amount_2 > 0:
 		var piled: int = state.seats[0].pile.size() + state.seats[1].pile.size()
 		@warning_ignore("integer_division")
 		var steps: int = piled / boneyard.amount_2
 		out.power += steps * boneyard.amount
-	var herald: CardAbility = _own_ongoing(state, cards, card, VERB_HERALD)
+	var herald: CardAbility = own_ongoing(state, cards, card, VERB_HERALD)
 	if herald != null:
 		var row: Array[int] = state.seats[Statuses.row_seat(state, card)].board
 		var rightmost: int = row[row.size() - 1]
@@ -694,7 +694,7 @@ static func _use(state: MatchState, card: int) -> void:
 
 ## `card`'s own Ongoing ability with `verb` while it is read (a revealed row card, not
 ## Squelched), or null.
-static func _own_ongoing(
+static func own_ongoing(
 	state: MatchState, cards: MatchCards, card: int, verb: String
 ) -> CardAbility:
 	if not cards.has_verb(verb):

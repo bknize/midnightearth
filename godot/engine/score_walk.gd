@@ -221,7 +221,7 @@ static func reveal_stage(
 ## (nor Silenced, which holds the Squelched half). A Muted or exit-marked card Scores (R39).
 static func scores_now(state: MatchState, seat: int, card: int) -> bool:
 	var piles: MatchState.SeatPiles = state.seats[seat]
-	return piles.is_revealed(card) and not Statuses.has(state, card, Statuses.SQUELCHED)
+	return piles.is_revealed(card) and Scoring.reads_ongoing(state, card)
 
 
 ## The Score of `card` on `seat`'s row (R26, R28, R29): its Controller's walking total gains
