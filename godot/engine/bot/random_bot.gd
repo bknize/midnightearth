@@ -14,12 +14,13 @@ extends BotPlayer
 ## budget, so every set the discount makes affordable has a candidate and none costs more
 ## than the engine accepts.
 ##
-## Prompts: a multi-select prompt with an `exact` size (the discard-down, DC-13 T03) gets a
-## uniform set of exactly that many options; one without keeps each option on a coin flip,
-## so each of its subsets of at least `min` is equally likely; a single-target prompt picks
-## one of its options by pick_index, or the decline as one more equally likely answer when
-## the prompt is optional. Both draw from decision_rng(view, PROMPT_TAG, [the prompt's
-## source card]).
+## Prompts (cycle 9 R70, P16), every v2 shape: a multi-select prompt with an `exact` size
+## (the discard-down, DC-13 T03) gets a uniform set of exactly that many options; an
+## any-size one keeps each option on a coin flip, redrawn while the set falls short of its
+## `min` (at most SET_TRIES draws), so each of its subsets of at least `min` is equally
+## likely; a single-target prompt picks one of its options by pick_index, or the decline as
+## one more equally likely answer when the prompt is optional. Both draw from
+## decision_rng(view, PROMPT_TAG, [the prompt's source card]).
 ##
 ## R2: the bot reads only its own SeatView and its seed; it never asks the engine anything.
 ## R3: every commit is one of the enumerated legal candidates and every answer uses only
@@ -29,6 +30,9 @@ extends BotPlayer
 const COMMIT_TAG: int = 0x726E64
 ## Separates a prompt answer's draw from the commit's ("rna").
 const PROMPT_TAG: int = 0x726E61
+## The coin-flip draws an any-size set gets to reach its `min` before it is topped up from
+## the front (a `min` above half the options rarely needs more than a few).
+const SET_TRIES: int = 64
 
 
 func _init(bot_seed: int, cards: MatchCards) -> void:
@@ -104,8 +108,9 @@ static func hand_costs(view: SeatView, cards: MatchCards) -> Array[int]:
 
 ## A set answer over `options` drawn from `rng`, in ascending position: with `exact` 0 or
 ## more, a uniform set of exactly that many (a partial Fisher-Yates over a copy, each draw
-## one pick_index); with Choice.ANY_SIZE, each option kept on a coin flip, so every subset is
-## equally likely, then topped up from the front to `min_count` when it fell short.
+## one pick_index); with Choice.ANY_SIZE, each option kept on a coin flip, redrawn until
+## the set holds at least `min_count` (rejection, so every such subset is equally likely);
+## after SET_TRIES short draws the last one is topped up from the front to `min_count`.
 static func set_answer(
 	options: Array[int], exact: int, min_count: int, rng: MatchRng
 ) -> Array[int]:
@@ -119,9 +124,14 @@ static func set_answer(
 			pool.remove_at(at)
 		kept.sort()
 		return kept
-	for option: int in options:
-		if rng.coin_flip() == 1:
-			kept.append(option)
+	for _try: int in range(SET_TRIES):
+		kept.clear()
+		for option: int in options:
+			if rng.coin_flip() == 1:
+				kept.append(option)
+		if kept.size() >= min_count:
+			kept.sort()
+			return kept
 	for option: int in options:
 		if kept.size() >= min_count:
 			break

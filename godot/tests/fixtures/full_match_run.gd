@@ -32,6 +32,8 @@ var longest_walk: int = 0
 var discard_downs: int = 0
 ## DRAW_EMPTY events the scan saw (R18).
 var empty_draws: int = 0
+## PILE_SHUFFLED_IN events of the match, every step (a Pile shuffled into a Deck, DC-13 T08).
+var pile_shuffles: int = 0
 ## Opponent Pile entries the views showed (public, R19).
 var pile_seen: int = 0
 ## Looked-at opposing cards the views showed their own seat (R59).
