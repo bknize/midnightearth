@@ -149,8 +149,10 @@ position, its candidate commits and the value of each. Values are integers.
   Commit, the other seat's face-down row cards the seat has not looked at, and both Decks'
   orders beyond the cards the view's `deck_top` names) by a uniform permutation, drawn from
   a generator seeded by the determinization seed, within the set of identities hidden from
-  that seat and owned by the same seat; a card's private record (its Board changes, Memory
-  and created-card definition) shall move with its identity.
+  that seat and owned by the same seat; a card's Memory and created-card definition shall
+  move with its identity, and its Board changes, statuses and `chosen` mark shall stay with
+  the row slot (zone and position), so the seat's view of the copy equals its view of the
+  original (amended at T06, C9).
 - R18. The determinized copy's random stream shall be seeded from the determinization seed,
   never from the real match's stream state.
 - R19. The engine shall leave the real match unchanged by building or playing any number of
@@ -324,6 +326,7 @@ entry point, the run store, and the MCP server with its bearer token."
 | C6 | Round 2 Q2, labelled decisions: (a) commits only, prompts answered by the rollout policy; (b) commits and prompts | 2a |
 | C7 | Round 2 Q3, verification: (a) Mac first then PC with a Mac trainer run; (b) A1 proven on the Mac, A2's end-to-end proof on the PC only (no Mac trainer run); (c) plus a PC reboot mid-run | 3b. Read as: `make trainer-test` still runs on both machines (T6 says it is runnable on both), but the end-to-end labelled run is proven on the PC only |
 | C8 | Round 2 Q4, the bots guide: (a) a rewrite task at the end of A2 on the cycle branch, blocked until Ben has committed or discarded his working-copy edits; (b) a new guide beside the old; (c) nothing this cycle | 4a |
+| C9 | T06 review (DC-16), S1: R17 and plan P6 disagreed with each other and with the code on which per-card records follow a permuted identity. (a) Amend R17 and P6 to the implemented rule: Memory and created-card definitions are keyed by card id and move with the identity; Board changes, statuses and `chosen` stay with the row slot, because moving them would put a status on a different visible slot and change the seat's view; (b) change the code to re-key everything through the permutation | 1a (Ben, 2026-11-07) |
 
 Defaults stated by the interrogator, open to Ben's veto at sign-off (none changes a
 decision above): a hidden card's identity is permuted within its owner's hidden set, so a

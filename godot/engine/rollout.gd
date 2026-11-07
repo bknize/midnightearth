@@ -79,7 +79,8 @@ static func determinize(engine: MatchEngine, seat: int, det_seed: int) -> MatchE
 ## Plays `copy` out from `candidate` for `seat` (see the class comment) and returns
 ## {value, result, wins: [seat 0's, seat 1's], actions, capped, rejected}. `copy` is
 ## changed; build a fresh one per play-out. A bot the registry cannot build, a decision no
-## bot can take, or a bot action the copy refuses ends the play-out early as `capped`.
+## bot can take, or a bot action the copy refuses ends the play-out as `rejected` (no value,
+## not counted in `n`): a broken rollout policy, never a draw (T06 review).
 static func play(
 	copy: MatchEngine,
 	seat: int,
@@ -105,13 +106,11 @@ static func play(
 			break
 		var awaited: int = copy.awaited_seat()
 		if awaited < 0 or awaited >= MatchEngine.SEATS or bots[awaited] == null:
-			capped = true
-			break
+			return _rejected(copy)
 		var bot: BotPlayer = bots[awaited]
 		var action: EngineAction = bot.choose(copy.view_for(awaited), copy)
 		if action == null or not copy.apply(action).ok:
-			capped = true
-			break
+			return _rejected(copy)
 		actions += 1
 	return _outcome(copy, seat, actions, capped)
 

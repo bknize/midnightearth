@@ -18,6 +18,9 @@ const EXIT_STARTUP: int = 2
 ## so it is far above the largest request (a label prefix of at most 2000 actions is about
 ## 150 KB).
 const READ_CHUNK: int = 16777216
+## Empty reads in a row taken as the end of input. At the end of input every read returns ""
+## at once; a client never sends this many blank lines in a row.
+const EMPTY_READS_AT_EOF: int = 64
 
 
 func _initialize() -> void:
@@ -30,21 +33,25 @@ func _run() -> int:
 		printerr("playout_worker: card, deck or crew data failed to load")
 		return EXIT_STARTUP
 	_emit(handler.hello())
+	var empty_reads: int = 0
 	while true:
-		var line: String = _read_line()
+		var line: String = _read_line().strip_edges()
 		if line == "":
-			break
-		line = line.strip_edges()
-		if line == "":
+			# A blank request line and the end of input both read as "": a blank line is
+			# skipped (R29), and only EMPTY_READS_AT_EOF empty reads in a row end the worker.
+			empty_reads += 1
+			if empty_reads >= EMPTY_READS_AT_EOF:
+				break
 			continue
+		empty_reads = 0
 		if PlayoutHandler.is_quit(line):
 			break
 		_emit(handler.handle_line(line))
 	return EXIT_OK
 
 
-## The next line of standard input without its newline, or "" at the end of input (an empty
-## request line also reads as "", so clients never send one).
+## The next line of standard input without its newline; "" for a blank line or at the end
+## of input (see _run).
 func _read_line() -> String:
 	return OS.read_string_from_stdin(READ_CHUNK)
 

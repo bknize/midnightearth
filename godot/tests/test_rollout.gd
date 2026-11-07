@@ -22,8 +22,8 @@ const POSITION_ROUND: int = 3
 const PREFIX_CAP: int = 600
 const LABEL_SEED: int = 11
 const SHORT_CAP: int = 300
-## PIN: orchestrator fills from the first run (value and action count of the one play-out
-## of test_seed_1_pin).
+## The value and action count of the one play-out of test_seed_1_pin, pinned at DC-16;
+## re-pin from the failure message after a rules or data change.
 const PIN_VALUE: int = -1030  # Pinned DC-16 (seed 1, seat 1, first Round 3 commit, random)
 const PIN_ACTIONS: int = 115  # Pinned DC-16
 
@@ -431,14 +431,17 @@ func test_sample_indices_draws_k_distinct_ascending_indices() -> void:
 # --- Reach (R24) ----------------------------------------------------------------------
 
 
-func test_no_bot_board_or_main_scene_names_the_rollout_entry() -> void:
+func test_no_bot_board_or_main_scene_names_the_training_entries() -> void:
 	var sources: Array[String] = ["res://main.gd"]
 	_collect_sources("res://engine/bot", sources)
 	_collect_sources("res://board", sources)
 	assert_int(sources.size()).is_greater(1)
 	for path: String in sources:
 		var text: String = FileAccess.get_file_as_string(path)
-		assert_bool(text.contains("Rollout")).override_failure_message(path).is_false()
+		for name: String in ["Rollout", "from_state", "state_copy"]:
+			assert_bool(text.contains(name)).override_failure_message(
+				"%s names %s" % [path, name]
+			).is_false()
 
 
 ## Every .gd file under `dir`, recursively, into `out`.

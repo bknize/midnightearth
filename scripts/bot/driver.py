@@ -14,6 +14,7 @@ import concurrent.futures
 import datetime
 import json
 import os
+import shutil
 import subprocess
 import sys
 import unittest
@@ -48,6 +49,13 @@ def godot_bin() -> str:
     return os.environ.get("GODOT_BIN", DEFAULT_GODOT)
 
 
+def godot_found(path: str) -> bool:
+    """True when `path` names a Godot binary: a file, a command on PATH, or (Windows) a path
+    given without its `.exe`."""
+    return (os.path.isfile(path) or shutil.which(path) is not None
+            or os.path.isfile(path + ".exe"))
+
+
 def godot_worker(a: str, b: str, lo: int, hi: int, out: str, label: str,
                  decks: str = "seeded", budget_us: Optional[int] = None) -> List[str]:
     """The match worker's argv (no shell). `decks` is `seeded` or `<id>/<id>`."""
@@ -63,7 +71,8 @@ def run_worker(argv: List[str]) -> Tuple[int, str]:
     """Run one worker; (exit code, last output lines). A failure to start is code 127."""
     try:
         proc = subprocess.run(argv, cwd=records.REPO_ROOT, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, universal_newlines=True)
+                              stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                              errors="replace")
     except OSError as e:
         return 127, "failed to start: %s" % e
     tail = "\n".join(proc.stdout.strip().splitlines()[-5:])
@@ -105,7 +114,7 @@ def eval_report(args: argparse.Namespace,
     mode = "gainer" if args.gainer else "nonreg"
     label = args.label or "%s-vs-%s" % (args.a, args.b)
     if factory is None:
-        if not os.path.isfile(godot_bin()):
+        if not godot_found(godot_bin()):
             print("bot-eval: Godot not found at %s (set GODOT_BIN)" % godot_bin(),
                   file=sys.stderr)
             return EXIT_ERROR, {}
