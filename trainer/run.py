@@ -178,7 +178,7 @@ def _execute(store: Store, run_id: str, farm: Farm, cfg: RunConfig, stamp: str,
     return "done"
 
 
-def git_commit(full: bool = False) -> str:
+def git_commit(full: bool = True) -> str:
     argv = ["git", "rev-parse", "HEAD"] if full else ["git", "rev-parse", "--short", "HEAD"]
     try:
         out = subprocess.run(argv, cwd=str(REPO_ROOT),
