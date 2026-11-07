@@ -56,11 +56,7 @@ func feed(event: InputEvent, gui_blocked: bool = false) -> Array[PointerEvent]:
 
 ## The application lost focus: a held press is cancelled (R25).
 func focus_lost() -> Array[PointerEvent]:
-	var out: Array[PointerEvent] = []
-	_blocked = false
-	if _held:
-		_cancel(Vector2.ZERO, out)
-	return out
+	return cancel()
 
 
 ## Cancels a held press from code (a pause menu opening, say); empty when not held.

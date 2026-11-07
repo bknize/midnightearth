@@ -73,7 +73,6 @@ const CONDITION_SOURCE_ON_ROW: String = "source_on_row"
 const CAUSE_TURN_END: String = "turn_end"
 const CAUSE_LEAVE_ROW: String = "leave_row"
 const CAUSE_UNREVEAL: String = "unreveal"
-const CAUSE_EXIT_PASS: String = "exit_pass"
 ## EXIT_RESOLVED `to`.
 const TO_PILE: String = "pile"
 const TO_HAND: String = "hand"
@@ -84,7 +83,6 @@ const PROTECTING_VERBS: Dictionary[String, String] = {"cannot_condemn_self": CON
 const ANCHOR_VERB: String = "anchored_self"
 ## Ongoing verbs that change exit marks (Wraith): read once per exit pass.
 const EXIT_CHANGING_VERBS: Array[String] = [AbilitiesGraveyardControl.VERB_WRAITH]
-const MOMENT_ONGOING: String = "ongoing"
 
 # --- Reading ----------------------------------------------------------------------------
 
@@ -145,11 +143,13 @@ static func exit_mark_of(state: MatchState, card: int) -> String:
 ## Muted / Squelched; Anchored (the status or a read Brace); its exit mark's word.
 static func badges(state: MatchState, cards: MatchCards, card: int) -> Array[String]:
 	var out: Array[String] = []
-	if has(state, card, SILENCED):
+	var muted: bool = has(state, card, MUTED)
+	var squelched: bool = has(state, card, SQUELCHED)
+	if muted and squelched:
 		out.append(BADGES[SILENCED])
-	elif has(state, card, MUTED):
+	elif muted:
 		out.append(BADGES[MUTED])
-	elif has(state, card, SQUELCHED):
+	elif squelched:
 		out.append(BADGES[SQUELCHED])
 	if is_anchored(state, cards, card):
 		out.append(BADGES[ANCHORED])
@@ -498,19 +498,12 @@ static func _end_sourced(state: MatchState, source: int, cause: String, sink: Ca
 				_end_board(state, card, status, cause, sink)
 
 
-## Whether `card`'s own Ongoing with `verb` is read now: a revealed row card, not Squelched.
+## Whether `card`'s own Ongoing with `verb` is read now: a revealed row card, not Squelched
+## (AbilitiesGraveyardControl.own_ongoing, which skips a verb no card of the match carries).
 static func _reads_own(state: MatchState, cards: MatchCards, card: int, verb: String) -> bool:
 	if cards == null:
 		return false
-	var seat: int = row_seat(state, card)
-	if seat < 0 or not state.seats[seat].is_revealed(card):
-		return false
-	if not Scoring.reads_ongoing(state, card):
-		return false
-	for ability: CardAbility in Abilities.on_moment(card, cards, MOMENT_ONGOING):
-		if ability.verb == verb:
-			return true
-	return false
+	return AbilitiesGraveyardControl.own_ongoing(state, cards, card, verb) != null
 
 
 ## The STATUS_ENDED payload.

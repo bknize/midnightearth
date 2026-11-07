@@ -12,7 +12,8 @@ Given a branch or diff and the Linear issue(s) it claims to close, report findin
 2. Correctness bugs with a concrete failing input.
 3. Constitution violations: untyped GDScript, addon edits, secrets, non-determinism in
    `godot/engine/`, a note missing P5 frontmatter.
-4. Simplifications, briefly.
+
+Simplification belongs to `/simplify` at `/cycle test`; do not report it.
 
 Bash is for `git diff`, `git log`, `grep` and reading files only. Never edit, never run
 Godot or `make`, never commit. Rank findings most severe first; under 300 words.

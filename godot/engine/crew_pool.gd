@@ -81,9 +81,9 @@ static func from_json(text: String) -> CrewPool:
 	if not data is Dictionary:
 		return _failed("%s: top level is not an object" % ERR_SHAPE)
 	var root: Dictionary = data
-	if not root.has("version") or not CardAbility.is_whole_number(root["version"]):
+	if not root.has("version") or not EngineAction.is_whole_number(root["version"]):
 		return _failed("%s: missing or non-integer version" % ERR_SHAPE)
-	var version: int = CardAbility.as_int(root["version"])
+	var version: int = EngineAction.as_int(root["version"])
 	if version != FORMAT_VERSION:
 		return _failed("%s: %d (expected %d)" % [ERR_VERSION, version, FORMAT_VERSION])
 	if not root.has("crew") or not root["crew"] is Array:
@@ -108,12 +108,6 @@ func is_valid() -> bool:
 
 ## Empty when the load succeeded.
 func load_error() -> String:
-	return _error
-
-
-## "" when the pool loaded and every Crew passed the checks; otherwise the first problem
-## found, as load_error() reports it.
-func validate() -> String:
 	return _error
 
 
@@ -196,9 +190,9 @@ static func _amount_problem(d: Dictionary, i: int) -> String:
 	var verb: String = d[KEY_VERB]
 	for key: String in [KEY_AMOUNT, KEY_AMOUNT_2]:
 		var raw: Variant = d.get(key, 0)
-		if not CardAbility.is_whole_number(raw):
+		if not EngineAction.is_whole_number(raw):
 			return "%s: crew %d has %s %s" % [ERR_AMOUNT, i, key, JSON.stringify(raw)]
-		var value: int = CardAbility.as_int(raw)
+		var value: int = EngineAction.as_int(raw)
 		var bounds: Array[int] = CrewDef.range_of(verb, key)
 		if value < bounds[0] or value > bounds[1]:
 			return (
@@ -214,7 +208,7 @@ static func _limit_problem(d: Dictionary, i: int) -> String:
 	if d.has(KEY_OPTIONAL) and not d[KEY_OPTIONAL] is bool:
 		return "%s: crew %d has optional %s" % [ERR_OPTIONAL, i, JSON.stringify(d[KEY_OPTIONAL])]
 	var raw_uses: Variant = d.get(KEY_USES, 0)
-	if not CardAbility.is_whole_number(raw_uses) or CardAbility.as_int(raw_uses) < 0:
+	if not EngineAction.is_whole_number(raw_uses) or EngineAction.as_int(raw_uses) < 0:
 		return "%s: crew %d has uses %s" % [ERR_USES, i, JSON.stringify(raw_uses)]
 	var raw_scope: Variant = d.get(KEY_SCOPE, "")
 	if not raw_scope is String:
@@ -251,11 +245,11 @@ static func _build_entry(entry: Variant) -> CrewDef:
 	var out: CrewDef = CrewDef.new(crew_id, crew_name, moment, verb, text)
 	var tag: String = d[KEY_TAG]
 	out.tag = tag
-	out.amount = CardAbility.as_int(d.get(KEY_AMOUNT, 0))
-	out.amount_2 = CardAbility.as_int(d.get(KEY_AMOUNT_2, 0))
+	out.amount = EngineAction.as_int(d.get(KEY_AMOUNT, 0))
+	out.amount_2 = EngineAction.as_int(d.get(KEY_AMOUNT_2, 0))
 	var optional: bool = d.get(KEY_OPTIONAL, false)
 	out.optional = optional
-	out.uses = CardAbility.as_int(d.get(KEY_USES, 0))
+	out.uses = EngineAction.as_int(d.get(KEY_USES, 0))
 	var scope: String = d.get(KEY_SCOPE, "")
 	out.scope = scope
 	return out

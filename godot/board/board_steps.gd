@@ -53,11 +53,17 @@ const TELEGRAPH_TIME: float = 1.2
 const CREATE_TIME: float = 0.3
 const PLACE_TIME: float = 0.4
 const CONTROL_TIME: float = 0.4
+## MatchEvent.Kind's names, read once (kind_name() runs several times per event).
+static var _kind_names: Array = MatchEvent.Kind.keys()
 
 
 ## The MatchEvent.Kind name of an event ("CARD_SCORED"): the match below reads kinds by name.
 static func kind_name(event: MatchEvent) -> String:
-	return MatchEvent.kind_name(event.kind)
+	var kind: int = event.kind
+	if kind < 0 or kind >= _kind_names.size():
+		return ""
+	var name: String = _kind_names[kind]
+	return name
 
 
 ## Steps for `events` (as `viewer` may see them) in event order. `speed` is 1 normally and
@@ -140,8 +146,8 @@ static func _move_run(events: Array[MatchEvent], at: int, folded: Dictionary) ->
 		if next_seat != seat:
 			break
 		var id: int = next.get("card", -1)
-		var from_slot: int = next.get("from_slot", next.get("from", -1))
-		var to_slot: int = next.get("to_slot", next.get("to", -1))
+		var from_slot: int = next.get("from", -1)
+		var to_slot: int = next.get("to", -1)
 		step.cards.append(id)
 		step.from_slots.append(from_slot)
 		step.slots_to.append(to_slot)
@@ -161,7 +167,7 @@ static func _crew_fire(event: MatchEvent) -> BoardStep:
 	step.slot = payload.get("slot", -1)
 	step.crew = payload.get("crew", "")
 	step.verb = payload.get("verb", "")
-	step.trigger = payload.get("moment", payload.get("trigger", ""))
+	step.trigger = payload.get("moment", "")
 	step.uses_left = payload.get("uses_left", -1)
 	step.duration = CREW_TIME
 	return step
@@ -226,7 +232,6 @@ static func _pulse(reveal: MatchEvent, scored: MatchEvent) -> BoardStep:
 			var named: String = word
 			step.statuses.append(status_word(named))
 		step.revealed = false
-		step.order = payload.get("order", 0)
 		step.duration = REVEAL_TIME
 		step.delay = REVEAL_GAP
 	else:
@@ -266,6 +271,7 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 		"CARD_PLACED":
 			var placed: BoardStep = _card_step(BoardStep.Kind.PLACE, event)
 			placed.slot = payload.get("slot", -1)
+			placed.from_pile = payload.get("from", "") == "pile"
 			placed.duration = PLACE_TIME
 			out.append(placed)
 		"CONTROL_CHANGED":
@@ -325,7 +331,6 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			shown.index = payload.get("index", -1)
 			var picked: Array = payload.get("indices", [])
 			shown.options.assign(picked)
-			shown.target = payload.get("target", -1)
 			shown.duration = CHOICE_SHOW_TIME
 			out.append(shown)
 		"STATS_CHANGED":
@@ -341,7 +346,6 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			stats.power = payload.get("power", 0)
 			stats.mult = payload.get("mult", 0)
 			stats.add = payload.get("add", 0)
-			stats.cause = payload.get("cause", "")
 			stats.duration = STATS_TIME
 			out.append(stats)
 		"STATUS_SET", "STATUS_ENDED", "EXIT_MARKED":
@@ -477,7 +481,6 @@ static func _turn_start(event: MatchEvent, viewer: int) -> BoardStep:
 	if viewer >= 0 and viewer < budgets.size():
 		var own_budget: int = budgets[viewer]
 		start.budget = own_budget
-	start.energy = start.budget
 	return start
 
 
@@ -494,7 +497,6 @@ static func _append_status(out: Array[BoardStep], event: MatchEvent) -> void:
 	var named: String = payload.get("status", payload.get("mark", ""))
 	step.word = status_word(named)
 	step.status_on = kind_name(event) != "STATUS_ENDED"
-	step.cause = payload.get("cause", "")
 	var replaced: Variant = payload.get("replaced", "")
 	if replaced is String:
 		var old: String = replaced

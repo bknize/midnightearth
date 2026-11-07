@@ -71,17 +71,13 @@ func copy() -> CardMemory:
 ## Plain data, for MatchState.to_dict() and comparisons: {power, mult_add_steps,
 ## mult_times_steps, mult_cap, add_steps, cost_delta, uses_left, permanent_statuses}.
 func to_dict() -> Dictionary:
-	var steps: Array = []
-	steps.assign(mult_times_steps)
-	var kept_statuses: Array = []
-	kept_statuses.assign(permanent_statuses)
 	return {
 		"power": power,
 		"mult_add_steps": mult_add_steps,
-		"mult_times_steps": steps,
+		"mult_times_steps": MatchState.plain(mult_times_steps),
 		"mult_cap": mult_cap,
 		"add_steps": add_steps,
 		"cost_delta": cost_delta,
 		"uses_left": uses_left,
-		"permanent_statuses": kept_statuses,
+		"permanent_statuses": MatchState.plain_strings(permanent_statuses),
 	}

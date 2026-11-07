@@ -320,7 +320,7 @@ func _advance() -> void:
 		_awaited = false
 		_enqueue(driver.last_events())
 		return
-	_awaited = driver.view().is_awaited()
+	_awaited = driver.is_player_awaited()
 	_input_locked = false
 	_refresh_commit_enabled()
 	player_turn_started.emit()
@@ -592,13 +592,6 @@ func _collections() -> Array[CardCollection3D]:
 	return [player_hand, player_row, opponent_row, opponent_hand]
 
 
-## Seat 0's card with this instance id, or null.
-func _player_card(id: int) -> BoardCard:
-	if not _player_cards.has(id):
-		return null
-	return _player_cards[id]
-
-
 func _spawn_card() -> BoardCard:
 	var card: BoardCard = CARD_SCENE.instantiate() as BoardCard
 	return card
@@ -722,15 +715,18 @@ func _staged_index(card: BoardCard) -> int:
 ## Rebuilds staging from the row if it ever differs from it; any staged card that no longer
 ## fits goes back to the hand (R14). Then refreshes the energy readout and the button.
 func _resync_staging() -> void:
+	var staged: Array[BoardCard] = _staged_cards()
 	var expected: Array[int] = []
-	for card: BoardCard in _staged_cards():
+	for card: BoardCard in staged:
 		expected.append(card.instance_id)
 	if expected != staging.cards():
-		staging.reset(_turn_energy, _played_count(), _free_first)
+		staging.reset(_turn_energy, player_row.cards.size() - staged.size(), _free_first)
 		var rejected: Array[BoardCard] = []
-		for card: BoardCard in _staged_cards():
-			var at_end: int = staging.cards().size()
-			if not staging.insert(card.instance_id, _cost_of(card.instance_id), at_end):
+		var at_end: int = 0
+		for card: BoardCard in staged:
+			if staging.insert(card.instance_id, _cost_of(card.instance_id), at_end):
+				at_end += 1
+			else:
 				rejected.append(card)
 		for card: BoardCard in rejected:
 			_fx.move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
@@ -942,4 +938,6 @@ func _on_concede_pressed() -> void:
 
 func _on_rematch_pressed() -> void:
 	hud.hide_result()
+	if driver == null:
+		return  # The last match never started (its bot could not be built).
 	start_match(BoardSeeds.rematch(_seed_fixed, driver.match_seed), _deck_ids)

@@ -51,6 +51,9 @@ func apply(step: BoardStep) -> void:
 			_grow_pile(step.seat, step.pile_index if step.exit_to == "pile" else -1)
 		BoardStep.Kind.SHUFFLE_IN:
 			_empty_pile(step.seat, step.count)
+		BoardStep.Kind.PLACE:
+			if step.from_pile:
+				_empty_pile(step.seat, 1)  # Revive takes one card out of the Pile.
 
 
 func _grow_pile(seat: int, pile_index: int) -> void:

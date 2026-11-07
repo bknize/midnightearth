@@ -42,18 +42,6 @@ var _eligible: Array[int] = []
 var _on_choose: Callable = Callable()
 
 
-## `seat`'s Pile as the view lists it, in Pile order: ids, all public (plan P15 `own_pile`,
-## `opponent_pile`; seat 0 is the viewer).
-static func pile_of(view: SeatView, seat: int) -> Array[int]:
-	# Read by property name: the v7 SeatView fields (plan P15), absent from the rules 6 view.
-	var raw: Variant = view.get("own_pile" if seat == 0 else "opponent_pile")
-	var out: Array[int] = []
-	if raw is Array:
-		var ids: Array = raw
-		out.assign(ids)
-	return out
-
-
 ## The strip's world rectangle (x, y of its corner and size) for a viewport of `ratio`
 ## (width / height): from LEFT_EDGE to the narrower of MAX_RIGHT_EDGE and the HUD's margin, at
 ## the opponent Crew's height.
@@ -104,7 +92,7 @@ func show(
 	if zone != null:
 		zone.input_ray_pickable = false
 	collection = made
-	made.card_move_tween_duration = 0.01
+	made.card_move_tween_duration = EffectPlayer.MIN_TWEEN_TIME
 	for index: int in range(entries.size()):
 		var raw: Object = make_card.call()
 		var card: BoardCard = raw as BoardCard

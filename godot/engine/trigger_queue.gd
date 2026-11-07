@@ -391,14 +391,8 @@ static func _then_draw(state: MatchState, sink: Callable, entry: Dictionary) -> 
 	var drawer: int = entry.get(KEY_THEN_DRAW, -1)
 	if drawer < 0 or drawer >= state.seats.size():
 		return
-	var piles: MatchState.SeatPiles = state.seats[drawer]
-	if piles.deck.is_empty():
-		return
-	var card: int = piles.deck[0]
-	piles.deck.remove_at(0)
-	piles.hand.append(card)
-	if sink.is_valid():
-		sink.call(MatchEvent.Kind.CARD_DRAWN, {"seat": drawer, "card": card}, drawer)
+	if TurnFlow.resumed_draw(state, sink, drawer):
+		pass  # The refilled Deck gave the denied draw.
 
 
 ## How many extra resolutions the retriggers add after `ctx` (Q6): one per source in its
@@ -630,7 +624,7 @@ static func _pile_entries(
 			continue
 		for index: int in range(def.abilities.size()):
 			var ability: CardAbility = def.abilities[index]
-			if ability.moment == MOMENT_DISCARD and ability.watch == CardAbility.WATCHES[0]:
+			if ability.moment == MOMENT_DISCARD and ability.watch == CardAbility.WATCH_SELF:
 				out.append(
 					_entry(KIND_CARD, holder, subject, -1, index, MOMENT_DISCARD, subject, holder)
 				)
@@ -665,9 +659,9 @@ static func _seat_watches(
 ) -> bool:
 	if SEATLESS_MOMENTS.has(moment) or event_seat < 0:
 		return true
-	if watch == "opposing":
+	if watch == CardAbility.WATCH_OPPOSING:
 		return watcher_seat != event_seat
-	if watch == "any":
+	if watch == CardAbility.WATCH_ANY:
 		return true
 	return watcher_seat == event_seat
 
@@ -678,11 +672,11 @@ static func _seat_watches(
 static func _card_watches(
 	watch: String, watcher: int, watcher_seat: int, subject: int, subject_seat: int
 ) -> bool:
-	if watch == "other_own":
+	if watch == CardAbility.WATCH_OTHER_OWN:
 		return watcher != subject and watcher_seat == subject_seat
-	if watch == "opposing":
+	if watch == CardAbility.WATCH_OPPOSING:
 		return subject_seat >= 0 and watcher_seat != subject_seat
-	if watch == "any":
+	if watch == CardAbility.WATCH_ANY:
 		return true
 	return watcher == subject
 
