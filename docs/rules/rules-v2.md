@@ -1,7 +1,7 @@
 ---
 type: reference
 tags: [reference, rules-v2, rules]
-status: seedling
+status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[rules/resolution]]", "[[rules/crew-v2]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]"]
 created: 2026-11-06
 updated: 2026-11-06
@@ -12,9 +12,11 @@ supersedes:
 
 # Rules v2
 
-This note is design for ruleset v2, not yet built. The game as it runs today (rules version
-6) is described in [[systems/game-loop]] and [[systems/cards-crew-decks]]; each section below
-states the v2 rule, and the table at the end sets it beside today's. The requirements come
+The rules in this note are built since DC-14 (rules version 7); the DC-13 and DC-14 rows of
+[[planning/cycles]] record how and the readings made on the way. The game as built is
+described in [[systems/game-loop]] and [[systems/cards-crew-decks]]; each section below
+states the v2 rule, and the table at the end sets it beside the rules of version 6 ("today"
+in that table means version 6). The requirements come
 from [[specs/ruleset-v2/spec]] (cited inline as R-numbers) and the scratch sheet
 [[cards/Cards]]. Every capitalised word is defined in [[rules/glossary]]. The order in which
 triggers resolve belongs to [[rules/resolution]], and the ten Crew to [[rules/crew-v2]]; this
