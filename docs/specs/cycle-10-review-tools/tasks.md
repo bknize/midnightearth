@@ -6,7 +6,7 @@ related: ["[[specs/cycle-10-review-tools/spec]]", "[[specs/cycle-10-review-tools
 created: 2026-11-06
 updated: 2026-11-07
 uid: 3ccb76be-2914-468b-80ff-3f0555b8e293
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-10-review-tools-in-the-cycle-and-one-cleanup-pass-da55e6ed55be
 supersedes:
 ---
 
@@ -73,14 +73,14 @@ own diff (spec R12, Ben round 3 3b); its first real run is the next cycle's `/cy
   [[planning/cycles]] records the gate, the sweep, the golden, the finding counts, the P1
   outcome and any skill skip (R11).
 
-## Linear
+## Linear (exercised 2026-11-07)
 
-Filled by `/exercise cycle-10-review-tools`. Empty until then.
-
-- Project: <URL>
+- Project: [Cycle 10 — review tools in the cycle, and one cleanup pass](https://linear.app/night-science-llc/project/cycle-10-review-tools-in-the-cycle-and-one-cleanup-pass-da55e6ed55be) (`planned`)
 - Milestone: `DC-NN review-tools` (N assigned at `/cycle plan`; DC-14 is `cycle-9b-rules-v2`,
   so DC-15 is expected)
-- Issue mapping: task n is issue <KEY-m> (T01 = <KEY-…> … T10 = <KEY-…>)
+- Issue mapping: T01 = NSC-165, T02 = NSC-166, T03 = NSC-167, T04 = NSC-168,
+  T05 = NSC-169, T06 = NSC-170, T07 = NSC-171, T08 = NSC-172, T09 = NSC-173,
+  T10 = NSC-174 (all Todo; blockers follow the Depends column)
 - Declined findings: one Backlog issue per blocker or should-fix, one collecting issue per
   chunk for nits, `type/bug` or `type/chore`, label `spec/cycle-10-review-tools` (R31)
 
