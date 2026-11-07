@@ -7,7 +7,8 @@ extends RefCounted
 ##
 ## Private events carry the owning seat; public ones carry PUBLIC. Private (plan P15):
 ## CARD_DEALT, CARD_DRAWN, COMMITTED (its `cards`), CARD_LOOKED, CHOICE_MADE (its `target`),
-## STATS_CHANGED on a hidden card (neutral stats) and CARD_MOVED of a face-down card. A
+## STATS_CHANGED on a hidden card (neutral stats), CARD_MOVED of a face-down card and
+## TRIGGER_FIRED / TRIGGER_FIZZLED of a card firing from its hand (DC-13 T05). A
 ## Pile entry is public (CARD_DISCARDED), so is every reveal and Score.
 ## redacted_for() gives each seat its copy (R29): a private CHOICE_MADE hides only its
 ## `target`; every other private event hides its `card` and `cards`, and a private

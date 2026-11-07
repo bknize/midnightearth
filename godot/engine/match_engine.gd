@@ -375,15 +375,24 @@ func _run_walk() -> void:
 
 
 ## An accepted answer to the open prompt: positions `indices` of `zone`, or the decline.
-## The discard-down is TurnFlow's and resumes its Commit; any other prompt closes through
-## Abilities (CHOICE_MADE or CHOICE_DECLINED) and resumes what it paused per its `resume`.
+## The discard-down is TurnFlow's and resumes its Commit (unless its D4 or D6 drain paused);
+## a prompt a drain paused on resumes that drain at the same entry (TriggerQueue.answer),
+## then the step after its drain point (_resume_after); any other prompt closes through
+## Abilities (CHOICE_MADE or CHOICE_DECLINED) and resumes per its `resume`.
 func _answer(zone: int, indices: Array[int], declined: bool) -> void:
 	var resume: String = Choice.resume_of(_state.prompt)
 	if TurnFlow.is_discard_down(_state.prompt):
 		var seat: int = TurnFlow.answer_discard_down(_state, _cards, _rng, _emit, indices)
-		_commit_done(seat)
+		if not _paused():
+			_commit_done(seat)
 		return
 	_state.phase = MatchState.Phase.AWAIT_SECOND
+	if _state.queue.is_paused():
+		if TriggerQueue.answer(_state, _cards, _rng, _emit, zone, indices, declined):
+			_state.phase = MatchState.Phase.AWAIT_CHOICE
+			return
+		_resume_after(_state.queue.step, _state.queue.seat)
+		return
 	if declined:
 		_events.append_array(Abilities.decline(_state))
 	else:
@@ -392,7 +401,47 @@ func _answer(zone: int, indices: Array[int], declined: bool) -> void:
 		_state.phase = MatchState.Phase.AWAIT_FIRST
 	elif resume == Choice.RESUME_WALK:
 		_run_walk()
-	# RESUME_COMMIT, RESUME_TURN_END and RESUME_ROUND_END resume with DC-13 T05's queue.
+
+
+## Resumes the match after the drain at `step` (for `seat`), paused on a prompt, has
+## finished (DC-13 T05, plan P12 `resume`): turn start goes on with its draws and On start,
+## a Commit with its discard-down, the Walk with the pulse's score stage after a D7 and the
+## next pulse, turn end with its next step, Round end with the award. A drain that pauses
+## again leaves the phase AWAIT_CHOICE.
+func _resume_after(step: String, seat: int) -> void:
+	var resume: String = TriggerQueue.RESUME_OF_STEP.get(step, "")
+	if resume == Choice.RESUME_TURN_START:
+		_state.phase = MatchState.Phase.AWAIT_FIRST
+		if TurnFlow.continue_turn_start(_state, _cards, _rng, _emit, step, seat):
+			_state.phase = MatchState.Phase.AWAIT_CHOICE
+	elif resume == Choice.RESUME_COMMIT:
+		var commit_drain: bool = (
+			step == TurnFlow.STEP_FIRST_COMMIT or step == TurnFlow.STEP_SECOND_COMMIT
+		)
+		if commit_drain and TurnFlow.open_discard_down(_state, _cards, _emit, seat):
+			_state.phase = MatchState.Phase.AWAIT_CHOICE
+		else:
+			_commit_done(seat)
+	elif resume == Choice.RESUME_WALK:
+		if step == ScoreWalk.STEP_REVEAL and ScoreWalk.resume_pulse(_state, _cards, _rng, _emit):
+			_state.phase = MatchState.Phase.AWAIT_CHOICE
+		else:
+			_run_walk()
+	elif resume == Choice.RESUME_TURN_END:
+		if TurnFlow.continue_end_turn(_state, _cards, _rng, _emit, step):
+			_state.phase = MatchState.Phase.AWAIT_CHOICE
+		else:
+			_turn_over()
+	elif resume == Choice.RESUME_ROUND_END:
+		_after_round(TurnFlow.award_round(_state, _emit))
+
+
+## True, with the phase AWAIT_CHOICE, when a prompt is open.
+func _paused() -> bool:
+	if _state.prompt.is_empty():
+		return false
+	_state.phase = MatchState.Phase.AWAIT_CHOICE
+	return true
 
 
 ## The open prompt's seat, or -1 when none is open.
@@ -408,8 +457,18 @@ func _end_turn() -> void:
 	if TurnFlow.end_turn(_state, _cards, _rng, _emit):
 		_state.phase = MatchState.Phase.AWAIT_CHOICE
 		return
+	_turn_over()
+
+
+## After turn end: the next Turn, or after Turn 7 the Round end (its D12 drain may pause on
+## a prompt: the Round is awarded once it has finished, _resume_after).
+func _turn_over() -> void:
 	if _state.turn >= MatchRules.TURNS:
-		_after_round(TurnFlow.end_round(_state, _cards, _rng, _emit))
+		var winner: int = TurnFlow.end_round(_state, _cards, _rng, _emit)
+		if winner == TurnFlow.ROUND_PAUSED:
+			_state.phase = MatchState.Phase.AWAIT_CHOICE
+			return
+		_after_round(winner)
 	else:
 		_begin_turn()
 

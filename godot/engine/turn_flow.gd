@@ -35,10 +35,12 @@ extends RefCounted
 ##   first, in slot order (R2, R20), On discard once (D12), then the Round is awarded to the
 ##   higher Score of its last Walk (R1, today's rule), ROUND_ENDED.
 ##
-## Hook points (no-ops until their task fills them; each returns true when its drain paused
-## on a prompt, and the task that makes one pause adds the resume): on_empty_draw() (T07
-## Crew, T05 queue), on_start(), on_commit(), on_discard(), at_turn_end() (T05),
-## crew_budget_bonus() (T07, Engineer). exit_pass() and end_statuses() are filled (T04).
+## Drain points (DC-13 T05, TriggerQueue): on_empty_draw() (D1), on_start() (D2),
+## on_commit() (D3, D5), on_discard() (D4, D6, D10, D12) and at_turn_end() (D9, D11) wake
+## their Batch and drain it; each returns true when the drain paused on a prompt, and the
+## engine resumes the step after it once the answer has finished the drain
+## (continue_turn_start(), open_discard_down(), continue_end_turn(), award_round()). Hook
+## left: crew_budget_bonus() (T07, Engineer). exit_pass() and end_statuses() are T04's.
 
 const SEATS: int = 2
 ## The verb of the discard-down prompt.
@@ -63,6 +65,12 @@ const STEP_TURN_END_AFTER: String = "D11"
 const STEP_ROUND_END: String = "D12"
 const MOMENT_TURN_END_BEFORE: String = "at_turn_end_before"
 const MOMENT_TURN_END_AFTER: String = "at_turn_end_after"
+const MOMENT_EMPTY_DRAW: String = "on_empty_draw"
+const MOMENT_START: String = "on_start"
+const MOMENT_COMMIT: String = "on_commit"
+const MOMENT_DISCARD: String = "on_discard"
+## What end_round() returns when D12 paused on a prompt: no Round is awarded yet.
+const ROUND_PAUSED: int = -2
 
 # --- Match and Round start ------------------------------------------------------------
 
@@ -135,8 +143,30 @@ static func begin_turn(state: MatchState, cards: MatchCards, rng: MatchRng, sink
 		"budgets": [budget(state, cards, 0), budget(state, cards, 1)],
 	}
 	sink.call(MatchEvent.Kind.TURN_STARTED, started)
-	for seat: int in [state.first_seat, 1 - state.first_seat]:
-		if draw(state, cards, rng, sink, seat):
+	return _draws_from(state, cards, rng, sink, 0)
+
+
+## Turn start after a drain of it paused on a prompt has finished (DC-13 T05): after D1 for
+## `seat`'s empty draw, the resumed draw (Q11), the other seat's draw when `seat` drew first,
+## then On start (D2); after D2, nothing. True when a drain paused again.
+static func continue_turn_start(
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, step: String, seat: int
+) -> bool:
+	if step != STEP_EMPTY_DRAW:
+		return false
+	if resumed_draw(state, sink, seat):
+		pass  # Q11: the Deck was refilled during the drain.
+	return _draws_from(state, cards, rng, sink, 1 if seat == state.first_seat else 2)
+
+
+## The turn-start draws from position `index` of the commit order (0 the first seat, 1 the
+## second), then On start (D2). True when a drain paused.
+static func _draws_from(
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, index: int
+) -> bool:
+	var order: Array[int] = [state.first_seat, 1 - state.first_seat]
+	for at: int in range(index, order.size()):
+		if draw(state, cards, rng, sink, order[at]):
 			return true
 	return on_start(state, cards, rng, sink)
 
@@ -320,8 +350,8 @@ static func answer_discard_down(
 	for card: int in chosen:
 		piles.hand.erase(card)
 		to_pile(state, cards, sink, card, FROM_HAND, REASON_DISCARD_DOWN)
-	if on_discard(state, cards, rng, sink, chosen, step):
-		pass  # T05 adds the resume of a D4 or D6 drain paused on a prompt.
+	if on_discard(state, cards, rng, sink, chosen, step, seat):
+		pass  # Paused at D4 or D6: the prompt is open and the engine resumes the Commit.
 	return seat
 
 
@@ -375,14 +405,36 @@ static func merge_row(state: MatchState, seat: int, picked: Array[int], slots: A
 ## move in, spend cleared), the Turn's winner is recorded (the higher Score; a tie keeps the
 ## order), TURN_ENDED {scores, winner, wins, round, turn}. True when a drain paused.
 static func end_turn(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> bool:
-	if at_turn_end(state, cards, rng, sink, MOMENT_TURN_END_BEFORE, STEP_TURN_END_BEFORE):
-		return true
-	var exited: Array[int] = exit_pass(state, cards, sink)
-	if not exited.is_empty() and on_discard(state, cards, rng, sink, exited, STEP_EXIT_PASS):
-		return true
-	if at_turn_end(state, cards, rng, sink, MOMENT_TURN_END_AFTER, STEP_TURN_END_AFTER):
-		return true
+	return continue_end_turn(state, cards, rng, sink, "")
+
+
+## Turn end from the step after the drain point `after` ("" for its start; D9, D10 or D11
+## once that drain, paused on a prompt, has finished; DC-13 T05). True when a drain paused.
+static func continue_end_turn(
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, after: String
+) -> bool:
+	var from: String = after
+	if from == "":
+		if at_turn_end(state, cards, rng, sink, MOMENT_TURN_END_BEFORE, STEP_TURN_END_BEFORE):
+			return true
+		from = STEP_TURN_END_BEFORE
+	if from == STEP_TURN_END_BEFORE:
+		var exited: Array[int] = exit_pass(state, cards, sink)
+		if not exited.is_empty() and on_discard(state, cards, rng, sink, exited, STEP_EXIT_PASS):
+			return true
+		from = STEP_EXIT_PASS
+	if from == STEP_EXIT_PASS:
+		if at_turn_end(state, cards, rng, sink, MOMENT_TURN_END_AFTER, STEP_TURN_END_AFTER):
+			return true
+	settle_turn(state, sink)
+	return false
+
+
+## Resolution steps 14 to 16: turn-scoped statuses end, the Turn's retriggers and Scores
+## twice end, Energy settles, the Turn's winner is recorded, TURN_ENDED.
+static func settle_turn(state: MatchState, sink: Callable) -> void:
 	end_statuses(state, sink)
+	state.walk.clear_turn_effects()
 	for seat: int in range(SEATS):
 		state.energy.grants[seat] = state.energy.next_turn_grants[seat]
 		state.energy.next_turn_grants[seat] = 0
@@ -397,15 +449,15 @@ static func end_turn(state: MatchState, cards: MatchCards, rng: MatchRng, sink: 
 		"turn": state.turn,
 	}
 	sink.call(MatchEvent.Kind.TURN_ENDED, ended)
-	return false
 
 
 ## Round end (R1, R2, R20): every card on both rows goes to its Owner's Pile as a Discard,
 ## the first seat's row first, each in slot order (CARD_DISCARDED, from row, reason
 ## round_end); hands, Decks and Piles stay; On discard drains once (D12). Then the Round is
-## awarded: the higher Score of its last Walk wins it, a tie awards none;
+## awarded (award_round()): the higher Score of its last Walk wins it, a tie awards none;
 ## `last_round_winner` is that winner (-1 for a tie), ROUND_ENDED {winner, wins, round,
-## scores}. Returns the winner, or -1.
+## scores}. Returns the winner, or -1; ROUND_PAUSED when D12 paused on a prompt (the engine
+## awards the Round once the drain has finished).
 static func end_round(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> int:
 	var cleared: Array[int] = []
 	for seat: int in [state.first_seat, 1 - state.first_seat]:
@@ -418,7 +470,13 @@ static func end_round(state: MatchState, cards: MatchCards, rng: MatchRng, sink:
 			to_pile(state, cards, sink, card, FROM_ROW, REASON_ROUND_END)
 			cleared.append(card)
 	if not cleared.is_empty() and on_discard(state, cards, rng, sink, cleared, STEP_ROUND_END):
-		pass  # T05 adds the resume of a Round end paused on a prompt.
+		return ROUND_PAUSED
+	return award_round(state, sink)
+
+
+## The Round is awarded (the second half of end_round(), and what the engine resumes after
+## a D12 paused on a prompt): see end_round(). Returns the winner, or -1.
+static func award_round(state: MatchState, sink: Callable) -> int:
 	var winner: int = leader(state.scores)
 	if winner >= 0:
 		state.wins[winner] += 1
@@ -445,54 +503,76 @@ static func leader(values: Array[int]) -> int:
 # --- Hook points ----------------------------------------------------------------------
 
 
-## Hook (T07 Crew, T05 queue): `seat`'s On empty draw Batch wakes and drains (D1), every
-## trigger firing with no re-check of the Deck (C29). True when the drain paused; the
-## resumed draw (resumed_draw()) follows it.
+## `seat`'s On empty draw Batch wakes (its cards and Crew) and drains (D1), every trigger
+## firing with no re-check of the Deck (Q2, C29). True when the drain paused; the resumed
+## draw (resumed_draw()) follows it.
 static func on_empty_draw(
-	_state: MatchState, _cards: MatchCards, _rng: MatchRng, _sink: Callable, _seat: int
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int
 ) -> bool:
-	return false
+	var none: Array[int] = []
+	if TriggerQueue.wake(state, cards, MOMENT_EMPTY_DRAW, none, seat).is_empty():
+		pass  # Nothing watches this empty draw.
+	return TriggerQueue.drain(state, cards, rng, sink, STEP_EMPTY_DRAW, seat)
 
 
-## Hook (T05): the On start Batch of revealed cards and Crew wakes and drains (D2).
-static func on_start(
-	_state: MatchState, _cards: MatchCards, _rng: MatchRng, _sink: Callable
-) -> bool:
-	return false
+## The On start Batch of revealed cards and Crew wakes and drains (D2).
+static func on_start(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> bool:
+	var none: Array[int] = []
+	if TriggerQueue.wake(state, cards, MOMENT_START, none).is_empty():
+		pass  # Nothing watches turn start.
+	return TriggerQueue.drain(state, cards, rng, sink, STEP_ON_START)
 
 
-## Hook (T05): `seat`'s On commit Batch (its revealed row cards, its hand cards with `zone:
-## hand`, its Crew; never a card committed this Turn) wakes and drains (D3 or D5).
+## `seat`'s On commit Batch (its revealed row cards, its hand cards with `zone: hand`, its
+## Crew; never a card committed this Turn, which is face down or pending) wakes and drains
+## (D3 for the first seat, D5 for the second).
 static func on_commit(
-	_state: MatchState, _cards: MatchCards, _rng: MatchRng, _sink: Callable, _seat: int
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int
 ) -> bool:
-	return false
+	var none: Array[int] = []
+	if TriggerQueue.wake(state, cards, MOMENT_COMMIT, none, seat).is_empty():
+		pass  # Nothing watches this Commit.
+	var step: String = STEP_FIRST_COMMIT if seat == state.first_seat else STEP_SECOND_COMMIT
+	return TriggerQueue.drain(state, cards, rng, sink, step, seat)
 
 
-## Hook (T05): each card of `discarded`, in order, wakes its On discard Batch, and the queue
-## drains at `step` (D4, D6, D10 or D12).
+## Each card of `discarded`, in order, wakes its On discard Batch (at Round end, D12, the
+## cleared rows wake one Batch), and the queue drains at `step` (D4, D6, D10 or D12) for
+## `seat` (the discarding seat, -1 for none).
 static func on_discard(
-	_state: MatchState,
-	_cards: MatchCards,
-	_rng: MatchRng,
-	_sink: Callable,
-	_discarded: Array[int],
-	_step: String
+	state: MatchState,
+	cards: MatchCards,
+	rng: MatchRng,
+	sink: Callable,
+	discarded: Array[int],
+	step: String,
+	seat: int = -1
 ) -> bool:
-	return false
+	if step == STEP_ROUND_END:
+		if TriggerQueue.wake(state, cards, MOMENT_DISCARD, discarded).is_empty():
+			pass  # Nothing watches the Round-end clear.
+	else:
+		for card: int in discarded:
+			var subjects: Array[int] = [card]
+			if TriggerQueue.wake(state, cards, MOMENT_DISCARD, subjects).is_empty():
+				pass  # Nothing watches this Discard.
+	return TriggerQueue.drain(state, cards, rng, sink, step, seat)
 
 
-## Hook (T05): the At turn end Batch of `moment` (MOMENT_TURN_END_BEFORE or _AFTER) wakes
-## and drains at `step` (D9 or D11).
+## The At turn end Batch of `moment` (MOMENT_TURN_END_BEFORE or _AFTER) wakes and drains at
+## `step` (D9 or D11).
 static func at_turn_end(
-	_state: MatchState,
-	_cards: MatchCards,
-	_rng: MatchRng,
-	_sink: Callable,
-	_moment: String,
-	_step: String
+	state: MatchState,
+	cards: MatchCards,
+	rng: MatchRng,
+	sink: Callable,
+	moment: String,
+	step: String
 ) -> bool:
-	return false
+	var none: Array[int] = []
+	if TriggerQueue.wake(state, cards, moment, none).is_empty():
+		pass  # Nothing watches this turn end.
+	return TriggerQueue.drain(state, cards, rng, sink, step)
 
 
 ## The exit pass (R41, Statuses.exit_pass) in Q3 order, the first seat's row first, each in

@@ -4,8 +4,9 @@ extends RefCounted
 ## table"; DC-13 T04): each applies its rule straight through Statuses or Movement with the
 ## verb's name as the cause, and returns what the rule returns, so a suite can read what a
 ## trigger would wake (Statuses.Applied.wakes_squelch for On squelch, the moved cards for
-## On moved). DC-13 T05 adds the queue stubs (`stub_retrigger`, `stub_scores_twice`,
-## `stub_condemn_random_and_rescore`). Not a suite: builders only, nothing cached.
+## On moved). DC-13 T05 adds the queue stubs as a verb table (StubVerbs, installed with
+## MatchCards.set_verb_handler) and the builders that put them on cards (ability(),
+## card_def(), give(), engine()). Not a suite: builders only, nothing cached.
 ##
 ## The stub match plays the deck `stubs` on both seats: ten shipped cards, four copies each,
 ## so seat `s`'s card of pool position `index` is `s * DECK_SIZE + index` (constants below
@@ -36,27 +37,90 @@ const VERB_FADE: String = "stub_fade"
 const VERB_SHIFT_OTHERS_LEFT: String = "stub_shift_others_left"
 const VERB_SWAP: String = "stub_swap"
 const VERB_REVERSE: String = "stub_reverse"
+## The stub deck's Crew (none fires on a reveal, a Score or a Commit).
+const CREW: Array[String] = ["tallyman", "void", "engineer"]
+## Ramp's Crew: Navigator (slot 0) and Captain (slot 1) sit on On score.
+const RAMP_CREW: Array[String] = ["navigator", "captain", "dredger"]
+## The queue stubs (DC-13 T05), handled by StubVerbs (install with MatchCards.
+## set_verb_handler): see StubVerbs for each.
+const VERB_RECORD: String = "stub_record"
+const VERB_WAKE_MOVED: String = "stub_wake_moved"
+const VERB_CONDEMN_SLOT: String = "stub_condemn_slot"
+const VERB_MUTE_SLOT: String = "stub_mute_slot"
+const VERB_RETRIGGER: String = "stub_retrigger"
+const VERB_SCORES_TWICE: String = "stub_scores_twice"
+const VERB_FEED: String = "stub_condemn_random_and_rescore"
+const VERB_DISCARD_PICK: String = "stub_discard_pick"
+const VERB_CHOOSE_HAND: String = "stub_choose_hand"
+const MOMENT_MOVED: String = "on_moved"
+const MOMENT_SCORE: String = "on_score"
 
 
-## The definitions of a stubs-vs-stubs match over the shipped pool.
-static func defs() -> MatchCards:
+## The definitions of a stubs-vs-stubs match over the shipped pool, each seat with the
+## Crew `crew` (default CREW).
+static func defs(crew: Array[String] = CREW) -> MatchCards:
+	var ids: Array[String] = [DECK_ID, DECK_ID]
+	return MatchCards.build(CardDb.load_default(), deck_list(crew), ids, CrewPool.load_default())
+
+
+## The one-deck list holding the deck `stubs` with the Crew `crew`.
+static func deck_list(crew: Array[String] = CREW) -> DeckList:
 	var listed: Array = []
 	for id: String in IDS:
 		for _copy: int in range(MatchRules.MAX_COPIES):
 			listed.append(id)
+	var crew_ids: Array = []
+	crew_ids.assign(crew)
 	var deck: Dictionary = {
 		"id": DECK_ID,
 		"name": "Stubs",
 		"tag": "evergreen",
 		"theme": "Shipped cards for the status, exit and movement suites.",
 		"cards": listed,
-		"crew": ["tallyman", "void", "engineer"],
+		"crew": crew_ids,
 	}
-	var decks: DeckList = DeckList.from_json(
-		JSON.stringify({"version": DeckList.FORMAT_VERSION, "decks": [deck]})
-	)
+	return DeckList.from_json(JSON.stringify({"version": DeckList.FORMAT_VERSION, "decks": [deck]}))
+
+
+## A stubs-vs-stubs engine on `match_seed` (not started), its Crew CREW.
+static func engine(match_seed: int) -> MatchEngine:
 	var ids: Array[String] = [DECK_ID, DECK_ID]
-	return MatchCards.build(CardDb.load_default(), decks, ids, CrewPool.load_default())
+	return MatchEngine.create(
+		match_seed, CardDb.load_default(), deck_list(), ids, CrewPool.load_default()
+	)
+
+
+## One ability for a stub card (DC-13 T05): `verb` on `moment` with its brackets.
+static func ability(
+	moment: String, verb: String, amount: int = 0, watch: String = "self", zone: String = "row"
+) -> CardAbility:
+	var out: CardAbility = CardAbility.new()
+	out.moment = moment
+	out.verb = verb
+	out.amount = amount
+	out.watch = watch
+	out.zone = zone
+	out.text = "%s: %s" % [moment, verb]
+	return out
+
+
+## A stub card (Cost `cost`, Power `power`, no Bonus) carrying `abilities`.
+static func card_def(
+	name: String, abilities: Array[CardAbility], power: int = 1, cost: int = 1
+) -> CardDef:
+	var text: String = "Stub %s" % name
+	return CardDef.new(
+		name.to_lower(), name, "evergreen", cost, power, CardDef.BonusKind.NONE, 0, abilities, text
+	)
+
+
+## Gives the instances `instances` of `cards` the definition `def` (MatchCards.replace_def);
+## true when every one took it.
+static func give(cards: MatchCards, instances: Array[int], def: CardDef) -> bool:
+	var ok: bool = true
+	for instance: int in instances:
+		ok = cards.replace_def(instance, def) and ok
+	return ok
 
 
 ## A fresh state whose `seat` row is `row` (face up when `revealed`), first seat 0.
@@ -179,3 +243,104 @@ class Recorder:
 			var card: int = event.payload.get("card", -1)
 			out.append(card)
 		return out
+
+
+## The queue stub verbs (DC-13 T05), as the match's extra verb table (VerbHandler). Each
+## appends a line to `trace` when it resolves, so a suite can read what ran and in what
+## order:
+## - stub_record: does nothing ("fire <card> batch <id>");
+## - stub_wake_moved: wakes On moved for its own card, then traces "done <queued entries>"
+##   (the woken Batch is appended only after it returns, Q1);
+## - stub_condemn_slot / stub_mute_slot: Condemns / Mutes (until end of turn) the card in
+##   its own row's slot `amount`;
+## - stub_retrigger: its seat's other On reveals resolve twice this Turn (Q6);
+## - stub_scores_twice: every later score stage runs twice (Q7);
+## - stub_condemn_random_and_rescore: Condemns a random card of the opposing row (engine
+##   stream), Scores its own card again and wakes that Score's On score Batch;
+## - stub_discard_pick: chooses a card of its Controller's hand (Q9), Discards it (On
+##   discard wakes), then reads N, the Controller's Pile size, now (Q5): Power +N until it
+##   leaves the row ("n <N>");
+## - stub_choose_hand: chooses a card of its Controller's hand ("chose <card>").
+class StubVerbs:
+	extends VerbHandler
+
+	const VERBS: Array[String] = [
+		VERB_RECORD,
+		VERB_WAKE_MOVED,
+		VERB_CONDEMN_SLOT,
+		VERB_MUTE_SLOT,
+		VERB_RETRIGGER,
+		VERB_SCORES_TWICE,
+		VERB_FEED,
+		VERB_DISCARD_PICK,
+		VERB_CHOOSE_HAND,
+	]
+
+	var trace: Array[String] = []
+
+	func handles(verb: String) -> bool:
+		return VERBS.has(verb)
+
+	func prepare(ctx: TriggerContext) -> void:
+		if ctx.verb == VERB_DISCARD_PICK or ctx.verb == VERB_CHOOSE_HAND:
+			var options: Array[int] = []
+			for index: int in range(ctx.state.seats[ctx.seat].hand.size()):
+				options.append(index)
+			if ctx.choose(Choice.Zone.OWN_HAND, options):
+				pass  # One card: chosen at once.
+
+	func resolve(ctx: TriggerContext) -> void:
+		var row: Array[int] = ctx.state.seats[ctx.seat].board
+		match ctx.verb:
+			VERB_RECORD:
+				var batch: int = ctx.entry.get("batch", -1)
+				trace.append("fire %d batch %d" % [ctx.card, batch])
+			VERB_WAKE_MOVED:
+				var own: Array[int] = [ctx.card]
+				ctx.wake(MOMENT_MOVED, own)
+				trace.append("done %d" % ctx.state.queue.size())
+			VERB_CONDEMN_SLOT:
+				if Statuses.mark_exit(
+					ctx.state, ctx.cards, row[ctx.ability.amount], Statuses.CONDEMNED, ctx.sink
+				):
+					trace.append("condemned %d" % row[ctx.ability.amount])
+			VERB_MUTE_SLOT:
+				var muted: Statuses.Applied = StubAbilities.stub_mute(
+					ctx.state, ctx.cards, row[ctx.ability.amount], ctx.sink
+				)
+				trace.append("muted %d" % muted.landed.size())
+			VERB_RETRIGGER:
+				TriggerQueue.add_retrigger(ctx.state, ctx.seat, ctx.card)
+			VERB_SCORES_TWICE:
+				ctx.state.walk.scores_twice = true
+			VERB_FEED:
+				_feed(ctx)
+			VERB_DISCARD_PICK:
+				_discard_pick(ctx)
+			VERB_CHOOSE_HAND:
+				trace.append("chose %d" % ctx.chosen_card())
+
+	func _feed(ctx: TriggerContext) -> void:
+		var enemy: Array[int] = ctx.state.seats[1 - ctx.seat].board
+		if not enemy.is_empty():
+			var target: int = enemy[ctx.rng.pick_index(enemy.size())]
+			if StubAbilities.stub_condemn(ctx.state, ctx.cards, target, ctx.sink):
+				pass  # A second Condemn of the same card replaces nothing new.
+		ScoreWalk.score(ctx.state, ctx.cards, ctx.sink, ctx.seat, ctx.card)
+		var own: Array[int] = [ctx.card]
+		ctx.wake(MOMENT_SCORE, own)
+
+	func _discard_pick(ctx: TriggerContext) -> void:
+		var picked: int = ctx.chosen_card()
+		var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
+		if picked < 0 or not piles.hand.has(picked):
+			return
+		piles.hand.erase(picked)
+		TurnFlow.to_pile(
+			ctx.state, ctx.cards, ctx.sink, picked, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD
+		)
+		var discarded: Array[int] = [picked]
+		ctx.wake("on_discard", discarded)
+		var n: int = piles.pile.size()
+		ctx.state.card_state_for(ctx.card).power_delta += n
+		trace.append("n %d" % n)
