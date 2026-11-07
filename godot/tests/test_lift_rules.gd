@@ -202,6 +202,16 @@ func test_effect_fizzle_and_choice_show_never_touch() -> void:
 		assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.ROW, true)).is_false()
 
 
+## C14: a public trigger of the viewer's own hand card pulses it in the fan, so a held copy of
+## that card is set down first; another held card is not.
+func test_an_own_hand_trigger_touches_the_held_hand_card() -> void:
+	for kind: int in [BoardStep.Kind.EFFECT, BoardStep.Kind.FIZZLE]:
+		var step: BoardStep = _named(kind, 0, 5)
+		step.from_hand = true
+		assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.HAND, false)).is_true()
+		assert_bool(LiftRules.step_touches(step, 6, LiftRules.Place.HAND, false)).is_false()
+
+
 # --- DC-06 steps (R37) ------------------------------------------------------------------
 
 

@@ -36,6 +36,9 @@ static func step_touches(
 			# Your own card's pulse; an opponent's card only on a re-pulse (`again`), since its
 			# first reveal never touches a card being read (DC-04) (R37).
 			return held_id >= 0 and step.card == held_id and (step.seat == 0 or step.again)
+		BoardStep.Kind.EFFECT, BoardStep.Kind.FIZZLE:
+			# A public hand trigger pulses the viewer's own hand card (C14).
+			return step.from_hand and held_id >= 0 and step.card == held_id
 		BoardStep.Kind.STATS, BoardStep.Kind.STATUS:
 			# Restat or re-badge: the step names the held card (R9).
 			return held_id >= 0 and step.card == held_id

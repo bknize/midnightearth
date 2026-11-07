@@ -8,7 +8,8 @@ extends RefCounted
 ## Private events carry the owning seat; public ones carry PUBLIC. Private (plan P15):
 ## CARD_DEALT, CARD_DRAWN, COMMITTED (its `cards`), CARD_LOOKED, CHOICE_MADE (its `target`),
 ## STATS_CHANGED on a hidden card (neutral stats), CARD_MOVED of a face-down card and
-## TRIGGER_FIRED / TRIGGER_FIZZLED of a card firing from its hand (DC-13 T05). A
+## TRIGGER_FIRED / TRIGGER_FIZZLED of a card firing from its Deck (DC-13 T05). A card
+## firing from its hand is public and says so with `from_hand: true` (C14, the telegraph). A
 ## Pile entry is public (CARD_DISCARDED), so is every reveal and Score.
 ## redacted_for() gives each seat its copy (R29): a private CHOICE_MADE hides only its
 ## `target`; every other private event hides its `card` and `cards`, and a private
@@ -29,7 +30,8 @@ extends RefCounted
 ##   statuses}; CARD_SCORED {seat, card, slot, power, bonus_value, total, pass};
 ##   WALK_ENDED {totals, scores}
 ## - TRIGGER_FIRED {seat, card, crew, moment, verb, resolution}; TRIGGER_FIZZLED {seat,
-##   card, crew, verb, reason: no_target|exhausted|spent}
+##   card, crew, verb, reason: no_target|exhausted|spent}; both add `from_hand: true` for a
+##   card firing from its hand
 ## - STATS_CHANGED {card, power, mult, add, cost, permanent, cause}; STATUS_SET {card,
 ##   status, cessation, cause}; STATUS_ENDED {card, status, cause}; EXIT_MARKED {card, mark,
 ##   replaced}; EXIT_RESOLVED {card, mark, owner, to: pile|hand|face_down}
@@ -83,6 +85,8 @@ const HIDDEN_CARD: int = -1
 const KEY_CARD: String = "card"
 const KEY_CARDS: String = "cards"
 const KEY_TARGET: String = "target"
+## TRIGGER_FIRED / TRIGGER_FIZZLED: true when the card fired from its hand (public, C14).
+const KEY_FROM_HAND: String = "from_hand"
 ## What the other seat's copy of a private STATS_CHANGED shows in place of the hidden card's
 ## stats and Memory flag (R58): Power 0, no Bonus (×1, +0), Cost 0, not permanent. `card`
 ## is hidden too and `cause` stays.

@@ -127,7 +127,8 @@ func test_a_stub_on_score_appends_one_batch_and_finishes_before_either_fires() -
 
 
 ## One On start Batch of four: the first Condemns the second, the third Mutes the fourth.
-## The Condemned card still fires, once; the Muted one does not fire.
+## The Condemned card still fires, once; the Muted one does not fire, but its pop still
+## counts one toward the budget (P11, "each pop counts one").
 func test_condemned_mid_batch_fires_once_and_muted_mid_batch_does_not() -> void:
 	var verbs: StubAbilities.StubVerbs = StubAbilities.StubVerbs.new()
 	var cards: MatchCards = _cards(verbs)
@@ -145,7 +146,7 @@ func test_condemned_mid_batch_fires_once_and_muted_mid_batch_does_not() -> void:
 	assert_array(rec.of_kind(FIZZLED)).is_empty()
 	assert_str(Statuses.exit_mark_of(state, y)).is_equal(Statuses.CONDEMNED)
 	assert_bool(Statuses.has(state, z, Statuses.MUTED)).is_true()
-	assert_int(state.queue.resolutions).is_equal(3)
+	assert_int(state.queue.resolutions).is_equal(4)
 
 
 # --- Q3: order ------------------------------------------------------------------------
@@ -236,6 +237,51 @@ func test_two_stubs_feeding_each_other_stop_at_fifty_and_the_next_pulse_starts_a
 	assert_int(_fizzles(next, Abilities.REASON_EXHAUSTED).size()).is_equal(
 		MatchRules.TRIGGER_BUDGET + 2
 	)
+
+
+## One resolution left in the pulse: a Muted entry popped first spends it silently (no
+## event), so the plain entry after it fizzles `exhausted` (P11, Q2, Q4).
+func test_a_muted_pop_counts_one_toward_the_budget() -> void:
+	var verbs: StubAbilities.StubVerbs = StubAbilities.StubVerbs.new()
+	var cards: MatchCards = _cards(verbs)
+	var m: int = 0
+	var x: int = 1
+	var any: Array[CardAbility] = _ability("on_score", StubAbilities.VERB_RECORD, 0, "any")
+	_give(cards, _typed([m, x]), "Any", any)
+	var state: MatchState = StubAbilities.table(_typed([m, x]), true)
+	StubAbilities.stub_mute(state, cards, m, Callable())
+	state.walk.resolutions = MatchRules.TRIGGER_BUDGET - 1
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	TriggerQueue.wake(state, cards, "on_score", _typed([x]))
+	assert_bool(TriggerQueue.drain(state, cards, MatchRng.new(SEED), rec.record, "D8")).is_false()
+	assert_array(rec.of_kind(FIRED)).is_empty()
+	var exhausted: Array[int] = []
+	for event: MatchEvent in _fizzles(rec, Abilities.REASON_EXHAUSTED):
+		exhausted.append(_int_of(event, "card"))
+	assert_array(exhausted).is_equal(_typed([x]))
+	assert_int(state.walk.resolutions).is_equal(MatchRules.TRIGGER_BUDGET)
+
+
+## The budget runs out with a Muted entry still queued: the plain entries fizzle
+## `exhausted`, the Muted one drops silently, as it would under budget (Q2, Q4).
+func test_a_muted_entry_left_when_the_budget_runs_out_stays_silent() -> void:
+	var verbs: StubAbilities.StubVerbs = StubAbilities.StubVerbs.new()
+	var cards: MatchCards = _cards(verbs)
+	var x: int = 0
+	var m: int = 1
+	var y: int = 2
+	var any: Array[CardAbility] = _ability("on_score", StubAbilities.VERB_RECORD, 0, "any")
+	_give(cards, _typed([x, m, y]), "Any", any)
+	var state: MatchState = StubAbilities.table(_typed([x, m, y]), true)
+	StubAbilities.stub_mute(state, cards, m, Callable())
+	state.walk.resolutions = MatchRules.TRIGGER_BUDGET - 1
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	TriggerQueue.wake(state, cards, "on_score", _typed([x]))
+	assert_bool(TriggerQueue.drain(state, cards, MatchRng.new(SEED), rec.record, "D8")).is_false()
+	assert_array(rec.cards_of(FIRED)).is_equal(_typed([x]))
+	assert_array(rec.cards_of(FIZZLED)).is_equal(_typed([y]))
+	assert_int(_fizzles(rec, Abilities.REASON_EXHAUSTED).size()).is_equal(1)
+	assert_bool(state.queue.is_empty()).is_true()
 
 
 # --- Q6: retriggers -------------------------------------------------------------------

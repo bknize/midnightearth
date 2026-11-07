@@ -1,7 +1,8 @@
 class_name EffectPlayer
 extends RefCounted
 ## Plays the walk and the effects on the table (R51, R53, plan P17, P18): the pulse lift,
-## stats, status, exit, move, return, discard, fizzle and the opponent's pick glowing. Also the card
+## stats, status, exit, move, return, discard, fizzle, the opponent's pick glowing and the
+## public hand trigger (C14: HandTelegraph). Also the card
 ## motions the board shares (flip, lift, sweep off, move between collections). It holds no
 ## state of its own: the board hands in the collections and the id
 ## dictionaries it owns (same objects, never reassigned).
@@ -76,18 +77,34 @@ func pulse(step: BoardStep) -> void:
 # --- Effect steps (P18, R53) ---------------------------------------------------------------
 
 
-## The source card lifts briefly.
+## The source card lifts briefly. A public hand trigger (C14) pulses the viewer's own card in
+## its fan (`from_hand`), or shows the opponent's card above its hand (TELEGRAPH).
 func effect(step: BoardStep) -> void:
-	var card: BoardCard = _find_in_row(step.seat, step.card, -1)
-	if card != null:
-		_lift_and_settle(card, step.duration)
+	if step.kind == BoardStep.Kind.TELEGRAPH:
+		if HandTelegraph.play(step, opponent_hand, loose, match_cards) == null:
+			push_warning("Board: no telegraph for the opponent's hand card %d" % step.card)
+		return
+	var card: BoardCard = _trigger_card(step)
+	if card == null:
+		return
+	_lift_and_settle(card, step.duration)
+	if step.from_hand and glow_material != null:
+		card.pulse_glow(glow_material, step.duration)
 
 
-## "no target" or "exhausted" fades on the source card (R83).
+## "no target" or "exhausted" fades on the source card (R83), in the fan for the viewer's
+## own hand trigger (`from_hand`, C14).
 func fizzle(step: BoardStep) -> void:
-	var card: BoardCard = _find_in_row(step.seat, step.card, -1)
+	var card: BoardCard = _trigger_card(step)
 	if card != null:
 		card.flash_note(fizzle_note(step.reason), step.duration)
+
+
+## The card a trigger step is about: the viewer's hand card for `from_hand`, else the row card.
+func _trigger_card(step: BoardStep) -> BoardCard:
+	if step.from_hand:
+		return _player_card(step.card)
+	return _find_in_row(step.seat, step.card, -1)
 
 
 ## The note a fizzle flashes: "spent" for a once-only effect, "exhausted" when the trigger

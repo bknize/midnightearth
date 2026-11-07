@@ -221,8 +221,8 @@ func test_tinker_reduces_the_right_card_for_the_match_with_floor_0() -> void:
 	assert_int(_cost(state, cards, tinker)).is_equal(3)
 
 
-## Layaway's On commit fires from its Controller's hand (privately) at each of that seat's
-## Commits: Cost 5, 4, ... to 0 and no lower.
+## Layaway's On commit fires from its Controller's hand (publicly, C14; its Cost change stays
+## private) at each of that seat's Commits: Cost 5, 4, ... to 0 and no lower.
 func test_layaway_reduces_itself_from_the_hand_with_floor_0() -> void:
 	var cards: MatchCards = _cards()
 	var layaway: int = 0
@@ -240,7 +240,7 @@ func test_layaway_reduces_itself_from_the_hand_with_floor_0() -> void:
 	assert_array(costs).is_equal(_typed([4, 3, 2, 1, 0, 0]))
 	var fired: Array[MatchEvent] = rec.of_kind(FIRED)
 	assert_int(fired.size()).is_equal(1)
-	assert_int(fired[0].owner_seat).is_equal(0)
+	assert_int(fired[0].owner_seat).is_equal(MatchEvent.PUBLIC)
 	var changed: Array[MatchEvent] = rec.of_kind(STATS)
 	assert_int(changed[0].owner_seat).is_equal(0)
 	assert_int(_int_of(changed[0], "cost")).is_equal(0)
@@ -248,6 +248,54 @@ func test_layaway_reduces_itself_from_the_hand_with_floor_0() -> void:
 	var other: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TurnFlow.on_commit(state, cards, MatchRng.new(SEED), other.record, 1)).is_false()
 	assert_int(other.cards_of(FIRED).count(layaway)).is_equal(0)
+
+
+## C14: a hand trigger is public. Seat 0 commits with a Layaway in hand: its TRIGGER_FIRED
+## is public and says `from_hand`, and seat 1's copy names the card, its verb and moment.
+func test_a_layaway_firing_from_the_hand_is_public_to_both_seats() -> void:
+	var cards: MatchCards = _cards()
+	var layaway: int = 0
+	_put(cards, _typed([layaway]), "ra09")
+	var state: MatchState = MatchState.new(SEED)
+	state.seats[0].hand.assign(_typed([layaway]))
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	var none: Array[int] = []
+	TurnFlow.accept_commit(state, cards, rec.record, 0, none, none)
+	assert_bool(TurnFlow.on_commit(state, cards, MatchRng.new(SEED), rec.record, 0)).is_false()
+	var fired: Array[MatchEvent] = rec.of_kind(FIRED)
+	assert_int(fired.size()).is_equal(1)
+	assert_bool(fired[0].is_private()).is_false()
+	var seen: MatchEvent = fired[0].redacted_for(1)
+	assert_int(_int_of(seen, "card")).is_equal(layaway)
+	assert_str(_str_of(seen, "verb")).is_equal("cost_down_self")
+	assert_str(_str_of(seen, "moment")).is_equal("on_commit")
+	var from_hand: bool = seen.payload.get(MatchEvent.KEY_FROM_HAND, false)
+	assert_bool(from_hand).is_true()
+
+
+## A trigger whose card is in its Deck when it comes up stays private (none in milestone A:
+## a queued Layaway is put into the Deck before the drain): seat 1's copy hides the card and
+## carries no `from_hand`.
+func test_a_trigger_of_a_deck_card_stays_private() -> void:
+	var cards: MatchCards = _cards()
+	var layaway: int = 0
+	_put(cards, _typed([layaway]), "ra09")
+	var state: MatchState = MatchState.new(SEED)
+	state.seats[0].hand.assign(_typed([layaway]))
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	var none: Array[int] = []
+	TriggerQueue.wake(state, cards, "on_commit", none, 0)
+	state.seats[0].hand.clear()
+	state.seats[0].deck.append(layaway)
+	assert_bool(TriggerQueue.drain(state, cards, MatchRng.new(SEED), rec.record, "D3", 0)).is_false()
+	var events: Array[MatchEvent] = rec.of_kind(FIRED)
+	events.append_array(rec.of_kind(FIZZLED))
+	assert_int(events.size()).is_equal(1)
+	assert_int(events[0].owner_seat).is_equal(0)
+	assert_int(_int_of(events[0], "card")).is_equal(layaway)
+	var seen: MatchEvent = events[0].redacted_for(1)
+	assert_int(_int_of(seen, "card")).is_equal(MatchEvent.HIDDEN_CARD)
+	assert_bool(seen.payload.has(MatchEvent.KEY_FROM_HAND)).is_false()
 
 
 ## Colossus costs 12, and 7 on Turn 7; a Cost change applies after (Tinker's -1: 6).

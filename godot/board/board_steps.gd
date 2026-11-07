@@ -13,7 +13,8 @@ extends RefCounted
 ## 0.15 `delay` (the gap sits before the flip) for a first reveal, effect 0.25, fizzle 0.15,
 ## choice shown 0.4, stats 0.2, status 0.2, move 0.3 (a run of CARD_MOVED events is one
 ## step), return 0.3, discard 0.45, exit 0.45, empty draw 0.4, shuffle-in 0.5, energy grant
-## 0.3, look 0.4, unreveal 0.35, pile strip show / hide 0.25 (made by the board's prompt code
+## 0.3, look 0.4, unreveal 0.35, a public hand trigger (C14) 0.5 in the viewer's fan or 1.2
+## for the opponent's telegraph, pile strip show / hide 0.25 (made by the board's prompt code
 ## through pile_step(), no event maps to them), walk end 0.6 (the tally fly-in and the count).
 ## Turn start, walk start, prompt, turn end and match end are instant (a prompt waits on the
 ## player, not on a clock). TURN_STARTED carries the Budget; ENERGY_GRANTED raises it.
@@ -47,6 +48,8 @@ const UNREVEAL_TIME: float = 0.35
 const PILE_TIME: float = 0.25
 const CREW_TIME: float = 0.25
 const DECLINE_TIME: float = 0.15
+const HAND_PULSE_TIME: float = 0.5
+const TELEGRAPH_TIME: float = 1.2
 
 
 ## The MatchEvent.Kind name of an event ("CARD_SCORED"): the match below reads kinds by name.
@@ -270,23 +273,11 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			walk_end.scores.assign(walk_scores)
 			walk_end.duration = WALK_END_TIME
 			out.append(walk_end)
-		"TRIGGER_FIRED":
-			# A Crew's firing is CREW_FIRED's beat; a card's lifts it.
-			var fired_crew: String = payload.get("crew", "")
-			if fired_crew == "":
-				var fired: BoardStep = _card_step(BoardStep.Kind.EFFECT, event)
-				fired.verb = payload.get("verb", "")
-				fired.trigger = payload.get("moment", "")
-				fired.duration = EFFECT_TIME
-				out.append(fired)
-		"TRIGGER_FIZZLED":
-			var fizzled_crew: String = payload.get("crew", "")
-			if fizzled_crew == "":
-				var fizzled: BoardStep = _card_step(BoardStep.Kind.FIZZLE, event)
-				fizzled.verb = payload.get("verb", "")
-				fizzled.reason = payload.get("reason", "")
-				fizzled.duration = FIZZLE_TIME
-				out.append(fizzled)
+		"TRIGGER_FIRED", "TRIGGER_FIZZLED":
+			# A Crew's firing is CREW_FIRED's beat; a card's lifts it (_trigger).
+			var trigger_crew: String = payload.get("crew", "")
+			if trigger_crew == "":
+				out.append(_trigger(event, viewer))
 		"PROMPT_OPENED":
 			# Only the viewer's own prompt shows; the bot's request has no beat.
 			if _seat_of(payload) == viewer:
@@ -380,6 +371,29 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			# CONCEDED has no beat of its own: MATCH_ENDED follows it and carries the reason.
 			pass
 	return out
+
+
+## TRIGGER_FIRED {seat, card, crew, moment, verb, resolution} and TRIGGER_FIZZLED {seat, card,
+## crew, verb, reason} of a card: EFFECT or FIZZLE on its row card. A hand trigger is public
+## (`from_hand`, C14): the viewer's own card pulses in its fan (EFFECT or FIZZLE with
+## `from_hand`), the opponent's shows its face above the opponent's hand (TELEGRAPH).
+static func _trigger(event: MatchEvent, viewer: int) -> BoardStep:
+	var payload: Dictionary = event.payload
+	var fired: bool = kind_name(event) == "TRIGGER_FIRED"
+	var from_hand: bool = payload.get(MatchEvent.KEY_FROM_HAND, false)
+	var kind: int = BoardStep.Kind.EFFECT if fired else BoardStep.Kind.FIZZLE
+	var step: BoardStep = _card_step(kind, event)
+	step.verb = payload.get("verb", "")
+	step.trigger = payload.get("moment", "")
+	step.reason = payload.get("reason", "")
+	step.duration = EFFECT_TIME if fired else FIZZLE_TIME
+	if from_hand and step.seat == viewer:
+		step.from_hand = true
+		step.duration = HAND_PULSE_TIME
+	elif from_hand:
+		step.kind = BoardStep.Kind.TELEGRAPH
+		step.duration = TELEGRAPH_TIME
+	return step
 
 
 ## TURN_STARTED {round, turn, first_seat, budgets}: the viewer's Budget is `budgets[viewer]`.
