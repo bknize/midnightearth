@@ -117,7 +117,7 @@ func fly_to(targets: Array[Vector3], seconds: float) -> void:
 			continue
 		var tween: Tween = label.create_tween()
 		var move: PropertyTweener = tween.tween_property(
-			label, "global_position", targets[seat], maxf(seconds, 0.01)
+			label, "global_position", targets[seat], maxf(seconds, EffectPlayer.MIN_TWEEN_TIME)
 		)
 		move = move.set_ease(Tween.EASE_IN)
 		var done: CallbackTweener = tween.tween_callback(_finish.bind(seat))

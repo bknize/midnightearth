@@ -210,16 +210,9 @@ static func _version_problem(root: Dictionary) -> String:
 	if not root.has("version"):
 		return "%s: missing or non-integer version" % ERR_SHAPE
 	var raw: Variant = root["version"]
-	var version: int = -1
-	if raw is int:
-		version = raw
-	elif raw is float:
-		var number: float = raw
-		if not is_finite(number) or number != floorf(number):
-			return "%s: missing or non-integer version" % ERR_SHAPE
-		version = int(number)
-	else:
+	if not EngineAction.is_whole_number(raw):
 		return "%s: missing or non-integer version" % ERR_SHAPE
+	var version: int = EngineAction.as_int(raw)
 	if version != FORMAT_VERSION:
 		return "%s: %d (expected %d)" % [ERR_VERSION, version, FORMAT_VERSION]
 	return ""

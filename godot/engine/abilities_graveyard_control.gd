@@ -96,7 +96,6 @@ const VERBS: Array[String] = [
 ]
 ## CardState.granted kind of a use counted until end of turn (Tithe, Reliquary).
 const KIND_USED: String = "used"
-const SCOPE_TURN: String = "turn"
 const MOMENT_MOVED: String = "on_moved"
 const MOMENT_ONGOING: String = "ongoing"
 ## On discard context keys (TurnFlow.on_discard): where the card came from and why.
@@ -122,7 +121,7 @@ static func handles(verb: String) -> bool:
 static func prepare(ctx: TriggerContext) -> void:
 	match ctx.verb:
 		VERB_FUSE, VERB_RESET, VERB_SKIP, VERB_EDDY:
-			_need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
+			Abilities.need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
 		VERB_TITHE:
 			_prepare_tithe(ctx)
 		VERB_RELIQUARY:
@@ -135,19 +134,19 @@ static func prepare(ctx: TriggerContext) -> void:
 			_prepare_shepherd(ctx)
 		VERB_REVIVE:
 			var pile: Array[int] = ctx.state.seats[ctx.seat].pile
-			if ctx.choose(Choice.Zone.OWN_PILE, _positions(pile.size())):
+			if ctx.choose(Choice.Zone.OWN_PILE, Abilities.positions(pile.size())):
 				pass  # One card in the Pile: chosen at once.
 		VERB_EXHUME:
 			_prepare_exhume(ctx)
 		VERB_PIN:
 			var both: int = Choice.zone_cards(ctx.state, ctx.seat, Choice.Zone.BOTH_BOARDS).size()
-			if ctx.choose(Choice.Zone.BOTH_BOARDS, _positions(both)):
+			if ctx.choose(Choice.Zone.BOTH_BOARDS, Abilities.positions(both)):
 				pass  # One card on the rows: chosen at once.
 		VERB_SHAKE:
 			var widest: int = maxi(ctx.state.seats[0].board.size(), ctx.state.seats[1].board.size())
-			_need(ctx, widest >= 2)
+			Abilities.need(ctx, widest >= 2)
 		VERB_TEMPEST:
-			_need(ctx, ctx.state.seats[1 - ctx.seat].board.size() >= 2)
+			Abilities.need(ctx, ctx.state.seats[1 - ctx.seat].board.size() >= 2)
 		VERB_CULL:
 			_prepare_cull(ctx)
 		_:
@@ -189,13 +188,13 @@ static func ongoing_stats(
 ) -> void:
 	if state == null or cards == null:
 		return
-	var boneyard: CardAbility = _own_ongoing(state, cards, card, VERB_BONEYARD)
+	var boneyard: CardAbility = own_ongoing(state, cards, card, VERB_BONEYARD)
 	if boneyard != null and boneyard.amount_2 > 0:
 		var piled: int = state.seats[0].pile.size() + state.seats[1].pile.size()
 		@warning_ignore("integer_division")
 		var steps: int = piled / boneyard.amount_2
 		out.power += steps * boneyard.amount
-	var herald: CardAbility = _own_ongoing(state, cards, card, VERB_HERALD)
+	var herald: CardAbility = own_ongoing(state, cards, card, VERB_HERALD)
 	if herald != null:
 		var row: Array[int] = state.seats[Statuses.row_seat(state, card)].board
 		var rightmost: int = row[row.size() - 1]
@@ -212,7 +211,7 @@ static func ongoing_stats(
 static func level_power(
 	out: Scoring.Stats, card: int, state: MatchState, cards: MatchCards
 ) -> void:
-	if not _level_read(state, cards):
+	if not _read_anywhere(state, cards, VERB_LEVEL):
 		return
 	var seat: int = Statuses.row_seat(state, card)
 	if seat < 0:
@@ -320,12 +319,6 @@ static func shake_row(
 # --- Preparing --------------------------------------------------------------------------
 
 
-## Fizzles `ctx` `no_target` unless `ready`.
-static func _need(ctx: TriggerContext, ready: bool) -> void:
-	if not ready:
-		ctx.fizzle(Abilities.REASON_NO_TARGET)
-
-
 ## Tithe: a Condemned card Discarded by the exit pass, a next Turn in the Round, and fewer
 ## than `cap` grants from this Tithe this turn end.
 static func _prepare_tithe(ctx: TriggerContext) -> void:
@@ -346,7 +339,7 @@ static func _prepare_reliquary(ctx: TriggerContext) -> void:
 		ctx.fizzle(Abilities.REASON_SPENT)
 	elif ctx.ability.cap > 0:
 		var mult: int = Scoring.stats(ctx.card, ctx.state, ctx.cards).mult()
-		_need(ctx, mult < ctx.ability.cap)
+		Abilities.need(ctx, mult < ctx.ability.cap)
 
 
 ## The row positions of `ctx`'s other cards that can be Condemned (Glutton, Immolator).
@@ -393,7 +386,7 @@ static func _prepare_exhume(ctx: TriggerContext) -> void:
 	var most: int = maxi(ctx.ability.amount, 0)
 	if ctx.choose(
 		Choice.Zone.BOTH_PILES,
-		_positions(count),
+		Abilities.positions(count),
 		true,
 		Choice.ANY_SIZE,
 		0,
@@ -430,9 +423,9 @@ static func _cull_next(ctx: TriggerContext, after: int) -> int:
 static func _cull_ask(ctx: TriggerContext, by_seat: int) -> void:
 	var keep: int = ctx.ability.amount
 	ctx.data[DATA_ASKED] = by_seat
-	var options: Array[int] = _positions(ctx.state.seats[by_seat].board.size())
+	var options: Array[int] = Abilities.positions(ctx.state.seats[by_seat].board.size())
 	if ctx.choose(Choice.Zone.OWN_BOARD, options, true, keep, keep, false, by_seat):
-		pass  # Only when every card must be kept, which Cull never asks.
+		pass  # Never: the row holds more than `keep` cards, so this always prompts.
 
 
 # --- Resolving: Graveyard ---------------------------------------------------------------
@@ -442,7 +435,7 @@ static func _cull_ask(ctx: TriggerContext, by_seat: int) -> void:
 ## itself and one random opposing card.
 static func _fuse(ctx: TriggerContext) -> void:
 	ctx.state.card_state_for(ctx.card).power_delta += ctx.ability.amount
-	_stats_changed(ctx, ctx.card, false)
+	Abilities.stats_changed(ctx, ctx.card, false)
 	if Scoring.stats(ctx.card, ctx.state, ctx.cards).power < ctx.ability.amount_2:
 		return
 	_condemn(ctx, ctx.card)
@@ -470,7 +463,7 @@ static func _reliquary(ctx: TriggerContext) -> void:
 	var kept: CardMemory = ctx.state.memory_for(ctx.card)
 	kept.mult_times_steps.append(ctx.ability.amount)
 	kept.mult_cap = maxi(kept.mult_cap, ctx.ability.cap)
-	_stats_changed(ctx, ctx.card, true)
+	Abilities.stats_changed(ctx, ctx.card, true)
 
 
 ## Glutton: the chosen card is Condemned; Glutton gains its Power (read now) until it
@@ -482,7 +475,7 @@ static func _glutton(ctx: TriggerContext) -> void:
 	var gained: int = Scoring.stats(target, ctx.state, ctx.cards).power
 	_condemn(ctx, target)
 	ctx.state.card_state_for(ctx.card).power_delta += gained
-	_stats_changed(ctx, ctx.card, false)
+	Abilities.stats_changed(ctx, ctx.card, false)
 
 
 ## Revive: the chosen Pile card is placed face down in the slot right of Revive (Placement:
@@ -506,10 +499,7 @@ static func _revive(ctx: TriggerContext) -> void:
 ## Exhume: each chosen card (all read before any moves, since a shuffle-in shifts the Pile
 ## positions after it) goes into its Owner's Deck at a random position, in position order.
 static func _exhume(ctx: TriggerContext) -> void:
-	var chosen: Array[int] = []
-	for at: int in range(ctx.indices.size()):
-		chosen.append(ctx.chosen_card(at))
-	for card: int in chosen:
+	for card: int in ctx.chosen_cards():
 		_shuffle_in(ctx, card)
 
 
@@ -526,23 +516,15 @@ static func _shuffle_in(ctx: TriggerContext, card: int) -> void:
 	var owner: int = ctx.cards.origin_of(card)
 	if owner < 0:
 		owner = holder
-	var deck: Array[int] = ctx.state.seats[owner].deck
-	var at: int = deck.size()
-	if ctx.rng != null:
-		at = ctx.rng.pick_index(deck.size() + 1)
-	if deck.insert(at, card) != OK:
-		deck.append(card)
+	Abilities.insert_at_random(ctx.state.seats[owner].deck, card, ctx.rng)
 	var shuffled: Dictionary = {"seat": owner, "count": 1, KEY_PILE_CARDS: [card]}
 	ctx.emit(MatchEvent.Kind.PILE_SHUFFLED_IN, shuffled)
 
 
 ## Immolator: each chosen card is Condemned, then as many distinct random opposing cards.
 static func _immolate(ctx: TriggerContext) -> void:
-	var chosen: Array[int] = []
-	for at: int in range(ctx.indices.size()):
-		chosen.append(ctx.chosen_card(at))
 	var count: int = 0
-	for card: int in chosen:
+	for card: int in ctx.chosen_cards():
 		if card >= 0 and _condemned(ctx, card):
 			count += 1
 	var pool: Array[int] = []
@@ -559,16 +541,22 @@ static func _immolate(ctx: TriggerContext) -> void:
 ## Condemns itself.
 static func _reset(ctx: TriggerContext) -> void:
 	for seat: int in [ctx.state.first_seat, 1 - ctx.state.first_seat]:
-		var piles: MatchState.SeatPiles = ctx.state.seats[seat]
-		var count: int = piles.pile.size()
-		if count == 0:
-			continue
-		piles.deck.append_array(piles.pile)
-		piles.pile.clear()
-		if ctx.rng != null:
-			ctx.rng.shuffle_in_place(piles.deck)
-		ctx.emit(MatchEvent.Kind.PILE_SHUFFLED_IN, {"seat": seat, "count": count})
+		pile_into_deck(ctx, seat)
 	_condemn(ctx, ctx.card)
+
+
+## `seat`'s whole Pile goes into its Deck, which is then shuffled with the stream;
+## PILE_SHUFFLED_IN {seat, count}, public. Nothing for an empty Pile (Reset, Dredger).
+static func pile_into_deck(ctx: TriggerContext, seat: int) -> void:
+	var piles: MatchState.SeatPiles = ctx.state.seats[seat]
+	var count: int = piles.pile.size()
+	if count == 0:
+		return
+	piles.deck.append_array(piles.pile)
+	piles.pile.clear()
+	if ctx.rng != null:
+		ctx.rng.shuffle_in_place(piles.deck)
+	ctx.emit(MatchEvent.Kind.PILE_SHUFFLED_IN, {"seat": seat, "count": count})
 
 
 # --- Resolving: Control -----------------------------------------------------------------
@@ -578,8 +566,9 @@ static func _reset(ctx: TriggerContext) -> void:
 static func _resolve_control(ctx: TriggerContext) -> void:
 	match ctx.verb:
 		VERB_EDDY:
-			ctx.state.card_state_for(ctx.card).grant(CardState.KIND_ADD, ctx.ability.amount, SCOPE_TURN)
-			_stats_changed(ctx, ctx.card, false)
+			var add: int = ctx.ability.amount
+			ctx.state.card_state_for(ctx.card).grant(CardState.KIND_ADD, add, Abilities.SCOPE_TURN)
+			Abilities.stats_changed(ctx, ctx.card, false)
 		VERB_PIN:
 			var target: int = ctx.chosen_card()
 			var cease: Dictionary = Statuses.cessation(
@@ -631,16 +620,11 @@ static func _cull(ctx: TriggerContext) -> void:
 	var asked: int = ctx.data.get(DATA_ASKED, -1)
 	if asked < 0 or asked > 1:
 		return
-	var kept: Array = []
-	for at: int in range(ctx.indices.size()):
-		kept.append(ctx.chosen_card(at))
+	var kept: Array = MatchState.plain(ctx.chosen_cards())
 	ctx.data[DATA_KEPT[asked]] = kept
 	var next: int = _cull_next(ctx, asked)
 	if next >= 0:
-		_cull_ask(ctx, next)
-		if not ctx.prompt.is_empty():
-			return
-		_cull(ctx)
+		_cull_ask(ctx, next)  # Always a prompt: the row holds more than `amount` cards.
 		return
 	for seat: int in [ctx.seat, 1 - ctx.seat]:
 		if not ctx.data.has(DATA_KEPT[seat]):
@@ -654,14 +638,6 @@ static func _cull(ctx: TriggerContext) -> void:
 
 
 # --- Helpers ----------------------------------------------------------------------------
-
-
-## Positions 0 .. count - 1.
-static func _positions(count: int) -> Array[int]:
-	var out: Array[int] = []
-	for index: int in range(count):
-		out.append(index)
-	return out
 
 
 ## Condemns `card` (a protection may block it: Bastion); true when the mark landed. A
@@ -689,32 +665,28 @@ static func _used(state: MatchState, card: int) -> int:
 
 ## Counts one use of `card` until end of turn.
 static func _use(state: MatchState, card: int) -> void:
-	state.card_state_for(card).grant(KIND_USED, 1, SCOPE_TURN)
+	state.card_state_for(card).grant(KIND_USED, 1, Abilities.SCOPE_TURN)
 
 
 ## `card`'s own Ongoing ability with `verb` while it is read (a revealed row card, not
 ## Squelched), or null.
-static func _own_ongoing(
+static func own_ongoing(
 	state: MatchState, cards: MatchCards, card: int, verb: String
 ) -> CardAbility:
 	if not cards.has_verb(verb):
+		return null
+	var def: CardDef = cards.def_of(card) if card >= 0 else null
+	if def == null or not def.has_verb(verb):
 		return null
 	var seat: int = Statuses.row_seat(state, card)
 	if seat < 0 or not state.seats[seat].is_revealed(card):
 		return null
 	if not Scoring.reads_ongoing(state, card):
 		return null
-	for ability: CardAbility in Abilities.on_moment(card, cards, MOMENT_ONGOING):
-		if ability.verb == verb:
+	for ability: CardAbility in def.abilities:
+		if ability.moment == MOMENT_ONGOING and ability.verb == verb:
 			return ability
 	return null
-
-
-## Whether a Level is read on either row now.
-static func _level_read(state: MatchState, cards: MatchCards) -> bool:
-	if state == null or cards == null:
-		return false
-	return _read_anywhere(state, cards, VERB_LEVEL)
 
 
 ## Whether an Ongoing with `verb` is read on either row now.
@@ -727,17 +699,3 @@ static func _read_anywhere(state: MatchState, cards: MatchCards, verb: String) -
 	return false
 
 
-## STATS_CHANGED {card, power, mult, add, cost, permanent, cause} for `card` now, private
-## to the seat holding it while it is hidden (Abilities.hidden_holder).
-static func _stats_changed(ctx: TriggerContext, card: int, permanent: bool) -> void:
-	var read: Scoring.Stats = Scoring.stats(card, ctx.state, ctx.cards)
-	var changed: Dictionary = {
-		"card": card,
-		"power": read.power,
-		"mult": read.mult(),
-		"add": read.add(),
-		"cost": maxi(Scoring.effective_cost(card, ctx.state, ctx.cards), 0),
-		"permanent": permanent,
-		"cause": ctx.verb,
-	}
-	ctx.emit(MatchEvent.Kind.STATS_CHANGED, changed, Abilities.hidden_holder(ctx.state, card))

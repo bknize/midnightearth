@@ -4,7 +4,7 @@ tags: [moc, specs]
 status: evergreen
 related: ["[[home]]"]
 created: 2026-11-02
-updated: 2026-11-06
+updated: 2026-11-07
 uid: 99ef0f47-bcd6-4654-ad1f-ab1f1db9df29
 linear:
 supersedes:
@@ -28,3 +28,4 @@ written by `/spec <slug>` and exercised into Linear by `/exercise <slug>`.
 | [[specs/cycle-8-ramp-bounce-crew/spec|cycle-8-ramp-bounce-crew]] ([[specs/cycle-8-ramp-bounce-crew/plan|plan]], [[specs/cycle-8-ramp-bounce-crew/tasks|tasks]]) | approved | [Cycle 8 — ramp, bounce, Crew](https://linear.app/night-science-llc/project/cycle-8-ramp-bounce-crew-c3fe684d879f) |
 | [[specs/ruleset-v2/spec|ruleset-v2]] ([[specs/ruleset-v2/plan|plan]], [[specs/ruleset-v2/tasks|tasks]]) | approved | [P-NSC-10](https://linear.app/night-science-llc/project/ruleset-v2-hardened-vocabulary-resolution-chart-new-card-set-7f65436c0b01) (design-only set: glossary, resolution chart, rules v2, 90 cards, ten Crew, six test decks under `docs/rules/`) |
 | [[specs/cycle-9-rules-v2/spec|cycle-9-rules-v2]] ([[specs/cycle-9-rules-v2/plan|plan]], [[specs/cycle-9-rules-v2/tasks|tasks]]) | approved | [P-NSC-11](https://linear.app/night-science-llc/project/cycle-9-rules-v2-in-the-engine-60e0297b48b8) (rules v2 in the engine: milestone A DC-13 rules machinery, evergreen, Greed and Ramp, the bot strip, a minimum board; milestone B DC-14 the other four strategies, Crew and the guides) |
+| [[specs/cycle-10-review-tools/spec|cycle-10-review-tools]] ([[specs/cycle-10-review-tools/plan|plan]], [[specs/cycle-10-review-tools/tasks|tasks]]) | approved | (not exercised yet) `/code-review` and `/simplify` at `/cycle test` (ADR 0004), the reviewer's narrower brief, and a one-off six-chunk cleanup pass over `godot/` after DC-14 merges |

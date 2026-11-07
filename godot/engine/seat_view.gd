@@ -117,9 +117,9 @@ static func build(
 	var own: MatchState.SeatPiles = state.seats[view.seat]
 	var other: MatchState.SeatPiles = state.seats[view.opponent]
 	view.own_hand.assign(own.hand)
-	view.own_hand_row = _hand_row(state, own.hand, cards)
 	if cards != null:
 		view.own_hand_costs = Scoring.effective_costs(own.hand, state, cards)
+	view.own_hand_row = _hand_row(state, own.hand, cards, view.own_hand_costs)
 	view.own_board.assign(own.board)
 	view.opponent_board.assign(_shown_ids(other))
 	view.own_row = _row(state, view.seat, cards, true)
@@ -241,34 +241,40 @@ static func _row(
 	var piles: MatchState.SeatPiles = state.seats[row_seat]
 	for card: int in piles.board:
 		var revealed: bool = piles.is_revealed(card)
-		var entry: Dictionary = {
-			"card": MatchEvent.HIDDEN_CARD,
-			"power": 0,
-			"mult": MatchRules.BONUS_ONE,
-			"add": 0,
-			"cost": 0,
-			"grown": false,
-			"uses_left": -1,
-		}
-		if own or revealed:
-			entry = _card_entry(state, card, cards)
-		entry["revealed"] = revealed
+		var entry: Dictionary
 		var words: Array = []  # Hidden from the other seat while face down (R58).
 		var mark: String = ""
 		if own or revealed:
+			entry = _card_entry(state, card, cards)
 			words.assign(Statuses.badges(state, cards, card))
 			mark = Statuses.exit_mark_of(state, card)
+		else:
+			entry = {
+				"card": MatchEvent.HIDDEN_CARD,
+				"power": 0,
+				"mult": MatchRules.BONUS_ONE,
+				"add": 0,
+				"cost": 0,
+				"grown": false,
+				"uses_left": -1,
+			}
+		entry["revealed"] = revealed
 		entry["statuses"] = words
 		entry["exit_mark"] = mark
 		out.append(entry)
 	return out
 
 
-## The entries of `hand` (this seat's own) in hand order: see `own_hand_row`.
-static func _hand_row(state: MatchState, hand: Array[int], cards: MatchCards) -> Array[Dictionary]:
+## The entries of `hand` (this seat's own) in hand order: see `own_hand_row`. `costs` are the
+## hand's effective costs, parallel to it (`own_hand_costs`); a card past its end (a view
+## built without definitions) shows cost 0.
+static func _hand_row(
+	state: MatchState, hand: Array[int], cards: MatchCards, costs: Array[int]
+) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
-	for card: int in hand:
-		out.append(_card_entry(state, card, cards))
+	for index: int in range(hand.size()):
+		var cost: int = costs[index] if index < costs.size() else -1
+		out.append(_costed_entry(state, hand[index], cards, cost))
 	return out
 
 
@@ -285,23 +291,21 @@ static func _pile_entries(
 ## What `card` shows to a seat that knows it: {card, cost, power, mult, add, grown,
 ## uses_left}, with Memory and Board changes (Scoring.stats).
 static func _card_entry(state: MatchState, card: int, cards: MatchCards) -> Dictionary:
+	return _costed_entry(state, card, cards, Scoring.effective_cost(card, state, cards))
+
+
+## _card_entry() with `card`'s effective cost already known (`cost`, -1 for unpriced).
+static func _costed_entry(state: MatchState, card: int, cards: MatchCards, cost: int) -> Dictionary:
 	var stats: Scoring.Stats = Scoring.stats(card, state, cards)
 	return {
 		"card": card,
-		"cost": maxi(Scoring.effective_cost(card, state, cards), 0),
+		"cost": maxi(cost, 0),
 		"power": stats.power,
 		"mult": stats.mult(),
 		"add": stats.add(),
 		"grown": Scoring.is_grown(card, state),
 		"uses_left": Scoring.uses_left(card, state, cards),
 	}
-
-
-## An untyped copy of a String array, for to_dict().
-static func _plain_strings(values: Array[String]) -> Array:
-	var out: Array = []
-	out.assign(values)
-	return out
 
 
 ## Deep, untyped copies of row entries, for to_dict().
@@ -355,7 +359,7 @@ func to_dict() -> Dictionary:
 	return {
 		"seat": seat,
 		"opponent": opponent,
-		"deck_ids": _plain_strings(deck_ids),
+		"deck_ids": MatchState.plain_strings(deck_ids),
 		"own_hand": MatchState.plain(own_hand),
 		"own_hand_row": _plain_row(own_hand_row),
 		"own_hand_costs": MatchState.plain(own_hand_costs),

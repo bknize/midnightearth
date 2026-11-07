@@ -40,18 +40,6 @@ var exit_mark: String = ""
 var protections: Array[String] = []
 
 
-## True when every field is at its default, so the entry changes nothing.
-func is_default() -> bool:
-	return (
-		power_delta == 0
-		and granted.is_empty()
-		and copied_base.is_empty()
-		and statuses.is_empty()
-		and exit_mark == ""
-		and protections.is_empty()
-	)
-
-
 ## Grants a Bonus of `kind` (KIND_ADD or KIND_MULT) worth `value` hundredths until `until`.
 func grant(kind: String, value: int, until: String) -> void:
 	granted.append({KEY_KIND: kind, KEY_VALUE: value, KEY_UNTIL: until})
@@ -94,7 +82,7 @@ func to_dict() -> Dictionary:
 		"copied_base": copied_base.duplicate(true),
 		"statuses": _statuses_dict(),
 		"exit_mark": exit_mark,
-		"protections": _plain_protections(),
+		"protections": MatchState.plain_strings(protections),
 	}
 
 
@@ -106,9 +94,3 @@ func _statuses_dict() -> Dictionary:
 		out[status] = cessation.duplicate(true)
 	return out
 
-
-## The protections as a plain list.
-func _plain_protections() -> Array:
-	var out: Array = []
-	out.assign(protections)
-	return out

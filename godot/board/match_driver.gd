@@ -28,10 +28,13 @@ var _engine: MatchEngine = null
 ## One entry per seat; null for a seat a human drives.
 var _bots: Array[BotPlayer] = []
 var _bot_name: String = ""
-## Seat 0's redacted events of the last accepted call (start, submit_player or play_bot).
+## Seat 0's redacted events of the last call (start, submit_player or play_bot); empty
+## after a rejected one.
 var _last_events: Array[MatchEvent] = []
 ## The MATCH_ENDED payload, empty until the match is over.
 var _end_payload: Dictionary = {}
+## Seat 0's view, built on first use after each accepted call (the engine changes only there).
+var _view: SeatView = null
 
 
 ## A match on `p_seed` where seat s plays `deck_ids[s]` of `decks` over the pool `cards`
@@ -158,14 +161,21 @@ func play_bot() -> ApplyResult:
 	return result
 
 
-## Seat 0's redacted events of the last accepted action (or of start()).
+## Seat 0's redacted events of the last action (or of start()); empty when it was rejected.
 func last_events() -> Array[MatchEvent]:
 	return _last_events
 
 
-## Seat 0's redacted view.
+## Seat 0's redacted view. Built once per engine change; callers only read it.
 func view() -> SeatView:
-	return _engine.view_for(PLAYER_SEAT)
+	if _view == null:
+		_view = _engine.view_for(PLAYER_SEAT)
+	return _view
+
+
+## Whether seat 0 is the awaited seat (SeatView.is_awaited() without building a view).
+func is_player_awaited() -> bool:
+	return _engine.awaited_seat() == PLAYER_SEAT
 
 
 func is_over() -> bool:
@@ -182,32 +192,33 @@ func action_count() -> int:
 func result_line() -> String:
 	if _end_payload.is_empty():
 		return ""
-	var winner: int = _end_payload["winner"]
-	var reason: String = _end_payload["reason"]
-	var rounds: int = _end_payload["rounds_played"]
-	var raw_wins: Array = _end_payload["wins"]
+	var summary_line: String = summary(
+		_seed, _engine.deck_ids(), _bot_name, _end_payload, _engine.accepted_action_count()
+	)
+	return "Board: match ended " + summary_line
+
+
+## The fields of a finished match as the smoke lines print them (main.gd's "Engine smoke:"
+## and result_line()): "seed=.. decks=a/b bot=.. winner=.. wins=x-y rounds=.. end=..
+## actions=..", from a MATCH_ENDED `payload`.
+static func summary(
+	p_seed: int, decks: Array[String], bot_name: String, payload: Dictionary, actions: int
+) -> String:
+	var winner: int = payload["winner"]
+	var reason: String = payload["reason"]
+	var rounds: int = payload["rounds_played"]
+	var raw_wins: Array = payload["wins"]
 	var wins: Array[int] = []
 	wins.assign(raw_wins)
-	var decks: Array[String] = _engine.deck_ids()
 	return (
-		"Board: match ended seed=%d decks=%s/%s bot=%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
-		% [
-			_seed,
-			decks[0],
-			decks[1],
-			_bot_name,
-			winner,
-			wins[0],
-			wins[1],
-			rounds,
-			reason,
-			_engine.accepted_action_count(),
-		]
+		"seed=%d decks=%s/%s bot=%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
+		% [p_seed, decks[0], decks[1], bot_name, winner, wins[0], wins[1], rounds, reason, actions]
 	)
 
 
 ## Keeps seat 0's redacted events of an accepted result and the MATCH_ENDED payload.
 func _take(result: ApplyResult) -> void:
+	_view = null
 	if not result.ok:
 		_last_events = []
 		return

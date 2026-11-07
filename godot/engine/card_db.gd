@@ -183,9 +183,9 @@ static func _failed(message: String) -> CardDb:
 ## The first problem of the pool's top level, or "": a whole `version` equal to
 ## FORMAT_VERSION and a `cards` array.
 static func _root_problem(root: Dictionary) -> String:
-	if not root.has("version") or not CardAbility.is_whole_number(root["version"]):
+	if not root.has("version") or not EngineAction.is_whole_number(root["version"]):
 		return "%s: missing or non-integer version" % ERR_SHAPE
-	var version: int = CardAbility.as_int(root["version"])
+	var version: int = EngineAction.as_int(root["version"])
 	if version != FORMAT_VERSION:
 		return "%s: %d (expected %d)" % [ERR_VERSION, version, FORMAT_VERSION]
 	if not root.has("cards") or not root["cards"] is Array:
@@ -231,9 +231,9 @@ static func _has_card_fields(d: Dictionary) -> bool:
 	var card_name: String = d[KEY_NAME]
 	if card_id == "" or card_name == "":
 		return false
-	if not CardAbility.is_whole_number(d.get(KEY_COST)):
+	if not EngineAction.is_whole_number(d.get(KEY_COST)):
 		return false
-	if not CardAbility.is_whole_number(d.get(KEY_POWER)):
+	if not EngineAction.is_whole_number(d.get(KEY_POWER)):
 		return false
 	if d.has(KEY_ABILITIES) and not d[KEY_ABILITIES] is Array:
 		return false
@@ -244,7 +244,7 @@ static func _has_card_fields(d: Dictionary) -> bool:
 
 ## The cost and power problem of a card entry (fields already checked), or "".
 static func _range_problem(d: Dictionary, abilities: Array, i: int) -> String:
-	var cost: int = CardAbility.as_int(d[KEY_COST])
+	var cost: int = EngineAction.as_int(d[KEY_COST])
 	var max_cost: int = MAX_COST
 	if _has_cost_exception(abilities):
 		max_cost = cost
@@ -253,7 +253,7 @@ static func _range_problem(d: Dictionary, abilities: Array, i: int) -> String:
 			"%s: card %d has cost %d (allowed %d..%d unless it has %s)"
 			% [ERR_COST, i, cost, MIN_COST, MAX_COST, CardAbility.COST_EXCEPTION_VERB]
 		)
-	var power: int = CardAbility.as_int(d[KEY_POWER])
+	var power: int = EngineAction.as_int(d[KEY_POWER])
 	if power < MIN_POWER or power > MAX_POWER:
 		return (
 			"%s: card %d has power %d (allowed %d..%d)"
@@ -306,7 +306,7 @@ static func _bonus_kind_of(d: Dictionary) -> CardDef.BonusKind:
 	elif d.has(CardDef.KEY_ADD):
 		kind = CardDef.BonusKind.ADD
 		key = CardDef.KEY_ADD
-	if kind == CardDef.BonusKind.NONE or not CardAbility.is_whole_number(d[key]):
+	if kind == CardDef.BonusKind.NONE or not EngineAction.is_whole_number(d[key]):
 		return CardDef.BonusKind.NONE
 	return kind
 
@@ -314,9 +314,9 @@ static func _bonus_kind_of(d: Dictionary) -> CardDef.BonusKind:
 ## The whole-number amount of a bonus object of `kind` (already checked by _bonus_kind_of).
 static func _bonus_amount_of(d: Dictionary, kind: CardDef.BonusKind) -> int:
 	if kind == CardDef.BonusKind.MULT:
-		return CardAbility.as_int(d[CardDef.KEY_MULT])
+		return EngineAction.as_int(d[CardDef.KEY_MULT])
 	if kind == CardDef.BonusKind.ADD:
-		return CardAbility.as_int(d[CardDef.KEY_ADD])
+		return EngineAction.as_int(d[CardDef.KEY_ADD])
 	return 0
 
 
@@ -354,8 +354,8 @@ static func _build_entry(entry: Variant) -> CardDef:
 		card_id,
 		card_name,
 		tag,
-		CardAbility.as_int(d[KEY_COST]),
-		CardAbility.as_int(d[KEY_POWER]),
+		EngineAction.as_int(d[KEY_COST]),
+		EngineAction.as_int(d[KEY_POWER]),
 		kind,
 		amount,
 		abilities,

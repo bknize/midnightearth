@@ -85,6 +85,25 @@ func test_a_discard_sets_the_pile_count_from_its_index_and_a_shuffle_in_empties_
 	assert_array(tracker.piles).is_equal([0, 0])
 
 
+func test_a_revive_placement_takes_one_card_out_of_the_pile() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	for index: int in range(3):
+		var discard: BoardStep = _kind_step(BoardStep.Kind.DISCARD, 1)
+		discard.pile_index = index
+		tracker.apply(discard)
+	var revived: BoardStep = _kind_step(BoardStep.Kind.PLACE, 1)
+	revived.from_pile = true
+	tracker.apply(revived)
+	assert_array(tracker.piles).is_equal([0, 2])
+	var next_discard: BoardStep = _kind_step(BoardStep.Kind.DISCARD, 1)
+	next_discard.pile_index = 2
+	tracker.apply(next_discard)
+	assert_array(tracker.piles).is_equal([0, 3])
+	var other_place: BoardStep = _kind_step(BoardStep.Kind.PLACE, 1)
+	tracker.apply(other_place)
+	assert_array(tracker.piles).is_equal([0, 3])
+
+
 func test_reset_clears_everything() -> void:
 	var tracker: ScoreTracker = ScoreTracker.new()
 	var discard: BoardStep = _kind_step(BoardStep.Kind.DISCARD, 1)

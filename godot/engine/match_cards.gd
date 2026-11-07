@@ -70,10 +70,7 @@ static func build(cards: CardDb, decks: DeckList, ids: Array[String], crew: Crew
 	out._pool = cards
 	out._deck_ids.assign(ids)
 	for def: CardDef in defs:
-		if def == null:
-			continue
-		for ability: CardAbility in def.abilities:
-			out._verbs[ability.verb] = true
+		out._add_verbs(def)
 	return out
 
 
@@ -142,8 +139,7 @@ func record_created(instance: int, def: CardDef, owner: int) -> bool:
 		return false
 	_created[instance] = def
 	_created_owner[instance] = owner
-	for ability: CardAbility in def.abilities:
-		_verbs[ability.verb] = true
+	_add_verbs(def)
 	return true
 
 
@@ -178,8 +174,7 @@ func replace_def(instance: int, def: CardDef) -> bool:
 	if def == null or instance < 0 or instance >= _defs.size():
 		return false
 	_defs[instance] = def
-	for ability: CardAbility in def.abilities:
-		_verbs[ability.verb] = true
+	_add_verbs(def)
 	return true
 
 
@@ -227,3 +222,11 @@ func deck_ids() -> Array[String]:
 	var out: Array[String] = []
 	out.assign(_deck_ids)
 	return out
+
+
+## Records the verbs of `def`'s abilities for has_verb(); nothing for a null `def`.
+func _add_verbs(def: CardDef) -> void:
+	if def == null:
+		return
+	for ability: CardAbility in def.abilities:
+		_verbs[ability.verb] = true

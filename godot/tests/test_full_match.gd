@@ -39,8 +39,8 @@ extends FullMatchHarness
 # empty at DC-11 T11 (the tuned bot may decline an optional Crew prompt, cycle 8 R56, R57).
 # Re-pinned at DC-11 T14 (four decks, live Crew, the T11 bot): "seed=1 decks=bloom/ruin
 # bot=tuned winner=0 wins=4-0 rounds=4 end=wins actions=74".
-# Emptied at DC-13 T01 (cycle 9 R70: only the random bot is left); while empty the golden
-# case is skipped and the orchestrator re-pins it from its print.
+# Emptied at DC-13 T01 (cycle 9 R70: only the random bot is left); the orchestrator re-pinned
+# it from its print.
 # Re-pinned at DC-13 T11 (rules 7, greed/ramp, the random bot, C12 to C14): "seed=1
 # decks=greed/greed bot=random winner=0 wins=3-1 rounds=7 end=rounds actions=121".
 # Emptied at DC-14 T14: six decks change seed 1's seeded pairing (and Crew B fire); the
@@ -54,7 +54,6 @@ const GOLDEN: String = (
 const SEED: int = 1
 ## The seeds 1..TEN_SEEDS of the gate's multi-seed case (DC-13 T03).
 const TEN_SEEDS: int = 10
-const GOLDEN_SKIP_NOTE: String = "GOLDEN is empty (DC-14 T14): pin it from the Golden print"
 const REASONS: Array[String] = [
 	MatchEngine.REASON_WINS,
 	MatchEngine.REASON_ROUNDS,
@@ -123,12 +122,11 @@ func test_seed_1_is_the_same_match_every_time() -> void:
 
 
 ## The pinned golden result: seed 1 under its own seeded pairing and the default bot, decks
-## and bot name included (C15, R53; cycle 7 R56). Prints "Golden: <line>" every run; while
-## GOLDEN is empty the case is skipped with GOLDEN_SKIP_NOTE, and the orchestrator pins it
-## from the same print in test_seed_1_plays_to_the_end_and_replays at verification.
-func test_seed_1_matches_the_golden_result(
-	_do_skip: bool = GOLDEN == "", _skip_reason: String = GOLDEN_SKIP_NOTE
-) -> void:
+## and bot name included (C15, R53; cycle 7 R56). Prints "Golden: <line>" every run, the
+## line the orchestrator re-pins GOLDEN from when a rules change moves it. An empty GOLDEN
+## fails the case (DC-15 C6): it is never skipped.
+func test_seed_1_matches_the_golden_result() -> void:
+	assert_str(GOLDEN).override_failure_message("GOLDEN is not pinned").is_not_empty()
 	var line: String = _result_line(_play(SEED, false))
 	print("Golden: %s" % line)
 	assert_str(line).override_failure_message("seed 1 did not end").is_not_empty()

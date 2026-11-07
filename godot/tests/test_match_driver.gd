@@ -13,15 +13,13 @@ const SEED: int = 1
 const MAX_ACTIONS: int = 2000
 ## An index no prompt offers (options are positions in a zone of at most a few cards).
 const NOT_AN_OPTION: int = 99
-## Sentinel line meaning "not pinned yet".
-const LINE_UNPINNED: String = ""
 ## Seed 1's pinned board result line, re-pinned at DC-07 T13 with `decks=<a>/<b>` after
 ## the seed (P14), from the shipped pool and deck list under seed 1's own pairing, as the
 ## board plays it (headless `--fixed-fps 60 --autoplay` prints the same line);
 ## the DC-06 T09 line (rules version 3) was "Board: match ended seed=1 winner=0 wins=4-3
 ## rounds=7 end=wins actions=120", the DC-05 line "... wins=4-2 rounds=6 ... actions=114".
-## While it is LINE_UNPINNED the pinned-line test is skipped with LINE_SKIP_NOTE; the
-## autoplay test still compares against a direct bot-vs-bot engine run.
+## An empty EXPECTED_LINE fails the pinned-line test (DC-15 C6); the autoplay test also
+## compares against a direct bot-vs-bot engine run.
 ## DC-08 T07 (R5) added `bot=<name>` after the decks; the DC-09 T07 pin under the greedy
 ## bot was "Board: match ended seed=1 decks=bloom/ruin bot=greedy winner=0 wins=4-0
 ## rounds=4 end=wins actions=72". Emptied at DC-13 T01 (cycle 9 R70: only the random bot
@@ -35,10 +33,6 @@ const EXPECTED_LINE: String = (
 )
 ## The bot the helpers build: the random bot, the only one (cycle 9 R70).
 const BOT: String = "random"
-const LINE_SKIP_NOTE: String = (
-	"unpinned at DC-13 T01 (only the random bot is left): pin EXPECTED_LINE"
-	+ " from seed 1's random 'Board: match ended' line"
-)
 ## Event kinds whose card ids are private to their owner (rules 7: nothing is burned; a
 ## look-at is private, DC-13 T03).
 const PRIVATE_KINDS: Array[int] = [
@@ -212,11 +206,9 @@ func test_seed_1_autoplay_equals_the_smoke_match() -> void:
 	assert_array(leaks).override_failure_message("leaks: %s" % [leaks]).is_empty()
 
 
-## The seed-1 autoplay line equals the pinned EXPECTED_LINE. Skipped, with LINE_SKIP_NOTE
-## as the reason, until the orchestrator pins it at DC-06 T09.
-func test_seed_1_autoplay_prints_the_pinned_line(
-	_do_skip: bool = EXPECTED_LINE == LINE_UNPINNED, _skip_reason: String = LINE_SKIP_NOTE
-) -> void:
+## The seed-1 autoplay line equals the pinned EXPECTED_LINE; an empty pin fails.
+func test_seed_1_autoplay_prints_the_pinned_line() -> void:
+	assert_str(EXPECTED_LINE).override_failure_message("EXPECTED_LINE is not pinned").is_not_empty()
 	# The board's own match: the shipped pool and list, seed 1's seeded pairing.
 	var seeded: Array[String] = ["", ""]
 	var driver: MatchDriver = MatchDriver.create(
@@ -448,3 +440,39 @@ func test_create_with_an_unknown_bot_is_null() -> void:
 			SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), true, unknown, FixtureDecks.crew()
 		)
 		assert_object(refused).is_null()
+
+
+## One accepted call for whichever seat is awaited: a bot move, seat 0's discard-down, or
+## seat 0's Pass.
+func _one_call(driver: MatchDriver) -> ApplyResult:
+	if driver.bot_turn_due():
+		return driver.play_bot()
+	var prompt: Dictionary = driver.open_prompt()
+	if not prompt.is_empty():
+		var picked: Array[int] = []
+		picked.assign(Choice.options_of(prompt).slice(0, Choice.exact_of(prompt)))
+		return driver.submit_set(Choice.zone_of(prompt), picked)
+	var none: Array[int] = []
+	return driver.submit_player(EngineAction.commit(0, none))
+
+
+## DC-15 C4: view() builds seat 0's view once per engine change. Two reads between calls
+## share one view; any call (accepted or rejected) drops it, and the next read matches a
+## freshly built view. is_player_awaited() agrees with the view.
+func test_view_is_shared_between_calls_and_rebuilt_after_each() -> void:
+	var driver: MatchDriver = _driver(SEED, false)
+	driver.start()
+	var first: SeatView = driver.view()
+	assert_object(driver.view()).is_same(first)
+	assert_bool(driver.is_player_awaited()).is_equal(first.is_awaited())
+	var accepted: ApplyResult = _one_call(driver)
+	assert_bool(accepted.ok).is_true()
+	var second: SeatView = driver.view()
+	assert_object(second).is_not_same(first)
+	assert_object(driver.view()).is_same(second)
+	assert_bool(driver.is_player_awaited()).is_equal(second.is_awaited())
+	var refused: ApplyResult = driver.submit_choice(Choice.Zone.OWN_HAND, NOT_AN_OPTION)
+	assert_bool(refused.ok).is_false()
+	var third: SeatView = driver.view()
+	assert_object(third).is_not_same(second)
+	assert_dict(third.to_dict()).is_equal(second.to_dict())

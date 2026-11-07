@@ -147,29 +147,18 @@ static func max_of(prompt: Dictionary) -> int:
 
 ## What answering `prompt` resumes (its `resume`), RESUME_WALK when absent or unknown.
 static func resume_of(prompt: Dictionary) -> String:
-	var raw: Variant = prompt.get(KEY_RESUME, RESUME_WALK)
-	if not raw is String:
-		return RESUME_WALK
-	var resume: String = raw
+	var resume: String = _string(prompt, KEY_RESUME, RESUME_WALK)
 	return resume if RESUMES.has(resume) else RESUME_WALK
 
 
 ## The drain point of `prompt` (its `step`), "" when absent.
 static func step_of(prompt: Dictionary) -> String:
-	var raw: Variant = prompt.get(KEY_STEP, "")
-	if not raw is String:
-		return ""
-	var step: String = raw
-	return step
+	return _string(prompt, KEY_STEP, "")
 
 
 ## The Crew id of `prompt` (its `crew`), "" for a card prompt.
 static func crew_of(prompt: Dictionary) -> String:
-	var raw: Variant = prompt.get(KEY_CREW, "")
-	if not raw is String:
-		return ""
-	var crew: String = raw
-	return crew
+	return _string(prompt, KEY_CREW, "")
 
 
 ## Whether `indices` is a valid answer to the multi-select `prompt` in `zone` (R14): the
@@ -295,6 +284,14 @@ static func _flag(prompt: Dictionary, key: String) -> bool:
 		return false
 	var flag: bool = raw
 	return flag
+
+
+static func _string(prompt: Dictionary, key: String, fallback: String) -> String:
+	var raw: Variant = prompt.get(key, fallback)
+	if not raw is String:
+		return fallback
+	var text: String = raw
+	return text
 
 
 static func _int(prompt: Dictionary, key: String, fallback: int) -> int:

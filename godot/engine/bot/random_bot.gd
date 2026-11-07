@@ -97,8 +97,8 @@ static func candidates_for(view: SeatView, cards: MatchCards) -> Array[EngineAct
 		for order: Array in orders:
 			var ordered: Array[int] = []
 			ordered.assign(order)
-			var order_costs: Array[int] = LegalPlays.costs_in_hand(ordered, view.own_hand, costs)
-			if LegalPlays.commit_cost_with(ordered, order_costs, view.free_first) <= view.energy:
+			# Without the free first card the mask already fits the budget (cap is energy).
+			if not view.free_first or _fits_free_first(ordered, view, costs):
 				_add_ends(out, view.seat, ordered, row_size)
 	return out
 
@@ -136,14 +136,7 @@ static func large_hand_commit(view: SeatView, cards: MatchCards, rng: MatchRng) 
 ## `count` distinct slots of 0 .. row_size + count - 1, uniform over every such set (a
 ## partial Fisher-Yates), ascending.
 static func uniform_slots(row_size: int, count: int, rng: MatchRng) -> Array[int]:
-	var pool: Array[int] = LegalPlays.append_slots(0, row_size + count)
-	var out: Array[int] = []
-	for _pick: int in range(mini(count, pool.size())):
-		var at: int = rng.pick_index(pool.size())
-		out.append(pool[at])
-		pool.remove_at(at)
-	out.sort()
-	return out
+	return _draw_distinct(LegalPlays.append_slots(0, row_size + count), count, rng)
 
 
 ## A value in 0 .. count - 1 from `rng` (0 when count < 1): uniform from one pick_index up
@@ -188,14 +181,7 @@ static func set_answer(
 	if exact < 0 and max_count >= 0:
 		return bounded_set(options, min_count, max_count, rng)
 	if exact >= 0:
-		var pool: Array[int] = []
-		pool.assign(options)
-		for _pick: int in range(mini(exact, pool.size())):
-			var at: int = rng.pick_index(pool.size())
-			kept.append(pool[at])
-			pool.remove_at(at)
-		kept.sort()
-		return kept
+		return _draw_distinct(options, exact, rng)
 	for _try: int in range(SET_TRIES):
 		kept.clear()
 		for option: int in options:
@@ -239,15 +225,28 @@ static func bounded_set(
 			break
 		roll -= weight
 		size_drawn += 1
+	return _draw_distinct(options, size_drawn, rng)
+
+
+## `count` distinct entries of `options` (at most all of them), uniform over every such set:
+## a partial Fisher-Yates over a copy, one pick_index per entry, returned ascending.
+static func _draw_distinct(options: Array[int], count: int, rng: MatchRng) -> Array[int]:
 	var pool: Array[int] = []
 	pool.assign(options)
 	var kept: Array[int] = []
-	for _pick: int in range(mini(size_drawn, pool.size())):
+	for _pick: int in range(mini(count, pool.size())):
 		var at: int = rng.pick_index(pool.size())
 		kept.append(pool[at])
 		pool.remove_at(at)
 	kept.sort()
 	return kept
+
+
+## Whether `ordered` (costs by hand position in `costs`) fits `view`'s budget with its first
+## card free (LegalPlays.commit_cost_with, as the engine prices it).
+static func _fits_free_first(ordered: Array[int], view: SeatView, costs: Array[int]) -> bool:
+	var order_costs: Array[int] = LegalPlays.costs_in_hand(ordered, view.own_hand, costs)
+	return LegalPlays.commit_cost_with(ordered, order_costs, true) <= view.energy
 
 
 ## The highest of `costs` (0 when empty or all unpriced).

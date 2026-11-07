@@ -136,8 +136,10 @@ static func ongoing_power(card: int, state: MatchState, cards: MatchCards) -> in
 	if state == null or cards == null or not cards.has_verb(PLAIN_POWER_VERB):
 		return 0
 	var def: CardDef = cards.def_of(card)
+	if def == null or not def.is_plain():
+		return 0
 	var seat: int = Statuses.row_seat(state, card)
-	if def == null or not def.is_plain() or seat < 0:
+	if seat < 0:
 		return 0
 	var total: int = 0
 	for ability: CardAbility in ongoing_on_row(state, cards, seat, PLAIN_POWER_VERB):

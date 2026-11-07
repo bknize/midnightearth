@@ -94,10 +94,13 @@ func _play_out(match_seed: int, engine: MatchEngine) -> int:
 ## R3: two random bots play the fixture deck to the end on seeds 1-20 and the engine
 ## accepts every action, prompts included.
 func test_engine_never_rejects_the_random_bot_over_20_seeds() -> void:
+	var played: int = 0
 	for match_seed: int in range(1, SWEEP_SEEDS + 1):
 		var prompts: int = _play_out(match_seed, FixtureDecks.engine(match_seed, _db()))
 		if prompts < 0:
 			return
+		played += 1
+	assert_int(played).is_equal(SWEEP_SEEDS)
 
 
 ## R3, R70 (DC-13 T08): on the shipped Greed and Ramp decks with their abilities and Crew,
