@@ -530,7 +530,8 @@ func _player_commit(step: BoardStep) -> void:
 
 
 func _clear_table(step: BoardStep) -> void:
-	for collection: CardCollection3D in _collections():
+	var rows: Array[CardCollection3D] = [player_row, opponent_row]
+	for collection: CardCollection3D in rows:
 		var transforms: Array[Transform3D] = []
 		for card: Card3D in collection.cards:
 			transforms.append(card.global_transform)
@@ -539,7 +540,7 @@ func _clear_table(step: BoardStep) -> void:
 			_loose.add_child(removed[i])
 			removed[i].global_transform = transforms[i]
 			_fx.fly_out(removed[i], step.duration)
-	_fx.reset()
+	_fx.reset_rows()
 	_tally.hide_all()
 	_chips.clear()
 	_refresh_scores()

@@ -443,6 +443,20 @@ func reset() -> void:
 	strip = null
 
 
+## A new Round clears the rows only: hands persist (rules 7), so the player's hand cards keep
+## their ids; the committed and face-down books and the strip are dropped.
+func reset_rows() -> void:
+	var stale: Array[int] = []
+	for id: int in player_cards.keys():
+		if not player_hand.cards.has(player_cards[id]):
+			stale.append(id)
+	for id: int in stale:
+		_forget(id)
+	committed_ids.clear()
+	face_down_ids.clear()
+	strip = null
+
+
 # --- Card motions (shared with the board) --------------------------------------------------
 
 
