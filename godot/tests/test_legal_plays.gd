@@ -388,13 +388,13 @@ func test_commit_cost_with_and_without_the_free_first_card() -> void:
 
 
 ## The effective costs of `hand` with `reductions` (card -> cost reduction) written into a
-## fresh state's memory.
+## fresh state's Memory as a negative cost change (cycle 9 P8: CardMemory.cost_delta).
 func _effective(hand: Array[int], reductions: Dictionary) -> Array[int]:
 	var state: MatchState = MatchState.new(1)
 	for card: int in reductions:
 		var amount: int = reductions[card]
-		state.memory_for(card).cost = amount
-	return ScoreWalk.effective_costs(hand, state, _defs())
+		state.memory_for(card).cost_delta = -amount
+	return Scoring.effective_costs(hand, state, _defs())
 
 
 ## A budget-2 commit of c09 (printed cost 3) passes with a reduction of 1 and fails
@@ -458,3 +458,24 @@ func test_commit_cost_with_free_first_and_unpriced() -> void:
 	assert_int(LegalPlays.commit_cost_with(cards, _typed([5, -1]), false)).is_equal(-1)
 	assert_int(LegalPlays.commit_cost_with(cards, _typed([5]), false)).is_equal(-1)
 	assert_int(LegalPlays.commit_cost_with(_typed([]), _typed([]), true)).is_equal(0)
+
+
+# --- Cycle 9 (DC-13 T03): the discard-down's size (R13, R14, plan P12) -----------------
+
+
+## The excess over the Hand size is what the discard-down takes; none within it.
+func test_excess_is_the_cards_over_the_hand_size() -> void:
+	assert_int(LegalPlays.excess(6, 4)).is_equal(2)
+	assert_int(LegalPlays.excess(5, 4)).is_equal(1)
+	assert_int(LegalPlays.excess(4, 4)).is_equal(0)
+	assert_int(LegalPlays.excess(2, 6)).is_equal(0)
+
+
+## An `exact` set takes exactly that many; with Choice.ANY_SIZE any size of at least `min`.
+func test_set_size_ok_reads_exact_then_min() -> void:
+	assert_bool(LegalPlays.set_size_ok(1, 1, 1)).is_true()
+	assert_bool(LegalPlays.set_size_ok(2, 1, 1)).is_false()
+	assert_bool(LegalPlays.set_size_ok(0, 1, 1)).is_false()
+	assert_bool(LegalPlays.set_size_ok(0, Choice.ANY_SIZE, 0)).is_true()
+	assert_bool(LegalPlays.set_size_ok(3, Choice.ANY_SIZE, 0)).is_true()
+	assert_bool(LegalPlays.set_size_ok(0, Choice.ANY_SIZE, 1)).is_false()

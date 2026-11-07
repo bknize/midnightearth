@@ -1,13 +1,13 @@
 class_name TestScoreWalk
 extends GdUnitTestSuite
-## The DC-13 T02 interim walk (cycle 9 plan, wave 2) and the stub Abilities.fire: every card
-## scores its Power with a ×1 Bonus (a printed Mult or Add is not applied until T03's
-## walking total), the slot cursor alternates the rows from the first committer's, and every
-## ability on the moment that fires (on_reveal at a reveal, on_score after a score) fizzles
-## `no_target` and changes nothing. States are built directly on the shipped Greed deck:
+## ScoreWalk under rules 7 (cycle 9 plan P7; spec R25 to R29; DC-13 T03): each Scoring card
+## adds its Power to its Controller's walking total, then the total is multiplied by its
+## Bonus value (Scoring); CARD_SCORED carries {power, bonus_value, total} in ten-thousandths;
+## the Walk ends with each Score its total rounded once and WALK_ENDED {totals, scores}. The
+## slot cursor alternates the rows from the first committer's, and every ability on the
+## moment that fires (on_reveal at a reveal, on_score after a score) fizzles `no_target` (the
+## T02 stub, until T05 and T06). States are built directly on the shipped Greed deck:
 ## instance 4 * k .. 4 * k + 3 are the four copies of gr0(k+1), seat 1 adds DECK_SIZE.
-## The v6 walk's cases (the hundredths multiplier, swaps, destroys) went with the v6 rules;
-## T03 rewrites this suite for the walking total.
 
 const SEED: int = 1
 const EMBER: int = 0
@@ -49,7 +49,7 @@ func _state(row_0: Array[int], row_1: Array[int], first: int) -> MatchState:
 	return state
 
 
-## Runs the walk on `state` from begin() to its end, recording the events.
+## Runs the Walk on `state` from begin() to its end, recording the events.
 func _walk(state: MatchState, recorder: Recorder) -> void:
 	ScoreWalk.begin(state)
 	var guard: int = 0
@@ -77,11 +77,11 @@ func _payload_str(event: MatchEvent, key: String) -> String:
 	return value
 
 
-## The `card` of every event of `kind`, in order.
-func _cards_of(events: Array[MatchEvent], kind: int) -> Array[int]:
+## `key` of every event of `kind`, in order.
+func _ints_of(events: Array[MatchEvent], kind: int, key: String) -> Array[int]:
 	var out: Array[int] = []
 	for event: MatchEvent in _of_kind(events, kind):
-		out.append(_payload_int(event, "card"))
+		out.append(_payload_int(event, key))
 	return out
 
 
@@ -89,36 +89,104 @@ func _power(card: int) -> int:
 	return _defs().def_of(card).power
 
 
-# --- The score ------------------------------------------------------------------------
+# --- The walking total ----------------------------------------------------------------
 
 
-## Plain bodies and Bonus cards alike add their Power: the multiplier stays ×1.00.
-func test_every_card_scores_its_power_with_a_x1_bonus() -> void:
+## Pip (Power 3), Skim (Power 2, ×1.25), Gilt (Power 4, ×1.5): the total reads 3, 6.25,
+## 15.375 in ten-thousandths, and the Score is 15.375 rounded once, 15. CARD_SCORED carries
+## each Power, Bonus value and total after.
+func test_the_walking_total_adds_power_then_multiplies_by_the_bonus_value() -> void:
 	var row_0: Array[int] = [PIP, SKIM, GILT]
 	var row_1: Array[int] = [MatchRules.DECK_SIZE + PIP + 1]
 	var state: MatchState = _state(row_0, row_1, 0)
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
-	assert_int(state.scores[0]).is_equal(_power(PIP) + _power(SKIM) + _power(GILT))
-	assert_int(state.scores[0]).is_equal(3 + 2 + 4)
-	assert_int(state.scores[1]).is_equal(3)
-	assert_int(state.walk.mult[0]).is_equal(MatchRules.BONUS_ONE)
-	for event: MatchEvent in _of_kind(recorder.events, MatchEvent.Kind.CARD_SCORED):
-		var card: int = _payload_int(event, "card")
-		assert_int(_payload_int(event, "flat")).is_equal(_power(card))
-		assert_int(_payload_int(event, "times")).is_equal(MatchRules.BONUS_ONE)
-		assert_int(_payload_int(event, "plus")).is_equal(0)
-		assert_int(_payload_int(event, "added")).is_equal(_power(card))
+	var scored: int = MatchEvent.Kind.CARD_SCORED
+	var own: Array[MatchEvent] = []
+	for event: MatchEvent in _of_kind(recorder.events, scored):
+		if _payload_int(event, "seat") == 0:
+			own.append(event)
+	assert_array(_ints_of(own, scored, "power")).is_equal(_typed([3, 2, 4]))
+	assert_array(_ints_of(own, scored, "bonus_value")).is_equal(_typed([10000, 12500, 15000]))
+	assert_array(_ints_of(own, scored, "total")).is_equal(_typed([30000, 62500, 153750]))
+	for event: MatchEvent in own:
+		assert_int(_payload_int(event, "pass")).is_equal(1)
+		assert_int(event.owner_seat).is_equal(MatchEvent.PUBLIC)
+	assert_array(state.totals).is_equal(_typed([153750, 30000]))
+	assert_array(state.scores).is_equal(_typed([15, 3]))
+	assert_array(state.walk.scored_count).is_equal(_typed([3, 1]))
 
 
-func test_effective_reads_power_and_no_bonus() -> void:
-	var state: MatchState = _state(_typed([]), _typed([]), 0)
-	var skim: ScoreWalk.Effective = ScoreWalk.effective(SKIM, state, _defs())
-	assert_dict(skim.to_dict()).is_equal({"flat": 2, "times": 100, "plus": 0})
-	var unknown: ScoreWalk.Effective = ScoreWalk.effective(999, state, _defs())
-	assert_dict(unknown.to_dict()).is_equal({"flat": 0, "times": 100, "plus": 0})
-	assert_int(ScoreWalk.effective_cost(GILT, state, _defs())).is_equal(6)
-	assert_int(ScoreWalk.uses_left(EMBER, state, _defs())).is_equal(-1)
+## The Walk ends with WALK_ENDED {totals, scores}, its last event; until then the Scores
+## keep the previous Walk's (R77: the HUD shows them meanwhile), and begin() zeroes the
+## totals.
+func test_walk_ended_carries_the_totals_and_the_rounded_scores() -> void:
+	var state: MatchState = _state(_typed([SKIM]), _typed([MatchRules.DECK_SIZE + GILT]), 1)
+	state.scores.assign([7, 9])
+	state.totals.assign([70000, 90000])
+	var recorder: Recorder = Recorder.new()
+	ScoreWalk.begin(state)
+	assert_array(state.totals).is_equal(_typed([0, 0]))
+	assert_array(state.scores).is_equal(_typed([7, 9]))
+	assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record)).is_false()
+	assert_array(state.scores).is_equal(_typed([7, 9]))
+	while state.walk.active:
+		assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record)).is_false()
+	var last: MatchEvent = recorder.events[recorder.events.size() - 1]
+	assert_int(last.kind).is_equal(MatchEvent.Kind.WALK_ENDED)
+	# Skim: 2 x 1.25 = 2.5, rounded up to 3; Gilt: 4 x 1.5 = 6.
+	var totals: Array = last.payload["totals"]
+	var scores: Array = last.payload["scores"]
+	assert_array(_typed(totals)).is_equal(_typed([25000, 60000]))
+	assert_array(_typed(scores)).is_equal(_typed([3, 6]))
+	assert_array(state.scores).is_equal(_typed([3, 6]))
+
+
+## A reveal is public with the card's Power, Mult and Add (hundredths) and its statuses
+## (none before DC-13 T04).
+func test_a_reveal_carries_power_mult_add_and_statuses() -> void:
+	var state: MatchState = _state(_typed([SKIM]), _typed([]), 0)
+	var recorder: Recorder = Recorder.new()
+	_walk(state, recorder)
+	var revealed: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.CARD_REVEALED)
+	assert_int(revealed.size()).is_equal(1)
+	var payload: Dictionary = revealed[0].payload
+	assert_dict(payload).is_equal(
+		{"seat": 0, "card": SKIM, "slot": 0, "power": 2, "mult": 125, "add": 0, "statuses": []}
+	)
+	assert_bool(state.seats[0].is_revealed(SKIM)).is_true()
+
+
+## Memory and Board changes reach the Score (R30): Pip with Memory Power +2 and a Board
+## change of +1 adds 6; Skim whose Mult grew +0.25 for the match multiplies by 1.5; a
+## granted Add of +0.5 joins before the Mults (C20).
+func test_memory_and_board_changes_reach_the_score() -> void:
+	var state: MatchState = _state(_typed([PIP, SKIM]), _typed([]), 0)
+	state.memory_for(PIP).power = 2
+	state.card_state_for(PIP).power_delta = 1
+	state.memory_for(SKIM).mult_add_steps = 25
+	state.memory_for(SKIM).mult_cap = 200
+	state.card_state_for(SKIM).grant(CardState.KIND_ADD, 50, "turn")
+	var recorder: Recorder = Recorder.new()
+	_walk(state, recorder)
+	var scored: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.CARD_SCORED)
+	assert_int(_payload_int(scored[0], "power")).is_equal(6)
+	assert_int(_payload_int(scored[0], "total")).is_equal(60000)
+	# (1 + 0.5) x 1.5 = 2.25; (6 + 2) x 2.25 = 18.
+	assert_int(_payload_int(scored[1], "bonus_value")).is_equal(22500)
+	assert_int(_payload_int(scored[1], "total")).is_equal(180000)
+	assert_int(state.scores[0]).is_equal(18)
+
+
+## A negative Power subtracts before the multiply, so a Score may be negative (R27).
+func test_a_negative_total_gives_a_negative_score() -> void:
+	var state: MatchState = _state(_typed([PIP, SKIM]), _typed([]), 0)
+	state.card_state_for(PIP).power_delta = -6
+	state.card_state_for(SKIM).power_delta = -4
+	_walk(state, Recorder.new())
+	# Pip -3 -> -3; Skim -2 -> (-3 - 2) x 1.25 = -6.25 -> -6 (half up).
+	assert_int(state.totals[0]).is_equal(-62500)
+	assert_int(state.scores[0]).is_equal(-6)
 
 
 ## The cursor alternates the rows from the first committer's, then finishes the longer row:
@@ -131,8 +199,21 @@ func test_the_cursor_alternates_then_finishes_the_longer_row() -> void:
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
 	var expected: Array[int] = [other, PIP, PIP + 1, PIP + 2]
-	assert_array(_cards_of(recorder.events, MatchEvent.Kind.CARD_SCORED)).is_equal(expected)
-	assert_array(_cards_of(recorder.events, MatchEvent.Kind.CARD_REVEALED)).is_equal(expected)
+	var scored: int = MatchEvent.Kind.CARD_SCORED
+	var revealed: int = MatchEvent.Kind.CARD_REVEALED
+	assert_array(_ints_of(recorder.events, scored, "card")).is_equal(expected)
+	assert_array(_ints_of(recorder.events, revealed, "card")).is_equal(expected)
+
+
+## A face-up card on the row Scores again in a later Walk with no second reveal.
+func test_a_revealed_card_scores_again_without_a_reveal() -> void:
+	var state: MatchState = _state(_typed([PIP]), _typed([]), 0)
+	_walk(state, Recorder.new())
+	var recorder: Recorder = Recorder.new()
+	_walk(state, recorder)
+	assert_array(_of_kind(recorder.events, MatchEvent.Kind.CARD_REVEALED)).is_empty()
+	assert_int(_of_kind(recorder.events, MatchEvent.Kind.CARD_SCORED).size()).is_equal(1)
+	assert_int(state.scores[0]).is_equal(3)
 
 
 func test_an_empty_walk_ends_on_its_first_step() -> void:
@@ -141,7 +222,9 @@ func test_an_empty_walk_ends_on_its_first_step() -> void:
 	var recorder: Recorder = Recorder.new()
 	assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record)).is_false()
 	assert_bool(state.walk.active).is_false()
-	assert_array(recorder.events).is_empty()
+	assert_int(recorder.events.size()).is_equal(1)
+	assert_int(recorder.events[0].kind).is_equal(MatchEvent.Kind.WALK_ENDED)
+	assert_array(state.scores).is_equal(_typed([0, 0]))
 
 
 # --- The stub abilities ---------------------------------------------------------------
@@ -157,24 +240,19 @@ func test_every_ability_fizzles_no_target_on_its_moment() -> void:
 	state.seats[0].deck.assign(_typed([PIP + 2]))
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
-	var fizzled: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.EFFECT_FIZZLED)
+	var fizzled: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.TRIGGER_FIZZLED)
 	assert_int(fizzled.size()).is_equal(3)
-	var expected: Array[Array] = [
-		[EMBER, "discard_own", "on_reveal"],
-		[COURIER, "draw", "on_score"],
-		[FLARE, "condemn_self", "on_reveal"],
-	]
+	var expected: Array[Array] = [[EMBER, "discard_own"], [COURIER, "draw"], [FLARE, "condemn_self"]]
 	for at: int in range(fizzled.size()):
 		var event: MatchEvent = fizzled[at]
 		var row: Array = expected[at]
 		var card: int = row[0]
 		var verb: String = row[1]
-		var moment: String = row[2]
 		assert_int(event.owner_seat).is_equal(MatchEvent.PUBLIC)
 		assert_int(_payload_int(event, "card")).is_equal(card)
 		assert_int(_payload_int(event, "seat")).is_equal(0)
+		assert_str(_payload_str(event, "crew")).is_equal("")
 		assert_str(_payload_str(event, "verb")).is_equal(verb)
-		assert_str(_payload_str(event, "moment")).is_equal(moment)
 		assert_str(_payload_str(event, "reason")).is_equal(Abilities.REASON_NO_TARGET)
 	# Ember's fizzle comes between its reveal and its score; Courier's after its score.
 	var kinds: Array[int] = []
@@ -182,8 +260,11 @@ func test_every_ability_fizzles_no_target_on_its_moment() -> void:
 		kinds.append(event.kind)
 	var reveal: int = MatchEvent.Kind.CARD_REVEALED
 	var score: int = MatchEvent.Kind.CARD_SCORED
-	var fizzle: int = MatchEvent.Kind.EFFECT_FIZZLED
-	var order: Array[int] = [reveal, fizzle, score, reveal, score, fizzle, reveal, fizzle, score]
+	var fizzle: int = MatchEvent.Kind.TRIGGER_FIZZLED
+	var ended: int = MatchEvent.Kind.WALK_ENDED
+	var order: Array[int] = [
+		reveal, fizzle, score, reveal, score, fizzle, reveal, fizzle, score, ended
+	]
 	assert_array(kinds).is_equal(order)
 	assert_array(state.seats[0].hand).is_equal(_typed([PIP, PIP + 1]))
 	assert_array(state.seats[0].deck).is_equal(_typed([PIP + 2]))
@@ -200,13 +281,13 @@ func test_ongoing_and_plain_cards_fire_nothing() -> void:
 	assert_array(Abilities.on_moment(-1, _defs(), "ongoing")).is_empty()
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
-	assert_array(_of_kind(recorder.events, MatchEvent.Kind.EFFECT_FIZZLED)).is_empty()
+	assert_array(_of_kind(recorder.events, MatchEvent.Kind.TRIGGER_FIZZLED)).is_empty()
 	assert_int(state.scores[0]).is_equal(_power(BANNER) + _power(PIP))
 
 
-## A walk with no sink emits nothing and reaches the same scores.
+## A Walk with no sink emits nothing and reaches the same totals and Scores.
 func test_a_walk_without_a_sink_gives_the_same_scores() -> void:
-	var row_0: Array[int] = [EMBER, CINDER, COURIER]
+	var row_0: Array[int] = [EMBER, CINDER, SKIM]
 	var row_1: Array[int] = [MatchRules.DECK_SIZE + GILT]
 	var live: MatchState = _state(row_0, row_1, 0)
 	_walk(live, Recorder.new())
@@ -214,15 +295,16 @@ func test_a_walk_without_a_sink_gives_the_same_scores() -> void:
 	assert_bool(ScoreWalk.run(silent, _defs(), null, Callable())).is_false()
 	ScoreWalk.begin(silent)
 	assert_bool(ScoreWalk.run(silent, _defs(), null, Callable())).is_false()
+	assert_array(silent.totals).is_equal(live.totals)
 	assert_array(silent.scores).is_equal(live.scores)
 
 
-## Records what a walk sends to its sink.
+## Records what a Walk sends to its sink.
 class Recorder:
 	extends RefCounted
 
 	var events: Array[MatchEvent] = []
 
-	## The walk sends ability events with their owner, its own without.
+	## The Walk sends ability events with their owner, its own without.
 	func record(kind: int, payload: Dictionary, owner: int = MatchEvent.PUBLIC) -> void:
 		events.append(MatchEvent.new(kind, payload, owner))

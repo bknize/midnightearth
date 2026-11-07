@@ -33,11 +33,12 @@ const LINE_SKIP_NOTE: String = (
 	"unpinned at DC-13 T01 (only the random bot is left): pin EXPECTED_LINE"
 	+ " from seed 1's random 'Board: match ended' line"
 )
-## Event kinds whose card ids are private to their owner.
+## Event kinds whose card ids are private to their owner (rules 7: nothing is burned; a
+## look-at is private, DC-13 T03).
 const PRIVATE_KINDS: Array[int] = [
 	MatchEvent.Kind.CARD_DEALT,
 	MatchEvent.Kind.CARD_DRAWN,
-	MatchEvent.Kind.CARD_BURNED,
+	MatchEvent.Kind.CARD_LOOKED,
 	MatchEvent.Kind.COMMITTED,
 ]
 
@@ -91,8 +92,7 @@ func _event_card_ids(event: MatchEvent) -> Array[int]:
 
 
 ## The seat-1 card ids named by the private events in `events`, as strings for the message.
-## A public burn is skipped: since DC-05 T05 a card returned to a full hand burns in public,
-## having been face up on its row.
+## A public event is skipped: a Discard enters a public Pile (rules 7).
 func _opponent_leaks(events: Array[MatchEvent]) -> Array[String]:
 	var found: Array[String] = []
 	for event: MatchEvent in events:
@@ -277,14 +277,22 @@ func test_bot_turn_is_due_exactly_when_seat_0_is_not_awaited() -> void:
 	driver.start()
 	var passes: int = 0
 	var bot_moves: int = 0
+	var discards: int = 0
 	var steps: int = 0
 	while not driver.is_over() and steps < 100:
 		var awaited: int = driver.view().awaited_seat
 		assert_bool(driver.bot_turn_due()).is_equal(awaited != 0)
 		var result: ApplyResult = null
+		var prompt: Dictionary = driver.open_prompt()
 		if driver.bot_turn_due():
 			result = driver.play_bot()
 			bot_moves += 1
+		elif not prompt.is_empty():
+			# Seat 0's discard-down after a pass (rules 7): its first `exact` hand cards.
+			var picked: Array[int] = []
+			picked.assign(Choice.options_of(prompt).slice(0, Choice.exact_of(prompt)))
+			result = driver.submit_set(Choice.zone_of(prompt), picked)
+			discards += 1
 		else:
 			var none: Array[int] = []
 			result = driver.submit_player(EngineAction.commit(0, none))
@@ -295,6 +303,8 @@ func test_bot_turn_is_due_exactly_when_seat_0_is_not_awaited() -> void:
 		steps += 1
 	assert_int(passes).is_greater(0)
 	assert_int(bot_moves).is_greater(0)
+	# Passing grows seat 0's hand past its Hand size, so it met its discard-down.
+	assert_int(discards).is_greater(0)
 
 
 func test_play_bot_refuses_when_the_human_is_awaited() -> void:

@@ -80,8 +80,7 @@ func open(prompt: Dictionary, text: String, view: SeatView) -> void:
 		card.set_glow(glow_material, GLOW_ALPHA)
 		_lit.append(card)
 		_lit_options.append(PromptRules.option_at(spot, _prompt, own_size))
-	var zone: int = _prompt.get("zone", Choice.NO_ZONE)
-	if zone == Choice.Zone.BOTH_DESTROYED:
+	if Choice.zone_of(_prompt) == Choice.Zone.BOTH_PILES:
 		_open_strip(view)
 	if is_multi():
 		hud.show_confirm(PromptRules.confirm_text(_prompt, 0))
@@ -232,8 +231,7 @@ func press() -> ApplyResult:
 		if not strip.choose(routed.index):
 			return null
 		return _strip_result
-	var zone: int = _prompt.get("zone", Choice.NO_ZONE)
-	return driver.submit_choice(zone, routed.index)
+	return driver.submit_choice(Choice.zone_of(_prompt), routed.index)
 
 
 ## The confirm button was pressed (R48): submits the selected positions; null when no multi
@@ -241,10 +239,9 @@ func press() -> ApplyResult:
 func confirm() -> ApplyResult:
 	if not is_open() or not is_multi() or driver == null:
 		return null
-	var zone: int = _prompt.get("zone", Choice.NO_ZONE)
 	var chosen: Array[int] = []
 	chosen.assign(selected)
-	return driver.submit_set(zone, chosen)
+	return driver.submit_set(Choice.zone_of(_prompt), chosen)
 
 
 ## The Skip button was pressed (R63): declines the open optional prompt; null when none is open.
@@ -274,15 +271,15 @@ func _refresh_selection() -> void:
 	hud.show_confirm(PromptRules.confirm_text(_prompt, selected.size()))
 
 
-## Builds the deck strip from a pile prompt: seat 0's pile then the opponent's (R47).
+## Builds the deck strip from a Pile prompt: seat 0's Pile then the opponent's (R47).
 func _open_strip(view: SeatView) -> void:
 	var entries: Array[int] = []
 	var piles: Array[Vector2i] = []
-	for i: int in range(view.own_destroyed.size()):
-		entries.append(view.own_destroyed[i])
+	for i: int in range(view.own_pile.size()):
+		entries.append(view.own_pile[i])
 		piles.append(Vector2i(0, i))
-	for i: int in range(view.opponent_destroyed.size()):
-		entries.append(view.opponent_destroyed[i])
+	for i: int in range(view.opponent_pile.size()):
+		entries.append(view.opponent_pile[i])
 		piles.append(Vector2i(1, i))
 	var options: Array[int] = []
 	var raw: Array = _prompt.get("options", [])
@@ -316,8 +313,7 @@ static func _pile_entry(id: int, view: SeatView) -> Dictionary:
 
 
 func _on_strip_choice(index: int) -> void:
-	var zone: int = _prompt.get("zone", Choice.NO_ZONE)
-	_strip_result = driver.submit_choice(zone, index)
+	_strip_result = driver.submit_choice(Choice.zone_of(_prompt), index)
 
 
 func _lift(card: BoardCard, option: int) -> void:

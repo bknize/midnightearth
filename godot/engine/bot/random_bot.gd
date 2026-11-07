@@ -14,8 +14,9 @@ extends BotPlayer
 ## budget, so every set the discount makes affordable has a candidate and none costs more
 ## than the engine accepts.
 ##
-## Prompts: a multi-select prompt keeps each option on a coin flip, so each of its 2^n
-## subsets (the empty decline among them) is equally likely; a single-target prompt picks
+## Prompts: a multi-select prompt with an `exact` size (the discard-down, DC-13 T03) gets a
+## uniform set of exactly that many options; one without keeps each option on a coin flip,
+## so each of its subsets of at least `min` is equally likely; a single-target prompt picks
 ## one of its options by pick_index, or the decline as one more equally likely answer when
 ## the prompt is optional. Both draw from decision_rng(view, PROMPT_TAG, [the prompt's
 ## source card]).
@@ -101,6 +102,35 @@ static func hand_costs(view: SeatView, cards: MatchCards) -> Array[int]:
 	return LegalPlays.def_costs(view.own_hand, cards)
 
 
+## A set answer over `options` drawn from `rng`, in ascending position: with `exact` 0 or
+## more, a uniform set of exactly that many (a partial Fisher-Yates over a copy, each draw
+## one pick_index); with Choice.ANY_SIZE, each option kept on a coin flip, so every subset is
+## equally likely, then topped up from the front to `min_count` when it fell short.
+static func set_answer(
+	options: Array[int], exact: int, min_count: int, rng: MatchRng
+) -> Array[int]:
+	var kept: Array[int] = []
+	if exact >= 0:
+		var pool: Array[int] = []
+		pool.assign(options)
+		for _pick: int in range(mini(exact, pool.size())):
+			var at: int = rng.pick_index(pool.size())
+			kept.append(pool[at])
+			pool.remove_at(at)
+		kept.sort()
+		return kept
+	for option: int in options:
+		if rng.coin_flip() == 1:
+			kept.append(option)
+	for option: int in options:
+		if kept.size() >= min_count:
+			break
+		if not kept.has(option):
+			kept.append(option)
+	kept.sort()
+	return kept
+
+
 ## The highest of `costs` (0 when empty or all unpriced).
 static func _highest(costs: Array[int]) -> int:
 	var highest: int = 0
@@ -136,21 +166,21 @@ static func _add_ends(
 		out.append(EngineAction.commit(seat, cards, LegalPlays.append_slots(row_size, count)))
 
 
-## A uniform answer to the prompt open for `view.seat`: a uniform subset of a multi-select
-## prompt's options (ascending position); else one uniform option, the decline counted as
-## one more when the prompt is optional (-1 with nothing offered and no decline).
+## A uniform answer to the prompt open for `view.seat`: for a multi-select, a uniform set of
+## exactly its `exact` options (the discard-down's excess, R70) or, with no `exact`, a
+## uniform subset of at least its `min` (ascending position, set_answer()); else one
+## uniform option, the decline counted as one more when the prompt is optional (-1 with
+## nothing offered and no decline).
 func _answer(view: SeatView) -> EngineAction:
-	var zone: int = view.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
+	var zone: int = Choice.zone_of(view.prompt)
 	var options: Array[int] = Choice.options_of(view.prompt)
 	var source: int = view.prompt.get("card", -1)
 	var extra: Array[int] = [source]
 	var rng: MatchRng = decision_rng(view, PROMPT_TAG, extra)
 	if Choice.is_multi_prompt(view.prompt):
-		var kept: Array[int] = []
-		for option: int in options:
-			if rng.coin_flip() == 1:
-				kept.append(option)
-		kept.sort()
+		var kept: Array[int] = set_answer(
+			options, Choice.exact_of(view.prompt), Choice.min_of(view.prompt), rng
+		)
 		return EngineAction.choose_set(view.seat, zone, kept)
 	var answers: int = options.size()
 	if Choice.is_optional_prompt(view.prompt):

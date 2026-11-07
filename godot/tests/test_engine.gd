@@ -1,21 +1,21 @@
 # gdlint: disable=max-public-methods,max-file-lines
-class_name TestTurn
+class_name TestEngine
 extends GdUnitTestSuite
-## MatchEngine core flow: R3-R4 (entry point, run to the next decision), R9 (instance
-## ids), R11-R17 (round start, draw with no burn since rules 7, energy, two-step commit, the
-## tied turn, turn order for turns 2-7), R26-R27 (every error code leaves the state and the
-## accepted actions unchanged; the engine never prints). The action shapes (R5) are in
-## test_engine_action.gd; the walk's reveals and scores in test_score_walk.gd. DC-13 T02:
-## the fixture is 40 plain bodies (FixtureDecks) and the Crew the shipped v2 ones. DC-05: R5-R8
-## (positional commits, the second committer sees
-## the first's slots, both commits merge into their rows at resolution), R9-R10 (per-seat
-## budget, free first card), a choice with no prompt, the empty-slots default. DC-07 T02:
-## a deck per seat (an unknown id fails start() with DECK_UNKNOWN, an empty id takes the
-## seed's pick) and MATCH_STARTED; every match here plays the fixture deck on both seats.
+## MatchEngine core flow under rules 7 (cycle 9 plan P14; DC-13 T03, was test_turn.gd):
+## the entry point and running to the next decision, instance ids, Match start (Decks
+## shuffled once, four cards dealt once), the draws, the Budget (Turn + grants, nothing
+## carries, R6, R7) and the Cost with Memory reductions (R8, R9), the two-step Commit with
+## its discard-down, the tied Turn and the turn order, every error code leaving the state
+## and the accepted actions unchanged, and the engine never printing. The action shapes are
+## in test_engine_action.gd, the Walk in test_score_walk.gd, the Turn's own rules in
+## test_turn_flow.gd. DC-05: positional commits, the second committer sees the first's
+## slots, both commits merge into their rows. DC-07: a deck per seat and MATCH_STARTED;
+## every match here plays the fixture deck (40 plain bodies) on both seats.
 ##
-## Mid-match states come from scripted actions on known seeds, never from private fields,
-## except the energy cases: nothing sets carry or free_first before DC-05 T04, so those
-## two tests write them directly.
+## Mid-match states come from scripted actions on known seeds. A pass usually leaves five
+## cards against a Hand size of four, so _pass() answers the discard-down it opens with the
+## first card (FixtureDecks.discard_answer). The Energy and Memory cases write a grant, the
+## free first card or a cost change directly, as no T03 card does.
 
 const SEED: int = 1
 const SEARCH_SEEDS: int = 100
@@ -85,8 +85,8 @@ func _board(engine: MatchEngine, seat: int) -> Array[int]:
 	return _seat_list(engine, "board", seat)
 
 
-func _burned(engine: MatchEngine, seat: int) -> Array[int]:
-	return _seat_list(engine, "burned", seat)
+func _pile(engine: MatchEngine, seat: int) -> Array[int]:
+	return _seat_list(engine, "pile", seat)
 
 
 func _pending(engine: MatchEngine) -> Array[int]:
@@ -130,9 +130,26 @@ func _payload_ints(event: MatchEvent, key: String) -> Array[int]:
 	return _typed(raw)
 
 
+## The awaited seat passes; when that opens its discard-down, the first `exact` hand cards
+## answer it. One result with both actions' events (a failure as soon as one is rejected).
 func _pass(engine: MatchEngine) -> ApplyResult:
 	var none: Array[int] = []
-	return engine.apply(EngineAction.commit(engine.awaited_seat(), none))
+	var passed: ApplyResult = engine.apply(EngineAction.commit(engine.awaited_seat(), none))
+	return _then_discard(engine, passed)
+
+
+## `result`, followed by the answer to a discard-down it left open, as one result.
+func _then_discard(engine: MatchEngine, result: ApplyResult) -> ApplyResult:
+	var answer: EngineAction = FixtureDecks.discard_answer(engine)
+	if not result.ok or answer == null:
+		return result
+	var answered: ApplyResult = engine.apply(answer)
+	if not answered.ok:
+		return answered
+	var events: Array[MatchEvent] = []
+	events.append_array(result.events)
+	events.append_array(answered.events)
+	return ApplyResult.success(events)
 
 
 ## Both seats pass until the given turn of round 1 is awaiting its first commit.
@@ -204,22 +221,26 @@ func test_start_and_apply_return_apply_results() -> void:
 	assert_bool(started.ok).is_true()
 	assert_int(started.error).is_equal(EngineError.Code.NONE)
 	assert_array(started.events).is_not_empty()
-	var applied: ApplyResult = _pass(engine)
+	var none: Array[int] = []
+	var applied: ApplyResult = engine.apply(EngineAction.commit(engine.awaited_seat(), none))
 	assert_bool(applied.ok).is_true()
 	assert_int(applied.error).is_equal(EngineError.Code.NONE)
 	assert_int(engine.accepted_action_count()).is_equal(1)
 	assert_int(_state_int(engine, "actions_applied")).is_equal(1)
 
 
-# --- R1, R9, R11: round start ---------------------------------------------------------
+# --- R10: Match start -----------------------------------------------------------------
 
 
-func test_round_one_start_deals_four_draws_one() -> void:
+## Match start (R10): MATCH_STARTED, four cards dealt to each seat once, Round 1 (public
+## {round, sudden_death}), Turn 1 (its first committer the coin's) and one draw per seat.
+func test_match_start_deals_four_then_round_one_draws_one() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var result: ApplyResult = engine.start()
-	var expected: Array[int] = [MatchEvent.Kind.MATCH_STARTED, MatchEvent.Kind.ROUND_STARTED]
+	var expected: Array[int] = [MatchEvent.Kind.MATCH_STARTED]
 	for _i: int in range(2 * MatchRules.OPENING_HAND):
 		expected.append(MatchEvent.Kind.CARD_DEALT)
+	expected.append(MatchEvent.Kind.ROUND_STARTED)
 	expected.append(MatchEvent.Kind.TURN_STARTED)
 	expected.append(MatchEvent.Kind.CARD_DRAWN)
 	expected.append(MatchEvent.Kind.CARD_DRAWN)
@@ -230,17 +251,17 @@ func test_round_one_start_deals_four_draws_one() -> void:
 			MatchRules.DECK_SIZE - MatchRules.OPENING_HAND - 1
 		)
 		assert_array(_board(engine, seat)).is_empty()
-		assert_array(_burned(engine, seat)).is_empty()
+		assert_array(_pile(engine, seat)).is_empty()
 	assert_int(_state_int(engine, "round")).is_equal(1)
 	assert_int(_state_int(engine, "turn")).is_equal(1)
 	assert_int(engine.energy()).is_equal(1)
-	var round_started: MatchEvent = result.events[1]
-	assert_int(_payload_int(round_started, "round")).is_equal(1)
-	var by_coin: bool = round_started.payload["first_by_coin"]
-	var sudden: bool = round_started.payload["sudden_death"]
-	assert_bool(by_coin).is_true()
-	assert_bool(sudden).is_false()
-	assert_int(engine.awaited_seat()).is_equal(_payload_int(round_started, "first_seat"))
+	var round_started: MatchEvent = _of_kind(result.events, MatchEvent.Kind.ROUND_STARTED)[0]
+	assert_dict(round_started.payload).is_equal({"round": 1, "sudden_death": false})
+	var turn_started: MatchEvent = _of_kind(result.events, MatchEvent.Kind.TURN_STARTED)[0]
+	assert_int(engine.awaited_seat()).is_equal(_payload_int(turn_started, "first_seat"))
+	var keys: Array = turn_started.payload.keys()
+	keys.sort()
+	assert_array(keys).is_equal(["budgets", "first_seat", "round", "turn"])
 
 
 func test_deal_events_are_private_to_their_seat() -> void:
@@ -282,17 +303,24 @@ func test_instance_ids_unique_across_seats() -> void:
 		assert_array(all).is_equal(_ids(seat))
 
 
-func test_next_round_reshuffles_and_clears_boards() -> void:
+## Rules 7 (R10, R17, R2): the next Round deals nothing and refills no Deck; the rows went
+## to the Piles. Passing turns 1-6 discards one card a turn (five held against four); on
+## Turn 7 each seat commits one card, which the Round end Discards. Round 2's Turn 1 then
+## draws one: hands of five, Decks of 40 - 4 - 8, Piles of seven, every id still the seat's.
+func test_next_round_keeps_hands_decks_and_piles() -> void:
 	var engine: MatchEngine = _started(SEED)
 	_pass_until_turn(engine, MatchRules.TURNS)
-	# Put a card on each board on turn 7 so the clear is observable.
 	var first: int = engine.awaited_seat()
-	engine.apply(EngineAction.commit(first, _find_set(_hand(engine, first), 7, 1)))
+	var played: Array[int] = []
+	var a: Array[int] = _find_set(_hand(engine, first), MatchRules.TURNS, 1)
+	played.append_array(a)
+	assert_bool(engine.apply(EngineAction.commit(first, a)).ok).is_true()
 	var second: int = engine.awaited_seat()
-	var result: ApplyResult = engine.apply(
-		EngineAction.commit(second, _find_set(_hand(engine, second), 7, 1))
-	)
+	var b: Array[int] = _find_set(_hand(engine, second), MatchRules.TURNS, 1)
+	played.append_array(b)
+	var result: ApplyResult = engine.apply(EngineAction.commit(second, b))
 	assert_bool(result.ok).is_true()
+	assert_array(_of_kind(result.events, MatchEvent.Kind.CARD_DEALT)).is_empty()
 	var started: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.ROUND_STARTED)
 	assert_int(started.size()).is_equal(1)
 	assert_int(_payload_int(started[0], "round")).is_equal(2)
@@ -301,11 +329,17 @@ func test_next_round_reshuffles_and_clears_boards() -> void:
 	assert_array(_pending(engine)).is_empty()
 	for seat: int in range(2):
 		assert_array(_board(engine, seat)).is_empty()
-		assert_array(_burned(engine, seat)).is_empty()
-		assert_int(_hand(engine, seat).size()).is_equal(MatchRules.OPENING_HAND + 1)
-		var all: Array[int] = _typed(_hand(engine, seat) + _deck(engine, seat))
+		assert_int(_hand(engine, seat).size()).is_equal(MatchRules.HAND_SIZE + 1)
+		assert_int(_deck(engine, seat).size()).is_equal(
+			MatchRules.DECK_SIZE - MatchRules.OPENING_HAND - MatchRules.TURNS - 1
+		)
+		var pile: Array[int] = _pile(engine, seat)
+		assert_int(pile.size()).is_equal(MatchRules.TURNS)
+		var all: Array[int] = _typed(_hand(engine, seat) + _deck(engine, seat) + pile)
 		all.sort()
 		assert_array(all).is_equal(_ids(seat))
+	for card: int in played:
+		assert_bool(_pile(engine, card / MatchRules.DECK_SIZE).has(card)).is_true()
 	var scores: Array[int] = _scores(engine)
 	assert_array(scores).is_equal(_typed([0, 0]))
 
@@ -313,12 +347,19 @@ func test_next_round_reshuffles_and_clears_boards() -> void:
 # --- R4: run to the next decision point -----------------------------------------------
 
 
-func test_first_commit_stops_at_second_committer() -> void:
+## A first Pass on five cards opens that seat's discard-down (R13); its answer hands the
+## Turn to the second committer.
+func test_first_commit_stops_at_its_discard_down_then_the_second_committer() -> void:
 	var engine: MatchEngine = _started(SEED)
 	var first: int = engine.awaited_seat()
-	var result: ApplyResult = _pass(engine)
-	var expected: Array[int] = [MatchEvent.Kind.COMMITTED]
+	var none: Array[int] = []
+	var result: ApplyResult = engine.apply(EngineAction.commit(first, none))
+	var expected: Array[int] = [MatchEvent.Kind.COMMITTED, MatchEvent.Kind.PROMPT_OPENED]
 	assert_array(_kinds(result.events)).is_equal(expected)
+	assert_int(engine.awaited_seat()).is_equal(first)
+	var answered: ApplyResult = engine.apply(FixtureDecks.discard_answer(engine))
+	expected = [MatchEvent.Kind.CHOICE_MADE, MatchEvent.Kind.CARD_DISCARDED]
+	assert_array(_kinds(answered.events)).is_equal(expected)
 	assert_int(engine.awaited_seat()).is_equal(1 - first)
 
 
@@ -326,10 +367,15 @@ func test_second_commit_runs_into_the_next_turn() -> void:
 	var engine: MatchEngine = _started(SEED)
 	_pass(engine)
 	var result: ApplyResult = _pass(engine)
-	# Both rows are empty: the walk starts (R11) and ends at once, with no pulse.
+	# Both rows are empty: after the second seat's discard-down the Walk starts and ends at
+	# once, with no pulse, and the next Turn draws.
 	var expected: Array[int] = [
 		MatchEvent.Kind.COMMITTED,
+		MatchEvent.Kind.PROMPT_OPENED,
+		MatchEvent.Kind.CHOICE_MADE,
+		MatchEvent.Kind.CARD_DISCARDED,
 		MatchEvent.Kind.WALK_STARTED,
+		MatchEvent.Kind.WALK_ENDED,
 		MatchEvent.Kind.TURN_ENDED,
 		MatchEvent.Kind.TURN_STARTED,
 		MatchEvent.Kind.CARD_DRAWN,
@@ -351,27 +397,30 @@ func test_turn_start_draws_one_per_seat() -> void:
 	var result: ApplyResult = _pass(engine)
 	var drawn: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.CARD_DRAWN)
 	assert_int(drawn.size()).is_equal(2)
-	assert_int(_payload_int(drawn[0], "seat")).is_equal(0)
-	assert_int(_payload_int(drawn[0], "card")).is_equal(deck0[0])
-	assert_int(_payload_int(drawn[1], "seat")).is_equal(1)
-	assert_int(_payload_int(drawn[1], "card")).is_equal(deck1[0])
+	# The first seat draws first (R4).
+	var first: int = _state_int(engine, "first_seat")
+	var decks: Array = [deck0, deck1]
+	for at: int in range(2):
+		var seat: int = first if at == 0 else 1 - first
+		var deck: Array[int] = decks[seat]
+		assert_int(_payload_int(drawn[at], "seat")).is_equal(seat)
+		assert_int(_payload_int(drawn[at], "card")).is_equal(deck[0])
 	for seat: int in range(2):
-		assert_int(_hand(engine, seat).size()).is_equal(MatchRules.OPENING_HAND + 2)
+		assert_int(_hand(engine, seat).size()).is_equal(MatchRules.HAND_SIZE + 1)
 
 
-## Rules 7 (DC-13 T02): there is no hand cap and no burn. Passing every turn, each hand grows
-## by one draw a turn and nothing is ever burned (the discard-down is DC-13 T03's).
-func test_draws_never_burn() -> void:
+## Rules 7: there is no hand cap and no burn. Passing every turn, each hand holds its Hand
+## size plus the Turn's draw, the discard-down sending one card a Turn to the Pile.
+func test_passing_discards_down_and_never_burns() -> void:
 	var engine: MatchEngine = _started(SEED)
 	_pass_until_turn(engine, MatchRules.TURNS)
 	for seat: int in range(2):
-		assert_int(_hand(engine, seat).size()).is_equal(
-			MatchRules.OPENING_HAND + MatchRules.TURNS
-		)
-		assert_array(_burned(engine, seat)).is_empty()
+		assert_int(_hand(engine, seat).size()).is_equal(MatchRules.HAND_SIZE + 1)
+		assert_int(_pile(engine, seat).size()).is_equal(MatchRules.TURNS - 1)
 		assert_int(_deck(engine, seat).size()).is_equal(
 			MatchRules.DECK_SIZE - MatchRules.OPENING_HAND - MatchRules.TURNS
 		)
+	assert_bool(MatchEvent.Kind.keys().has("CARD_BURNED")).is_false()
 
 
 # --- R13: energy ----------------------------------------------------------------------
@@ -386,8 +435,9 @@ func test_energy_equals_turn_and_unspent_energy_is_lost() -> void:
 		var started: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.TURN_STARTED)
 		assert_int(started.size()).is_equal(1)
 		assert_int(_payload_int(started[0], "turn")).is_equal(turn + 1)
-		# Passing never banks energy: the next turn's energy is just its number.
-		assert_int(_payload_int(started[0], "energy")).is_equal(turn + 1)
+		# Passing never banks Energy: the next Turn's Budget is just its number.
+		var budgets: Array[int] = [turn + 1, turn + 1]
+		assert_array(_payload_ints(started[0], "budgets")).is_equal(budgets)
 
 
 # --- R14: the first commit is held face down ------------------------------------------
@@ -595,8 +645,9 @@ func test_duplicate_card() -> void:
 	_assert_rejected(engine, EngineAction.commit(seat, twice), EngineError.Code.DUPLICATE_CARD)
 
 
+## R9: a Commit over the Budget is rejected and changes nothing. Turn 1: five cards cost at
+## least 5. Turn 3: five cards cost at least 5.
 func test_over_budget() -> void:
-	# Turn 1: four cards cost at least 4. Turn 3: six cards cost at least 8.
 	var engine: MatchEngine = _started(SEED)
 	var seat: int = engine.awaited_seat()
 	_assert_rejected(
@@ -650,18 +701,24 @@ func test_rejections_while_awaiting_second_change_nothing() -> void:
 	var engine: MatchEngine = _started(SEED)
 	_pass_until_turn(engine, 4)
 	var first: int = engine.awaited_seat()
-	engine.apply(EngineAction.commit(first, _find_set(_hand(engine, first), 4, 1)))
+	var one: Array[int] = _find_set(_hand(engine, first), 4, 1)
+	assert_array(one).is_not_empty()
+	engine.apply(EngineAction.commit(first, one))
 	var second: int = engine.awaited_seat()
+	assert_int(second).is_equal(1 - first)
 	var hand: Array[int] = _hand(engine, second)
 	var twice: Array[int] = [hand[0], hand[0]]
 	var none: Array[int] = []
+	var count: int = engine.accepted_action_count()
 	_assert_rejected(engine, EngineAction.commit(first, none), EngineError.Code.WRONG_SEAT)
 	_assert_rejected(engine, EngineAction.commit(second, twice), EngineError.Code.DUPLICATE_CARD)
 	_assert_rejected(engine, EngineAction.commit(second, hand), EngineError.Code.OVER_BUDGET)
 	_assert_rejected(engine, null, EngineError.Code.MALFORMED)
-	assert_int(engine.accepted_action_count()).is_equal(7)
+	assert_int(engine.accepted_action_count()).is_equal(count)
 
 
+## Accepted actions are recorded in order, the discard-down answers among them; a rejected
+## one is not.
 func test_accepted_actions_are_recorded_in_order() -> void:
 	var engine: MatchEngine = _started(SEED)
 	var first: int = engine.awaited_seat()
@@ -671,10 +728,18 @@ func test_accepted_actions_are_recorded_in_order() -> void:
 	assert_bool(rejected.ok).is_false()
 	_pass(engine)
 	var actions: Array[EngineAction] = engine.accepted_actions()
-	assert_int(actions.size()).is_equal(2)
-	assert_int(actions[0].seat).is_equal(first)
-	assert_int(actions[1].seat).is_equal(1 - first)
-	assert_int(_state_int(engine, "actions_applied")).is_equal(2)
+	assert_int(actions.size()).is_equal(4)
+	var kinds: Array[int] = [
+		EngineAction.Kind.COMMIT,
+		EngineAction.Kind.CHOOSE_SET,
+		EngineAction.Kind.COMMIT,
+		EngineAction.Kind.CHOOSE_SET,
+	]
+	var seats: Array[int] = [first, first, 1 - first, 1 - first]
+	for at: int in range(actions.size()):
+		assert_int(actions[at].kind).is_equal(kinds[at])
+		assert_int(actions[at].seat).is_equal(seats[at])
+	assert_int(_state_int(engine, "actions_applied")).is_equal(4)
 
 
 func test_engine_source_never_prints_asserts_or_pushes_errors() -> void:
@@ -855,37 +920,75 @@ func test_choose_without_a_prompt_is_rejected() -> void:
 # --- DC-05 R9, R10: per-seat budget ---------------------------------------------------
 
 
-func test_budget_is_the_turn_plus_carry() -> void:
+## R6, R7 (cycle 9 plan P14): the Budget on Turn N is N plus the Energy granted for that
+## Turn, and nothing carries. Turn 5's Budget is 5 for both seats (TURN_STARTED, views);
+## a grant of 1 to one seat makes its Budget 6 and lets it commit a card costing 6; the
+## grant is gone at turn end and unspent Energy is lost, so Turn 6's Budget is 6 for both.
+func test_budget_on_turn_5_is_5_with_a_grant_6_and_nothing_carries() -> void:
 	var engine: MatchEngine = _started(SEED)
 	assert_int(engine.budget_for(2)).is_equal(0)
-	for turn: int in range(1, 4):
-		for seat: int in range(2):
-			assert_int(engine.budget_for(seat)).is_equal(turn)
-			assert_int(engine.view_for(seat).budgets[seat]).is_equal(turn)
-			assert_int(engine.view_for(seat).budgets[1 - seat]).is_equal(turn)
-			assert_int(engine.view_for(seat).energy).is_equal(turn)
-		_pass(engine)
-		var result: ApplyResult = _pass(engine)
-		var started: MatchEvent = _of_kind(result.events, MatchEvent.Kind.TURN_STARTED)[0]
-		assert_array(_payload_ints(started, "budgets")).is_equal(_typed([turn + 1, turn + 1]))
-	# Nothing carries before T04; a carry written directly raises only that seat's budget
-	# and lets it commit above the turn number.
-	_pass_until_turn(engine, MatchRules.TURNS)
-	var seat_first: int = engine.awaited_seat()
-	var hand: Array[int] = _hand(engine, seat_first)
-	var cost: int = LegalPlays.total_cost(hand, _defs())
-	assert_int(cost).is_greater(MatchRules.TURNS)
-	_assert_rejected(engine, EngineAction.commit(seat_first, hand), EngineError.Code.OVER_BUDGET)
-	engine._state.energy.carry[seat_first] = cost - MatchRules.TURNS
-	assert_int(engine.budget_for(seat_first)).is_equal(cost)
-	assert_int(engine.budget_for(1 - seat_first)).is_equal(MatchRules.TURNS)
-	assert_int(engine.view_for(seat_first).energy).is_equal(cost)
-	assert_bool(engine.apply(EngineAction.commit(seat_first, hand)).ok).is_true()
+	_pass_until_turn(engine, 5)
+	for seat: int in range(2):
+		assert_int(engine.budget_for(seat)).is_equal(5)
+		assert_int(engine.view_for(seat).budgets[seat]).is_equal(5)
+		assert_int(engine.view_for(seat).budgets[1 - seat]).is_equal(5)
+		assert_int(engine.view_for(seat).energy).is_equal(5)
+	var energy_state: Dictionary = engine.full_state()["energy"]
+	assert_bool(energy_state.has("carry")).is_false()
+	var first: int = engine.awaited_seat()
+	engine._state.energy.grants[first] = 1
+	assert_int(engine.budget_for(first)).is_equal(6)
+	assert_int(engine.budget_for(1 - first)).is_equal(5)
+	assert_int(engine.view_for(first).energy).is_equal(6)
+	# A cost-6 card enters the first seat's hand (fixture f17 of its own deck).
+	var dear: int = first * MatchRules.DECK_SIZE + 16
+	assert_int(LegalPlays.cost_of(dear, _defs())).is_equal(6)
+	var piles: MatchState.SeatPiles = engine._state.seats[first]
+	piles.deck.erase(dear)
+	piles.pile.erase(dear)
+	if not piles.hand.has(dear):
+		piles.hand.append(dear)
+	var cards: Array[int] = [dear]
+	var result: ApplyResult = _then_discard(engine, engine.apply(EngineAction.commit(first, cards)))
+	assert_bool(result.ok).is_true()
+	var committed: MatchEvent = _of_kind(result.events, MatchEvent.Kind.COMMITTED)[0]
+	assert_int(_payload_int(committed, "cost")).is_equal(6)
 	var spent: Array = _energy_list(engine, "spent")
-	var first_spent: int = spent[seat_first]
-	var other_spent: int = spent[1 - seat_first]
-	assert_int(first_spent).is_equal(cost)
-	assert_int(other_spent).is_equal(0)
+	var first_spent: int = spent[first]
+	assert_int(first_spent).is_equal(6)
+	var ended: ApplyResult = _pass(engine)
+	var started: MatchEvent = _of_kind(ended.events, MatchEvent.Kind.TURN_STARTED)[0]
+	assert_int(_payload_int(started, "turn")).is_equal(6)
+	assert_array(_payload_ints(started, "budgets")).is_equal(_typed([6, 6]))
+	var grants: Array = _energy_list(engine, "grants")
+	assert_array(grants).is_equal([0, 0])
+
+
+## R8, R9: a Commit's Cost reads Memory. A cost-3 card is over a Budget of 2; with Memory
+## -1 it commits on that Budget, paying 2.
+func test_a_cost_3_card_with_memory_minus_1_commits_on_budget_2() -> void:
+	var engine: MatchEngine = _started(SEED)
+	_pass_until_turn(engine, 2)
+	var first: int = engine.awaited_seat()
+	assert_int(engine.budget_for(first)).is_equal(2)
+	var card: int = first * MatchRules.DECK_SIZE + 8
+	assert_int(LegalPlays.cost_of(card, _defs())).is_equal(3)
+	var piles: MatchState.SeatPiles = engine._state.seats[first]
+	piles.deck.erase(card)
+	piles.pile.erase(card)
+	if not piles.hand.has(card):
+		piles.hand.append(card)
+	var cards: Array[int] = [card]
+	_assert_rejected(engine, EngineAction.commit(first, cards), EngineError.Code.OVER_BUDGET)
+	engine._state.memory_for(card).cost_delta = -1
+	assert_int(engine.view_for(first).own_hand_costs[piles.hand.find(card)]).is_equal(2)
+	var result: ApplyResult = engine.apply(EngineAction.commit(first, cards))
+	assert_bool(result.ok).is_true()
+	var committed: MatchEvent = _of_kind(result.events, MatchEvent.Kind.COMMITTED)[0]
+	assert_int(_payload_int(committed, "cost")).is_equal(2)
+	var spent: Array = _energy_list(engine, "spent")
+	var first_spent: int = spent[first]
+	assert_int(first_spent).is_equal(2)
 
 
 func test_spent_is_recorded_and_the_free_first_card_is_consumed() -> void:
@@ -923,12 +1026,15 @@ func test_spent_is_recorded_and_the_free_first_card_is_consumed() -> void:
 # --- Determinism ------------------------------------------------------------------------
 
 
-## The awaited seat plays the highest-mask legal set: deterministic and card-heavy.
+## The awaited seat plays the highest-mask legal set: deterministic and card-heavy. An open
+## discard-down is answered with its first `exact` cards.
 func _scripted_action(engine: MatchEngine) -> EngineAction:
+	var answer: EngineAction = FixtureDecks.discard_answer(engine)
+	if answer != null:
+		return answer
 	var seat: int = engine.awaited_seat()
 	var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _defs())
-	# The fixture's cards never prompt, so every step is a commit and 20 of them reach
-	# round 2; the empty set (mask 0) is always listed.
+	# The empty set (mask 0) is always listed.
 	return EngineAction.commit(seat, _typed(sets[sets.size() - 1]))
 
 
@@ -937,8 +1043,10 @@ func test_same_seed_and_actions_give_equal_states_and_events() -> void:
 	var b: MatchEngine = FixtureDecks.engine(SEED, _db())
 	assert_array(_event_dicts(a.start().events)).is_equal(_event_dicts(b.start().events))
 	assert_dict(a.full_state()).is_equal(b.full_state())
-	# 20 actions span round 1 and the start of round 2.
-	for _step: int in range(20):
+	# Round 1 and the start of round 2 (a Turn is two Commits and at most two discard-downs).
+	for _step: int in range(40):
+		if _state_int(a, "round") > 1:
+			break
 		var action: EngineAction = _scripted_action(a)
 		var ra: ApplyResult = a.apply(action)
 		var rb: ApplyResult = b.apply(action)

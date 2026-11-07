@@ -79,20 +79,25 @@ func test_an_own_reveal_entry_shows_the_mark_and_reduced_cost() -> void:
 	assert_str(_label(card, "CostLabel").text).is_equal("2")
 
 
-func test_a_redacted_row_burn_keeps_its_row_and_slot() -> void:
-	var payload: Dictionary = {"seat": 1, "card": -1, "slot": 2, "row_seat": 1}
-	var steps: Array[BoardStep] = _steps(MatchEvent.Kind.CARD_BURNED, payload)
+## Rules 7 (DC-13 T03): nothing is burned; a Discard names its card's Owner, whose Pile it
+## enters in public (CARD_DISCARDED {owner, card, from, reason, pile_index}).
+func test_a_discard_names_its_owner_and_card() -> void:
+	var payload: Dictionary = {
+		"owner": 1, "card": 44, "from": "hand", "reason": "discard_down", "pile_index": 0
+	}
+	var steps: Array[BoardStep] = _steps(MatchEvent.Kind.CARD_DISCARDED, payload)
 	assert_int(steps.size()).is_equal(1)
-	assert_int(steps[0].kind).is_equal(BoardStep.Kind.BURN)
-	assert_int(steps[0].row_seat).is_equal(1)
-	assert_int(steps[0].slot).is_equal(2)
-	var hand: Array[BoardStep] = _steps(MatchEvent.Kind.CARD_BURNED, {"seat": 1, "card": -1})
-	assert_int(hand[0].row_seat).is_equal(-1)
+	assert_int(steps[0].kind).is_equal(BoardStep.Kind.DISCARD)
+	assert_int(steps[0].seat).is_equal(1)
+	assert_int(steps[0].card).is_equal(44)
+	assert_bool(MatchEvent.Kind.keys().has("CARD_BURNED")).is_false()
 
 
 func test_a_spent_fizzle_keeps_its_reason() -> void:
-	var payload: Dictionary = {"seat": 0, "card": 5, "verb": "draw_once", "reason": "spent"}
-	var steps: Array[BoardStep] = _steps(MatchEvent.Kind.EFFECT_FIZZLED, payload)
+	var payload: Dictionary = {
+		"seat": 0, "card": 5, "crew": "", "verb": "draw_once", "reason": "spent"
+	}
+	var steps: Array[BoardStep] = _steps(MatchEvent.Kind.TRIGGER_FIZZLED, payload)
 	assert_int(steps[0].kind).is_equal(BoardStep.Kind.FIZZLE)
 	assert_str(steps[0].reason).is_equal("spent")
 	assert_str(EffectPlayer.fizzle_note(steps[0].reason)).is_equal("spent")

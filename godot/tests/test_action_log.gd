@@ -81,9 +81,12 @@ func _row_size(engine: MatchEngine, seat: int) -> int:
 
 
 ## The scripted action for whoever is awaited (see the suite comment), with explicit
-## slots at the row's right end, so it equals the logged form.
+## slots at the row's right end, so it equals the logged form. An open discard-down (rules
+## 7, DC-13 T03) is answered by _discard_answer().
 func _script_action(engine: MatchEngine, player: int) -> EngineAction:
 	var seat: int = engine.awaited_seat()
+	if not engine.open_prompt().is_empty():
+		return _discard_answer(engine)
 	var cards: Array[int] = []
 	if seat == player:
 		# The fixture's cards are plain bodies (DC-13 T02), so no set opens a prompt.
@@ -91,6 +94,34 @@ func _script_action(engine: MatchEngine, player: int) -> EngineAction:
 		cards = _typed(sets[sets.size() - 1])
 	var slots: Array[int] = LegalPlays.append_slots(_row_size(engine, seat), cards.size())
 	return EngineAction.commit(seat, cards, slots)
+
+
+## The answer to the open discard-down (the only prompt a fixture match opens): its first
+## `exact` hand positions (FixtureDecks.discard_answer).
+func _discard_answer(engine: MatchEngine) -> EngineAction:
+	return FixtureDecks.discard_answer(engine)
+
+
+## The first index from `from` of `actions` at which a commit is awaited (no prompt open),
+## or -1.
+func _commit_index(match_seed: int, actions: Array[EngineAction], from: int) -> int:
+	for index: int in range(from, actions.size()):
+		if _prefix_engine(match_seed, actions, index).open_prompt().is_empty():
+			return index
+	return -1
+
+
+## A started match scripted for at least `count` actions, then on until the second commit
+## is awaited (the first commit face down in `pending`).
+func _scripted_to_second(match_seed: int, player: int, count: int) -> MatchEngine:
+	var engine: MatchEngine = _scripted(match_seed, player, count)
+	var state: Dictionary = engine.full_state()
+	while state["phase"] != MatchState.Phase.AWAIT_SECOND:
+		if not engine.apply(_script_action(engine, player)).ok:
+			fail("scripted action rejected")
+			return engine
+		state = engine.full_state()
+	return engine
 
 
 ## The first hand card of `seat` (every fixture card is a plain body, DC-13 T02).
@@ -110,14 +141,21 @@ func _scripted(match_seed: int, player: int, count: int) -> MatchEngine:
 
 
 ## One round with real actions: both seats pass turns 1-6; on turn 7 `winner` commits
-## one card (always affordable, flat >= 1) and the other passes. TIE passes throughout.
+## one card (always affordable, Power >= 1) and the other passes; each discard-down is
+## answered (_discard_answer). TIE passes throughout. Ends when the round has ended.
 func _play_round(engine: MatchEngine, winner: int) -> void:
-	for _step: int in range(2 * MatchRules.TURNS):
+	var round_number: int = engine.full_state()["round"]
+	while not engine.is_over() and engine.full_state()["round"] == round_number:
 		var seat: int = engine.awaited_seat()
-		var cards: Array[int] = []
-		if seat == winner and engine.energy() == MatchRules.TURNS:
-			cards.append(_first_promptless(engine, seat))
-		var result: ApplyResult = engine.apply(EngineAction.commit(seat, cards))
+		var action: EngineAction = null
+		if not engine.open_prompt().is_empty():
+			action = _discard_answer(engine)
+		else:
+			var cards: Array[int] = []
+			if seat == winner and engine.energy() == MatchRules.TURNS:
+				cards.append(_first_promptless(engine, seat))
+			action = EngineAction.commit(seat, cards)
+		var result: ApplyResult = engine.apply(action)
 		if not result.ok:
 			fail("round action rejected with code %d" % result.error)
 			return
@@ -281,12 +319,21 @@ func test_log_holds_versions_seed_and_accepted_actions_only() -> void:
 	assert_str(str(seed_value)).is_equal("1")
 	var entries: Array = root["actions"]
 	assert_int(entries.size()).is_equal(ROUND_PLUS_TWO)
+	var sets: int = 0
 	for entry: Variant in entries:
 		var d: Dictionary = entry
+		var kind_name: String = d["k"]
+		if kind_name == "choose_set":
+			# A discard-down answer (rules 7): the zone and the hand positions.
+			assert_array(_sorted_keys(d)).is_equal(["i", "k", "s", "z"])
+			sets += 1
+			continue
 		assert_array(_sorted_keys(d)).is_equal(["c", "k", "p", "s"])
 		var cards: Array = d["c"]
 		var slots: Array = d["p"]
 		assert_int(slots.size()).is_equal(cards.size())
+	# The passing seat's hand grows past its Hand size, so the script met discard-downs.
+	assert_int(sets).is_greater(0)
 
 
 func test_log_records_a_concede_entry() -> void:
@@ -404,7 +451,7 @@ func test_replay_equals_mid_match() -> void:
 		for player: int in range(2):
 			_assert_replay_equals(_scripted(match_seed, player, ROUND_PLUS_TWO))
 			# Mid-turn, with the first commit still face down.
-			var engine: MatchEngine = _scripted(match_seed, player, MID_TURN)
+			var engine: MatchEngine = _scripted_to_second(match_seed, player, MID_TURN)
 			var state: Dictionary = engine.full_state()
 			var phase: int = state["phase"]
 			assert_int(phase).is_equal(MatchState.Phase.AWAIT_SECOND)
@@ -452,14 +499,19 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 	var engine: MatchEngine = _scripted(SEED, 0, ROUND_PLUS_TWO)
 	var actions: Array[EngineAction] = engine.accepted_actions()
 	var none: Array[int] = []
-	var at: MatchEngine = _prefix_engine(SEED, actions, BAD_INDEX)
+	# A commit point (not a discard-down), so a commit there is judged on its cards.
+	var bad_index: int = _commit_index(SEED, actions, BAD_INDEX)
+	assert_int(bad_index).is_greater_equal(BAD_INDEX)
+	if bad_index < 0:
+		return
+	var at: MatchEngine = _prefix_engine(SEED, actions, bad_index)
 	var seat: int = at.awaited_seat()
 	var hand: Array[int] = _hand(at, seat)
 	# Wrong seat.
 	_assert_rejected_at(
 		SEED,
 		actions,
-		BAD_INDEX,
+		bad_index,
 		EngineAction.commit(1 - seat, none),
 		EngineError.Code.WRONG_SEAT,
 		true
@@ -469,7 +521,7 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 	_assert_rejected_at(
 		SEED,
 		actions,
-		BAD_INDEX,
+		bad_index,
 		EngineAction.commit(seat, _typed([foreign])),
 		EngineError.Code.CARD_NOT_IN_HAND,
 		true
@@ -477,7 +529,7 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 	_assert_rejected_at(
 		SEED,
 		actions,
-		BAD_INDEX,
+		bad_index,
 		EngineAction.commit(seat, _typed([99])),
 		EngineError.Code.CARD_NOT_IN_HAND,
 		true
@@ -487,18 +539,19 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 	_assert_rejected_at(
 		SEED,
 		actions,
-		BAD_INDEX,
+		bad_index,
 		EngineAction.commit(seat, _typed([hand[0], hand[0]])),
 		EngineError.Code.DUPLICATE_CARD,
 		true
 	)
-	# The whole hand, at the last index where it costs more than the energy. The passing
-	# seat holds 3 + turn cards of cost >= 1 against `turn` energy, so one always exists.
-	# Against the seat's budget with no free first card: since DC-05 T04 the player's carry
-	# and free-card effects can lift it above the turn.
+	# The whole hand, at the last commit point where it costs more than the Budget. The
+	# passing seat holds its four cards plus the turn's draw, of cost >= 1, against `turn`
+	# Energy, so one always exists on the early turns (no free first card in a fixture match).
 	var over: int = -1
 	for index: int in range(actions.size()):
 		var before: MatchEngine = _prefix_engine(SEED, actions, index)
+		if not before.open_prompt().is_empty():
+			continue
 		var awaited: int = before.awaited_seat()
 		var awaited_hand: Array[int] = _hand(before, awaited)
 		var state: Dictionary = before.full_state()
@@ -728,13 +781,17 @@ func test_a_header_with_an_unknown_deck_fails_replay_at_start() -> void:
 func test_bad_slots_fail_replay_at_their_index() -> void:
 	var engine: MatchEngine = _scripted(SEED, 0, ROUND_PLUS_TWO)
 	var actions: Array[EngineAction] = engine.accepted_actions()
-	var at: MatchEngine = _prefix_engine(SEED, actions, BAD_INDEX)
+	var bad_index: int = _commit_index(SEED, actions, BAD_INDEX)
+	assert_int(bad_index).is_greater_equal(BAD_INDEX)
+	if bad_index < 0:
+		return
+	var at: MatchEngine = _prefix_engine(SEED, actions, bad_index)
 	var seat: int = at.awaited_seat()
 	var card: Array[int] = [_hand(at, seat)[0]]
 	var beyond: int = _row_size(at, seat) + 1
 	for slots: Array in [[beyond], [-1], [0, 1]]:
 		var bad: EngineAction = EngineAction.commit(seat, card, _typed(slots))
-		_assert_rejected_at(SEED, actions, BAD_INDEX, bad, EngineError.Code.BAD_SLOTS, true)
+		_assert_rejected_at(SEED, actions, bad_index, bad, EngineError.Code.BAD_SLOTS, true)
 
 
 # --- DC-05 R39, R40: slots and choices; DC-07 format 3; cycle 8 T09 format 4 ---

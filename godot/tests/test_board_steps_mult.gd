@@ -1,7 +1,8 @@
 class_name TestBoardStepsMult
 extends GdUnitTestSuite
 ## BoardSteps' DC-07 beats (R44-R50, plan P16): the hundredths mult chips, grouped moves,
-## unreveal, recover, pile clears and the strip steps. Events are built by hand.
+## unreveal, the strip steps and (rules 7, DC-13 T03) a return to its Owner's hand. Events
+## are built by hand.
 
 const EPSILON: float = 0.0001
 
@@ -79,24 +80,17 @@ func test_unreveal_step() -> void:
 	assert_float(flip.duration).is_equal_approx(0.35 / 2.0, EPSILON)
 
 
-func test_recover_step() -> void:
-	var recovered: int = MatchEvent.Kind.CARD_RECOVERED
+## Rules 7 (DC-13 T03): a card going to its Owner's hand (CARD_RETURNED {owner, card}) is a
+## RETURN step for that Owner; nothing is recovered from a destroyed pile any more.
+func test_a_return_names_its_owner() -> void:
 	var back: BoardStep = _one(
-		_event(recovered, {"seat": 0, "card": 25, "from_seat": 1, "position": 2}), 2.0
+		_event(MatchEvent.Kind.CARD_RETURNED, {"owner": 0, "card": 25}), 2.0
 	)
-	assert_int(back.kind).is_equal(BoardStep.Kind.RECOVER)
+	assert_int(back.kind).is_equal(BoardStep.Kind.RETURN)
 	assert_int(back.seat).is_equal(0)
 	assert_int(back.card).is_equal(25)
-	assert_int(back.from_seat).is_equal(1)
-	assert_int(back.slot).is_equal(2)
 	assert_float(back.duration).is_equal_approx(0.3 / 2.0, EPSILON)
-
-
-func test_a_pile_clear_is_flagged() -> void:
-	var step: BoardStep = _one(
-		_event(MatchEvent.Kind.DESTROYED_CLEARED, {"seat": 1, "card": 25, "slot": 0, "pile": true})
-	)
-	assert_bool(step.pile).is_true()
+	assert_bool(MatchEvent.Kind.keys().has("CARD_RECOVERED")).is_false()
 
 
 func test_strip_steps_take_a_quarter_second_over_speed() -> void:

@@ -110,7 +110,8 @@ static func defs(pool: CardDb) -> MatchCards:
 
 
 ## Puts `own` on seat 0's row and `theirs` on seat 1's (taking them from wherever they are),
-## then both seats pass, so the walk scores the two rows. False when a pass is rejected.
+## then both seats pass (each discard-down answered by discard_answer()), so the walk scores
+## the two rows. False when an action is rejected.
 static func play_table(engine: MatchEngine, own: Array[int], theirs: Array[int]) -> bool:
 	for seat: int in range(MatchEngine.SEATS):
 		var row: Array[int] = []
@@ -122,10 +123,27 @@ static func play_table(engine: MatchEngine, own: Array[int], theirs: Array[int])
 		for card: int in row:
 			piles.deck.erase(card)
 			piles.hand.erase(card)
-			piles.burned.erase(card)
+			piles.pile.erase(card)
 		piles.board.assign(row)
 	var none: Array[int] = []
-	for _step: int in range(MatchEngine.SEATS):
-		if not engine.apply(EngineAction.commit(engine.awaited_seat(), none)).ok:
+	var commits: int = 0
+	while commits < MatchEngine.SEATS or not engine.open_prompt().is_empty():
+		var action: EngineAction = discard_answer(engine)
+		if action == null:
+			action = EngineAction.commit(engine.awaited_seat(), none)
+			commits += 1
+		if not engine.apply(action).ok:
 			return false
 	return true
+
+
+## The answer to an open discard-down (rules 7, DC-13 T03): its first `exact` hand positions;
+## null when no prompt is open. Every fixture card is a plain body, so it is the only prompt.
+static func discard_answer(engine: MatchEngine) -> EngineAction:
+	var prompt: Dictionary = engine.open_prompt()
+	if prompt.is_empty():
+		return null
+	var seat: int = prompt.get("seat", -1)
+	var picked: Array[int] = []
+	picked.assign(Choice.options_of(prompt).slice(0, Choice.exact_of(prompt)))
+	return EngineAction.choose_set(seat, Choice.zone_of(prompt), picked)
