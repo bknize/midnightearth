@@ -18,6 +18,9 @@ from typing import Any, Dict, List, Optional
 
 STATES = ("queued", "running", "stopping", "stopped", "interrupted", "done", "failed")
 TIMING_FIELDS = ("us",)
+# Fields of a shard line that name the run rather than its data: the dataset digest drops
+# them, so two runs with the same config and run seed give the same digest (spec R36).
+IDENTITY_FIELDS = ("run",)
 DB_NAME = "trainer.db"
 
 _SCHEMA = """
@@ -218,7 +221,8 @@ class Store:
         return [self.run_dir(run_id) / shard_name(b) for b in self.committed_batches(run_id)]
 
     def digest(self, run_id: str) -> str:
-        """SHA-256 over the committed shards' lines in batch order, timing fields removed."""
+        """SHA-256 over the committed shards' lines in batch order, timing fields and the run
+        id removed."""
         h = hashlib.sha256()
         for path in self.shard_paths(run_id):
             with open(path, "r", encoding="utf-8", newline="") as fh:
@@ -226,8 +230,11 @@ class Store:
                     line = line.rstrip("\r\n")
                     if not line:
                         continue
-                    canon = json.dumps(_strip_timing(json.loads(line)), sort_keys=True,
-                                       separators=(",", ":"))
+                    record = _strip_timing(json.loads(line))
+                    if isinstance(record, dict):
+                        for key in IDENTITY_FIELDS:
+                            record.pop(key, None)
+                    canon = json.dumps(record, sort_keys=True, separators=(",", ":"))
                     h.update(canon.encode("utf-8"))
                     h.update(b"\n")
         return h.hexdigest()

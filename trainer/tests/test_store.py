@@ -121,6 +121,14 @@ class StoreTest(unittest.TestCase):
                 except Exception:
                     pass
 
+    def test_digest_ignores_the_run_id(self) -> None:
+        # Two runs of the same data under different run ids have one digest (spec R36).
+        a = self.store.create_run({"run_seed": 3, "positions": 4}, STAMP, "abc123", run_id="a1")
+        b = self.store.create_run({"run_seed": 3, "positions": 4}, STAMP, "abc123", run_id="b2")
+        for rid in (a, b):
+            self.store.commit_batch(rid, 0, *make_batch(0, 2))
+        self.assertEqual(self.store.digest(a), self.store.digest(b))
+
     def test_digest_changes_with_data(self) -> None:
         rid = self.new_run()
         self.store.commit_batch(rid, 0, *make_batch(0, 2))
