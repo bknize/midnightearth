@@ -31,6 +31,8 @@ var bonus_kind: BonusKind = BonusKind.NONE
 var bonus: int = 0
 var abilities: Array[CardAbility] = []
 var text: String = ""
+## True for a card made only by an ability, never in a Deck (Dross; pool key `created`).
+var created: bool = false
 
 
 func _init(
@@ -92,7 +94,7 @@ func to_dict() -> Dictionary:
 	var listed: Array = []
 	for ability: CardAbility in abilities:
 		listed.append(ability.to_dict())
-	return {
+	var out: Dictionary = {
 		"id": id,
 		"name": name,
 		"tag": tag,
@@ -102,3 +104,6 @@ func to_dict() -> Dictionary:
 		"abilities": listed,
 		"text": text,
 	}
+	if created:
+		out["created"] = true
+	return out

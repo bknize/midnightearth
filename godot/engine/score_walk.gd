@@ -25,7 +25,8 @@ extends RefCounted
 ## (score_stage(): twice under Scores twice, then the D8 drain). Each pulse starts a new
 ## trigger budget (`walk.resolutions`, Q4); a drain paused on a prompt returns true from
 ## step() and the engine resumes it (TriggerQueue.answer, then resume_pulse() after a D7).
-## Integer only, so every platform agrees.
+## Integer only, so every platform agrees. reveal() records each reveal in
+## `walk.revealed_this_turn` (Finale, DC-14 T12).
 ##
 ## Events go to `sink` as sink.call(kind, payload) for the Walk's own public events and
 ## sink.call(kind, payload, owner) for an ability's events. A Walk with no valid sink emits
@@ -85,7 +86,7 @@ static func step(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Call
 	var walk: MatchState.WalkState = state.walk
 	var at: Vector2i = next_slot(state)
 	if at.x < 0:
-		finish(state, sink)
+		finish(state, sink, cards)
 		return false
 	var seat: int = at.x
 	# The slot is passed before anything the pulse fires resolves.
@@ -143,17 +144,23 @@ static func run(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Calla
 	return false
 
 
-## Ends the Walk (R27): each seat's Score is its walking total rounded once, then
-## WALK_ENDED {totals, scores}.
-static func finish(state: MatchState, sink: Callable) -> void:
+## Ends the Walk (R27): at Walk end, before rounding, each seat's walking total takes its
+## hand's Dross multiplies (AbilitiesComboDisruption.walk_end_total, DC-14 T12; none without
+## `cards`), then each seat's Score is its walking total rounded once, then WALK_ENDED
+## {totals, scores, dross} (`dross` the Dross counted per seat).
+static func finish(state: MatchState, sink: Callable, cards: MatchCards = null) -> void:
 	state.walk.active = false
+	var dross: Array[int] = [0, 0]
 	for seat: int in range(state.totals.size()):
+		dross[seat] = AbilitiesComboDisruption.dross_in_hand(state, cards, seat)
+		state.totals[seat] = AbilitiesComboDisruption.walk_end_total(state, cards, seat)
 		state.scores[seat] = Scoring.walk_score(state.totals[seat])
 		state.match_scores[seat] += state.scores[seat]
 	if sink.is_valid():
 		var ended: Dictionary = {
 			"totals": MatchState.plain(state.totals),
 			"scores": MatchState.plain(state.scores),
+			"dross": MatchState.plain(dross),
 		}
 		sink.call(MatchEvent.Kind.WALK_ENDED, ended)
 
@@ -166,6 +173,7 @@ static func reveal(
 ) -> void:
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	piles.revealed[card] = true
+	state.walk.revealed_this_turn[card] = true
 	for watcher: MatchState.SeatPiles in state.seats:
 		if watcher.looked.erase(card):
 			pass  # A revealed card is public: no seat needs to remember it.
