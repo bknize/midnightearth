@@ -325,7 +325,8 @@ func test_squelched_wraith_changes_nothing() -> void:
 	var wraith: int = 0
 	_put(cards, _typed([wraith]), "gy05")
 	var state: MatchState = StubAbilities.table(_typed([wraith, 1]), true)
-	var sink: Callable = Callable()
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	var sink: Callable = rec.record
 	assert_bool(StubAbilities.stub_squelch(state, cards, wraith, sink).ok()).is_true()
 	assert_bool(StubAbilities.stub_condemn(state, cards, 1, sink)).is_true()
 	assert_array(TurnFlow.exit_pass(state, cards, sink)).is_equal(_typed([1]))
@@ -340,7 +341,8 @@ func test_wraith_leaves_a_fleeting_card_alone() -> void:
 	var wraith: int = 0
 	_put(cards, _typed([wraith]), "gy05")
 	var state: MatchState = StubAbilities.table(_typed([wraith, 1]), true)
-	var sink: Callable = Callable()
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	var sink: Callable = rec.record
 	assert_bool(StubAbilities.stub_condemn(state, cards, 1, sink)).is_true()
 	assert_bool(StubAbilities.stub_fleeting(state, cards, 1, sink)).is_true()
 	assert_array(TurnFlow.exit_pass(state, cards, sink)).is_empty()

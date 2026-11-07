@@ -185,7 +185,7 @@ func _assert_valid(db: CardDb) -> void:
 # --- The shipped file -----------------------------------------------------------------
 
 
-## Milestone A's 50 plus DC-14 T12's and T13's 40 Deck cards (90) and Dross (created only, outside every
+## Milestone A's 50 plus DC-14 T12's and T13's 40 Deck cards (90) and Dross (created only,
 ## tag count; canon cards-v2 section 1).
 func test_the_shipped_file_loads_90_deck_cards_and_dross() -> void:
 	var db: CardDb = CardDb.load_default()
