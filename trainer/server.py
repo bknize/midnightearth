@@ -22,12 +22,13 @@ from trainer.config import RunConfig
 from trainer.farm import REPO_ROOT, Farm, FarmError, godot_bin, worker_command
 from trainer.run import execute, git_commit
 from trainer.store import Store, default_data_dir
-from trainer.sync import stamp_of, sync_code
+from trainer.sync import RunFn, default_run, stamp_of, sync_code
 
 ACTIVE_STATES = ("queued", "running", "stopping")
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 LOCK_NAME = "serve.lock"
 WINDOWS_TOKEN = r"C:\Users\trainer\.trainer\token"
+START_CMD = "start-mcp.cmd"
 Reply = Dict[str, Any]
 
 
@@ -54,6 +55,24 @@ def load_token(path: Optional[Path] = None) -> str:
     if not text:
         raise TokenError("trainer serve: token file is empty: %s" % p)
     return text
+
+
+def default_queue() -> Path:
+    env = os.environ.get("TRAINER_QUEUE")
+    return Path(env) if env else Path.home() / "trainer" / "queue"
+
+
+def restart_job_text(pid: int, start_cmd: Path) -> str:
+    """The runner-queue batch job that restarts the service: wait for the sync reply to go
+    out, kill the process that holds the port (the venv launcher above it then ends), wait for
+    the port to free, start the service again through its autostart script."""
+    lines = ["@echo off",
+             "rem restart the trainer service after a sync that changed trainer/",
+             "ping -n 4 127.0.0.1 >nul",
+             "taskkill /PID %d /F" % pid,
+             "ping -n 4 127.0.0.1 >nul",
+             "call %s" % start_cmd]
+    return "".join(ln + "\r\n" for ln in lines)
 
 
 def default_root() -> Path:
@@ -117,7 +136,10 @@ class Service:
     def __init__(self, data_dir: Optional[Path] = None, root: Optional[Path] = None,
                  farm_factory: Optional[Callable[[RunConfig, Path], Farm]] = None,
                  stamp_fn: Optional[Callable[[], str]] = None,
-                 sync_fn: Optional[Callable[..., Reply]] = None) -> None:
+                 sync_fn: Optional[Callable[..., Reply]] = None,
+                 queue_dir: Optional[Path] = None, run_fn: Optional[RunFn] = None,
+                 commit_fn: Optional[Callable[[], str]] = None,
+                 is_windows: Optional[bool] = None) -> None:
         self.root = Path(root) if root is not None else default_root()
         self.store = Store(data_dir)
         self.data_dir = self.store.data_dir
@@ -130,6 +152,12 @@ class Service:
         self._farm_factory = farm_factory or self._default_farm
         self._stamp_fn = stamp_fn or self._default_stamp
         self._sync_fn = sync_fn or sync_code
+        self.queue_dir = Path(queue_dir) if queue_dir is not None else default_queue()
+        self._run_fn: RunFn = run_fn or default_run
+        self._windows = os.name == "nt" if is_windows is None else is_windows
+        # The commit this process's Python was loaded from: new runs record it, not whatever
+        # the checkout holds after a later sync.
+        self.service_commit = (commit_fn or (lambda: git_commit(True)))()
         self._thread: Optional[threading.Thread] = None
         self._active_id: Optional[str] = None
         self._stop_flag = threading.Event()
@@ -184,6 +212,7 @@ class Service:
         lab = db.execute("SELECT COUNT(*) AS c, COALESCE(SUM(n), 0) AS r FROM labels"
                          " WHERE run_id = ?", (run_id,)).fetchone()
         return {"positions": int(pos), "labels": int(lab["c"]), "rollouts": int(lab["r"]),
+                "skipped": self.store.skipped_count(run_id),
                 "batches": len(self.store.committed_batches(run_id))}
 
     def _need_run(self, run_id: str) -> Any:
@@ -201,7 +230,8 @@ class Service:
         cached = self._probes.get(key)
         if cached is None:
             cached = fn()
-            self._probes[key] = cached
+            if cached:  # a failed probe is not remembered
+                self._probes[key] = cached
         return cached
 
     def _gpu(self) -> str:
@@ -233,7 +263,8 @@ class Service:
             "host": platform.node(), "python": platform.python_version(),
             "mcp": mcp_version(), "godot": godot or "unavailable", "gpu": gpu or "none",
             "free_disk_gb": round(shutil.disk_usage(str(self.data_dir)).free / 1e9, 1),
-            "commit": commit or "unknown", "code_stamp": stamp,
+            "commit": commit or "unknown", "service_commit": self.service_commit,
+            "code_stamp": stamp,
             "workers_busy": farm.busy() if farm is not None else 0,
             "workers_total": farm.workers if farm is not None else 0,
             "active_run": active, "syncing": syncing,
@@ -251,12 +282,46 @@ class Service:
                 return {"error": "a sync is already in progress"}
             self._syncing = True
         try:
-            return self._sync_fn(commit, bundle_b64, inbox_file, root=self.root,
-                                 godot_bin=godot_bin(), run_active=None)
+            result = self._sync_fn(commit, bundle_b64, inbox_file, root=self.root,
+                                   godot_bin=godot_bin(), run_active=None)
+            if "error" not in result:
+                result["restart"] = self._restart_after_sync(str(result.get("commit", commit)))
+            return result
         finally:
             with self.lock:
                 self._syncing = False
                 self._probes.clear()
+
+    def _restart_after_sync(self, new: str) -> str:
+        """"not needed" when nothing under trainer/ differs between the code this process
+        runs and the new commit; else schedule a restart through the runner queue
+        ("scheduled"), or say one is "needed" (no queue, or not Windows). The diff base is
+        the service's own commit, so a trainer/ change from an earlier sync that was never
+        restarted is still caught."""
+        base = self.service_commit
+        if base in ("", "unknown"):
+            return "needed"
+        if base == new:
+            return "not needed"
+        rc, out = self._run_fn(["git", "-C", str(self.root / "work"), "diff", "--name-only",
+                                base, new, "--", "trainer"], None, dict(os.environ))
+        if rc != 0:
+            return "needed"
+        if not out.strip():
+            return "not needed"
+        if not self._windows or not self.queue_dir.is_dir():
+            return "needed"
+        stamp = "%s-%03d" % (time.strftime("%Y%m%d-%H%M%S"), int(time.time() * 1000) % 1000)
+        job = self.queue_dir / ("restart-mcp-%s.cmd" % stamp)
+        tmp = self.queue_dir / ("restart-mcp-%s.tmp" % stamp)  # the runner only takes *.cmd
+        start_cmd = self.queue_dir.parent / "autostart" / START_CMD
+        try:
+            with open(tmp, "w", encoding="ascii", newline="") as fh:
+                fh.write(restart_job_text(os.getpid(), start_cmd))
+            os.replace(tmp, job)
+        except OSError:
+            return "needed"
+        return "scheduled"
 
     def start_run(self, config: Dict[str, Any]) -> Reply:
         try:
@@ -273,7 +338,7 @@ class Service:
                 stamp = self._stamp_fn()
             except (OSError, ValueError) as e:
                 return {"error": "stamp: %s" % e}
-            run_id = self.store.create_run(cfg.to_dict(), stamp, git_commit())
+            run_id = self.store.create_run(cfg.to_dict(), stamp, self.service_commit)
             self._launch(run_id)
             return {"run_id": run_id, "state": "queued", "stamp": stamp,
                     "positions": cfg.positions}
@@ -350,12 +415,12 @@ class Service:
                 " WHERE run_id = ? GROUP BY position_index", (run_id,)):
             hist[str(row["c"])] = hist.get(str(row["c"]), 0) + 1
             spreads.append(float(row["s"]))
-        wall = max(0.0, float(run.get("updated", 0.0)) - float(run.get("created", 0.0)))
+        wall = max(0.0, float(run.get("active_s", 0.0)))  # active time, not created to updated
         rollouts = int(lab["r"])
         return {
             "run_id": run_id, "state": run.get("state"), "config": run.get("config"),
             "stamp": run.get("stamp"), "commit": run.get("commit"), "positions": pos,
-            "labels": int(lab["c"]), "rollouts": rollouts, "wall_s": round(wall, 2),
+            "skipped": store.skipped_count(run_id), "labels": int(lab["c"]), "rollouts": rollouts, "wall_s": round(wall, 2),
             "rollouts_per_s": round(rollouts / wall, 2) if wall > 0 else 0.0,
             "restarts": run.get("restarts", 0), "candidate_count_histogram": hist,
             "mean_value_spread": round(sum(spreads) / len(spreads), 4) if spreads else 0.0,
@@ -372,8 +437,11 @@ class Service:
             total = int(cfg.get("positions", 0))
             live = run["state"] in ACTIVE_STATES and self._active_id == run_id
             now = time.time()
-            end = now if live else float(run["updated"])
-            elapsed = max(0.0, end - float(run["created"]))
+            # Active time only: stored seconds plus the live session since its last
+            # settlement (`updated` moves with each one), never the stopped gaps.
+            elapsed = max(0.0, float(run["active_s"]))
+            if live:
+                elapsed += max(0.0, now - float(run["updated"]))
             rate = 0.0
             eta: Optional[float] = None
             if live:
@@ -386,7 +454,7 @@ class Service:
             checkpoint = float(run.get("checkpoint", 0.0))
             out: Reply = {
                 "run_id": run_id, "state": run["state"], "positions_done": c["positions"],
-                "positions_total": total, "batches": c["batches"], "labels": c["labels"],
+                "positions_total": total, "skipped": c["skipped"], "batches": c["batches"], "labels": c["labels"],
                 "rollouts": c["rollouts"], "restarts": run["restarts"],
                 "positions_per_s": rate,
                 "rollouts_per_s": round(c["rollouts"] / wall, 2) if wall > 0 else 0.0,

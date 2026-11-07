@@ -18,6 +18,8 @@ class Fake:
         self.calls: List[List[str]] = []
         self.godot_out = godot_out
         self.godot_rc = godot_rc
+        self.godot_calls = 0
+        self.godot_seq: List[Tuple[int, str]] = []
         self.envs: List[Mapping[str, str]] = []
         self.cwds: List[Optional[Path]] = []
 
@@ -53,6 +55,9 @@ class Fake:
                 (win / "runner.ps1").write_text("# runner")
                 return 0, ""
             return 0, ""
+        self.godot_calls += 1
+        if len(self.godot_seq) >= self.godot_calls:
+            return self.godot_seq[self.godot_calls - 1]
         return self.godot_rc, self.godot_out
 
 
@@ -139,8 +144,26 @@ class SyncTest(unittest.TestCase):
         fake = Fake(godot_out="SCRIPT ERROR: boom")
         out = self.sync(fake, commit=GOOD)
         self.assertIn("import errors", out["error"])
-        self.assertEqual(fake.calls[-1],
+        self.assertIn("re-import after rollback failed", out["error"])
+        self.assertEqual(fake.godot_calls, 2)
+        self.assertEqual(fake.calls[-2],
                          ["git", "-C", str(self.root / "work"), "checkout", "--detach", OLD])
+        self.assertIn("--import", fake.calls[-1])
+
+    def test_import_runs_again_after_rollback(self) -> None:
+        self.sync(Fake())
+        fake = Fake()
+        fake.godot_seq = [(0, "SCRIPT ERROR: boom"), (0, "Import done")]
+        out = self.sync(fake, commit=GOOD)
+        self.assertIn("import errors", out["error"])
+        self.assertNotIn("re-import", out["error"])
+        self.assertEqual(fake.godot_calls, 2)
+        self.assertIn("--import", fake.calls[-1])
+
+    def test_failed_first_import_does_not_reimport(self) -> None:
+        fake = Fake(godot_rc=3, godot_out="boom")
+        self.sync(fake)
+        self.assertEqual(fake.godot_calls, 1)
 
     def test_failed_first_import_removes_worktree(self) -> None:
         fake = Fake(godot_rc=3, godot_out="boom")

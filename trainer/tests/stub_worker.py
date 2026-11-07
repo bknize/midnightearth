@@ -1,7 +1,8 @@
 """A stand-in play-out worker that speaks the protocol (cycle 11 P9) with values derived from
 the request alone. Options: --stamp S, --banner, --crash-after N (exit without replying to
 request N+1), --hang-after N (never reply to request N+1), --reply-stamp S (reply with a
-stamp other than the hello's)."""
+stamp other than the hello's), --hang-seed S / --crash-seed S (hang, or exit, on every
+request whose seed is S)."""
 import hashlib
 import json
 import sys
@@ -62,6 +63,8 @@ def main() -> int:
     reply_stamp = opt("--reply-stamp", stamp)
     crash_after = int(opt("--crash-after", "-1"))
     hang_after = int(opt("--hang-after", "-1"))
+    hang_seed = opt("--hang-seed", "")
+    crash_seed = opt("--crash-seed", "")
     if "--banner" in argv:
         print("Godot Engine v4.6.3.stable (stub)\n")
     print(json.dumps({"hello": True, "stamp": stamp, "rules": "r", "format": 1,
@@ -75,6 +78,11 @@ def main() -> int:
         req = json.loads(line)
         if req.get("kind") == "quit":
             return 0
+        if hang_seed and str(req.get("seed")) == hang_seed:
+            sys.stdin.read()
+            return 0
+        if crash_seed and str(req.get("seed")) == crash_seed:
+            return 1
         if served == crash_after:
             return 1
         if served == hang_after:

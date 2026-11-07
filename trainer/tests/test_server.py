@@ -319,6 +319,137 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(seen["root"], self.root / "me")
 
 
+NEW = "b" * 40
+OLD = "a" * 40
+
+
+class RestartAfterSyncTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.queue = self.root / "trainer" / "queue"
+        self.queue.mkdir(parents=True)
+        self.diffs: List[List[str]] = []
+
+    def service(self, changed: str = "trainer/server.py\n", windows: bool = True,
+                queue: Any = "default") -> Service:
+        def run(argv: List[str], cwd: Any, env: Any) -> Any:
+            self.diffs.append(argv)
+            return 0, changed
+
+        def sync(commit: str, bundle: str, inbox: str, **kw: Any) -> Dict[str, Any]:
+            return {"commit": commit, "stamp": STAMP, "import_s": 0.0}
+
+        s = Service(self.root / "data", self.root / "me", farm_factory=stub_farm,
+                    stamp_fn=lambda: STAMP, sync_fn=sync, run_fn=run,
+                    commit_fn=lambda: OLD, is_windows=windows,
+                    queue_dir=self.queue if queue == "default" else queue)
+        self.addCleanup(s.close)
+        return s
+
+    def test_scheduled_job_file(self) -> None:
+        out = self.service().sync_code(NEW, inbox_file="x.bundle")
+        self.assertEqual(out["restart"], "scheduled")
+        self.assertEqual(self.diffs[-1][-4:], [OLD, NEW, "--", "trainer"])
+        self.assertIn("diff", self.diffs[-1])
+        jobs = sorted(self.queue.iterdir())
+        self.assertEqual(len(jobs), 1)
+        self.assertRegex(jobs[0].name, r"^restart-mcp-\d{8}-\d{6}-\d{3}\.cmd$")
+        text = jobs[0].read_bytes().decode("ascii")
+        self.assertIn("\r\n", text)
+        self.assertIn("taskkill /PID %d /F" % os.getpid(), text)
+        lines = text.splitlines()
+        self.assertTrue(any(ln.startswith("ping -n") for ln in lines))
+        self.assertTrue(lines[-1].startswith("call "))
+        self.assertTrue(lines[-1].endswith("autostart/start-mcp.cmd")
+                        or lines[-1].endswith("autostart\\start-mcp.cmd"))
+        self.assertLess([i for i, ln in enumerate(lines) if ln.startswith("ping")][0],
+                        [i for i, ln in enumerate(lines) if "taskkill" in ln][0])
+
+    def test_not_needed_when_trainer_unchanged(self) -> None:
+        out = self.service(changed="").sync_code(NEW, inbox_file="x.bundle")
+        self.assertEqual(out["restart"], "not needed")
+        self.assertEqual(list(self.queue.iterdir()), [])
+        same = self.service(changed="trainer/x.py").sync_code(OLD, inbox_file="x.bundle")
+        self.assertEqual(same["restart"], "not needed")
+
+    def test_needed_without_queue_or_off_windows(self) -> None:
+        self.assertEqual(self.service(windows=False).sync_code(NEW, inbox_file="x")["restart"],
+                         "needed")
+        self.assertEqual(list(self.queue.iterdir()), [])
+        gone = self.service(queue=self.root / "nope")
+        self.assertEqual(gone.sync_code(NEW, inbox_file="x")["restart"], "needed")
+
+    def test_failed_sync_has_no_restart_key(self) -> None:
+        s = self.service()
+        s._sync_fn = lambda *a, **k: {"error": "boom"}
+        self.assertEqual(s.sync_code(NEW, inbox_file="x"), {"error": "boom"})
+
+    def test_new_runs_record_the_service_commit(self) -> None:
+        s = self.service()
+        rid = s.start_run(cfg_dict(positions=20))["run_id"]
+        s.join(60)
+        run = s.store.get_run(rid)
+        assert run is not None
+        self.assertEqual(run["commit"], OLD)
+        self.assertEqual(s.health()["service_commit"], OLD)
+        self.assertIn("commit", s.health())
+
+
+class ProbeAndRateTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.svc = Service(self.root / "data", self.root / "me", farm_factory=stub_farm,
+                           stamp_fn=lambda: STAMP, commit_fn=lambda: OLD)
+        self.addCleanup(self.svc.close)
+
+    def test_probe_caches_only_non_empty(self) -> None:
+        answers = iter(["", "", "Godot 4.6.3"])
+        calls: List[int] = []
+
+        def fn() -> str:
+            calls.append(1)
+            return next(answers)
+
+        self.assertEqual(self.svc._probe("godot", fn), "")
+        self.assertEqual(self.svc._probe("godot", fn), "")
+        self.assertEqual(self.svc._probe("godot", fn), "Godot 4.6.3")
+        self.assertEqual(self.svc._probe("godot", fn), "Godot 4.6.3")
+        self.assertEqual(len(calls), 3)
+
+    def test_rates_use_active_time_not_gaps(self) -> None:
+        store = self.svc.store
+        rid = store.create_run(cfg_dict(), STAMP, OLD, state="running")
+        pos = {"index": 0, "seed": 1, "decks": [], "prefix_len": 1, "seat": 0}
+        lab = {"position_index": 0, "candidate_index": 0, "action": {}, "mean": 0.5,
+               "spread": 0.1, "n": 100, "wins": 50, "draws": 0, "losses": 50, "capped": 0}
+        store.commit_batch(rid, 0, [pos], [lab])
+        store.add_active(rid, 50.0)
+        store.set_state(rid, "stopped")
+        # a long gap: stopped for a day, then the run record looks old
+        day = 86400.0
+        store.db.execute("UPDATE runs SET created = created - ?, updated = updated - ?"
+                         " WHERE id = ?", (day, 0.0, rid))
+        store.db.commit()
+        st = self.svc.run_status(rid)
+        self.assertEqual(st["elapsed_s"], 50.0)
+        self.assertEqual(st["rollouts_per_s"], 2.0)
+        store.set_state(rid, "queued", "")
+        store.add_active(rid, 50.0)
+        store.set_state(rid, "stopped")
+        st = self.svc.run_status(rid)
+        self.assertEqual(st["elapsed_s"], 100.0)
+        self.assertEqual(st["rollouts_per_s"], 1.0)
+        self.assertEqual(st["skipped"], 0)
+        report = self.svc._report(store, rid)
+        self.assertEqual(report["wall_s"], 100.0)
+        self.assertEqual(report["rollouts_per_s"], 1.0)
+        self.assertEqual(report["skipped"], 0)
+
+
 @unittest.skipUnless(HAVE_MCP, "mcp is not installed")
 class McpTest(unittest.TestCase):
     def test_nine_tools_registered(self) -> None:

@@ -7,8 +7,9 @@ from typing import Any, Dict, List
 from unittest import mock
 
 from trainer.config import RunConfig
-from trainer.farm import Farm, FarmError
+from trainer.farm import Farm, FarmError, RequestFailed
 from trainer.run import execute, ordered_pairings
+from trainer.seeds import play_seed
 from trainer.store import Store
 
 STUB = str(Path(__file__).resolve().parent / "stub_worker.py")
@@ -51,16 +52,25 @@ class FarmTest(unittest.TestCase):
             self.assertEqual([r["log"]["seed"] for r in replies], [str(i) for i in range(10)])
             self.assertEqual(farm.restarts, 3)
 
-    def test_timeout_retries_once_then_fails(self) -> None:
-        farm = make_farm(1, 0.5, "--hang-after", "0")
+    def test_timeout_retries_once_then_fails_that_request_only(self) -> None:
+        farm = make_farm(1, 0.5, "--hang-seed", "1")
         farm.start()
         try:
-            with self.assertRaises(FarmError) as ctx:
+            with self.assertRaises(RequestFailed) as ctx:
                 farm.request(play_req(1))
             self.assertIn("timed out", str(ctx.exception))
-            self.assertEqual(farm.restarts, 1)
+            self.assertEqual(ctx.exception.reason, "timeout")
+            self.assertEqual(farm.restarts, 2)
+            self.assertEqual(farm.request(play_req(2))["log"]["seed"], "2")  # farm still up
         finally:
             farm.stop()
+
+    def test_three_crashes_fail_that_request_only(self) -> None:
+        with make_farm(1, 30.0, "--crash-seed", "1") as farm:
+            with self.assertRaises(RequestFailed) as ctx:
+                farm.request(play_req(1))
+            self.assertEqual(ctx.exception.reason, "crash")
+            self.assertEqual(farm.request(play_req(2))["log"]["seed"], "2")
 
     def test_bad_command_fails_start(self) -> None:
         farm = Farm([sys.executable, "-I", "-c", "pass"], 1, start_timeout=10.0)
@@ -76,13 +86,13 @@ class FarmTest(unittest.TestCase):
             farm.request(play_req(1))
         with self.assertRaises(FarmError):
             farm.map([play_req(2)])
-        failed = make_farm(1, 0.5, "--hang-after", "0")
+        failed = make_farm(1)
         failed.start()
         try:
-            with self.assertRaises(FarmError):
-                failed.request(play_req(1))
-            with self.assertRaises(FarmError):
+            failed._fail("boom")
+            with self.assertRaises(FarmError) as ctx:
                 failed.request(play_req(2))
+            self.assertNotIsInstance(ctx.exception, RequestFailed)
         finally:
             failed.stop()
 
@@ -216,16 +226,84 @@ class RunTest(unittest.TestCase):
         row = store.db.execute('SELECT decks FROM positions WHERE "index" = 1').fetchone()
         self.assertEqual(len(json.loads(row["decks"])), 2)
 
-    def test_timeout_fails_run(self) -> None:
+    def skip_run(self, name: str, *extra: str) -> Store:
+        """40 positions with position 5's play seed hanging or crashing its worker."""
+        store = self.store(name)
+        self.new_run(store, positions=40)
+        seed = play_seed(77, 5)
+        with make_farm(3, 0.5, *extra, str(seed)) as farm:
+            self.assertEqual(execute(store, "r1", farm), "done")
+        return store
+
+    def test_hung_position_is_skipped_and_run_carries_on(self) -> None:
+        store = self.skip_run("a", "--hang-seed")
+        self.assertEqual(store.resume_point("r1"), 40)
+        self.assertEqual(store.skipped_count("r1"), 1)
+        line = [json.loads(x) for p in store.shard_paths("r1")
+                for x in p.read_text(encoding="utf-8").splitlines()][5]
+        self.assertEqual(line["position"], 5)
+        self.assertEqual(line["candidates"], [])
+        self.assertEqual(line["info"], {"skipped": "play request: timeout"})
+
+    def test_crashing_position_is_skipped_and_digest_is_stable(self) -> None:
+        a = self.skip_run("a", "--crash-seed")
+        b = self.skip_run("b", "--crash-seed")
+        self.assertEqual(a.skipped_count("r1"), 1)
+        self.assertEqual(a.digest("r1"), b.digest("r1"))
+        clean = self.store("c")
+        self.new_run(clean, positions=40)
+        with make_farm(3) as farm:
+            execute(clean, "r1", farm)
+        self.assertNotEqual(a.digest("r1"), clean.digest("r1"))
+
+    def test_skipped_position_stays_skipped_on_resume(self) -> None:
+        whole = self.skip_run("whole", "--hang-seed")
+        part = self.store("part")
+        self.new_run(part, positions=40)
+        seen: List[int] = []
+        seed = str(play_seed(77, 5))
+        with make_farm(2, 0.5, "--hang-seed", seed) as farm:
+            execute(part, "r1", farm, should_stop=lambda: bool(seen),
+                    progress=lambda p: seen.append(int(p["done"])))
+        self.assertEqual(part.resume_point("r1"), 20)
+        with make_farm(3, 0.5, "--hang-seed", seed) as farm:
+            self.assertEqual(execute(part, "r1", farm), "done")
+        self.assertEqual(part.digest("r1"), whole.digest("r1"))
+
+    def test_stamp_mismatch_is_not_a_skip(self) -> None:
         store = self.store("a")
         rid = self.new_run(store, positions=20)
-        farm = make_farm(1, 0.5, "--hang-after", "0")
-        farm.start()
-        try:
+        with make_farm(2, 30.0, "--reply-stamp", "r7-other") as farm:
             self.assertEqual(execute(store, rid, farm), "failed")
-        finally:
-            farm.stop()
-        self.assertIn("timed out", (store.get_run(rid) or {})["last_error"])
+        self.assertEqual(store.skipped_count(rid), 0)
+
+    def test_hours_cap_stops_run_and_resume_gets_fresh_budget(self) -> None:
+        store = self.store("a")
+        self.new_run(store, positions=100, hours=1e-9)
+        with make_farm(2) as farm:
+            self.assertEqual(execute(store, "r1", farm), "stopped")
+        run = store.get_run("r1") or {}
+        self.assertEqual(store.resume_point("r1"), 20)  # one batch, then the cap
+        self.assertIn("hours cap", run["last_error"])
+        with make_farm(2) as farm:
+            self.assertEqual(execute(store, "r1", farm), "stopped")
+        self.assertEqual(store.resume_point("r1"), 40)
+        # a generous budget runs to the end
+        store.db.execute("UPDATE runs SET config = ? WHERE id = 'r1'",
+                         (json.dumps(config(positions=100, hours=8.0), sort_keys=True),))
+        store.db.commit()
+        with make_farm(2) as farm:
+            self.assertEqual(execute(store, "r1", farm), "done")
+
+    def test_active_time_accumulates_per_batch(self) -> None:
+        store = self.store("a")
+        self.new_run(store, positions=40)
+        ticks = iter(range(0, 1000, 10))
+        with make_farm(2) as farm:
+            execute(store, "r1", farm, clock=lambda: float(next(ticks)))
+        # clock reads: start 0, settle 10, hours check 20, settle 30, final settle 40; the
+        # settlements add up to the whole session.
+        self.assertEqual((store.get_run("r1") or {})["active_s"], 40.0)
 
 
 if __name__ == "__main__":

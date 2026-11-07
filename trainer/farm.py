@@ -5,7 +5,9 @@ reader thread that turns the process's stdout into a queue of lines, and a dispa
 that takes requests from the shared queue, writes one line and waits for the matching reply.
 A worker that exits is restarted and its request re-queued (counted in `restarts`). A request
 with no reply within `timeout` seconds kills the worker, restarts it and is retried once; a
-second timeout fails the farm. No shell, no signals: Windows-safe.
+second timeout, or a third crash, fails that request alone (RequestFailed): the slot restarts
+its worker and the farm stays up. Only a worker that will not start fails the farm. No
+shell, no signals: Windows-safe.
 """
 import itertools
 import json
@@ -24,7 +26,17 @@ MAX_CRASHES_PER_REQUEST = 3
 
 
 class FarmError(Exception):
-    """The farm cannot go on (worker will not start, request timed out twice, bad reply)."""
+    """The farm cannot go on (a worker will not start, a stamp mismatch)."""
+
+
+class RequestFailed(FarmError):
+    """One request failed (timed out twice, or crashed its worker 3 times) while the farm
+    carries on. `reason` is a short stable code ("timeout" or "crash")."""
+
+    def __init__(self, message: str, reason: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.kind = ""  # the request kind, filled in by the caller that knows it
 
 
 def godot_bin() -> str:
@@ -44,6 +56,7 @@ class _Job:
         self.done = threading.Event()
         self.reply: Optional[Dict[str, Any]] = None
         self.error = ""
+        self.reason = ""  # set when only this request failed (not the farm)
         self.timeouts = 0
         self.crashes = 0
 
@@ -217,7 +230,7 @@ class Farm:
         with self._lock:
             self._pending.pop(job.id, None)
         if job.reply is None:
-            raise FarmError(job.error or self.error or "farm stopped")
+            raise self._failure(job)
         return job.reply
 
     def map(self, requests: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -234,11 +247,22 @@ class Farm:
             with self._lock:
                 self._pending.pop(job.id, None)
             if job.reply is None:
-                raise FarmError(job.error or self.error or "farm stopped")
+                raise self._failure(job)
             out.append(job.reply)
         return out
 
     # internals
+
+    def _failure(self, job: _Job) -> FarmError:
+        if job.reason:
+            return RequestFailed(job.error, job.reason)
+        return FarmError(job.error or self.error or "farm stopped")
+
+    def _fail_job(self, job: _Job, message: str, reason: str) -> None:
+        """Only this request fails; the slot restarts its worker and carries on."""
+        job.error = message
+        job.reason = reason
+        job.done.set()
 
     def _enqueue(self, job: _Job) -> None:
         """Queue a job, or fail it at once when the farm has failed or stopped (so a late
@@ -360,21 +384,21 @@ class Farm:
             raise FarmError(self.error or "farm stopped")
         if timed_out:
             job.timeouts += 1
-            if job.timeouts > 1:
-                proc.kill()
-                raise FarmError("request %d timed out twice (%.0f s each)"
-                                % (job.id, self.timeout))
             proc = self._restart(slot, proc)
-            self._jobs.put(job)
+            if job.timeouts > 1:
+                self._fail_job(job, "request %d timed out twice (%.0f s each)"
+                               % (job.id, self.timeout), "timeout")
+            else:
+                self._jobs.put(job)
             return proc
         if reply is None:
             job.crashes += 1
-            if job.crashes >= MAX_CRASHES_PER_REQUEST:
-                proc.kill()
-                raise FarmError("request %d crashed its worker %d times"
-                                % (job.id, job.crashes))
             proc = self._restart(slot, proc)
-            self._jobs.put(job)
+            if job.crashes >= MAX_CRASHES_PER_REQUEST:
+                self._fail_job(job, "request %d crashed its worker %d times"
+                               % (job.id, job.crashes), "crash")
+            else:
+                self._jobs.put(job)
             return proc
         job.reply = reply
         job.done.set()
