@@ -188,9 +188,9 @@ position, its candidate commits and the value of each. Values are integers.
   label seed, and returning per candidate the mean value, the spread, the counts of wins,
   draws, losses and capped rollouts, and the rollouts made; the candidate list shall also
   be accepted explicitly in place of `k`.
-- R28. The play-out worker shall derive every determinization seed from the label seed, the
-  candidate index and the determinization index, so a label set reproduces exactly from its
-  seeds.
+- R28. The play-out worker shall derive every determinization seed from the label seed and
+  the determinization index, so every candidate of a label is played on the same deals and a
+  label set reproduces exactly from its seeds (amended at `/cycle test` DC-16, C10).
 - R29. The play-out worker shall carry the request `id` and the stamp on every reply, report
   the microseconds spent, and answer a malformed request or a prefix that fails to replay
   with an error reply naming the problem, never by exiting.
@@ -327,6 +327,7 @@ entry point, the run store, and the MCP server with its bearer token."
 | C7 | Round 2 Q3, verification: (a) Mac first then PC with a Mac trainer run; (b) A1 proven on the Mac, A2's end-to-end proof on the PC only (no Mac trainer run); (c) plus a PC reboot mid-run | 3b. Read as: `make trainer-test` still runs on both machines (T6 says it is runnable on both), but the end-to-end labelled run is proven on the PC only |
 | C8 | Round 2 Q4, the bots guide: (a) a rewrite task at the end of A2 on the cycle branch, blocked until Ben has committed or discarded his working-copy edits; (b) a new guide beside the old; (c) nothing this cycle | 4a |
 | C9 | T06 review (DC-16), S1: R17 and plan P6 disagreed with each other and with the code on which per-card records follow a permuted identity. (a) Amend R17 and P6 to the implemented rule: Memory and created-card definitions are keyed by card id and move with the identity; Board changes, statuses and `chosen` stay with the row slot, because moving them would put a status on a different visible slot and change the seat's view; (b) change the code to re-key everything through the permutation | 1a (Ben, 2026-11-07) |
+| C10 | `/cycle test` DC-16 code review: F1, candidates were played on different deals (the determinization seed held the candidate index), so a label's ranking carried the deal noise and a move's value depended on `k`; F5, the match worker seeded bots by seat only, so `random` against `random` replayed every seat-swapped game as a mirror and the rung-0 check could not see a seat bias. (a) fix both before the merge (R28 and P10 amended: the determinization seed is `derive_seed(label_seed, [det_index])`; the worker seeds a bot off its seat by its side), re-pin and redo rung 0; (b) F1 only; (c) neither | 1a (Ben, 2026-11-07) |
 
 Defaults stated by the interrogator, open to Ben's veto at sign-off (none changes a
 decision above): a hidden card's identity is permuted within its owner's hidden set, so a

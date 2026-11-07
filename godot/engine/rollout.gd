@@ -117,7 +117,8 @@ static func play(
 
 ## Labels each of `candidates` for `seat` at `engine`'s decision point (P10): one play-out
 ## under `policy` on each of `determinizations` copies, determinization seed
-## MatchRng.derive_seed(label_seed, [candidate index, determinization index]). One
+## MatchRng.derive_seed(label_seed, [determinization index]): every candidate is played
+## on the same deals (common random numbers, /cycle test DC-16 review F1). One
 ## dictionary per candidate, in order: {mean, spread, n, wins, draws, losses, capped,
 ## rejected}; `n` counts the play-outs that were not rejected (R22: a rejected one has no
 ## value and is not counted), `mean` is their mean value rounded half up and `spread` the
@@ -137,7 +138,7 @@ static func label(
 		var values: Array[int] = []
 		var counts: Dictionary = {"wins": 0, "draws": 0, "losses": 0, "capped": 0, "rejected": 0}
 		for det: int in range(determinizations):
-			var parts: Array[int] = [index, det]
+			var parts: Array[int] = [det]
 			var det_seed: int = MatchRng.derive_seed(label_seed, parts)
 			var copy: MatchEngine = determinize(engine, seat, det_seed)
 			var played: Dictionary = {"rejected": true}

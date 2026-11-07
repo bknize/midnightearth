@@ -27,7 +27,7 @@ under the stamp it carries.
 
 | Rung | Bot | Stamp | Measured against | Result | Commit | Note |
 |---|---|---|---|---|---|---|
-| 0 | random | r7-857b165d5a5d755e | random (selftest) | non-regression PASS (H1), 101 pairs, 202 games, 0.500 ± 0.000; first committer won 0.49 | (DC-16 T07) | Uniform over legal commits and prompt answers. Mirror match: each seat swap returns the same result, so the win rate is exactly 0.500. Sweep p95 130 µs, p99 400 µs, slowest 2131 µs. Full line: `bot-eval: a=random b=random result=PASS bound=H1 pairs=101 games=202 winrate=0.500±0.000 first_committer=0.49 p95_us=192 p99_us=630 slowest_us=9165 overruns_a=0 overruns_b=0 stamp=match exit=0`. |
+| 0 | random | r7-857b165d5a5d755e | random (selftest) | non-regression PASS (H1), 252 pairs, 504 games, 0.494 ± 0.024; first committer won 0.48 | (DC-16 `/cycle test`) | Uniform over legal commits and prompt answers. The match worker seeds a bot off its seat by its side (spec C10), so a seat-swapped game is not a mirror and the selftest samples real variance; game 0 of each seed is still the engine's golden match. Sweep p95 130 µs, p99 400 µs, slowest 2131 µs. Full line: `bot-eval: a=random b=random result=PASS bound=H1 pairs=252 games=504 winrate=0.494±0.024 first_committer=0.48 p95_us=207 p99_us=688 slowest_us=15458 overruns_a=2 overruns_b=2 stamp=match exit=0`. |
 
 **The yardstick** is the highest rung at the current stamp: today `random`, rung 0.
 

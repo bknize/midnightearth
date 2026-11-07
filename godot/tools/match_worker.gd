@@ -218,7 +218,7 @@ func _play_game(
 		names[seat] = _bot_names[side]
 		bots.append(
 			BotRegistry.make(
-				_bot_names[side], BotRegistry.seed_for(match_seed, seat), engine.match_cards()
+				_bot_names[side], _bot_seed(match_seed, seat, side), engine.match_cards()
 			)
 		)
 	var first_seat: int = engine.view_for(0).first_seat
@@ -292,6 +292,18 @@ func _play_game(
 		)
 	)
 	return {"winner": winner}
+
+
+## A bot's seed: BotRegistry.seed_for(match_seed, seat) when side A sits at seat 0 (so
+## game 0 of a seed is the engine's golden match), and derived from it by the side
+## otherwise, so a seat-swapped game is not the mirror of the first and two copies of the
+## same bot still sample real variance (/cycle test DC-16 review F5).
+func _bot_seed(match_seed: int, seat: int, side: int) -> int:
+	var base: int = BotRegistry.seed_for(match_seed, seat)
+	if side == seat:
+		return base
+	var parts: Array[int] = [side + 1]
+	return MatchRng.derive_seed(base, parts)
 
 
 ## The number of commits RandomBot enumerates for the view, or -1 on a prompt or a hand too

@@ -12,7 +12,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT_BIN="${GODOT_BIN:-/Applications/Godot 4.6.app/Contents/MacOS/Godot}"
 export GODOT_BIN
 
-[ -x "$GODOT_BIN" ] || { printf 'bot-eval: Godot not found at %s (set GODOT_BIN)\n' "$GODOT_BIN" >&2; exit 3; }
+command -v "$GODOT_BIN" >/dev/null 2>&1 || { printf 'bot-eval: Godot not found at %s (set GODOT_BIN)\n' "$GODOT_BIN" >&2; exit 3; }
 command -v python3 >/dev/null 2>&1 || { printf 'bot-eval: python3 not found\n' >&2; exit 3; }
 
 cd "$REPO_ROOT" || exit 3
