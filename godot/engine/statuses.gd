@@ -376,7 +376,9 @@ static func _resolve_exit(
 	var resolved: Dictionary = {"card": card, "mark": mark, "owner": owner, "to": to}
 	if held != "" and held != mark:
 		resolved["instead_of"] = held
-	var privately: int = seat if hidden and to == TO_HAND else MatchEvent.PUBLIC
+	# A face-down card that stays hidden (to its hand, or a Fade that leaves it face down)
+	# is private to its seat; one going to a Pile is public there (DC-14 T14 leak scan).
+	var privately: int = seat if hidden and to != TO_PILE else MatchEvent.PUBLIC
 	_emit_to(sink, MatchEvent.Kind.EXIT_RESOLVED, resolved, privately)
 	if to == TO_FACE_DOWN:
 		if unreveal(state, seat, card, sink):

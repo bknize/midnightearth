@@ -462,8 +462,9 @@ func _scan_leaks(
 ## card face up on a row or in a Pile in `before`; otherwise from the event that made it
 ## public: its CARD_REVEALED, its EXIT_RESOLVED to a Pile, its CARD_DISCARDED, or a
 ## TRIGGER_FIRED / TRIGGER_FIZZLED of it firing from its hand (`from_hand`, C14); until the
-## PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`) or
-## its CARD_UNREVEALED.
+## PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`). A
+## CARD_UNREVEALED does not close it within the step: the card flips face down in place, so
+## its id was just seen there (Shade, Fade; DC-14 T14); `hidden_now` covers later steps.
 func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult) -> PublicWindows:
 	var out: PublicWindows = PublicWindows.new()
 	for seat: int in range(MatchEngine.SEATS):
@@ -475,9 +476,6 @@ func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult)
 		if _opens_window(event):
 			for card: int in FullMatchRun.event_card_ids(event):
 				out.open(card, at)
-		elif event.kind == MatchEvent.Kind.CARD_UNREVEALED:
-			for card: int in FullMatchRun.event_card_ids(event):
-				out.close(card, at)
 		elif event.kind == MatchEvent.Kind.PILE_SHUFFLED_IN:
 			var seat: int = event.payload.get("seat", -1)
 			if seat < 0 or seat >= MatchEngine.SEATS:
