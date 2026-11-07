@@ -6,6 +6,8 @@ if %ERRORLEVEL% EQU 0 (
   echo service already listening on 8765
   exit /b 0
 )
+rem The runner's task may have started before `setx GODOT_BIN`, so its environment can lack it.
+if not defined GODOT_BIN set GODOT_BIN=C:\Users\trainer\tools\godot\Godot_v4.6.3-stable_win64_console.exe
 if not exist C:\Users\trainer\me\logs mkdir C:\Users\trainer\me\logs
 call C:\Users\trainer\me\venv\Scripts\activate.bat
 cd /d C:\Users\trainer\me\work
