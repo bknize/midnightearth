@@ -4,11 +4,14 @@ extends GdUnitTestSuite
 ## loads, validate() checks each deck against the card pool and the Crew pool (exactly 40
 ## card ids, at most four copies of one id, every id in the pool, exactly three different
 ## Crew the Crew pool holds), and seeded_pick() draws a seat's deck from the match seed with
-## its own derived stream. A 39-card deck, five copies of one id, two Crew, a repeated Crew
-## and an unknown id each fail by name; both shipped decks pass.
+## its own derived stream. A 39-card deck, five copies of one id, two Crew, a repeated Crew,
+## an unknown id and a created-only card (Dross) each fail by name; the six shipped decks
+## pass.
 
 const PICK_SEEDS: int = 10
 const CREW: Array[String] = ["tallyman", "void", "engineer"]
+## The shipped decks (milestone A's two, B's four since DC-14 T14), in file order.
+const SHIPPED: Array[String] = ["greed", "ramp", "combo", "disruption", "graveyard", "control"]
 
 var _cached_cards: CardDb = null
 var _cached_crew: CrewPool = null
@@ -85,7 +88,7 @@ func _assert_fails_validate(decks: DeckList, prefix: String) -> void:
 func test_both_shipped_decks_pass() -> void:
 	var decks: DeckList = DeckList.load_default()
 	assert_bool(decks.is_valid()).override_failure_message(decks.load_error()).is_true()
-	assert_array(decks.ids()).is_equal(["greed", "ramp"])
+	assert_array(decks.ids()).is_equal(SHIPPED)
 	assert_str(decks.validate(_cards(), _crew())).is_empty()
 	for deck_id: String in decks.ids():
 		assert_int(decks.card_ids(deck_id).size()).is_equal(MatchRules.DECK_SIZE)
@@ -143,6 +146,14 @@ func test_five_copies_of_one_id_fail_validate() -> void:
 	listed[MatchRules.MAX_COPIES] = "gr01"
 	_assert_fails_validate(_one(listed), DeckList.ERR_COPIES)
 	assert_str(DeckList.ERR_COPIES).is_equal("too many copies")
+
+
+## Dross is in the pool but created-only (DC-14 T12): a deck listing it fails by name
+## (DC-14 T14).
+func test_a_created_only_card_fails_validate() -> void:
+	var listed: Array[String] = _ids()
+	listed[0] = "dross"
+	_assert_fails_validate(_one(listed), DeckList.ERR_CREATED)
 
 
 func test_an_unknown_id_fails_validate() -> void:

@@ -335,7 +335,8 @@ func test_squelched_wraith_changes_nothing() -> void:
 
 ## Wraith changes Condemned only: a card made Fleeting after its Condemn (what Veil does at
 ## At turn end before the pass, DC-14 T14) returns to its Owner's hand, so Veil beats Wraith
-## (cards-v2 section 4). PENDING T14: repeat this with the real Veil Crew once it lands.
+## (cards-v2 section 4). The real Veil Crew's case is test_crew_abilities.gd's
+## test_veil_beats_wraith (DC-14 T14).
 func test_wraith_leaves_a_fleeting_card_alone() -> void:
 	var cards: MatchCards = _cards()
 	var wraith: int = 0

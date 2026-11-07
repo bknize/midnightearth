@@ -12,14 +12,33 @@ extends GdUnitTestSuite
 ## card with no id, stats or Memory, and name a looked-at card only in its own seat's
 ## `looked`. Hands are bounded by the Hand size plus the Turn's draw (the discard-down).
 
-## The shipped decks (cycle 9 R61, milestone A); the sweep's pairings are every "a/b" of them.
-const DECKS: Array[String] = ["greed", "ramp"]
+## The shipped decks (cycle 9 R61; milestone B's four since DC-14 T14), in file order; the
+## sweep's pairings are "a/b" of them.
+const DECKS: Array[String] = ["greed", "ramp", "combo", "disruption", "graveyard", "control"]
 const MAX_ACTIONS: int = 2000
-## The largest hand a seat can hold under rules 7 with the milestone A decks: its Hand size
-## (no Pantry in Greed or Ramp) after the discard-down, plus the Turn's draw, plus the
-## effect draws of one Walk (DC-13 T06): up to four of its own Couriers on its row and four
-## of the opponent's Bounties on theirs, each Scoring once a Walk.
-const HAND_BOUND: int = MatchRules.HAND_SIZE + 1 + 2 * MatchRules.MAX_COPIES
+## Quartermaster's Hand size (rules/crew-v2), the largest any shipped deck sets: no deck
+## lists Pantry, so no "+N" adds to it.
+const SET_HAND_SIZE: int = 7
+## Dross one Litter creates in the opposing hand (rules/cards-v2, DC-14 T12).
+const LITTER_DROSS: int = 3
+## The largest hand a seat can hold under rules 7 with the six decks, between two of its
+## discard-downs (DC-14 T14 raised it: Litter puts Dross into the opposing hand, Twin
+## copies itself into its own, Fleeting returns cards from the row, and Reprise makes every
+## card Score twice): its Hand size after the discard-down (Quartermaster's 7), plus the
+## Turn's draw, plus one Walk's effect draws with every card Scoring twice (four Couriers
+## or Wicks of its own and four of the opponent's Bounties: 2 × 2 × MAX_COPIES), the Dross
+## of four opposing Litters, four Twins' copies with Encore's retrigger (2 × MAX_COPIES) and
+## the returns of a Fleeting row at turn end (Reverb, Reprieve, Veil: 2 × MAX_COPIES).
+## Salvager's Discard-then-draw adds nothing. A sanity bound against a runaway, not a tight
+## one.
+const HAND_BOUND: int = (
+	SET_HAND_SIZE
+	+ 1
+	+ 4 * MatchRules.MAX_COPIES
+	+ LITTER_DROSS * MatchRules.MAX_COPIES
+	+ 2 * MatchRules.MAX_COPIES
+	+ 2 * MatchRules.MAX_COPIES
+)
 
 var _cached_db: CardDb = null
 var _cached_decks: DeckList = null
@@ -27,7 +46,7 @@ var _cached_decks: DeckList = null
 # --- Helpers --------------------------------------------------------------------------
 
 
-## The shipped pool (the 30 evergreen, 10 Greed and 10 Ramp cards).
+## The shipped pool (the 90 Deck cards and the created-only Dross).
 func _db() -> CardDb:
 	if _cached_db == null:
 		_cached_db = CardDb.load_default()
@@ -50,6 +69,12 @@ func _seeded() -> Array[String]:
 ## A match on `match_seed` under its seeded pairing (not started).
 func _new_engine(match_seed: int) -> MatchEngine:
 	return MatchEngine.create(match_seed, _db(), _decks(), _seeded(), CrewPool.load_default())
+
+
+## A match on `match_seed` with the named shipped decks `deck_ids`, seat 0's first (not
+## started): the sweep's fixed pairings (DC-14 T14).
+func _named_engine(match_seed: int, deck_ids: Array[String]) -> MatchEngine:
+	return MatchEngine.create(match_seed, _db(), _decks(), deck_ids, CrewPool.load_default())
 
 
 ## The pairing of a match as "a/b" (seat 0's deck, then seat 1's).
@@ -238,10 +263,17 @@ func _new_bots(match_seed: int, engine: MatchEngine) -> Array[BotPlayer]:
 
 ## Plays `match_seed` bot against bot to the end or the cap, checking every invariant at
 ## every step. `scan_every_step` false leak-scans only the start and turn-ending steps.
-func _play(match_seed: int, scan_every_step: bool) -> FullMatchRun:
+## `deck_ids` names both seats' decks; empty plays the seed's own pairing (_new_engine()).
+func _play(
+	match_seed: int, scan_every_step: bool, deck_ids: Array[String] = []
+) -> FullMatchRun:
 	var run: FullMatchRun = FullMatchRun.new()
 	run.match_seed = match_seed
-	var engine: MatchEngine = _new_engine(match_seed)
+	var engine: MatchEngine = null
+	if deck_ids.is_empty():
+		engine = _new_engine(match_seed)
+	else:
+		engine = _named_engine(match_seed, deck_ids)
 	run.engine = engine
 	run.pairing = _pairing(engine)
 	var before: Dictionary = engine.full_state()
