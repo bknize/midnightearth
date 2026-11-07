@@ -41,11 +41,9 @@ static func parse_request(line: String) -> Dictionary:
 		return _bad(null, "request is not an object")
 	var d: Dictionary = root
 	var request_id: Variant = d.get("id", null)
-	if request_id is float:
+	if EngineAction.is_whole_number(request_id):
 		# JSON numbers parse as float; a whole-number id is echoed back as the int it was.
-		var id_float: float = request_id
-		if id_float == floorf(id_float) and absf(id_float) < 9007199254740992.0:
-			request_id = int(id_float)
+		request_id = EngineAction.as_int(request_id)
 	if not d.has("kind") or not d["kind"] is String:
 		return _bad(request_id, "kind is missing or not a string")
 	var kind: String = d["kind"]

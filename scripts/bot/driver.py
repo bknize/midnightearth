@@ -123,7 +123,6 @@ def eval_report(args: argparse.Namespace,
         factory = lambda a, b, s, e, out: godot_worker(  # noqa: E731
             a, b, s, e, out, label, decks, budget)
     stamp = records.current_stamp()
-    mismatch = False
     base = args.reports_dir or os.path.join(records.GODOT_DIR, "reports", "bot")
     out_dir = os.path.join(base, "%s-%s" % (label, datetime.date.today().isoformat()))
     os.makedirs(out_dir, exist_ok=True)
@@ -181,8 +180,7 @@ def eval_report(args: argparse.Namespace,
     result = {"H1": "PASS", "H0": "FAIL"}.get(state or "", "CAP")
     bound = state if state in ("H0", "H1") else "cap"
     code = {"PASS": EXIT_PASS, "FAIL": EXIT_FAIL, "CAP": EXIT_CAP}[result]
-    if mismatch or any(s != stamp for s in agg["stamps"]):
-        mismatch = True
+    mismatch = any(s != stamp for s in agg["stamps"])
     if agg["rejected"] or agg["replay_mismatches"]:
         print("bot-eval: invariant counts rejected=%d replay_mismatches=%d"
               % (agg["rejected"], agg["replay_mismatches"]), file=sys.stderr)
