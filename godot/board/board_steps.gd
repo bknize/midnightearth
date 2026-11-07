@@ -70,10 +70,15 @@ static func from_events(
 	var previous_kind: int = -1
 	# Indices of CARD_SCORED events folded into the PULSE of their card's reveal.
 	var folded: Dictionary = {}
+	# EXIT_RESOLVED to a hand not yet followed by its CARD_RETURNED, by card id (-1 when
+	# hidden): the exit step already moves the card, so the return adds no step.
+	var returning: Dictionary = {}
 	for at: int in range(events.size()):
 		if folded.has(at):
 			continue
 		var event: MatchEvent = events[at]
+		if _is_shadowed_return(event, returning):
+			continue
 		var after_deal: bool = previous_kind == BoardStep.Kind.DEAL
 		var made: Array[BoardStep] = []
 		match kind_name(event):
@@ -98,6 +103,21 @@ static func from_events(
 		if not made.is_empty():
 			previous_kind = made[made.size() - 1].kind
 	return steps
+
+
+## Whether `event` is the CARD_RETURNED that follows an EXIT_RESOLVED to the hand (the exit
+## step already took the card there); keeps `returning` up to date as events go by.
+static func _is_shadowed_return(event: MatchEvent, returning: Dictionary) -> bool:
+	var named: int = event.payload.get("card", -1)
+	var name_of: String = kind_name(event)
+	if name_of == "EXIT_RESOLVED" and event.payload.get("to", "") == "hand":
+		var pending: int = returning.get(named, 0)
+		returning[named] = pending + 1
+	elif name_of == "CARD_RETURNED" and returning.get(named, 0) > 0:
+		var left: int = returning[named]
+		returning[named] = left - 1
+		return true
+	return false
 
 
 ## The badge word of an engine status or exit mark: "muted" reads "Muted" (R79).
@@ -263,6 +283,8 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			var shuffled: BoardStep = _make(BoardStep.Kind.SHUFFLE_IN, event)
 			shuffled.seat = _seat_of(payload)
 			shuffled.count = payload.get("count", 0)
+			var pile_cards: Array = payload.get("pile_cards", [])
+			shuffled.cards.assign(pile_cards)
 			shuffled.duration = SHUFFLE_TIME
 			out.append(shuffled)
 		"TURN_STARTED":
@@ -271,6 +293,7 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			var granted: BoardStep = _make(BoardStep.Kind.ENERGY_GRANT, event)
 			granted.seat = _seat_of(payload)
 			granted.amount = payload.get("amount", 0)
+			granted.next_turn = payload.get("next_turn", false)
 			granted.duration = ENERGY_TIME
 			out.append(granted)
 		"COMMITTED":
@@ -283,6 +306,8 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			var walk_scores: Array = payload.get("scores", [])
 			walk_end.totals.assign(totals)
 			walk_end.scores.assign(walk_scores)
+			var held_dross: Array = payload.get("dross", [])
+			walk_end.dross.assign(held_dross)
 			walk_end.duration = WALK_END_TIME
 			out.append(walk_end)
 		"TRIGGER_FIRED", "TRIGGER_FIZZLED":
@@ -298,6 +323,8 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			var shown: BoardStep = _card_step(BoardStep.Kind.CHOICE_SHOW, event)
 			shown.zone = payload.get("zone", "")
 			shown.index = payload.get("index", -1)
+			var picked: Array = payload.get("indices", [])
+			shown.options.assign(picked)
 			shown.target = payload.get("target", -1)
 			shown.duration = CHOICE_SHOW_TIME
 			out.append(shown)
@@ -324,6 +351,8 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			exit_step.exit_to = payload.get("to", "")
 			var mark: String = payload.get("mark", "")
 			exit_step.word = status_word(mark)
+			var instead: String = payload.get("instead_of", "")
+			exit_step.old_word = status_word(instead) if instead != "" else ""
 			exit_step.duration = EXIT_TIME
 			out.append(exit_step)
 		"CREW_FIRED":

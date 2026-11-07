@@ -154,6 +154,9 @@ func status(step: BoardStep) -> void:
 ## Owner's fan it returns, and a Fade card flips face down in its slot. The card is found by
 ## id on either row, since a card on a row it does not own exits too.
 func exit_card(step: BoardStep) -> void:
+	if step.card < 0:
+		_exit_hidden(step)
+		return
 	var row_seat: int = _row_seat_of(step.card)
 	if row_seat < 0:
 		push_warning("Board: an exit found no card %d on either row" % step.card)
@@ -167,13 +170,35 @@ func exit_card(step: BoardStep) -> void:
 			move_card(card, _row_of(row_seat), hand, step.duration)
 			_hide_if_opponent(card, step.seat, step.duration)
 			if step.seat == 0:
+				# Home again: a card the opponent held on its row is the player's once more.
 				_forget_flags(step.card)
+				player_cards[step.card] = card
+			else:
+				_forget(step.card)
 		"face_down":
 			flip_down(card, step.duration)
 			if row_seat == 0:
 				face_down_ids[step.card] = true
 			else:
 				_hide_if_opponent(card, 1, step.duration)
+
+
+## An exit the viewer may not name (a face-down card of the other seat, redacted to card -1;
+## the event's owner seat is the row's): a Fade leaves it face down as it is, a Fleeting card
+## goes back to its Owner's fan as a back. Which of the face-down cards it was is not told, so
+## it is the first one on the row.
+func _exit_hidden(step: BoardStep) -> void:
+	if step.exit_to != "hand" or step.source == null:
+		return
+	var row_seat: int = step.source.owner_seat
+	if row_seat != 1:
+		return
+	var card: BoardCard = _opponent_card_at(-1)
+	if card == null:
+		push_warning("Board: a hidden exit found no face-down card on the opponent's row")
+		return
+	move_card(card, opponent_row, _hand_of(step.seat), step.duration)
+	_hide_if_opponent(card, 1, step.duration)
 
 
 ## A note on the looked-at card (CARD_LOOKED): it glows and says "looked".
@@ -371,8 +396,17 @@ func discard(step: BoardStep) -> void:
 ## The opponent's pick glows for the step's time (R53). The card is found by zone and index,
 ## since a private pick arrives without its id.
 func choice_show(step: BoardStep) -> void:
+	if step.index < 0:
+		# A set answer (Quorum, Cull, Immolate): every kept or chosen position glows.
+		for picked: int in step.options:
+			_glow_choice(step, picked)
+		return
+	_glow_choice(step, step.index)
+
+
+func _glow_choice(step: BoardStep, index: int) -> void:
 	var own_size: int = _row_of(step.seat).cards.size()
-	var spot: CardSpot = RowTargets.resolve(step.zone, step.seat, step.index, own_size)
+	var spot: CardSpot = RowTargets.resolve(step.zone, step.seat, index, own_size)
 	if not spot.is_valid() or glow_material == null:
 		return
 	var collection: CardCollection3D = _hand_of(spot.seat) if spot.in_hand else _row_of(spot.seat)

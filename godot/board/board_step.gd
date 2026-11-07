@@ -114,6 +114,7 @@ var statuses: Array[String] = []
 ## reveal, so "×M" and "+N" rise once the card is face up; 0 for a revealed card (R31).
 var chip_delay: float = 0.0
 ## MOVE: every moved card (instance id, -1 when hidden) with its row index before and after.
+## SHUFFLE_IN: the Pile cards that went into the Deck (Exhume's `pile_cards`; none for a Reset).
 var cards: Array[int] = []
 var from_slots: Array[int] = []
 var slots_to: Array[int] = []
@@ -127,8 +128,10 @@ var word: String = ""
 var status_on: bool = true
 ## STATUS (EXIT_MARKED): the mark the new one replaced ("" when none).
 var old_word: String = ""
-## ENERGY_GRANT: the Budget added.
+## ENERGY_GRANT: the Budget added, and whether it lands next Turn (Tithe), so this Turn's
+## Energy stays as it is.
 var amount: int = 0
+var next_turn: bool = false
 ## DRAW, CREATE (CARD_CREATED): the definition id and the Owner of a created card. CONTROL: the
 ## Owner, which a change of Controller keeps.
 var created: bool = false
@@ -136,8 +139,10 @@ var def_id: String = ""
 var owner: int = -1
 ## LOOK, CONTROL: the seat whose row was looked at, or the card left.
 var from_seat: int = -1
-## WALK_END: both seats' walking totals (ten-thousandths).
+## WALK_END: both seats' walking totals (ten-thousandths) and the Dross each seat held in hand
+## (the engine's own count: a seat with none shows no multiply).
 var totals: Array[int] = []
+var dross: Array[int] = []
 ## Cards committed (opponent and player commits).
 var count: int = 0
 ## Row slots of the committed cards (commits).
