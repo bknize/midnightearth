@@ -82,7 +82,8 @@ func open(prompt: Dictionary, text: String, view: SeatView) -> void:
 		card.set_glow(glow_material, GLOW_ALPHA)
 		_lit.append(card)
 		_lit_options.append(PromptRules.option_at(spot, _prompt, own_size))
-	if PromptRules.is_pile_zone(PromptRules.zone_name_of(_prompt)):
+	var zone_label: String = PromptRules.zone_name_of(_prompt)
+	if PromptRules.is_pile_zone(zone_label) or PromptRules.is_deck_top_zone(zone_label):
 		_open_strip(view)
 	if is_multi():
 		hud.show_confirm(PromptRules.confirm_text(_prompt, 0), PromptRules.confirm_enabled(_prompt, 0))
@@ -233,7 +234,7 @@ func press() -> ApplyResult:
 		if not strip.choose(routed.index):
 			return null
 		return _strip_result
-	var zone: int = _prompt.get("zone", Choice.NO_ZONE)
+	var zone: int = Choice.zone_of(_prompt)
 	return driver.submit_choice(zone, routed.index)
 
 
@@ -244,7 +245,7 @@ func confirm() -> ApplyResult:
 		return null
 	if not PromptRules.confirm_enabled(_prompt, selected.size()):
 		return null
-	var zone: int = _prompt.get("zone", Choice.NO_ZONE)
+	var zone: int = Choice.zone_of(_prompt)
 	var chosen: Array[int] = []
 	chosen.assign(selected)
 	return driver.submit_set(zone, chosen)
@@ -280,16 +281,21 @@ func _refresh_selection() -> void:
 	)
 
 
-## Builds the Pile strip from a Pile prompt (R78): the Piles its zone names in order, each
-## face up, the prompt's options glowing.
+## Builds the strip from a Pile prompt (R78): the Piles its zone names in order, each face up,
+## the prompt's options glowing. A Delve prompt (own_deck_top) lays out the looked-at top
+## cards the same way, read from the view's private `deck_top`.
 func _open_strip(view: SeatView) -> void:
 	var asked: int = _prompt.get("seat", 0)
-	var seats: Array[int] = PromptRules.pile_seats(PromptRules.zone_name_of(_prompt), asked)
+	var label: String = PromptRules.zone_name_of(_prompt)
+	var seats: Array[int] = PromptRules.pile_seats(label, asked)
 	var options: Array[int] = []
 	var raw: Array = _prompt.get("options", [])
 	for entry: Variant in raw:
 		var option: int = entry
 		options.append(option)
+	if PromptRules.is_deck_top_zone(label):
+		_show_entries(view.deck_top, [], options, view)
+		return
 	_show_piles(seats, options, view)
 
 
@@ -311,6 +317,12 @@ func _show_piles(seats: Array[int], eligible: Array[int], view: SeatView) -> voi
 		for i: int in range(ids.size()):
 			entries.append(ids[i])
 			piles.append(Vector2i(seat, i))
+	_show_entries(entries, piles, eligible, view)
+
+
+func _show_entries(
+	entries: Array[int], piles: Array[Vector2i], eligible: Array[int], view: SeatView
+) -> void:
 	var def_of: Callable = Callable()
 	if driver != null:
 		def_of = driver.match_cards().def_of
@@ -338,7 +350,7 @@ static func _pile_entry(id: int, view: SeatView) -> Dictionary:
 
 
 func _on_strip_choice(index: int) -> void:
-	var zone: int = _prompt.get("zone", Choice.NO_ZONE)
+	var zone: int = Choice.zone_of(_prompt)
 	_strip_result = driver.submit_choice(zone, index)
 
 

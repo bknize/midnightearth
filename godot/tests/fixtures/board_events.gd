@@ -1,8 +1,8 @@
 class_name BoardEvents
 extends RefCounted
 ## Hand-built MatchEvents for the board suites, made by the NAME of their MatchEvent.Kind
-## (the plan's v7 event table, cycle 9), so a suite reads the same before and after the engine
-## carries the v7 kinds. A name the enum lacks fails the test that asks for it.
+## (the v7 event table, engine/match_event.gd), so a suite names the event it builds. A name
+## the enum lacks fails the test that asks for it.
 
 
 ## The event `kind_name` with `payload`, public unless `owner` names a seat.

@@ -285,3 +285,11 @@ func test_an_optional_prompt_wants_the_skip_button_and_a_plain_one_does_not() ->
 func test_a_crew_prompt_banner_names_the_crew() -> void:
 	assert_str(PromptRules.banner_text("Flip one card.", "Shade")).is_equal("Shade: Flip one card.")
 	assert_str(PromptRules.banner_text("Swap two cards.", "")).is_equal("Swap two cards.")
+
+
+func test_a_delve_prompt_names_the_deck_top_and_glows_no_row_card() -> void:
+	var prompt: Dictionary = _prompt("own_deck_top", [0, 1, 2])
+	assert_str(PromptRules.zone_name_of(prompt)).is_equal("own_deck_top")
+	assert_bool(PromptRules.is_deck_top_zone("own_deck_top")).is_true()
+	assert_bool(PromptRules.is_deck_top_zone("own_hand")).is_false()
+	assert_int(PromptRules.glow_set(prompt, _view(OWN_SIZE)).size()).is_equal(0)

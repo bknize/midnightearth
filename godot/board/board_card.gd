@@ -321,29 +321,15 @@ func _set_numbers(power: int, mult: int, add: int) -> void:
 	_bonus_label.visible = _bonus_label.text != ""
 
 
-## The printed Power, Mult (hundredths) and Add (hundredths) of a definition as (x, y, z).
-## The one place a card's printed numbers are read from CardDef: reconcile with the v7 CardDef
-## (plan P2: `power`, `bonus` null | {mult} | {add}).
+## The printed Power, Mult (hundredths; 100 is none) and Add (hundredths) of a definition as
+## (x, y, z), the fallback for a view entry that lacks a key.
 static func printed_numbers(def: CardDef) -> Vector3i:
-	var mult: int = 0
-	var add: int = 0
-	if def.bonus_kind == CardDef.BonusKind.TIMES:
-		mult = def.bonus
-	elif def.bonus_kind == CardDef.BonusKind.PLUS:
-		add = def.bonus * ScoreChips.HUNDRED
-	return Vector3i(def.flat, mult, add)
+	return Vector3i(def.power, def.printed_mult(), def.printed_add())
 
 
-## The rules text of a face: the effect's text, or reminder text built from the printed stats.
-## Reconcile with the v7 CardDef (plan P2: `text`).
+## The rules text of a face: the card's printed text, empty for a plain body (cycle 9 R22).
 static func rules_text(def: CardDef) -> String:
-	if def.effect != null:
-		return def.effect.text
-	if def.bonus_kind == CardDef.BonusKind.TIMES:
-		return "When this scores, your mult %s." % ScoreChips.mult_text(def.bonus)
-	if def.bonus_kind == CardDef.BonusKind.PLUS:
-		return "When this scores, your mult +%d." % def.bonus
-	return "Scores its flat at your mult."
+	return def.text
 
 
 ## Whether a face `mult` (hundredths) names a Mult: 0 and 100 both mean none.

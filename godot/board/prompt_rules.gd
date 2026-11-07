@@ -19,24 +19,20 @@ const ACTION_LABELS: Dictionary[String, String] = {
 	"look_at_opposing": "Look",
 	"delve": "Take",
 }
-## The `resume` of a discard-down prompt (plan P12, P14): it opens after an accepted Commit.
-const RESUME_COMMIT: String = "commit"
+## The verb of the discard-down prompt (TurnFlow.VERB_DISCARD_DOWN).
+const VERB_DISCARD_DOWN: String = "discard_down"
 const SELECT_LABEL: String = "Select"
 const DESELECT_LABEL: String = "Deselect"
 
 
-## The name of a prompt's zone ("own_hand", "opponent_pile"). The one place the board reads
-## the prompt's `zone`: a String as the v7 prompt (plan P12) carries it; an int is today's
-## Choice.Zone, named through Choice (drop that branch with Choice).
+## The name of a prompt's zone ("own_hand", "opponent_pile"), "" when unknown.
 static func zone_name_of(prompt: Dictionary) -> String:
-	var raw: Variant = prompt.get("zone", "")
-	if raw is String:
-		var named: String = raw
-		return named
-	if raw is int:
-		var zone: int = raw
-		return Choice.zone_name(zone)
-	return ""
+	return Choice.zone_name(Choice.zone_of(prompt))
+
+
+## Whether a zone name is the Deck top of a Delve prompt (private, read from the view).
+static func is_deck_top_zone(zone_label: String) -> bool:
+	return zone_label == Choice.zone_name(Choice.Zone.OWN_DECK_TOP)
 
 
 ## Whether a zone name is a Pile ("own_pile", "opponent_pile", "both_piles"): the board lays
@@ -62,32 +58,24 @@ static func pile_seats(zone_label: String, asked: int) -> Array[int]:
 	return out
 
 
-## The verb name of a prompt: a String (plan P12), or today's CardEffect.Verb int named through
-## CardEffect (drop that branch with CardEffect).
+## The verb name of a prompt (the engine holds it by name), "" when absent.
 static func verb_name_of(prompt: Dictionary) -> String:
 	var raw: Variant = prompt.get("verb", "")
-	if raw is String:
-		var named: String = raw
-		return named
-	if raw is int:
-		var verb: int = raw
-		return CardEffect.verb_name(verb)
-	return ""
+	if not raw is String:
+		return ""
+	var named: String = raw
+	return named
 
 
 ## The set size a multi-select prompt requires: its `exact` (the discard-down's excess), or
 ## -1 when any size up to the options is legal (plan P12).
 static func exact_of(prompt: Dictionary) -> int:
-	var exact: int = prompt.get("exact", -1)
-	return exact
+	return Choice.exact_of(prompt)
 
 
-## Whether the prompt is the discard-down (R80): its verb says so, or it resumes at the
-## Commit as a multi-select.
+## Whether the prompt is the discard-down (R80): its verb says so (TurnFlow.VERB_DISCARD_DOWN).
 static func is_discard_down(prompt: Dictionary) -> bool:
-	var multi: bool = prompt.get("multi", false)
-	var resume: String = prompt.get("resume", "")
-	return verb_name_of(prompt) == "discard_down" or (multi and resume == RESUME_COMMIT)
+	return verb_name_of(prompt) == VERB_DISCARD_DOWN
 
 
 ## Whether Confirm is on with `count` cards selected (R80): the count equals `exact` when the
@@ -97,7 +85,7 @@ static func confirm_enabled(prompt: Dictionary, count: int) -> bool:
 	if exact >= 0:
 		return count == exact
 	var raw: Array = prompt.get("options", [])
-	var least: int = prompt.get("min", 0)
+	var least: int = Choice.min_of(prompt)
 	return count >= least and count <= raw.size()
 
 

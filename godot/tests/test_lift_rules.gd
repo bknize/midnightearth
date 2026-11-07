@@ -23,9 +23,9 @@ func _steps() -> Array[BoardStep]:
 	var started: ApplyResult = engine.start()
 	assert_bool(started.ok).is_true()
 	collected.append_array(started.events_for(0))
-	var bots: Array[GreedyBot] = []
+	var bots: Array[RandomBot] = []
 	for seat: int in range(MatchEngine.SEATS):
-		bots.append(GreedyBot.new(GreedyBot.seed_for(SEED, seat), engine.match_cards()))
+		bots.append(RandomBot.new(BotRegistry.seed_for(SEED, seat), engine.match_cards()))
 	var actions: int = 0
 	while not engine.is_over() and actions < MAX_ACTIONS:
 		var awaited: int = engine.awaited_seat()
@@ -53,6 +53,16 @@ func _commit_ids(step: BoardStep) -> Array[int]:
 	var ids: Array[int] = []
 	ids.assign(raw)
 	return ids
+
+
+## Seat 0's first PLAYER_COMMIT that commits at least one card (the random bot may pass
+## first); null if none.
+func _first_card_commit() -> BoardStep:
+	for step: BoardStep in _steps():
+		if step.kind == BoardStep.Kind.PLAYER_COMMIT and step.seat == 0:
+			if not _commit_ids(step).is_empty():
+				return step
+	return null
 
 
 # --- may_lift -------------------------------------------------------------------------
@@ -103,7 +113,7 @@ func test_turn_start_touches_only_a_staged_card() -> void:
 
 
 func test_player_commit_touches_a_held_hand_card_in_the_list() -> void:
-	var step: BoardStep = _first(BoardStep.Kind.PLAYER_COMMIT, 0)
+	var step: BoardStep = _first_card_commit()
 	assert_object(step).is_not_null()
 	var ids: Array[int] = _commit_ids(step)
 	assert_array(ids).is_not_empty()
@@ -118,7 +128,7 @@ func test_player_commit_ignores_a_card_not_in_the_list() -> void:
 
 func test_player_commit_touches_a_held_staged_card_on_the_row() -> void:
 	# The commit now flips the staged cards face down in place (R46).
-	var step: BoardStep = _first(BoardStep.Kind.PLAYER_COMMIT, 0)
+	var step: BoardStep = _first_card_commit()
 	assert_object(step).is_not_null()
 	var ids: Array[int] = _commit_ids(step)
 	assert_array(ids).is_not_empty()

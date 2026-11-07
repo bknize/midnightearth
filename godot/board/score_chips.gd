@@ -16,9 +16,8 @@ const FONT_SIZE: int = 96
 const OUTLINE_SIZE: int = 24
 
 
-## Ten-thousandths in one whole (mirrors MatchRules.SCALE, spec P1; the walking total, the
-## Bonus value and the HUD Score all count in it).
-const SCALE: int = 10000
+## Ten-thousandths in one whole (the walking total, the Bonus value and the HUD Score).
+const SCALE: int = MatchRules.SCALE
 ## Hundredths in one whole (the face's Bonus and the Bonus chip).
 const HUNDRED: int = 100
 ## Ten-thousandths in one hundredth.

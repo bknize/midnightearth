@@ -4,9 +4,8 @@ extends RefCounted
 ## nodes, no clock. Every duration and delay is the 1x value divided by `speed`.
 ##
 ## Engine-facing: events are matched by the NAME of their MatchEvent.Kind (kind_name()), with
-## the payload keys of the plan's v7 event table, so this one file is the whole seam to the
-## engine's event shapes. Every key read is listed in the "Event table (v7)" of
-## docs/specs/cycle-9-rules-v2/plan.md.
+## the payload keys of the v7 event table (engine/match_event.gd), so this one file is the
+## whole seam to the engine's event shapes.
 ##
 ## Timing (seconds at 1x): clear 0.40, deal 0.30 with a 0.12 `delay` on every deal that
 ## directly follows another deal, draw 0.30, bot wait 0.6, opponent commit 0.25 per card,
@@ -50,14 +49,9 @@ const CREW_TIME: float = 0.25
 const DECLINE_TIME: float = 0.15
 
 
-## The MatchEvent.Kind name of an event ("CARD_SCORED"), so the board reads the v7 kinds by
-## the plan's names whatever their ordinals.
+## The MatchEvent.Kind name of an event ("CARD_SCORED"): the match below reads kinds by name.
 static func kind_name(event: MatchEvent) -> String:
-	var found: Variant = MatchEvent.Kind.find_key(event.kind)
-	if found is String:
-		var named: String = found
-		return named
-	return ""
+	return MatchEvent.kind_name(event.kind)
 
 
 ## Steps for `events` (as `viewer` may see them) in event order. `speed` is 1 normally and

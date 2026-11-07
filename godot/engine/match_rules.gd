@@ -1,42 +1,40 @@
 class_name MatchRules
 extends RefCounted
-## Fixed MVP match rules (C10): constants only, no config object.
+## The match rules, version 7 (cycle 9 plan P1): constants only, no config object.
+##
+## Rules 7 and log format 5 since DC-13 T02 (spec R65): the v2 card anatomy, pool format 5,
+## Crew v2 and deck list v3, so a format-4 log fails replay with FORMAT_MISMATCH. The
+## arithmetic is integer: a printed Bonus is in hundredths (BONUS_ONE is ×1.00), the walking
+## total and a Bonus value in ten-thousandths (SCALE, plan P7, spec R28).
 
 const ROUNDS: int = 7
 const TURNS: int = 7
 const WINS_TO_TAKE: int = 4
-const OPENING_HAND: int = 3
-const HAND_CAP: int = 7
-const DECK_SIZE: int = 20
-## Each deck names exactly this many distinct Crew (cycle 8 R40, C4, plan P12).
+## The cards each seat is dealt at Match start (canon R13).
+const OPENING_HAND: int = 4
+## The base Hand size the discard-down keeps a hand to (canon R14; T03 enforces it).
+const HAND_SIZE: int = 4
+## The cards in a Deck (canon R18).
+const DECK_SIZE: int = 40
+## The most copies of one card id a Deck may list (canon R18).
+const MAX_COPIES: int = 4
+## Each deck names exactly this many different Crew (canon R58).
 const CREW_SIZE: int = 3
-## 4 and 3 since DC-07 T02: decks per seat, `decks` in the log header (R7, P2). Rules 5
-## since DC-09 T01: card memory and effective costs (cycle 8 R29); the log format is unchanged.
-## Rules 6 and format 4 since DC-11 T09: Crew, optional prompts and the decline action
-## (cycle 8 R55, plan P10), so a format-3 log fails replay with FORMAT_MISMATCH.
-const RULES_VERSION: int = 6
-const LOG_FORMAT: int = 4
-## ×1.00 in hundredths: the running mult's start and the neutral ×-part (DC-07 P4).
-const MULT_ONE: int = 100
-## The legal ×-bonuses, in hundredths (×1.25, ×1.5, ×2; C6, plan P1).
-const TIMES_VALUES: Array[int] = [125, 150, 200]
-## The legal +bonuses, in whole units (+1, +2; C6, plan P1).
-const PLUS_VALUES: Array[int] = [1, 2]
-## A card's flat lies within 0..cost + MAX_FLAT_OVER_COST (R3, C13).
-const MAX_FLAT_OVER_COST: int = 4
-## The burst card destroys itself and a random enemy card at this effective flat (P10).
-const BURST_FLAT: int = 5
-## The derive_seed tag of the seeded deck pairing ("dk"; plan P2).
-const DECK_TAG: int = 0x646B
-## The fixed growth steps a memory-writing verb may name, by CardMemory stat (cycle 8 R5,
-## R11, plan P1): flat +1 or +2, the ×-part +0.25 or +0.5 (hundredths), the +-part +1, the
-## cost -1 or -2. The loader rejects any other amount on those verbs (CardEffect.GROW_STAT).
-const GROW_STEPS: Dictionary[String, Array] = {
-	"flat": [1, 2],
-	"times": [25, 50],
-	"plus": [1],
-	"cost": [1, 2],
-}
-## The floor of an effective cost (cycle 8 R4, plan P3): a reduction never takes it lower.
-## Printed costs keep CardDb.MIN_COST (1).
+## The resolutions one pulse or drain point may make before the rest fizzle (canon Q4).
+const TRIGGER_BUDGET: int = 50
+const RULES_VERSION: int = 7
+const LOG_FORMAT: int = 5
+## Ten-thousandths: the unit of the walking total and of a Bonus value (plan P7).
+const SCALE: int = 10000
+## ×1.00 (or +1) in hundredths: the unit of a printed or granted Bonus (plan P7).
+const BONUS_ONE: int = 100
+## The legal printed Mults, in hundredths (×1.25, ×1.5, ×2; canon cards-v2 section 3).
+const MULT_VALUES: Array[int] = [125, 150, 200]
+## The legal printed Adds, in hundredths (+0.25, +0.5, +1).
+const ADD_VALUES: Array[int] = [25, 50, 100]
+## The floor of an effective Cost (canon R12): a reduction never takes it lower.
 const MIN_COST: int = 0
+## The highest printed Cost; the one card above it carries the `cost_on_turn` verb (R12).
+const MAX_PRINTED_COST: int = 7
+## The derive_seed tag of the seeded deck pairing ("dk"; DC-07 plan P2).
+const DECK_TAG: int = 0x646B
