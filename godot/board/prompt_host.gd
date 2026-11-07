@@ -6,10 +6,10 @@ extends RefCounted
 ## holds only the open prompt and the cards it lit.
 
 ## Alpha of the glow on an eligible card, and of the dim over the rest of the table.
-const GLOW_ALPHA: float = 0.55
+const GLOW_ALPHA: float = 0.4
 const DIM_ALPHA: float = 0.35
 ## The brighter glow of a card in the multi-select's set (R48).
-const SELECTED_GLOW_ALPHA: float = 0.95
+const SELECTED_GLOW_ALPHA: float = 0.8
 
 var player_hand: CardCollection3D = null
 var player_row: CardCollection3D = null
@@ -326,6 +326,7 @@ func _show_entries(
 	var def_of: Callable = Callable()
 	if driver != null:
 		def_of = driver.match_cards().def_of
+	strip.aspect = _aspect()
 	strip.show(
 		strip_parent,
 		entries,
@@ -338,6 +339,14 @@ func _show_entries(
 		piles,
 		_pile_entry.bind(view)
 	)
+
+
+## The viewport's width over height, for the strip's width.
+func _aspect() -> float:
+	if strip_parent == null or not strip_parent.is_inside_tree():
+		return DeckStrip.DEFAULT_ASPECT
+	var size: Vector2 = strip_parent.get_viewport().get_visible_rect().size
+	return size.x / size.y if size.y > 0.0 else DeckStrip.DEFAULT_ASPECT
 
 
 ## The view's entry of a pile card (cost, stats, grown), or an empty dictionary.

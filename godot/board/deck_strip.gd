@@ -8,11 +8,23 @@ extends RefCounted
 ## knows nothing of the verb that opened it. The DC-06 reader and
 ## its action button sit on top of it as for any other eligible card.
 
-## Where the strip rests: between the opponent's row and its hand, in front of both.
-const ORIGIN: Vector3 = Vector3(0.0, 6.5, 0.5)
+## The strip rests on the opponent's Crew level, right of its Crew line and left of the HUD's
+## top-right buttons, so it covers neither row, either Crew line nor the HUD (NSC-163). It may
+## cover the opponent's hand, which is all backs. World units; the camera sits 30 from the
+## table with a 45 degree vertical fov, so its half width is aspect * VIEW_HALF_HEIGHT.
+const REST_Y: float = 8.8
+const REST_Z: float = 0.5
+const CARD_HEIGHT: float = 3.5
+## Left of this x the opponent's Crew line (x -11.75 to -3.25) sits.
+const LEFT_EDGE: float = -2.5
+const MAX_RIGHT_EDGE: float = 17.0
+## The HUD's top-right Pause button reaches this far in from the view's edge.
+const HUD_MARGIN: float = 4.2
+const VIEW_HALF_HEIGHT: float = 12.43
+const DEFAULT_ASPECT: float = 16.0 / 9.0
+const MIN_WIDTH: float = 6.0
 ## The strip slides in from, and out to, this far above its resting place.
 const SLIDE: Vector3 = Vector3(0.0, 9.0, 0.0)
-const MAX_WIDTH: float = 26.0
 const GLOW_ALPHA: float = 0.55
 ## Meta keys on a strip card: its entry's index, and (for a pile) the pile and place it came
 ## from, so a hidden entry can be found when the engine names it by position.
@@ -22,7 +34,10 @@ const META_POSITION: StringName = &"strip_position"
 const COLLECTION_SCENE: PackedScene = preload("res://addons/card_3d/scenes/card_collection_3d.tscn")
 
 var collection: CardCollection3D = null
+## The viewport's width over height when the strip is next shown (sets its width).
+var aspect: float = DEFAULT_ASPECT
 
+var _rest: Vector3 = Vector3.ZERO
 var _eligible: Array[int] = []
 var _on_choose: Callable = Callable()
 
@@ -37,6 +52,16 @@ static func pile_of(view: SeatView, seat: int) -> Array[int]:
 		var ids: Array = raw
 		out.assign(ids)
 	return out
+
+
+## The strip's world rectangle (x, y of its corner and size) for a viewport of `ratio`
+## (width / height): from LEFT_EDGE to the narrower of MAX_RIGHT_EDGE and the HUD's margin, at
+## the opponent Crew's height.
+static func rect_for(ratio: float) -> Rect2:
+	var half_width: float = (ratio if ratio > 0.0 else DEFAULT_ASPECT) * VIEW_HALF_HEIGHT
+	var right: float = minf(MAX_RIGHT_EDGE, half_width - HUD_MARGIN)
+	right = maxf(right, LEFT_EDGE + MIN_WIDTH)
+	return Rect2(LEFT_EDGE, REST_Y - CARD_HEIGHT / 2.0, right - LEFT_EDGE, CARD_HEIGHT)
 
 
 func is_up() -> bool:
@@ -69,9 +94,11 @@ func show(
 		push_warning("DeckStrip: could not build the collection")
 		return
 	var layout: LineCardLayout = LineCardLayout.new()
-	layout.max_width = MAX_WIDTH
+	var area: Rect2 = rect_for(aspect)
+	layout.max_width = area.size.x
 	made.card_layout_strategy = layout
-	made.position = ORIGIN + SLIDE
+	_rest = Vector3(area.position.x + area.size.x / 2.0, REST_Y, REST_Z)
+	made.position = _rest + SLIDE
 	parent.add_child(made)
 	var zone: Area3D = made.get_node_or_null("DropZone") as Area3D
 	if zone != null:
@@ -91,7 +118,7 @@ func show(
 		_dress(card, entries[index], def_of, memory_of)
 		if _eligible.has(index) and glow != null:
 			card.set_glow(glow, GLOW_ALPHA)
-	_slide(made, ORIGIN, seconds, false)
+	_slide(made, _rest, seconds, false)
 
 
 ## Slides the strip away over `seconds` and frees it. No-op when it is not up.
@@ -103,7 +130,7 @@ func hide(seconds: float) -> void:
 	collection = null
 	_eligible.clear()
 	_on_choose = Callable()
-	_slide(gone, ORIGIN + SLIDE, seconds, true)
+	_slide(gone, _rest + SLIDE, seconds, true)
 
 
 ## Whether `card` is one of the strip's cards.
