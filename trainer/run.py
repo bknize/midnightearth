@@ -2,12 +2,13 @@
 import json
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from trainer.config import RunConfig
-from trainer.farm import REPO_ROOT, Farm, FarmError, godot_bin, worker_command
+from trainer.farm import REPO_ROOT, Farm, FarmError, RequestFailed, godot_bin, worker_command
 from trainer.seeds import label_seed, play_seed, position_pick_seed, wire
 from trainer.store import Store
 
@@ -50,8 +51,29 @@ def label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int,
     """Play one match, choose a commit decision, label it. Returns (position, labels)."""
     decks = decks_for(cfg, index, pairings)
     seed = play_seed(cfg.run_seed, index)
+    try:
+        return _label_position(farm, cfg, stamp, index, decks, seed)
+    except RequestFailed as e:
+        # Only this request failed (timed out twice, crashed its worker 3 times): the
+        # position is committed as skipped, with no labels, and the run carries on.
+        reason = "%s request: %s" % (e.kind, e.reason)
+        position = {"index": index, "seed": seed, "decks": decks, "prefix_len": 0,
+                    "seat": 0, "info": {"skipped": reason}}
+        return position, []
+
+
+def _label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int, decks: List[str],
+                    seed: int) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     what = "position %d" % index
-    played = _checked(farm.request({
+
+    def ask(req: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            return farm.request(req)
+        except RequestFailed as e:
+            e.kind = str(req["kind"])
+            raise
+
+    played = _checked(ask({
         "kind": "play", "seed": wire(seed), "decks": decks, "generator": cfg.generator}),
         stamp, what + " play")
     commits = played["commits"]
@@ -61,12 +83,12 @@ def label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int,
     seat, prefix_len = flat[(position_pick_seed(cfg.run_seed, index) & ((1 << 64) - 1))
                             % len(flat)]
     actions = played["log"]["actions"][:prefix_len]
-    lab = _checked(farm.request({
+    lab = _checked(ask({
         "kind": "label", "seed": wire(seed), "decks": decks, "actions": actions,
         "seat": seat, "k": cfg.k, "determinizations": cfg.determinizations,
         "rollout": cfg.rollout, "label_seed": wire(label_seed(cfg.run_seed, index))}),
         stamp, what + " label")
-    seen = _checked(farm.request({
+    seen = _checked(ask({
         "kind": "inspect", "seed": wire(seed), "decks": decks, "actions": actions,
         "seat": seat}), stamp, what + " inspect")
     info = {"round": seen.get("round"), "turn": seen.get("turn"), "hand": seen.get("hand", [])}
@@ -84,9 +106,13 @@ def label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int,
 
 def execute(store: Store, run_id: str, farm: Farm,
             should_stop: Callable[[], bool] = lambda: False,
-            progress: Optional[Progress] = None) -> str:
+            progress: Optional[Progress] = None,
+            clock: Callable[[], float] = time.time) -> str:
     """Run (or resume) `run_id` on a started farm. Returns the final state: done, stopped or
-    failed. Batches commit whole; a stop is honoured between batches."""
+    failed. Batches commit whole; a stop is honoured between batches. The `hours` cap is
+    checked after each batch against this session's active time (a resume starts a fresh
+    budget): at the cap the run ends stopped, resumable. Active time is added to the run at
+    each batch commit and when the session ends."""
     run = store.get_run(run_id)
     if run is None:
         raise KeyError(run_id)
@@ -94,6 +120,24 @@ def execute(store: Store, run_id: str, farm: Farm,
     stamp = str(run["stamp"])
     if run["state"] != "stopping":  # a stop that landed while queued stays visible
         store.set_state(run_id, "running", "")
+    session_t0 = clock()
+    mark = [session_t0]  # the clock reading at the last active-time settlement
+
+    def settle() -> None:
+        now = clock()
+        store.add_active(run_id, now - mark[0])
+        mark[0] = now
+
+    try:
+        return _execute(store, run_id, farm, cfg, stamp, should_stop, progress, settle,
+                        lambda: clock() - session_t0 >= cfg.hours * 3600.0)
+    finally:
+        settle()
+
+
+def _execute(store: Store, run_id: str, farm: Farm, cfg: RunConfig, stamp: str,
+             should_stop: Callable[[], bool], progress: Optional[Progress],
+             settle: Callable[[], None], hours_reached: Callable[[], bool]) -> str:
     pairings = ordered_pairings(deck_ids())
     seen_restarts = farm.restarts
     try:
@@ -112,6 +156,7 @@ def execute(store: Store, run_id: str, farm: Farm,
                 results = [f.result() for f in futures]
                 store.commit_batch(run_id, start // cfg.batch, [r[0] for r in results],
                                    [lab for r in results for lab in r[1]])
+                settle()
                 delta = farm.restarts - seen_restarts
                 if delta:
                     store.add_restarts(run_id, delta)
@@ -120,6 +165,10 @@ def execute(store: Store, run_id: str, farm: Farm,
                     progress({"batch": start // cfg.batch, "done": end,
                               "positions": cfg.positions, "restarts": farm.restarts})
                 start = end
+                if start < cfg.positions and hours_reached():
+                    store.set_state(run_id, "stopped",
+                                    "hours cap reached (%g h); resume to continue" % cfg.hours)
+                    return "stopped"
         finally:
             pool.shutdown(wait=True, cancel_futures=True)
     except (RunError, FarmError) as e:
@@ -129,9 +178,10 @@ def execute(store: Store, run_id: str, farm: Farm,
     return "done"
 
 
-def git_commit() -> str:
+def git_commit(full: bool = False) -> str:
+    argv = ["git", "rev-parse", "HEAD"] if full else ["git", "rev-parse", "--short", "HEAD"]
     try:
-        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=str(REPO_ROOT),
+        out = subprocess.run(argv, cwd=str(REPO_ROOT),
                              capture_output=True, text=True, timeout=30)
         return out.stdout.strip() or "unknown"
     except (OSError, subprocess.SubprocessError):

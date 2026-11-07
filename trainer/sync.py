@@ -122,37 +122,47 @@ def sync_code(commit: str, bundle_b64: str = "", inbox_file: str = "", *, root: 
     else:
         argv = [git, "-C", str(repo), "worktree", "add", "--detach", str(work), commit]
 
-    def rollback() -> None:
-        """R52: a failed sync never leaves the checkout on the bad commit."""
+    def import_godot() -> Tuple[int, str, float]:
+        t0 = time.monotonic()
+        rc, out = runf([godot_bin, "--headless", "--path", str(work / "godot"), "--import"],
+                       None, env)
+        return rc, out, round(time.monotonic() - t0, 2)
+
+    def rollback(reimport: bool = True) -> str:
+        """R52: a failed sync never leaves the checkout on the bad commit. After going back
+        to a previous commit the Godot import runs again, so `godot/.godot` is not left built
+        from the bad one. Returns a note for the error text when that re-import fails."""
         if had_work:
             if previous:
                 runf([git, "-C", str(work), "checkout", "--detach", previous], None, env)
+                if reimport:
+                    rc, out, _ = import_godot()
+                    if rc != 0 or ERROR_RE.search(out):
+                        return " (re-import after rollback failed: %s)" % _tail(out, 3)
         else:
             runf([git, "-C", str(repo), "worktree", "remove", "--force", str(work)], None, env)
             shutil.rmtree(str(work), ignore_errors=True)
+        return ""
 
     rc, out = runf(argv, None, env)
     if rc != 0:
-        rollback()
-        return {"error": "checkout failed: %s" % _tail(out)}
+        note = rollback(reimport=False)
+        return {"error": "checkout failed: %s%s" % (_tail(out), note)}
 
-    t0 = time.monotonic()
-    rc, out = runf([godot_bin, "--headless", "--path", str(work / "godot"), "--import"],
-                   None, env)
-    import_s = round(time.monotonic() - t0, 2)
+    rc, out, import_s = import_godot()
     if ERROR_RE.search(out):
         bad = [ln for ln in out.splitlines() if ERROR_RE.search(ln)]
-        rollback()
-        return {"error": "import errors: %s" % "; ".join(bad[:5])}
+        note = rollback()
+        return {"error": "import errors: %s%s" % ("; ".join(bad[:5]), note)}
     if rc != 0:
-        rollback()
-        return {"error": "import exited %d: %s" % (rc, _tail(out))}
+        note = rollback()
+        return {"error": "import exited %d: %s%s" % (rc, _tail(out), note)}
 
     try:
         stamp = stamp_of(work)
     except (OSError, ValueError) as e:
-        rollback()
-        return {"error": "stamp: %s" % e}
+        note = rollback()
+        return {"error": "stamp: %s%s" % (e, note)}
     src = work / "trainer" / "windows" / "runner.ps1"
     dest = Path(runner_dest) if runner_dest else Path.home() / "trainer" / "runner.ps1"
     if src.is_file():

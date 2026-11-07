@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY, state TEXT NOT NULL, config TEXT NOT NULL, run_seed INTEGER NOT NULL,
   stamp TEXT NOT NULL, "commit" TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
   last_error TEXT NOT NULL DEFAULT '', restarts INTEGER NOT NULL DEFAULT 0,
-  checkpoint REAL NOT NULL DEFAULT 0);
+  checkpoint REAL NOT NULL DEFAULT 0, active_s REAL NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS positions (
   run_id TEXT NOT NULL, "index" INTEGER NOT NULL, seed INTEGER NOT NULL, decks TEXT NOT NULL,
   prefix_len INTEGER NOT NULL, seat INTEGER NOT NULL, batch INTEGER NOT NULL,
@@ -75,10 +75,13 @@ class Store:
         """Add the columns older databases lack (CREATE IF NOT EXISTS keeps old tables)."""
         for table, column, ddl in (
                 ("runs", "checkpoint", "REAL NOT NULL DEFAULT 0"),
+                ("runs", "active_s", "REAL NOT NULL DEFAULT 0"),
                 ("positions", "info", "TEXT NOT NULL DEFAULT '{}'")):
             have = {r["name"] for r in self.db.execute("PRAGMA table_info(%s)" % table)}
             if column not in have:
                 self.db.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, ddl))
+                if column == "active_s":  # best estimate for runs from before the column
+                    self.db.execute("UPDATE runs SET active_s = MAX(0, updated - created)")
 
     def close(self) -> None:
         self.db.close()
@@ -148,6 +151,23 @@ class Store:
         self.db.execute("UPDATE runs SET restarts = restarts + ?, updated = ? WHERE id = ?",
                         (count, time.time(), run_id))
         self.db.commit()
+
+    def add_active(self, run_id: str, seconds: float) -> None:
+        """Add active run time (batch work and session ends). `updated` moves with it, so
+        `now - updated` is the live session's time since this call."""
+        self.db.execute("UPDATE runs SET active_s = active_s + ?, updated = ? WHERE id = ?",
+                        (max(0.0, float(seconds)), time.time(), run_id))
+        self.db.commit()
+
+    def skipped_count(self, run_id: str) -> int:
+        """Positions committed as skipped (their info carries a `skipped` reason)."""
+        n = 0
+        for row in self.db.execute(
+                "SELECT info FROM positions WHERE run_id = ? AND info LIKE '%\"skipped\"%'",
+                (run_id,)):
+            if "skipped" in json.loads(row["info"]):
+                n += 1
+        return n
 
     def mark_interrupted(self) -> List[str]:
         """R37: every queued, running or stopping run becomes interrupted (a queued run's

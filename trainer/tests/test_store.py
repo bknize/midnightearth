@@ -177,6 +177,31 @@ class StoreTest(unittest.TestCase):
         assert run is not None
         self.assertEqual(run["restarts"], 2)
 
+    def test_active_s_migrates_from_an_old_database(self) -> None:
+        import sqlite3
+        with tempfile.TemporaryDirectory() as d:
+            db = sqlite3.connect(str(Path(d) / "trainer.db"))
+            db.execute('CREATE TABLE runs (id TEXT PRIMARY KEY, state TEXT NOT NULL,'
+                       ' config TEXT NOT NULL, run_seed INTEGER NOT NULL, stamp TEXT NOT NULL,'
+                       ' "commit" TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,'
+                       " last_error TEXT NOT NULL DEFAULT '',"
+                       " restarts INTEGER NOT NULL DEFAULT 0)")
+            db.execute("INSERT INTO runs VALUES ('o', 'done', '{}', 0, 's', 'c', 100.0, 160.0,"
+                       " '', 0)")
+            db.commit()
+            db.close()
+            store = Store(Path(d))
+            try:
+                run = store.get_run("o")
+                assert run is not None
+                self.assertEqual(run["active_s"], 60.0)
+                store.add_active("o", 5.0)
+                again = store.get_run("o")
+                assert again is not None
+                self.assertEqual(again["active_s"], 65.0)
+            finally:
+                store.close()
+
 
 if __name__ == "__main__":
     unittest.main()
