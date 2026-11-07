@@ -409,8 +409,8 @@ static func _exit_ongoings(state: MatchState, cards: MatchCards) -> Array[Array]
 
 ## The mark that resolves for `mark` on a card of a row whose exit-changing Ongoings are
 ## `read`: Wraith ("your Condemned cards have Fade instead") turns Condemned into Fade.
-## Veil (T14, At turn end before the pass) has already turned its card Fleeting, which
-## Wraith leaves alone, so Veil wins (cards-v2 section 4).
+## Veil (CrewAbilities, At turn end before the pass, D9) has already turned its card
+## Fleeting, which Wraith leaves alone, so Veil wins (cards-v2 section 4).
 static func _mark_under(mark: String, read: Array) -> String:
 	if mark == CONDEMNED and read.has(AbilitiesGraveyardControl.VERB_WRAITH):
 		return FADE

@@ -1,12 +1,15 @@
 class_name CrewAbilities
 extends RefCounted
-## The six milestone A Crew (DC-13 T07; cycle 9 plan P4, P13; spec R18, R62; canon
-## [[rules/crew-v2]], [[rules/resolution]] Q8, Q11, C29). Pure: no node, no clock; the only
-## randomness is the engine stream of the TriggerContext.
+## The ten Crew: milestone A's six (DC-13 T07) and milestone B's four (DC-14 T14) (cycle 9
+## plan P4, P13; spec R18, R62; canon [[rules/crew-v2]], [[rules/resolution]] Q8, Q11, C29,
+## steps 11 to 13). Pure: no node, no clock; the only randomness is the engine stream of the
+## TriggerContext.
 ##
 ## Queued Crew (the TriggerQueue/TriggerContext protocol, VerbHandler): prepare() when the
 ## trigger comes up, resolve() when it acts. A Crew wakes once per subject on its own seat;
-## one whose condition does not hold fizzles `no_target`. No A Crew prompts.
+## one whose condition does not hold fizzles `no_target`. No A Crew prompts; every B Crew
+## that targets prompts its seat, always (even over one option) and optionally (R52): a
+## decline does nothing and spends nothing.
 ## - navigator_second (On score): the Score was the seat's `amount_2`th of the Walk (read
 ##   when it Scored: the On score context's KEY_SCORED_COUNT, else the Walk's count now);
 ##   its card gets Power +`amount` as Memory, after it has Scored (STATS_CHANGED).
@@ -20,6 +23,20 @@ extends RefCounted
 ##   stream, PILE_SHUFFLED_IN {seat, count}, public; an empty Pile fizzles `no_target`. The
 ##   denied draw resumes after the Batch (Q11: TurnFlow.resumed_draw for a turn-start
 ##   draw, TriggerQueue's `then_draw` for an effect's draw), with no second On empty draw.
+## - veil_fleeting (At turn end before the exit pass, D9): a prompt (own_board) over the
+##   Condemned cards of the seat's row, face up or down; the chosen one's mark becomes
+##   Fleeting (Statuses.mark_exit, EXIT_MARKED {replaced: condemned}), so the exit pass right
+##   after sends it to its Owner's hand. Wraith changes Condemned only, so Veil beats it.
+## - shade_unreveal (At turn end after the exit pass, D11): up to `amount` of the seat's
+##   revealed row cards, picked at random with the engine stream (a shuffled copy of their
+##   slots, the first `amount` kept, in slot order), are offered (own_board); the chosen one
+##   is Un-revealed in place (Statuses.unreveal: Memory kept, Board changes gone,
+##   CARD_UNREVEALED), so its On reveal fires again next Walk. None revealed: `no_target`.
+## - salvager_cycle (On commit of its seat, D3/D5, before the discard-down): a prompt
+##   (own_hand) over the seat's hand; the chosen card is Discarded (CARD_DISCARDED, reason
+##   discard) and its On discard Batch queued, then the seat draws a card
+##   (TriggerContext.draw, Q11 on an empty Deck). An empty hand fizzles `no_target`; a
+##   decline neither Discards nor draws.
 ##
 ## Ongoing reads (no queue entry and no event of their own; CARD_SCORED and the Budget
 ## show them):
@@ -27,6 +44,8 @@ extends RefCounted
 ##   ... of the Walk (a Squelched card does not Score, so does not count; a card Scoring
 ##   twice counts twice): Mult `amount_2` for that Score only.
 ## - engineer_energy: budget_bonus(), +`amount` Energy from Turn `amount_2`.
+## - quartermaster_hand: hand_size_set(), "your Hand size is `amount`" (TurnFlow.hand_size,
+##   which adds Pantry's +N on top).
 
 const VERB_TALLYMAN: String = "tallyman_fifth"
 const VERB_VOID: String = "void_grant"
@@ -34,6 +53,11 @@ const VERB_ENGINEER: String = "engineer_energy"
 const VERB_NAVIGATOR: String = "navigator_second"
 const VERB_CAPTAIN: String = "captain_leftmost"
 const VERB_DREDGE: String = "dredge"
+const VERB_SHADE: String = "shade_unreveal"
+const VERB_VEIL: String = "veil_fleeting"
+const VERB_QUARTERMASTER: String = "quartermaster_hand"
+const VERB_SALVAGER: String = "salvager_cycle"
+const MOMENT_DISCARD: String = "on_discard"
 ## On score context keys (ScoreWalk.score_stage): the seat's Score count in the Walk right
 ## after that Score, and the slot the card Scored from.
 const KEY_SCORED_COUNT: String = "scored_count"
@@ -61,11 +85,18 @@ static func prepare(ctx: TriggerContext) -> void:
 				ctx.fizzle(Abilities.REASON_NO_TARGET)
 		VERB_VOID:
 			pass  # Always acts, with no re-check of the Deck (C29).
+		VERB_SHADE:
+			_ask(ctx, Choice.Zone.OWN_BOARD, _shade_offer(ctx))
+		VERB_VEIL:
+			_ask(ctx, Choice.Zone.OWN_BOARD, _condemned_slots(ctx))
+		VERB_SALVAGER:
+			_ask(ctx, Choice.Zone.OWN_HAND, _hand_positions(ctx))
 		_:
 			ctx.fizzle(Abilities.REASON_NO_TARGET)
 
 
-## The Crew trigger of `ctx` resolves, reading its amounts now (Q5).
+## The Crew trigger of `ctx` resolves, reading its amounts now (Q5); a prompting Crew
+## resolves only once answered (a decline never reaches here, TriggerQueue.answer).
 static func resolve(ctx: TriggerContext) -> void:
 	match ctx.verb:
 		VERB_NAVIGATOR, VERB_CAPTAIN:
@@ -75,6 +106,12 @@ static func resolve(ctx: TriggerContext) -> void:
 				ctx.state.void_grants[ctx.seat] += 1
 		VERB_DREDGE:
 			_dredge(ctx)
+		VERB_SHADE:
+			_shade(ctx)
+		VERB_VEIL:
+			_veil(ctx)
+		VERB_SALVAGER:
+			_salvage(ctx)
 
 
 # --- Ongoing reads --------------------------------------------------------------------
@@ -97,6 +134,15 @@ static func budget_bonus(state: MatchState, cards: MatchCards, seat: int) -> int
 	if engineer == null or state == null or state.turn < engineer.amount_2:
 		return 0
 	return engineer.amount
+
+
+## Quartermaster: the Hand size `seat`'s Crew set ("your Hand size is N"), or 0 when none
+## sets one (TurnFlow.hand_size).
+static func hand_size_set(cards: MatchCards, seat: int) -> int:
+	var quartermaster: CrewDef = crew_with(cards, seat, VERB_QUARTERMASTER)
+	if quartermaster == null:
+		return 0
+	return quartermaster.amount
 
 
 ## Adds to `stats` (the effective stats of `seat`'s card about to Score, Scoring.stats)
@@ -211,3 +257,88 @@ static func _dredge(ctx: TriggerContext) -> void:
 	if ctx.rng != null:
 		ctx.rng.shuffle_in_place(piles.deck)
 	ctx.emit(MatchEvent.Kind.PILE_SHUFFLED_IN, {"seat": ctx.seat, KEY_COUNT: count})
+
+
+# --- Milestone B ----------------------------------------------------------------------
+
+
+## Asks the Crew's seat over `options` (positions in `zone`): none fizzles `no_target`, any
+## other count prompts, optionally (TriggerContext.choose: a Crew always asks).
+static func _ask(ctx: TriggerContext, zone: int, options: Array[int]) -> void:
+	if ctx.choose(zone, options, false, 1, 1, true):
+		pass  # A Crew never chooses by itself: the prompt is open.
+
+
+## Shade's offer: up to `amount` random slots among the seat's revealed row cards (a copy of
+## their slots shuffled with the engine stream, the first `amount` kept), in slot order.
+static func _shade_offer(ctx: TriggerContext) -> Array[int]:
+	var slots: Array[int] = []
+	if ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
+		return slots
+	var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
+	for slot: int in range(piles.board.size()):
+		if piles.is_revealed(piles.board[slot]):
+			slots.append(slot)
+	if slots.size() > ctx.crew.amount and ctx.rng != null:
+		ctx.rng.shuffle_in_place(slots)
+	var offered: Array[int] = slots.slice(0, maxi(ctx.crew.amount, 0))
+	offered.sort()
+	return offered
+
+
+## Veil's options: the slots of the seat's row whose card is Condemned.
+static func _condemned_slots(ctx: TriggerContext) -> Array[int]:
+	var slots: Array[int] = []
+	if ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
+		return slots
+	var row: Array[int] = ctx.state.seats[ctx.seat].board
+	for slot: int in range(row.size()):
+		if Statuses.exit_mark_of(ctx.state, row[slot]) == Statuses.CONDEMNED:
+			slots.append(slot)
+	return slots
+
+
+## Salvager's options: every position of the seat's hand.
+static func _hand_positions(ctx: TriggerContext) -> Array[int]:
+	var positions: Array[int] = []
+	if ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
+		return positions
+	for index: int in range(ctx.state.seats[ctx.seat].hand.size()):
+		positions.append(index)
+	return positions
+
+
+## Shade: the chosen revealed card of the seat's row is Un-revealed in place.
+static func _shade(ctx: TriggerContext) -> void:
+	var card: int = ctx.chosen_card()
+	var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
+	if card < 0 or not piles.is_revealed(card):
+		return
+	if Statuses.unreveal(ctx.state, ctx.seat, card, ctx.sink):
+		pass  # Face down in its slot: Memory kept, Board changes gone.
+
+
+## Veil: the chosen Condemned card of the seat's row gets Fleeting instead.
+static func _veil(ctx: TriggerContext) -> void:
+	var card: int = ctx.chosen_card()
+	if card < 0 or Statuses.exit_mark_of(ctx.state, card) != Statuses.CONDEMNED:
+		return
+	if Statuses.mark_exit(ctx.state, ctx.cards, card, Statuses.FLEETING, ctx.sink):
+		pass  # The exit pass sends it to its Owner's hand.
+
+
+## Salvager: the chosen hand card goes to its Owner's Pile as a Discard (its On discard
+## Batch queued, Q1), then the seat draws a card.
+static func _salvage(ctx: TriggerContext) -> void:
+	var card: int = ctx.chosen_card()
+	var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
+	if card < 0 or not piles.hand.has(card):
+		return
+	piles.hand.erase(card)
+	TurnFlow.to_pile(
+		ctx.state, ctx.cards, ctx.sink, card, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD
+	)
+	var subjects: Array[int] = [card]
+	ctx.wake(MOMENT_DISCARD, subjects)
+	if ctx.draw(ctx.seat) < 0:
+		pass  # An empty Deck: DRAW_EMPTY, its On empty draw Batch queued (Q11).

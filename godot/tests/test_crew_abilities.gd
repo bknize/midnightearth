@@ -5,7 +5,11 @@ extends GdUnitTestSuite
 ## 5th, 10th ... Score of a Walk, Void's stacking grant on the next Scoring card, Engineer's
 ## Budget from Turn 3, Navigator's second scorer and Captain's leftmost card growing as
 ## Memory after the Score, and Dredger's Pile shuffle (engine stream) with the resumed draw,
-## alone and with Void in either Crew slot order. Every match plays the fixture deck
+## alone and with Void in either Crew slot order. Milestone B (DC-14 T14): Shade's prompt
+## after the exit pass over up to three random revealed cards (and its skip with none),
+## Veil's Fleeting in the same pass and over Wraith, Quartermaster's Hand size 7 (9 with
+## Pantry), and Salvager's prompt once per own Commit, its decline, and its Discard waking
+## On discard before the discard-down. Every match plays the fixture deck
 ## `stubs` (StubAbilities) with the Crew named per test; the cards a test scores are made
 ## plain bodies of Power 1 (MatchCards.replace_def), so each total is easy to read.
 
@@ -24,6 +28,16 @@ const GUARD: int = 100
 const VOID_FIRST: Array[String] = ["void", "dredger", "engineer"]
 const DREDGER_FIRST: Array[String] = ["dredger", "void", "engineer"]
 const VERB_DRAW: String = "test_draw"
+const OPENED: int = MatchEvent.Kind.PROMPT_OPENED
+const DECLINED: int = MatchEvent.Kind.CHOICE_DECLINED
+const DISCARDED: int = MatchEvent.Kind.CARD_DISCARDED
+const MARKED: int = MatchEvent.Kind.EXIT_MARKED
+const EXIT_RESOLVED: int = MatchEvent.Kind.EXIT_RESOLVED
+const UNREVEALED: int = MatchEvent.Kind.CARD_UNREVEALED
+## Milestone B's decks' Crew (DC-14 T14): Combo's (Shade at D11, Quartermaster) and
+## Graveyard's (Veil at D9, Salvager On commit).
+const COMBO_CREW: Array[String] = ["shade", "quartermaster", "engineer"]
+const GRAVEYARD_CREW: Array[String] = ["veil", "salvager", "dredger"]
 
 # --- Helpers --------------------------------------------------------------------------
 
@@ -365,6 +379,253 @@ func test_void_and_dredger_both_fire_in_either_slot_order_and_the_draw_succeeds(
 		assert_int(state.seats[0].deck.size()).is_equal(2)
 		assert_array(state.seats[0].pile).is_empty()
 		assert_array(state.void_grants).is_equal(_typed([1, 0]))
+
+
+# --- Milestone B: Shade (DC-14 T14) ---------------------------------------------------
+
+
+## Shade prompts at D11, after the exit pass: seat 0's Condemned card has already gone to
+## its Pile, and the offer is three of the five revealed cards left, the slots the engine
+## stream picks (a shuffled copy of the slots, the first three kept, in slot order), optional,
+## in own_board. The chosen card flips face down in its slot (CARD_UNREVEALED, public),
+## keeping its Memory and losing its Board changes. Seat 1, with no revealed card, fizzles.
+func test_shade_prompts_after_the_exit_pass_over_three_random_revealed_cards() -> void:
+	var cards: MatchCards = StubAbilities.defs(COMBO_CREW)
+	var state: MatchState = StubAbilities.table(_typed(range(6)), true)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	assert_bool(StubAbilities.stub_condemn(state, cards, 5, rec.record)).is_true()
+	var rng: MatchRng = MatchRng.new(SEED)
+	assert_bool(TurnFlow.end_turn(state, cards, rng, rec.record)).is_true()
+	assert_array(state.seats[0].pile).is_equal(_typed([5]))
+	var kinds: Array[int] = _kinds(rec.events)
+	assert_int(kinds.find(OPENED)).is_greater(kinds.find(EXIT_RESOLVED))
+	var expected: Array[int] = _typed(range(5))
+	MatchRng.new(SEED).shuffle_in_place(expected)
+	var offered: Array[int] = expected.slice(0, 3)
+	offered.sort()
+	assert_str(Choice.crew_of(state.prompt)).is_equal("shade")
+	assert_str(Choice.step_of(state.prompt)).is_equal("D11")
+	assert_str(Choice.zone_name(Choice.zone_of(state.prompt))).is_equal("own_board")
+	assert_bool(Choice.is_optional_prompt(state.prompt)).is_true()
+	assert_array(Choice.options_of(state.prompt)).is_equal(offered)
+	var slot: int = offered[0]
+	var card: int = state.seats[0].board[slot]
+	state.memory_for(card).power = 3
+	state.card_state_for(card).power_delta = 2
+	var chosen: Array[int] = [slot]
+	var zone: int = Choice.Zone.OWN_BOARD
+	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, chosen, false)).is_false()
+	assert_bool(TurnFlow.continue_end_turn(state, cards, rng, rec.record, "D11")).is_false()
+	assert_bool(state.seats[0].is_revealed(card)).is_false()
+	assert_int(state.seats[0].board.find(card)).is_equal(slot)
+	assert_int(_memory_power(state, card)).is_equal(3)
+	var held: CardState = state.card_state(card)
+	assert_int(held.power_delta if held != null else 0).is_equal(0)
+	assert_array(rec.cards_of(UNREVEALED)).is_equal(_typed([card]))
+	assert_int(rec.of_kind(UNREVEALED)[0].owner_seat).is_equal(MatchEvent.PUBLIC)
+	assert_array(_crews(rec.of_kind(FIRED))).is_equal(["shade"])
+	assert_array(_crews(rec.of_kind(FIZZLED))).is_equal(["shade"])
+
+
+## Shade offers fewer than three when fewer are revealed (here the two face-up cards, slots
+## 1 and 2), and with no revealed card it skips: TRIGGER_FIZZLED `no_target`, no prompt.
+func test_shade_offers_fewer_and_skips_with_none() -> void:
+	var cards: MatchCards = StubAbilities.defs(COMBO_CREW)
+	var state: MatchState = StubAbilities.table(_typed([0, 1, 2]), true)
+	assert_bool(state.seats[0].revealed.erase(0)).is_true()
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	var rng: MatchRng = MatchRng.new(SEED)
+	assert_bool(TurnFlow.end_turn(state, cards, rng, rec.record)).is_true()
+	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([1, 2]))
+	var none: StubAbilities.Recorder = StubAbilities.recorder()
+	var bare: MatchState = StubAbilities.table(_typed([0, 1]), false)
+	assert_bool(TurnFlow.end_turn(bare, cards, rng, none.record)).is_false()
+	assert_dict(bare.prompt).is_empty()
+	assert_array(none.of_kind(OPENED)).is_empty()
+	var fizzled: Array[MatchEvent] = none.of_kind(FIZZLED)
+	assert_array(_crews(fizzled)).is_equal(["shade", "shade"])
+	for event: MatchEvent in fizzled:
+		var reason: String = event.payload["reason"]
+		assert_str(reason).is_equal(Abilities.REASON_NO_TARGET)
+	assert_array(bare.seats[0].board).is_equal(_typed([0, 1]))
+
+
+# --- Milestone B: Veil ----------------------------------------------------------------
+
+
+## Veil prompts at D9, before the exit pass, over seat 0's Condemned cards (slots 1 and 2,
+## optional, own_board); the chosen one's mark becomes Fleeting (EXIT_MARKED, replaced
+## condemned) and the same exit pass sends it to its Owner's hand while the other goes to
+## the Pile. Seat 1 has no Condemned card: its Veil fizzles.
+func test_veil_turns_the_chosen_condemned_card_fleeting_in_the_same_pass() -> void:
+	var cards: MatchCards = StubAbilities.defs(GRAVEYARD_CREW)
+	var state: MatchState = StubAbilities.table(_typed([0, 1, 2]), true)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	for card: int in [1, 2]:
+		assert_bool(StubAbilities.stub_condemn(state, cards, card, rec.record)).is_true()
+	var rng: MatchRng = MatchRng.new(SEED)
+	assert_bool(TurnFlow.end_turn(state, cards, rng, rec.record)).is_true()
+	assert_str(Choice.crew_of(state.prompt)).is_equal("veil")
+	assert_str(Choice.step_of(state.prompt)).is_equal("D9")
+	assert_str(Choice.zone_name(Choice.zone_of(state.prompt))).is_equal("own_board")
+	assert_bool(Choice.is_optional_prompt(state.prompt)).is_true()
+	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([1, 2]))
+	assert_array(rec.of_kind(EXIT_RESOLVED)).is_empty()
+	var chosen: Array[int] = [2]
+	var zone: int = Choice.Zone.OWN_BOARD
+	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, chosen, false)).is_false()
+	assert_str(Statuses.exit_mark_of(state, 2)).is_equal(Statuses.FLEETING)
+	var marks: Array[MatchEvent] = rec.of_kind(MARKED)
+	var marked: MatchEvent = marks[marks.size() - 1]
+	var replaced: String = marked.payload["replaced"]
+	assert_str(replaced).is_equal(Statuses.CONDEMNED)
+	assert_bool(TurnFlow.continue_end_turn(state, cards, rng, rec.record, "D9")).is_false()
+	assert_array(state.seats[0].board).is_equal(_typed([0]))
+	assert_array(state.seats[0].pile).is_equal(_typed([1]))
+	assert_array(state.seats[0].hand).is_equal(_typed([2]))
+	assert_array(_crews(rec.of_kind(FIRED))).is_equal(["veil"])
+	assert_array(_crews(rec.of_kind(FIZZLED))).is_equal(["veil"])
+
+
+## Veil beats Wraith (cards-v2 section 4): with Wraith face up on the row, the Condemned card
+## Veil chose returns to its Owner's hand as Fleeting, while the other Condemned card
+## resolves as Fade (flips face down in place) under Wraith.
+func test_veil_beats_wraith() -> void:
+	var cards: MatchCards = StubAbilities.defs(GRAVEYARD_CREW)
+	var wraith: CardDef = CardDb.load_default().card_by_id("gy05")
+	assert_bool(StubAbilities.give(cards, _typed([0]), wraith)).is_true()
+	var state: MatchState = StubAbilities.table(_typed([0, 1, 2]), true)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	for card: int in [1, 2]:
+		assert_bool(StubAbilities.stub_condemn(state, cards, card, rec.record)).is_true()
+	var rng: MatchRng = MatchRng.new(SEED)
+	assert_bool(TurnFlow.end_turn(state, cards, rng, rec.record)).is_true()
+	var chosen: Array[int] = [1]
+	var zone: int = Choice.Zone.OWN_BOARD
+	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, chosen, false)).is_false()
+	assert_bool(TurnFlow.continue_end_turn(state, cards, rng, rec.record, "D9")).is_false()
+	assert_array(state.seats[0].hand).is_equal(_typed([1]))
+	assert_array(state.seats[0].board).is_equal(_typed([0, 2]))
+	assert_bool(state.seats[0].is_revealed(2)).is_false()
+	assert_array(state.seats[0].pile).is_empty()
+	var marks: Array[String] = []
+	for event: MatchEvent in rec.of_kind(EXIT_RESOLVED):
+		var mark: String = event.payload["mark"]
+		marks.append(mark)
+	assert_array(marks).is_equal([Statuses.FLEETING, Statuses.FADE])
+
+
+# --- Milestone B: Quartermaster -------------------------------------------------------
+
+
+## Quartermaster sets the Hand size to 7, and Pantry's +2 on a revealed row card adds to
+## it: 9. Without Quartermaster, Pantry gives 4 + 2 = 6; Quartermaster alone gives 7.
+func test_quartermaster_with_pantry_gives_9() -> void:
+	var pantry: CardDef = CardDb.load_default().card_by_id("ev14")
+	var with_quartermaster: MatchCards = StubAbilities.defs(COMBO_CREW)
+	var without: MatchCards = StubAbilities.defs(StubAbilities.CREW)
+	for cards: MatchCards in [with_quartermaster, without]:
+		assert_bool(StubAbilities.give(cards, _typed([0]), pantry)).is_true()
+	var state: MatchState = StubAbilities.table(_typed([0]), true)
+	assert_int(TurnFlow.hand_size(state, with_quartermaster, 0)).is_equal(9)
+	assert_int(TurnFlow.hand_size(state, with_quartermaster, 1)).is_equal(7)
+	assert_int(TurnFlow.hand_size(state, without, 0)).is_equal(6)
+	assert_int(TurnFlow.hand_size(state, without, 1)).is_equal(MatchRules.HAND_SIZE)
+
+
+# --- Milestone B: Salvager ------------------------------------------------------------
+
+
+## Salvager prompts its own seat once per Commit of that seat (D3 for the first seat, D5 for
+## the second), over its hand (own_hand, optional); the other seat's Salvager does not wake.
+## A decline changes nothing: no Discard, no draw, the hand, Deck and Pile as they were, and
+## CHOICE_DECLINED names the Crew.
+func test_salvager_prompts_once_per_own_commit_and_a_decline_changes_nothing() -> void:
+	var cards: MatchCards = StubAbilities.defs(GRAVEYARD_CREW)
+	var state: MatchState = _salvage_table()
+	var rng: MatchRng = MatchRng.new(SEED)
+	for seat: int in range(2):
+		var rec: StubAbilities.Recorder = StubAbilities.recorder()
+		var before: Array = _zones(state)
+		assert_bool(TurnFlow.after_commit(state, cards, rng, rec.record, seat)).is_true()
+		assert_int(rec.of_kind(OPENED).size()).is_equal(1)
+		assert_array(_crews(rec.of_kind(FIRED))).is_equal(["salvager"])
+		var asked: int = state.prompt.get("seat", -1)
+		assert_int(asked).is_equal(seat)
+		assert_str(Choice.crew_of(state.prompt)).is_equal("salvager")
+		assert_str(Choice.step_of(state.prompt)).is_equal("D3" if seat == 0 else "D5")
+		assert_str(Choice.zone_name(Choice.zone_of(state.prompt))).is_equal("own_hand")
+		assert_bool(Choice.is_optional_prompt(state.prompt)).is_true()
+		assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0, 1]))
+		var none: Array[int] = []
+		var zone: int = Choice.Zone.OWN_HAND
+		assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, none, true)).is_false()
+		var declined: Array[MatchEvent] = rec.of_kind(DECLINED)
+		assert_int(declined.size()).is_equal(1)
+		var crew: String = declined[0].payload["crew"]
+		assert_str(crew).is_equal("salvager")
+		assert_array(_zones(state)).is_equal(before)
+		assert_array(rec.of_kind(DRAWN)).is_empty()
+		assert_array(rec.of_kind(DISCARDED)).is_empty()
+
+
+## Salvager's Discard comes first and wakes its On discard (the discarded card's own stub
+## trigger fires from the Pile), then the seat draws, all inside D3; only after that drain
+## does the discard-down open, over the hand as Salvager left it (six cards, Hand size 4:
+## exactly 2).
+func test_salvager_discard_wakes_on_discard_before_the_discard_down() -> void:
+	var cards: MatchCards = StubAbilities.defs(GRAVEYARD_CREW)
+	var verbs: StubAbilities.StubVerbs = StubAbilities.StubVerbs.new()
+	cards.set_verb_handler(verbs)
+	var watches: Array[CardAbility] = [
+		StubAbilities.ability("on_discard", StubAbilities.VERB_RECORD)
+	]
+	var discarded: CardDef = StubAbilities.card_def("Watcher", watches, 1)
+	assert_bool(StubAbilities.give(cards, _typed([0]), discarded)).is_true()
+	var state: MatchState = MatchState.new(SEED)
+	state.seats[0].hand.assign(_typed(range(6)))
+	state.seats[0].deck.assign(_typed([10, 11]))
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	var rng: MatchRng = MatchRng.new(SEED)
+	assert_bool(TurnFlow.after_commit(state, cards, rng, rec.record, 0)).is_true()
+	var chosen: Array[int] = [0]
+	var zone: int = Choice.Zone.OWN_HAND
+	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, chosen, false)).is_false()
+	assert_array(state.seats[0].pile).is_equal(_typed([0]))
+	assert_array(state.seats[0].hand).is_equal(_typed([1, 2, 3, 4, 5, 10]))
+	assert_array(state.seats[0].deck).is_equal(_typed([11]))
+	assert_int(verbs.trace.size()).is_equal(1)
+	assert_bool(TurnFlow.open_discard_down(state, cards, rec.record, 0)).is_true()
+	assert_bool(TurnFlow.is_discard_down(state.prompt)).is_true()
+	assert_int(Choice.exact_of(state.prompt)).is_equal(2)
+	var kinds: Array[int] = _kinds(rec.events)
+	var woke: int = -1
+	for at: int in range(rec.events.size()):
+		var event: MatchEvent = rec.events[at]
+		var card: int = event.payload.get("card", -1)
+		if event.kind == FIRED and card == 0:
+			woke = at
+	assert_int(kinds.find(DISCARDED)).is_less(kinds.find(DRAWN))
+	assert_int(woke).is_greater(kinds.find(DISCARDED))
+	assert_int(woke).is_less(kinds.rfind(OPENED))
+
+
+## Both seats' hand, Deck and Pile, as plain arrays (seat 0's first).
+func _zones(state: MatchState) -> Array:
+	var out: Array = []
+	for piles: MatchState.SeatPiles in state.seats:
+		out.append([piles.hand.duplicate(), piles.deck.duplicate(), piles.pile.duplicate()])
+	return out
+
+
+## Both seats with two hand cards and two Deck cards, seat 0 committing first.
+func _salvage_table() -> MatchState:
+	var state: MatchState = MatchState.new(SEED)
+	state.seats[0].hand.assign(_typed([0, 1]))
+	state.seats[0].deck.assign(_typed([2, 3]))
+	state.seats[1].hand.assign(_typed([OTHER, OTHER + 1]))
+	state.seats[1].deck.assign(_typed([OTHER + 2, OTHER + 3]))
+	return state
 
 
 ## A stub verb table with one verb, `test_draw`: its card's Controller draws a card

@@ -4,9 +4,10 @@ extends FullMatchHarness
 ## It runs outside the gate: `make check` skips res://tests/sweep, `make sweep` (or
 ## `scripts/check.sh sweep`) runs it, at /cycle test and for bot reruns. The bot is
 ## BotRegistry.default_name() (`random`, cycle 9 R70, R73) unless the SWEEP_BOT environment
-## variable names another; a name the registry cannot build fails every match. Each seed
-## plays its seeded pairing of the shipped decks (greed/greed, greed/ramp, ramp/greed,
-## ramp/ramp; DeckList.seeded_pick, DC-07 P14).
+## variable names another; a name the registry cannot build fails every match. The six
+## shipped decks (DC-14 T14) give fifteen distinct pairings: the first FIXED_SEEDS seeds play
+## each of them once in each seat order (_fixed_decks()), and every later seed plays its
+## seeded pairing (DeckList.seeded_pick, DC-07 P14), mirrors included as the pick gives them.
 ## The sweep prints (cycle 9 R85, DC-13 T08; no weights or stamp line):
 ## "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=.. slowest_us=.. prompts=..
 ## discard_downs=.. empty_draws=.. pile_shuffles=.. looked=.. stalemates=.. draws=..
@@ -23,6 +24,9 @@ extends FullMatchHarness
 
 const SWEEP_FIRST: int = 1
 const SWEEP_LAST: int = 50
+## The seeds from SWEEP_FIRST that play a fixed pairing: the fifteen distinct pairings of
+## the six decks, seat 0's deck the earlier in DECKS, then the same fifteen swapped.
+const FIXED_SEEDS: int = 30
 ## Seeds up to this one are leak-scanned at every step; later seeds only at the steps that
 ## end a turn (and the start).
 const EVERY_STEP_SCAN_LAST: int = 50
@@ -92,6 +96,32 @@ static func _pairings() -> Array[String]:
 	return out
 
 
+## The fifteen distinct pairings of DECKS (two different decks), each as [a, b] with `a`
+## before `b` in DECKS, `a` major.
+static func _distinct_pairs() -> Array[Array]:
+	var out: Array[Array] = []
+	for first: int in range(DECKS.size()):
+		for second: int in range(first + 1, DECKS.size()):
+			out.append([DECKS[first], DECKS[second]])
+	return out
+
+
+## The decks `match_seed` plays: within the first FIXED_SEEDS, the distinct pairing of its
+## position (the swapped seat order for the second fifteen); after them, empty (the seed's
+## own pairing).
+static func _fixed_decks(match_seed: int) -> Array[String]:
+	var out: Array[String] = []
+	var at: int = match_seed - SWEEP_FIRST
+	var pairs: Array[Array] = _distinct_pairs()
+	if at < 0 or at >= FIXED_SEEDS or pairs.is_empty():
+		return out
+	var pair: Array = pairs[at % pairs.size()]
+	out.assign(pair)
+	if at >= pairs.size():
+		out.reverse()
+	return out
+
+
 ## The sweep's bot: SWEEP_BOT when set, else the registry default (NSC-133).
 func _bot_name() -> String:
 	var wanted: String = OS.get_environment(BOT_ENV)
@@ -123,7 +153,8 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	var ended: int = 0
 	var decisions: PackedInt32Array = PackedInt32Array()
 	for match_seed: int in range(SWEEP_FIRST, SWEEP_LAST + 1):
-		var run: FullMatchRun = _play(match_seed, match_seed <= EVERY_STEP_SCAN_LAST)
+		var scan: bool = match_seed <= EVERY_STEP_SCAN_LAST
+		var run: FullMatchRun = _play(match_seed, scan, _fixed_decks(match_seed))
 		_assert_run(run)
 		decisions.append_array(run.decision_us)
 		_count_run(counts, run)
@@ -279,9 +310,9 @@ func _print_pairings() -> void:
 		)
 
 
-## Every swept seed played one of the four pairings of DECKS, and the seeded pairing put
-## every deck on each seat at least once (C15: the sweep exercises every deck on both
-## seats).
+## Every swept seed played one of the pairings of DECKS, each of the fifteen distinct
+## pairings was played in both seat orders, and so every deck sat on each seat at least once
+## (C15: the sweep exercises every deck on both seats).
 func _assert_pairings() -> void:
 	var known_pairings: Array[String] = _pairings()
 	var total: int = 0
@@ -301,6 +332,14 @@ func _assert_pairings() -> void:
 		for deck_id: String in DECKS:
 			var never: String = "no seed of the sweep played %s on seat %d" % [deck_id, seat]
 			assert_bool(on_seat[seat].has(deck_id)).override_failure_message(never).is_true()
+	for pair: Array in _distinct_pairs():
+		var first: String = pair[0]
+		var second: String = pair[1]
+		for pairing: String in ["%s/%s" % [first, second], "%s/%s" % [second, first]]:
+			var record: Dictionary = pairing_records.get(pairing, _empty_record())
+			var seeds: int = record["seeds"]
+			var missed: String = "no seed of the sweep played %s" % pairing
+			assert_int(seeds).override_failure_message(missed).is_greater(0)
 	assert_int(total).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
 
 

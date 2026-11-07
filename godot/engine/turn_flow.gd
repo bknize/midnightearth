@@ -19,7 +19,8 @@ extends RefCounted
 ##   On empty draw hook (on_empty_draw(), D1, no re-check of the Deck, C29), then the resumed
 ##   draw of Q11 once if the Deck is no longer empty (resumed_draw()).
 ## - budget(): turn + the Energy granted this Turn (+ the Crew hook), nothing carried (R6).
-## - hand_size(): MatchRules.HAND_SIZE plus every read "Hand size +N" (Pantry, R11).
+## - hand_size(): Quartermaster's set or MatchRules.HAND_SIZE, plus every read "Hand size +N"
+##   (Pantry, R11).
 ## - accept_commit(): the cards leave the hand, the cost is spent (effective costs, the free
 ##   first card), `committed_count` records the Commit (0 for a Pass), COMMITTED; the first
 ##   Commit waits face down in `pending`, the second merges both into their rows face down.
@@ -211,11 +212,14 @@ static func budget(state: MatchState, cards: MatchCards, seat: int) -> int:
 	return state.turn + state.energy.grants[seat] + crew_budget_bonus(state, cards, seat)
 
 
-## `seat`'s Hand size (R11): the base MatchRules.HAND_SIZE, plus the amount of every "your
-## Hand size is +N" Ongoing its revealed row cards make apply (Pantry). Milestone B's
-## Quartermaster adds the "is N" set, which applies first.
+## `seat`'s Hand size (R11): the "your Hand size is N" its Crew set (Quartermaster,
+## CrewAbilities.hand_size_set(), DC-14 T14) or else the base MatchRules.HAND_SIZE, plus the
+## amount of every "your Hand size is +N" Ongoing its revealed row cards make apply (Pantry):
+## Quartermaster with one Pantry is 7 + 2 = 9.
 static func hand_size(state: MatchState, cards: MatchCards, seat: int) -> int:
-	var size: int = MatchRules.HAND_SIZE
+	var size: int = CrewAbilities.hand_size_set(cards, seat)
+	if size <= 0:
+		size = MatchRules.HAND_SIZE
 	for ability: CardAbility in Scoring.ongoing_on_row(state, cards, seat, Scoring.HAND_SIZE_ADD_VERB):
 		size += ability.amount
 	return size

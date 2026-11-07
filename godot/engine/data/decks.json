@@ -38,6 +38,82 @@
         "ra10", "ra10", "ra10", "ra10"
       ],
       "crew": ["navigator", "captain", "dredger"]
+    },
+    {
+      "id": "combo",
+      "name": "Combo",
+      "tag": "combo",
+      "theme": "Reveals and other triggers, set up cheaply and paid off late. Wants cards to reveal more than once.",
+      "cards": [
+        "cb01", "cb01", "cb01", "cb01",
+        "cb02", "cb02", "cb02", "cb02",
+        "cb03", "cb03", "cb03", "cb03",
+        "cb04", "cb04", "cb04", "cb04",
+        "cb05", "cb05", "cb05", "cb05",
+        "cb06", "cb06", "cb06", "cb06",
+        "cb07", "cb07", "cb07", "cb07",
+        "cb08", "cb08", "cb08", "cb08",
+        "cb09", "cb09", "cb09", "cb09",
+        "cb10", "cb10", "cb10", "cb10"
+      ],
+      "crew": ["shade", "quartermaster", "engineer"]
+    },
+    {
+      "id": "disruption",
+      "name": "Disruption",
+      "tag": "disruption",
+      "theme": "Stop the other seat's win condition with Squelch and Mute; a few cards pay for it with slow, certain damage.",
+      "cards": [
+        "di01", "di01", "di01", "di01",
+        "di02", "di02", "di02", "di02",
+        "di03", "di03", "di03", "di03",
+        "di04", "di04", "di04", "di04",
+        "di05", "di05", "di05", "di05",
+        "di06", "di06", "di06", "di06",
+        "di07", "di07", "di07", "di07",
+        "di08", "di08", "di08", "di08",
+        "di09", "di09", "di09", "di09",
+        "di10", "di10", "di10", "di10"
+      ],
+      "crew": ["engineer", "salvager", "quartermaster"]
+    },
+    {
+      "id": "graveyard",
+      "name": "Graveyard",
+      "tag": "graveyard",
+      "theme": "Condemnation and Discard, with tools to cushion the losses and bring cards back.",
+      "cards": [
+        "gy01", "gy01", "gy01", "gy01",
+        "gy02", "gy02", "gy02", "gy02",
+        "gy03", "gy03", "gy03", "gy03",
+        "gy04", "gy04", "gy04", "gy04",
+        "gy05", "gy05", "gy05", "gy05",
+        "gy06", "gy06", "gy06", "gy06",
+        "gy07", "gy07", "gy07", "gy07",
+        "gy08", "gy08", "gy08", "gy08",
+        "gy09", "gy09", "gy09", "gy09",
+        "gy10", "gy10", "gy10", "gy10"
+      ],
+      "crew": ["veil", "salvager", "dredger"]
+    },
+    {
+      "id": "control",
+      "name": "Control",
+      "tag": "control",
+      "theme": "Card movement and board manipulation: arrange your own row to feed your Mults and pull the other one apart.",
+      "cards": [
+        "ct01", "ct01", "ct01", "ct01",
+        "ct02", "ct02", "ct02", "ct02",
+        "ct03", "ct03", "ct03", "ct03",
+        "ct04", "ct04", "ct04", "ct04",
+        "ct05", "ct05", "ct05", "ct05",
+        "ct06", "ct06", "ct06", "ct06",
+        "ct07", "ct07", "ct07", "ct07",
+        "ct08", "ct08", "ct08", "ct08",
+        "ct09", "ct09", "ct09", "ct09",
+        "ct10", "ct10", "ct10", "ct10"
+      ],
+      "crew": ["captain", "engineer", "quartermaster"]
     }
   ]
 }

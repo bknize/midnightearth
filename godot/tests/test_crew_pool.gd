@@ -1,11 +1,25 @@
 class_name TestCrewPool
 extends GdUnitTestSuite
 ## CrewPool and CrewDef v2 (DC-13 T02; cycle 9 plan P4, spec R62, R64): the shipped Crew file
-## loads the six milestone A Crew with the moment, verb, amounts and text of rules/crew-v2,
-## and an entry whose moment or verb is not in the table (or a verb on another moment, an
-## amount out of range, a non-bool `optional`, bad uses or scope) fails the load by name.
+## loads the ten Crew (milestone A's six, B's four since DC-14 T14) with the moment, verb,
+## amounts and text of rules/crew-v2, and an entry whose moment or verb is not in the table
+## (or a verb on another moment, an amount out of range, a non-bool `optional`, bad uses or
+## scope) fails the load by name.
 
-const IDS: Array[String] = ["tallyman", "void", "engineer", "navigator", "captain", "dredger"]
+const IDS: Array[String] = [
+	"tallyman",
+	"void",
+	"engineer",
+	"navigator",
+	"captain",
+	"dredger",
+	"shade",
+	"veil",
+	"quartermaster",
+	"salvager",
+]
+## The Crew that prompt (rules/crew-v2 "Prompts": yes, optional), milestone B's (DC-14 T14).
+const OPTIONAL: Array[String] = ["shade", "veil", "salvager"]
 ## The canon's rows (rules/crew-v2), as [id, name, tag, moment, verb, amount, amount_2, text].
 const CANON: Array = [
 	[
@@ -77,6 +91,46 @@ const CANON: Array = [
 		0,
 		"Shuffle your Pile into your Deck."
 	],
+	[
+		"shade",
+		"Shade",
+		"combo",
+		"at_turn_end_after",
+		"shade_unreveal",
+		3,
+		0,
+		"Choose one of up to three random revealed cards of yours and Un-reveal it."
+	],
+	[
+		"veil",
+		"Veil",
+		"graveyard",
+		"at_turn_end_before",
+		"veil_fleeting",
+		0,
+		0,
+		"Choose one Condemned card of yours; it gets Fleeting instead of Condemned."
+	],
+	[
+		"quartermaster",
+		"Quartermaster",
+		"evergreen",
+		"ongoing",
+		"quartermaster_hand",
+		7,
+		0,
+		"Your Hand size is 7."
+	],
+	[
+		"salvager",
+		"Salvager",
+		"graveyard",
+		"on_commit",
+		"salvager_cycle",
+		0,
+		0,
+		"You may Discard a card from your hand, then draw a card."
+	],
 ]
 
 # --- Helpers --------------------------------------------------------------------------
@@ -121,11 +175,11 @@ func _assert_invalid(pool: CrewPool, prefix: String) -> void:
 # --- The shipped file -----------------------------------------------------------------
 
 
-func test_the_shipped_file_loads_the_six_crew() -> void:
+func test_the_shipped_file_loads_the_ten_crew() -> void:
 	var pool: CrewPool = CrewPool.load_default()
 	assert_bool(pool.is_valid()).override_failure_message(pool.load_error()).is_true()
 	assert_str(pool.validate()).is_empty()
-	assert_int(pool.size()).is_equal(6)
+	assert_int(pool.size()).is_equal(IDS.size())
 	assert_array(pool.ids()).is_equal(IDS)
 
 
@@ -152,10 +206,13 @@ func test_every_shipped_crew_matches_the_canon() -> void:
 		assert_int(def.amount).override_failure_message(crew_id).is_equal(amount)
 		assert_int(def.amount_2).override_failure_message(crew_id).is_equal(amount_2)
 		assert_str(def.text).override_failure_message(crew_id).is_equal(text)
-		# Every v2 Crew is unlimited and none prompts in milestone A (rules/crew-v2).
+		# Every v2 Crew is unlimited; Shade, Veil and Salvager prompt, optionally
+		# (rules/crew-v2).
 		assert_int(def.uses).is_equal(0)
 		assert_int(def.initial_uses()).is_equal(CrewDef.UNLIMITED)
-		assert_bool(def.optional).is_false()
+		assert_bool(def.optional).override_failure_message(crew_id).is_equal(
+			OPTIONAL.has(crew_id)
+		)
 
 
 func test_a_crew_round_trips_through_to_dict() -> void:
@@ -230,4 +287,4 @@ func test_lookups() -> void:
 	assert_bool(pool.has_id("dredger")).is_true()
 	assert_bool(pool.has_id("gardener")).is_false()
 	assert_object(pool.crew_of("nope")).is_null()
-	assert_int(pool.all().size()).is_equal(6)
+	assert_int(pool.all().size()).is_equal(IDS.size())

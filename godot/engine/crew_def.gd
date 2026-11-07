@@ -8,9 +8,9 @@ extends RefCounted
 ## {"id": "void", "name": "Void", "tag": "greed", "moment": "on_empty_draw",
 ##  "verb": "void_grant", "amount": 10, "amount_2": 50, "optional": false, "uses": 0,
 ##  "scope": "turn", "text": "..."}
-## Moments are CardAbility.MOMENTS. VERBS is the milestone A Crew table: each verb with the
-## one moment it sits on and the inclusive range of each amount it takes (a verb without a
-## range for a key allows only 0). The amounts, by verb:
+## Moments are CardAbility.MOMENTS. VERBS is the Crew table (milestone A, and B since DC-14
+## T14): each verb with the one moment it sits on and the inclusive range of each amount it
+## takes (a verb without a range for a key allows only 0). The amounts, by verb:
 ## - tallyman_fifth (ongoing): every `amount`th Scoring card of the seat's Walk gets a Mult
 ##   of `amount_2` hundredths for that Score (5, ×2 = 200);
 ## - void_grant (on_empty_draw): the seat's next Scoring card gets Power +`amount`, Add
@@ -20,13 +20,20 @@ extends RefCounted
 ##   +`amount` for the match after it Scores (2, 2);
 ## - captain_leftmost (on_score): the card in the seat's leftmost slot gets Power +`amount`
 ##   for the match after it Scores (1);
-## - dredge (on_empty_draw): the seat's Pile is shuffled into its Deck (no amount).
+## - dredge (on_empty_draw): the seat's Pile is shuffled into its Deck (no amount);
+## - shade_unreveal (at_turn_end_after): up to `amount` random revealed cards of the seat's
+##   row are offered, the chosen one is Un-revealed (3);
+## - veil_fleeting (at_turn_end_before): a Condemned card of the seat's row gets Fleeting
+##   instead (no amount);
+## - quartermaster_hand (ongoing): the seat's Hand size is `amount` (7);
+## - salvager_cycle (on_commit): the seat may Discard a card from its hand, then draws (no
+##   amount).
 ## `uses` 0 is unlimited (every v2 Crew); `scope` is the cessation of the change it gives
-## (CardAbility.SCOPES, or "" for none). The behaviour lands with DC-13 T07 (CrewAbilities);
+## (CardAbility.SCOPES, or "" for none). The behaviour is CrewAbilities' (DC-13 T07, T14);
 ## this class is data only.
 
-## The milestone A Crew verbs (plan P4): verb name to {moment, and for `amount` and
-## `amount_2` an inclusive [low, high] range when the verb takes it}.
+## The Crew verbs (plan P4; milestone B's four from DC-14 T14): verb name to {moment, and
+## for `amount` and `amount_2` an inclusive [low, high] range when the verb takes it}.
 const VERBS: Dictionary[String, Dictionary] = {
 	"tallyman_fifth": {"moment": "ongoing", "amount": [2, 10], "amount_2": [101, 400]},
 	"void_grant": {"moment": "on_empty_draw", "amount": [0, 20], "amount_2": [0, 100]},
@@ -34,6 +41,10 @@ const VERBS: Dictionary[String, Dictionary] = {
 	"navigator_second": {"moment": "on_score", "amount": [1, 5], "amount_2": [1, 7]},
 	"captain_leftmost": {"moment": "on_score", "amount": [1, 5]},
 	"dredge": {"moment": "on_empty_draw"},
+	"shade_unreveal": {"moment": "at_turn_end_after", "amount": [1, 5]},
+	"veil_fleeting": {"moment": "at_turn_end_before"},
+	"quartermaster_hand": {"moment": "ongoing", "amount": [1, 10]},
+	"salvager_cycle": {"moment": "on_commit"},
 }
 ## Void's granted Mult, in hundredths (×1.25, canon crew-v2 C31): the third number of the
 ## grant, which has no amount key of its own.
