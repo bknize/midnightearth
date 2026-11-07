@@ -2,20 +2,24 @@ class_name TestSweep
 extends FullMatchHarness
 ## The 50-seed bot-vs-bot sweep (DC-05 T07, R39; moved out of test_full_match.gd at NSC-133).
 ## It runs outside the gate: `make check` skips res://tests/sweep, `make sweep` (or
-## `scripts/check.sh sweep`) runs it, at /cycle test and for the bot rerun provision. The
-## bot is BotRegistry.default_name() (`random`, cycle 9 R73) unless the SWEEP_BOT
-## environment variable names another; a name the registry cannot build fails every match.
-## The sweep prints "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=.. slowest_us=..
-## prompts=.. discard_downs=.. empty_draws=.. pile_seen=.. looked=.. sets=..
-## memory_hidden=.. crew_prompts=.. declines=.. bot=.. p95_us=.. p99_us=.." and per pairing
-## played "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=.. slowest_us=.. seed=..".
+## `scripts/check.sh sweep`) runs it, at /cycle test and for bot reruns. The bot is
+## BotRegistry.default_name() (`random`, cycle 9 R70, R73) unless the SWEEP_BOT environment
+## variable names another; a name the registry cannot build fails every match. Each seed
+## plays its seeded pairing of the shipped decks (greed/greed, greed/ramp, ramp/greed,
+## ramp/ramp; DeckList.seeded_pick, DC-07 P14).
+## The sweep prints (cycle 9 R85, DC-13 T08; no weights or stamp line):
+## "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=.. slowest_us=.. prompts=..
+## discard_downs=.. empty_draws=.. pile_shuffles=.. looked=.. stalemates=.. draws=..
+## pile_seen=.. sets=.. crew_prompts=.. declines=.. memory_hidden=.. bot=.. p95_us=..
+## p99_us=.." and per pairing played "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=..
+## slowest_us=.. seed=..".
 ## Every match checks what test_full_match.gd's seed 1 does (FullMatchHarness._assert_run):
-## it ends, no hand exceeds the harness's HAND_BOUND, no commit exceeds the Budget, nothing
-## hidden leaks and the log replays; the 99th-percentile decision stays under
-## DECISION_BUDGET_US. The coverage counters (_assert_coverage) are asserted only for the
-## default bot; another SWEEP_BOT prints a line saying they were skipped. DC-13 T03 (rules
-## 7): the destroyed-pile and recovery counters went with the v6 piles; the discard-downs,
-## empty draws, Pile entries and looked-at cards are counted (T08 resets the coverage set).
+## it ends (a stalemate may draw, spec C12), no hand exceeds the harness's HAND_BOUND, no
+## commit exceeds the Budget, nothing hidden leaks (the P15 scan: Piles public; hands, Decks,
+## face-down and looked-at cards private) and the log replays; the 99th-percentile decision
+## stays under DECISION_BUDGET_US. The coverage counters (_assert_coverage), reset at DC-13
+## T08 for the random bot's play, are asserted only for the default bot; another SWEEP_BOT
+## prints a line saying they were skipped.
 
 const SWEEP_FIRST: int = 1
 const SWEEP_LAST: int = 50
@@ -26,13 +30,42 @@ const EVERY_STEP_SCAN_LAST: int = 50
 const DECISION_BUDGET_US: int = 10000
 ## The environment variable naming the bot to sweep instead of the default (NSC-133).
 const BOT_ENV: String = "SWEEP_BOT"
+## The sweep's counters, in the summary line's order (face_down_seen and redacted_seen are
+## asserted but not printed).
+const COUNTER_KEYS: Array[String] = [
+	"face_down_seen",
+	"redacted_seen",
+	"prompts",
+	"discard_downs",
+	"empty_draws",
+	"pile_shuffles",
+	"looked",
+	"stalemates",
+	"draws",
+	"pile_seen",
+	"sets",
+	"crew_prompts",
+	"declines",
+	"memory_hidden",
+]
+## The counters the default bot's sweep must reach (_assert_coverage).
+const COVERED_KEYS: Array[String] = [
+	"face_down_seen",
+	"redacted_seen",
+	"prompts",
+	"discard_downs",
+	"empty_draws",
+	"pile_shuffles",
+	"pile_seen",
+	"longest_walk",
+]
 
 ## The longest swept match in accepted actions, and its seed; set by the sweep test.
 static var longest_actions: int = 0
 static var longest_seed: int = 0
 ## The slowest single bot choose() call of the sweep, in microseconds, its seed, the 95th
-## and 99th percentiles of every decision (nearest rank), and the prompts the sweep's bots answered;
-## set by the sweep test (DC-05 T14; cycle 7 T05, R17).
+## and 99th percentiles of every decision (nearest rank), and the prompts the sweep's bots
+## answered; set by the sweep test (DC-05 T14; cycle 7 T05, R17).
 static var slowest_us: int = 0
 static var slowest_seed: int = 0
 static var p95_us: int = 0
@@ -84,36 +117,16 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	pairing_records = {}
 	for pairing: String in _pairings():
 		pairing_records[pairing] = _empty_record()
-	var memory_hidden: int = 0
-	var discard_downs: int = 0
-	var empty_draws: int = 0
-	var pile_seen: int = 0
-	var looked: int = 0
-	var set_answers: int = 0
-	var crew_prompts: int = 0
-	var declines: int = 0
-	var crew_prompts_scanned: int = 0
-	var face_down_seen: int = 0
-	var redacted_seen: int = 0
-	var choices: int = 0
+	var counts: Dictionary = {}
+	for key: String in COUNTER_KEYS:
+		counts[key] = 0
 	var ended: int = 0
 	var decisions: PackedInt32Array = PackedInt32Array()
 	for match_seed: int in range(SWEEP_FIRST, SWEEP_LAST + 1):
 		var run: FullMatchRun = _play(match_seed, match_seed <= EVERY_STEP_SCAN_LAST)
 		_assert_run(run)
 		decisions.append_array(run.decision_us)
-		face_down_seen += run.face_down_seen
-		redacted_seen += run.redacted_seen
-		choices += run.choices
-		discard_downs += run.discard_downs
-		empty_draws += run.empty_draws
-		pile_seen += run.pile_seen
-		looked += run.looked_seen
-		memory_hidden += run.memory_hidden_seen
-		set_answers += run.set_answers
-		crew_prompts += run.crew_prompts
-		declines += run.declines
-		crew_prompts_scanned += run.crew_prompts_scanned
+		_count_run(counts, run)
 		_record_pairing(run)
 		if run.longest_walk > longest_walk:
 			longest_walk = run.longest_walk
@@ -126,45 +139,16 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 		if run.slowest_us > slowest_us:
 			slowest_us = run.slowest_us
 			slowest_seed = match_seed
-	sweep_prompts = choices
+	var prompts: int = counts["prompts"]
+	sweep_prompts = prompts
 	p95_us = _percentile(decisions, 95)
 	p99_us = _percentile(decisions, 99)
-	# One line for the orchestrator to read at verification (DC-05 T14, DC-06 T09; cycle 7
-	# T05: the bot and its decision times, R17, R19, R56).
-	print(
-		(
-			(
-				"Sweep: longest=%d seed=%d longest_walk=%d walk_seed=%d"
-				+ " slowest_us=%d prompts=%d discard_downs=%d empty_draws=%d"
-				+ " pile_seen=%d looked=%d sets=%d memory_hidden=%d"
-				+ " crew_prompts=%d declines=%d bot=%s"
-				+ " p95_us=%d p99_us=%d"
-			)
-			% [
-				longest_actions,
-				longest_seed,
-				longest_walk,
-				longest_walk_seed,
-				slowest_us,
-				sweep_prompts,
-				discard_downs,
-				empty_draws,
-				pile_seen,
-				looked,
-				set_answers,
-				memory_hidden,
-				crew_prompts,
-				declines,
-				sweep_bot,
-				p95_us,
-				p99_us,
-			]
-		)
-	)
+	# One line for the orchestrator to read at verification (cycle 9 R85, DC-13 T08).
+	print(_summary_line(counts))
 	_print_pairings()
 	_assert_pairings()
 	assert_int(ended).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
-	# R17 (NSC-74, DC-08): 99% of the shipped bot's decisions within the budget.
+	# R17 (NSC-74, DC-08; cycle 9 R85): 99% of the bot's decisions within the budget.
 	var too_slow: String = (
 		"99th-percentile decision %d us over the %d us budget (slowest %d us, seed %d)"
 		% [p99_us, DECISION_BUDGET_US, slowest_us, slowest_seed]
@@ -173,16 +157,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	# Coverage (which hidden paths the bots happened to reach) holds only for the default bot,
 	# whose play the counters were set for; every invariant above holds for any bot.
 	if sweep_bot == BotRegistry.default_name():
-		var counts: Dictionary = {
-			"face_down_seen": face_down_seen,
-			"redacted_seen": redacted_seen,
-			"choices": choices,
-			"discard_downs": discard_downs,
-			"empty_draws": empty_draws,
-			"pile_seen": pile_seen,
-			"longest_walk": longest_walk,
-			"crew_prompts_scanned": crew_prompts_scanned,
-		}
+		counts["longest_walk"] = longest_walk
 		_assert_coverage(counts)
 	else:
 		print(
@@ -198,29 +173,67 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	assert_int(longest_actions).override_failure_message(longest).is_between(1, MAX_ACTIONS - 1)
 
 
-## The sweep's coverage counters (`counts`, keyed by name, set by the sweep test) for the
-## default bot under rules 7 (DC-13 T03): the scan really met face-down and redacted cards,
-## prompts, discard-downs, empty draws, public Pile entries and a Walk. Each depends on how
-## the bot happens to play, so a SWEEP_BOT other than the default skips them. DC-13 T08
-## resets the set for the random bot's play (Crew prompts, Pile shuffles, looked-at cards
-## and hidden Memory join when T06 and T07 make them reachable).
+## Adds one run's counters to `counts` (keyed by COUNTER_KEYS): what the scan met and the
+## bots answered, plus a stalemate end (spec C12) and a drawn match (winner -1).
+func _count_run(counts: Dictionary, run: FullMatchRun) -> void:
+	var seen: Dictionary = {
+		"face_down_seen": run.face_down_seen,
+		"redacted_seen": run.redacted_seen,
+		"prompts": run.choices,
+		"discard_downs": run.discard_downs,
+		"empty_draws": run.empty_draws,
+		"pile_shuffles": run.pile_shuffles,
+		"looked": run.looked_seen,
+		"stalemates": 0,
+		"draws": 0,
+		"pile_seen": run.pile_seen,
+		"sets": run.set_answers,
+		"crew_prompts": run.crew_prompts,
+		"declines": run.declines,
+		"memory_hidden": run.memory_hidden_seen,
+	}
+	if not run.end_payload.is_empty():
+		var reason: String = run.end_payload.get("reason", "")
+		var winner: int = run.end_payload.get("winner", -1)
+		if reason == MatchEngine.REASON_STALEMATE:
+			seen["stalemates"] = 1
+		if winner == -1:
+			seen["draws"] = 1
+	for key: String in COUNTER_KEYS:
+		var total: int = counts.get(key, 0)
+		var add: int = seen.get(key, 0)
+		counts[key] = total + add
+
+
+## The "Sweep: ..." summary line (see the class comment) over `counts` and the statics.
+func _summary_line(counts: Dictionary) -> String:
+	var head: String = (
+		"Sweep: longest=%d seed=%d longest_walk=%d walk_seed=%d slowest_us=%d"
+		% [longest_actions, longest_seed, longest_walk, longest_walk_seed, slowest_us]
+	)
+	var parts: PackedStringArray = PackedStringArray([head])
+	for key: String in COUNTER_KEYS:
+		if key == "face_down_seen" or key == "redacted_seen":
+			continue
+		var value: int = counts.get(key, 0)
+		parts.append("%s=%d" % [key, value])
+	parts.append("bot=%s p95_us=%d p99_us=%d" % [sweep_bot, p95_us, p99_us])
+	return " ".join(parts)
+
+
+## The sweep's coverage counters (`counts`, keyed by COUNTER_KEYS plus `longest_walk`) for
+## the default bot, reset at DC-13 T08 for the random bot's play on the milestone A decks:
+## the scan really met face-down and redacted cards and public Pile entries, and the bots
+## answered prompts and discard-downs, met empty draws, shuffled a Pile into a Deck
+## (Dredger) and played a Walk. Looked-at cards, stalemates and draws are printed, not
+## asserted: no Greed or Ramp card looks at a card (Lookout and Delve are evergreen, in
+## neither deck), and a stalemate is rare (spec C12: 7 in 200 seeds), so 50 seeds may meet
+## none. A SWEEP_BOT other than the default skips them.
 func _assert_coverage(counts: Dictionary) -> void:
-	var face_down_seen: int = counts["face_down_seen"]
-	var redacted_seen: int = counts["redacted_seen"]
-	var choices: int = counts["choices"]
-	var discard_downs: int = counts["discard_downs"]
-	var empty_draws: int = counts["empty_draws"]
-	var pile_seen: int = counts["pile_seen"]
-	var walk: int = counts["longest_walk"]
-	assert_int(face_down_seen).is_greater(0)
-	assert_int(redacted_seen).is_greater(0)
-	assert_int(choices).override_failure_message("no prompt in the sweep").is_greater(0)
-	var no_discard: String = "no discard-down in the sweep"
-	assert_int(discard_downs).override_failure_message(no_discard).is_greater(0)
-	var no_empty: String = "no empty draw in the sweep"
-	assert_int(empty_draws).override_failure_message(no_empty).is_greater(0)
-	assert_int(pile_seen).override_failure_message("no Pile entry in the sweep").is_greater(0)
-	assert_int(walk).override_failure_message("no walk in the sweep").is_greater(0)
+	for key: String in COVERED_KEYS:
+		var value: int = counts.get(key, 0)
+		var missing: String = "the sweep met no %s" % key
+		assert_int(value).override_failure_message(missing).is_greater(0)
 
 
 ## A pairing's record before any seed: no seeds, no match, no decision.
@@ -266,9 +279,9 @@ func _print_pairings() -> void:
 		)
 
 
-## Every swept seed played one of the sixteen pairings of DECKS, and the seeded pairing put
+## Every swept seed played one of the four pairings of DECKS, and the seeded pairing put
 ## every deck on each seat at least once (C15: the sweep exercises every deck on both
-## seats; with four decks, 50 seeds need not reach all sixteen pairings, cycle 8 R31).
+## seats).
 func _assert_pairings() -> void:
 	var known_pairings: Array[String] = _pairings()
 	var total: int = 0

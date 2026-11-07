@@ -268,6 +268,9 @@ func _play(match_seed: int, scan_every_step: bool) -> FullMatchRun:
 			run.rejections.append("action %d rejected, code %d" % [run.actions, result.error])
 			return run
 		run.actions += 1
+		for event: MatchEvent in result.events:
+			if event.kind == MatchEvent.Kind.PILE_SHUFFLED_IN:
+				run.pile_shuffles += 1
 		if _has_kind(result, MatchEvent.Kind.WALK_STARTED):
 			run.longest_walk = maxi(run.longest_walk, _walk_pulses(before, action))
 		after = engine.full_state()

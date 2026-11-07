@@ -3,8 +3,9 @@ extends Node3D
 ## DC-07 P14), then shows the deck picker, or the board at once when `--autoplay`, `--deck=`
 ## or `--bot-deck=` is given (R42), and prints the lines the build gate looks for: the
 ## "Engine smoke:" line, then "Main ready" once the picker or the board is in the tree.
-## An unknown deck id is a push_error and no board. Since DC-13 T02 (rules 7) every card
-## ability fizzles, so the smoke match plays the v2 cards as plain bodies until T05-T07.
+## An unknown deck id is a push_error and no board. Under rules 7 (cycle 9 R86, DC-13 T08)
+## the smoke line is "Engine smoke: seed=1 decks=a/b bot=random winner=.. wins=..-..
+## rounds=.. end=<reason> actions=..", the winner -1 on a stalemate draw (spec C12).
 
 const SMOKE_SEED: int = 1
 const MAX_ACTIONS: int = 2000
