@@ -5,7 +5,7 @@ import random
 import sys
 import tempfile
 import unittest
-from typing import Tuple
+from typing import List, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import driver  # noqa: E402
@@ -97,6 +97,55 @@ class RecordsTest(unittest.TestCase):
 class DriverTest(unittest.TestCase):
     def test_batches(self) -> None:
         self.assertEqual(driver.batches(1, 60), [(1, 25), (26, 50), (51, 60)])
+
+    def test_batch_flag_sets_batch_size(self) -> None:
+        args = driver.build_parser().parse_args(["eval", "--a", "x", "--b", "y"])
+        self.assertEqual(args.batch, 25)
+        args = driver.build_parser().parse_args(
+            ["eval", "--a", "x", "--b", "y", "--batch", "10", "--seeds", "1-30"])
+        self.assertEqual(args.batch, 10)
+        self.assertEqual(driver.batches(1, 30, args.batch), [(1, 10), (11, 20), (21, 30)])
+
+    def test_batch_flag_reaches_the_workers(self) -> None:
+        seen: List[Tuple[int, int]] = []
+        script = "import sys; open(sys.argv[1], 'w').write('')\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            args = driver.build_parser().parse_args(
+                ["eval", "--a", "x", "--b", "y", "--batch", "10", "--seeds", "1-30",
+                 "--reports-dir", tmp])
+
+            def factory(a: str, b: str, s: int, e: int, out: str) -> List[str]:
+                seen.append((s, e))
+                return [sys.executable, "-c", script, out]
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                driver.run_eval(args, factory, workers=1)
+        self.assertEqual(sorted(seen), [(1, 10), (11, 20), (21, 30)])
+
+    def test_worker_argv(self) -> None:
+        argv = driver.godot_worker("random", "random", 1, 25, "out.jsonl", "lbl")
+        self.assertEqual(argv[1:], [
+            "--headless", "--path", "godot", "-s", "res://tools/match_worker.gd", "--",
+            "--a=random", "--b=random", "--seeds=1-25", "--decks=seeded",
+            "--out=out.jsonl", "--label=lbl"])
+        argv = driver.godot_worker("a", "b", 3, 4, "o", "l", "d1/d2", 5000)
+        self.assertIn("--decks=d1/d2", argv)
+        self.assertEqual(argv[-1], "--budget-us=5000")
+        for arg in argv:
+            self.assertNotIn("weights", arg)
+            self.assertNotIn("level", arg)
+
+    def test_godot_bin_env_accepts_windows_exe(self) -> None:
+        exe = "C:\\Godot\\Godot_v4.6_win64.exe"
+        old = os.environ.get("GODOT_BIN")
+        os.environ["GODOT_BIN"] = exe
+        try:
+            self.assertEqual(driver.godot_worker("a", "b", 1, 2, "o", "l")[0], exe)
+        finally:
+            if old is None:
+                del os.environ["GODOT_BIN"]
+            else:
+                os.environ["GODOT_BIN"] = old
 
     def test_failing_worker_exits_3_naming_range(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

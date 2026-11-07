@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Bot strength driver (plan P18): fans out workers, decides by SPRT. No model tokens.
 
-  driver.py eval --a tuned --b greedy_v1 [--gainer|--nonreg] [--seeds 1-5000]
-                 [--cap 20000] [--label L]
+  driver.py eval --a random --b random [--gainer|--nonreg] [--seeds 1-5000]
+                 [--cap 20000] [--batch 25] [--decks seeded] [--budget-us N] [--label L]
   driver.py selftest
-  driver.py train --bot tuned [--hours 8] [--label L] [--run-seed N]   (see evolve.py)
-  driver.py calibrate [--levels 0,4,8,12,16,20] [--pairings a/b,...] [--seeds 200]
-                                     (see calibrate.py)
 
 Exit codes: 0 PASS, 1 FAIL, 2 CAP (cap or seed range ended the run), 3 error.
 PASS is the H1 bound in both modes (see sprt.py). Summary bound is H1, H0 or cap.
@@ -51,27 +48,14 @@ def godot_bin() -> str:
     return os.environ.get("GODOT_BIN", DEFAULT_GODOT)
 
 
-def weights_path(bot: str) -> Optional[str]:
-    p = os.path.join(records.WEIGHTS_DIR, "%s_weights.json" % bot)
-    return p if os.path.isfile(p) else None
-
-
 def godot_worker(a: str, b: str, lo: int, hi: int, out: str, label: str,
-                 weights_a: Optional[str] = None,
-                 weights_b: Optional[str] = None, decks: str = "seeded",
-                 level_a: Optional[int] = None) -> List[str]:
-    """The worker's argv. A side's weights file is the given one, none when "" and the
-    committed `<bot>_weights.json` (when there is one) when None. `decks` is `seeded` or
-    `<id>/<id>`; `level_a` (when given) is A's difficulty level."""
-    cmd = [godot_bin(), "--headless", "--path", "godot", "-s", "res://tools/bot_worker.gd",
+                 decks: str = "seeded", budget_us: Optional[int] = None) -> List[str]:
+    """The match worker's argv (no shell). `decks` is `seeded` or `<id>/<id>`."""
+    cmd = [godot_bin(), "--headless", "--path", "godot", "-s", "res://tools/match_worker.gd",
            "--", "--a=%s" % a, "--b=%s" % b, "--seeds=%d-%d" % (lo, hi),
            "--decks=%s" % decks, "--out=%s" % out, "--label=%s" % label]
-    if level_a is not None:
-        cmd.append("--level-a=%d" % level_a)
-    for flag, bot, given in (("--weights-a=", a, weights_a), ("--weights-b=", b, weights_b)):
-        w = weights_path(bot) if given is None else given
-        if w:
-            cmd.append(flag + w)
+    if budget_us is not None:
+        cmd.append("--budget-us=%d" % budget_us)
     return cmd
 
 
@@ -112,10 +96,7 @@ def run_eval(args: argparse.Namespace,
 def eval_report(args: argparse.Namespace,
                 factory: Optional[WorkerFactory] = None,
                 workers: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
-    """run_eval's body: (exit code, the report dict; empty when the run errored).
-    `args.weights_a` / `args.weights_b` (optional paths) replace a side's committed file."""
-    wa = getattr(args, "weights_a", "") or None
-    wb = getattr(args, "weights_b", "") or None
+    """run_eval's body: (exit code, the report dict; worker exit codes when it errored)."""
     try:
         lo, hi = parse_seeds(args.seeds)
     except ValueError as e:
@@ -128,21 +109,17 @@ def eval_report(args: argparse.Namespace,
             print("bot-eval: Godot not found at %s (set GODOT_BIN)" % godot_bin(),
                   file=sys.stderr)
             return EXIT_ERROR, {}
+        decks = args.decks
+        budget = args.budget_us
         factory = lambda a, b, s, e, out: godot_worker(  # noqa: E731
-            a, b, s, e, out, label, wa, wb)
+            a, b, s, e, out, label, decks, budget)
     stamp = records.current_stamp()
     mismatch = False
-    for bot, given in ((args.a, wa), (args.b, wb)):
-        ws = records.file_stamp(given) if given else records.weights_stamp(bot)
-        if ws is not None and ws != stamp:
-            print("bot-eval: %s weights stamp %s differs from current %s; retrain (R38)"
-                  % (bot, ws, stamp))
-            mismatch = True
     base = args.reports_dir or os.path.join(records.GODOT_DIR, "reports", "bot")
     out_dir = os.path.join(base, "%s-%s" % (label, datetime.date.today().isoformat()))
     os.makedirs(out_dir, exist_ok=True)
 
-    plan = batches(lo, hi)
+    plan = batches(lo, hi, max(1, args.batch))
     test = sprt.Sprt(mode, args.cap)
     n_workers = max(1, workers or os.cpu_count() or 1)
     done: Dict[int, str] = {}      # batch index -> output path, finished and ok
@@ -248,13 +225,11 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--cap", type=int, default=sprt.DEFAULT_CAP, help="max pairs")
     ev.add_argument("--label", default="")
     ev.add_argument("--reports-dir", default="", help=argparse.SUPPRESS)
-    ev.add_argument("--weights-a", default="", help="weights file for A (default: committed)")
-    ev.add_argument("--weights-b", default="", help="weights file for B (default: committed)")
+    ev.add_argument("--batch", type=int, default=BATCH_SEEDS,
+                    help="seeds per worker process (default %d)" % BATCH_SEEDS)
+    ev.add_argument("--decks", default="seeded", help="seeded or <id>/<id>")
+    ev.add_argument("--budget-us", type=int, default=None, help="decision budget override")
     sub.add_parser("selftest", help="run the unit tests")
-    import evolve  # noqa: E402  (evolve imports this module; only its parser is needed)
-    evolve.add_train_parser(sub)
-    import calibrate  # noqa: E402  (calibrate imports this module; only its parser is needed)
-    calibrate.add_calibrate_parser(sub)
     return p
 
 
@@ -264,12 +239,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         return run_eval(args)
     if args.cmd == "selftest":
         return run_selftest()
-    if args.cmd == "train":
-        import evolve
-        return evolve.run_train(args)
-    if args.cmd == "calibrate":
-        import calibrate
-        return calibrate.run_calibrate(args)
     print("driver.py %s: not yet implemented" % args.cmd, file=sys.stderr)
     return EXIT_ERROR
 

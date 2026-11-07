@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# bot-eval.sh - SPRT strength comparison of two bots (cycle 7 R29, R30, plan P22).
+# bot-eval.sh - SPRT strength comparison of two bots (cycle 7 R29, R30, plan P22; cycle 11 R11-R15).
 #
-#   scripts/bot-eval.sh --a tuned --b greedy_v1 [--gainer|--nonreg] [--seeds 1-5000]
+#   scripts/bot-eval.sh --a random --b random [--gainer|--nonreg] [--seeds 1-5000]
 #   GODOT_BIN=/path/to/Godot scripts/bot-eval.sh ...
 #
 # Exit codes: 0 pass, 1 fail, 2 cap, 3 error (including a missing Godot or python3).
