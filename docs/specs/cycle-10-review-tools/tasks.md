@@ -42,12 +42,47 @@ pins the golden before the first chunk.
 
 ## Golden pinned for the pass (filled at T03)
 
-- Line: _(verbatim, as agreed by `test_full_match`, `test_match_driver` and the boot smoke
-  after the `master` merge)_
-- Gate summary at T03: _(stages and times)_
-- Sweep summary at T03: _(`Sweep:` line, `stamp=`, `p99_us=`)_
-- P1 outcome (path target outside cwd): _(accepted / fallback to main checkout)_
-- P2 outcome (branch target): _(accepted / path list)_
+- Merge: `master` (bee0500) was already in the branch, fast-forwarded at sign-off before
+  any cycle commit, so no `--no-ff` merge was needed; `git merge-base --is-ancestor master
+  cycle-10-review-tools` is true.
+- Line: `seed=1 decks=combo/graveyard bot=random winner=1 wins=3-4 rounds=7 end=wins actions=265`
+  (the DC-14 golden, pinned in `test_full_match`, `test_match_driver` and the boot smoke).
+- Gate summary at T03 (4343048): import, lint, parse, boot, test all passed in 87 s; test
+  stage 18 s.
+- Sweep summary at T03: `Sweep: longest=322 seed=37 longest_walk=19 walk_seed=10
+  slowest_us=4296 prompts=3799 discard_downs=714 empty_draws=968 pile_shuffles=221 looked=0
+  stalemates=2 draws=0 pile_seen=285590 sets=910 crew_prompts=2151 declines=547
+  memory_hidden=289 bot=random p95_us=265 p99_us=1142`; exit 0, every log replays, leak
+  scan clean. No `stamp=` field while the bot rerun provision is suspended (cycle 9 R75).
+- P1 outcome (path target outside cwd): the skills run in the orchestrator session, whose
+  tools read and edit absolute paths, so each chunk is passed as absolute paths into the
+  cycle worktree; confirmed on first use at T04, fallback (main checkout) not needed unless
+  that fails.
+- P2 outcome (branch target): a branch target reviews only the branch's diff against
+  `master` (here the T01/T02 docs), so the pass uses path lists (P3); the branch form stays
+  the standing step's form at `/cycle test`.
+
+### Chunk file lists (paths under `godot/`)
+
+- C1 engine core: `engine/` match_engine, match_state, match_event, turn_flow, match_rules,
+  match_rng, action_log, engine_action, apply_result, replay_result, engine_error,
+  seat_view, legal_plays, verb_handler, choice; `engine/bot/` bot_player, bot_registry,
+  random_bot.
+- C2 engine rules: `engine/` scoring, score_walk, statuses, movement, trigger_queue,
+  trigger_context, card_state, card_memory, match_cards.
+- C3 engine content: `engine/` abilities, abilities_combo_disruption,
+  abilities_graveyard_control, card_ability, crew_abilities, crew_def, crew_pool, card_db,
+  card_def, deck_list; `engine/data/*.json` read only.
+- C4 board core: `board/` board (.gd, .tscn), board_steps, board_step, match_driver,
+  board_seeds, effect_player, board_hud (.gd, .tscn), score_tracker; `board/verify/`
+  board_autoplay.tscn, board_seed1.tscn.
+- C5 board cards and input: `board/` board_card (.gd, .tscn), card_lift, card_spot,
+  card_arrivals, lift_layout, lift_rules, row_slots, row_tally (.gd, .tscn), row_targets,
+  score_chips (.gd, .tscn), staging, deck_strip, crew_line, hand_telegraph, board_glow,
+  board_drag_strategy, prompt_host, prompt_rules, prompt_tap; `input/` pointer_event,
+  pointer_shim, pointer_tracker; `picker/` deck_pick_state, deck_picker (.gd, .tscn);
+  `main.gd`, `main.tscn`.
+- C6 tests: `tests/` (suites, fixtures, sweep), review only.
 
 ## Verification task (10)
 
