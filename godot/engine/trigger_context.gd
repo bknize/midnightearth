@@ -141,6 +141,15 @@ func chosen_card(at: int = 0) -> int:
 	return Choice.resolve(state, by, zone, indices[at])
 
 
+## Every card the answer names, in `indices` order (chosen_card() each), read before any
+## of them moves.
+func chosen_cards() -> Array[int]:
+	var out: Array[int] = []
+	for at: int in range(indices.size()):
+		out.append(chosen_card(at))
+	return out
+
+
 ## Queues the Batch of `p_moment` for `subjects` (the cards whose event it is; empty for a
 ## seat event of `event_seat`, or for a seatless one with -1), appended after the effect.
 func wake(

@@ -61,9 +61,8 @@ const VERB_SALVAGER: String = "salvager_cycle"
 ## after that Score, and the slot the card Scored from.
 const KEY_SCORED_COUNT: String = "scored_count"
 const KEY_SLOT: String = "slot"
-## STATS_CHANGED `cause` and PILE_SHUFFLED_IN keys.
+## STATS_CHANGED `cause`.
 const KEY_CAUSE: String = "cause"
-const KEY_COUNT: String = "count"
 
 
 ## The Crew trigger of `ctx` came up: it fizzles `no_target` when its condition does not
@@ -153,8 +152,8 @@ static func score_grants(
 	if state == null or seat < 0 or seat >= state.void_grants.size():
 		return
 	var grants: int = state.void_grants[seat]
-	var void_crew: CrewDef = crew_with(cards, seat, VERB_VOID)
-	if grants > 0 and void_crew != null:
+	var void_crew: CrewDef = crew_with(cards, seat, VERB_VOID) if grants > 0 else null
+	if void_crew != null:
 		for _grant: int in range(grants):
 			stats.power += void_crew.amount
 			stats.adds.append(void_crew.amount_2)
@@ -180,8 +179,9 @@ static func end_turn(state: MatchState) -> void:
 static func crew_with(cards: MatchCards, seat: int, verb: String) -> CrewDef:
 	if cards == null:
 		return null
-	for crew: CrewDef in cards.crew_for(seat):
-		if crew.verb == verb:
+	for slot: int in range(MatchRules.CREW_SIZE):
+		var crew: CrewDef = cards.crew_def(seat, slot)
+		if crew != null and crew.verb == verb:
 			return crew
 	return null
 
@@ -247,15 +247,7 @@ static func _holder_if_hidden(state: MatchState, card: int) -> int:
 ## Dredger: the seat's Pile goes into its Deck, which is shuffled with the engine stream;
 ## PILE_SHUFFLED_IN {seat, count}, public.
 static func _dredge(ctx: TriggerContext) -> void:
-	var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
-	var count: int = piles.pile.size()
-	if count == 0:
-		return
-	piles.deck.append_array(piles.pile)
-	piles.pile.clear()
-	if ctx.rng != null:
-		ctx.rng.shuffle_in_place(piles.deck)
-	ctx.emit(MatchEvent.Kind.PILE_SHUFFLED_IN, {"seat": ctx.seat, KEY_COUNT: count})
+	AbilitiesGraveyardControl.pile_into_deck(ctx, ctx.seat)
 
 
 # --- Milestone B ----------------------------------------------------------------------
@@ -271,13 +263,10 @@ static func _ask(ctx: TriggerContext, zone: int, options: Array[int]) -> void:
 ## Shade's offer: up to `amount` random slots among the seat's revealed row cards (a copy of
 ## their slots shuffled with the engine stream, the first `amount` kept), in slot order.
 static func _shade_offer(ctx: TriggerContext) -> Array[int]:
-	var slots: Array[int] = []
 	if ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
-		return slots
-	var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
-	for slot: int in range(piles.board.size()):
-		if piles.is_revealed(piles.board[slot]):
-			slots.append(slot)
+		var none: Array[int] = []
+		return none
+	var slots: Array[int] = AbilitiesComboDisruption.revealed_slots(ctx.state, ctx.seat)
 	if slots.size() > ctx.crew.amount and ctx.rng != null:
 		ctx.rng.shuffle_in_place(slots)
 	var offered: Array[int] = slots.slice(0, maxi(ctx.crew.amount, 0))
@@ -299,12 +288,10 @@ static func _condemned_slots(ctx: TriggerContext) -> Array[int]:
 
 ## Salvager's options: every position of the seat's hand.
 static func _hand_positions(ctx: TriggerContext) -> Array[int]:
-	var positions: Array[int] = []
 	if ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
-		return positions
-	for index: int in range(ctx.state.seats[ctx.seat].hand.size()):
-		positions.append(index)
-	return positions
+		var none: Array[int] = []
+		return none
+	return Abilities.positions(ctx.state.seats[ctx.seat].hand.size())
 
 
 ## Shade: the chosen revealed card of the seat's row is Un-revealed in place.

@@ -96,7 +96,6 @@ const VERBS: Array[String] = [
 ]
 ## CardState.granted kind of a use counted until end of turn (Tithe, Reliquary).
 const KIND_USED: String = "used"
-const SCOPE_TURN: String = "turn"
 const MOMENT_MOVED: String = "on_moved"
 const MOMENT_ONGOING: String = "ongoing"
 ## On discard context keys (TurnFlow.on_discard): where the card came from and why.
@@ -212,7 +211,7 @@ static func ongoing_stats(
 static func level_power(
 	out: Scoring.Stats, card: int, state: MatchState, cards: MatchCards
 ) -> void:
-	if not _level_read(state, cards):
+	if not _read_anywhere(state, cards, VERB_LEVEL):
 		return
 	var seat: int = Statuses.row_seat(state, card)
 	if seat < 0:
@@ -426,7 +425,7 @@ static func _cull_ask(ctx: TriggerContext, by_seat: int) -> void:
 	ctx.data[DATA_ASKED] = by_seat
 	var options: Array[int] = Abilities.positions(ctx.state.seats[by_seat].board.size())
 	if ctx.choose(Choice.Zone.OWN_BOARD, options, true, keep, keep, false, by_seat):
-		pass  # Only when every card must be kept, which Cull never asks.
+		pass  # Never: the row holds more than `keep` cards, so this always prompts.
 
 
 # --- Resolving: Graveyard ---------------------------------------------------------------
@@ -500,10 +499,7 @@ static func _revive(ctx: TriggerContext) -> void:
 ## Exhume: each chosen card (all read before any moves, since a shuffle-in shifts the Pile
 ## positions after it) goes into its Owner's Deck at a random position, in position order.
 static func _exhume(ctx: TriggerContext) -> void:
-	var chosen: Array[int] = []
-	for at: int in range(ctx.indices.size()):
-		chosen.append(ctx.chosen_card(at))
-	for card: int in chosen:
+	for card: int in ctx.chosen_cards():
 		_shuffle_in(ctx, card)
 
 
@@ -520,23 +516,15 @@ static func _shuffle_in(ctx: TriggerContext, card: int) -> void:
 	var owner: int = ctx.cards.origin_of(card)
 	if owner < 0:
 		owner = holder
-	var deck: Array[int] = ctx.state.seats[owner].deck
-	var at: int = deck.size()
-	if ctx.rng != null:
-		at = ctx.rng.pick_index(deck.size() + 1)
-	if deck.insert(at, card) != OK:
-		deck.append(card)
+	Abilities.insert_at_random(ctx.state.seats[owner].deck, card, ctx.rng)
 	var shuffled: Dictionary = {"seat": owner, "count": 1, KEY_PILE_CARDS: [card]}
 	ctx.emit(MatchEvent.Kind.PILE_SHUFFLED_IN, shuffled)
 
 
 ## Immolator: each chosen card is Condemned, then as many distinct random opposing cards.
 static func _immolate(ctx: TriggerContext) -> void:
-	var chosen: Array[int] = []
-	for at: int in range(ctx.indices.size()):
-		chosen.append(ctx.chosen_card(at))
 	var count: int = 0
-	for card: int in chosen:
+	for card: int in ctx.chosen_cards():
 		if card >= 0 and _condemned(ctx, card):
 			count += 1
 	var pool: Array[int] = []
@@ -553,16 +541,22 @@ static func _immolate(ctx: TriggerContext) -> void:
 ## Condemns itself.
 static func _reset(ctx: TriggerContext) -> void:
 	for seat: int in [ctx.state.first_seat, 1 - ctx.state.first_seat]:
-		var piles: MatchState.SeatPiles = ctx.state.seats[seat]
-		var count: int = piles.pile.size()
-		if count == 0:
-			continue
-		piles.deck.append_array(piles.pile)
-		piles.pile.clear()
-		if ctx.rng != null:
-			ctx.rng.shuffle_in_place(piles.deck)
-		ctx.emit(MatchEvent.Kind.PILE_SHUFFLED_IN, {"seat": seat, "count": count})
+		pile_into_deck(ctx, seat)
 	_condemn(ctx, ctx.card)
+
+
+## `seat`'s whole Pile goes into its Deck, which is then shuffled with the stream;
+## PILE_SHUFFLED_IN {seat, count}, public. Nothing for an empty Pile (Reset, Dredger).
+static func pile_into_deck(ctx: TriggerContext, seat: int) -> void:
+	var piles: MatchState.SeatPiles = ctx.state.seats[seat]
+	var count: int = piles.pile.size()
+	if count == 0:
+		return
+	piles.deck.append_array(piles.pile)
+	piles.pile.clear()
+	if ctx.rng != null:
+		ctx.rng.shuffle_in_place(piles.deck)
+	ctx.emit(MatchEvent.Kind.PILE_SHUFFLED_IN, {"seat": seat, "count": count})
 
 
 # --- Resolving: Control -----------------------------------------------------------------
@@ -572,7 +566,8 @@ static func _reset(ctx: TriggerContext) -> void:
 static func _resolve_control(ctx: TriggerContext) -> void:
 	match ctx.verb:
 		VERB_EDDY:
-			ctx.state.card_state_for(ctx.card).grant(CardState.KIND_ADD, ctx.ability.amount, SCOPE_TURN)
+			var add: int = ctx.ability.amount
+			ctx.state.card_state_for(ctx.card).grant(CardState.KIND_ADD, add, Abilities.SCOPE_TURN)
 			Abilities.stats_changed(ctx, ctx.card, false)
 		VERB_PIN:
 			var target: int = ctx.chosen_card()
@@ -625,16 +620,11 @@ static func _cull(ctx: TriggerContext) -> void:
 	var asked: int = ctx.data.get(DATA_ASKED, -1)
 	if asked < 0 or asked > 1:
 		return
-	var kept: Array = []
-	for at: int in range(ctx.indices.size()):
-		kept.append(ctx.chosen_card(at))
+	var kept: Array = MatchState.plain(ctx.chosen_cards())
 	ctx.data[DATA_KEPT[asked]] = kept
 	var next: int = _cull_next(ctx, asked)
 	if next >= 0:
-		_cull_ask(ctx, next)
-		if not ctx.prompt.is_empty():
-			return
-		_cull(ctx)
+		_cull_ask(ctx, next)  # Always a prompt: the row holds more than `amount` cards.
 		return
 	for seat: int in [ctx.seat, 1 - ctx.seat]:
 		if not ctx.data.has(DATA_KEPT[seat]):
@@ -675,7 +665,7 @@ static func _used(state: MatchState, card: int) -> int:
 
 ## Counts one use of `card` until end of turn.
 static func _use(state: MatchState, card: int) -> void:
-	state.card_state_for(card).grant(KIND_USED, 1, SCOPE_TURN)
+	state.card_state_for(card).grant(KIND_USED, 1, Abilities.SCOPE_TURN)
 
 
 ## `card`'s own Ongoing ability with `verb` while it is read (a revealed row card, not
@@ -685,22 +675,18 @@ static func own_ongoing(
 ) -> CardAbility:
 	if not cards.has_verb(verb):
 		return null
+	var def: CardDef = cards.def_of(card) if card >= 0 else null
+	if def == null or not def.has_verb(verb):
+		return null
 	var seat: int = Statuses.row_seat(state, card)
 	if seat < 0 or not state.seats[seat].is_revealed(card):
 		return null
 	if not Scoring.reads_ongoing(state, card):
 		return null
-	for ability: CardAbility in Abilities.on_moment(card, cards, MOMENT_ONGOING):
-		if ability.verb == verb:
+	for ability: CardAbility in def.abilities:
+		if ability.moment == MOMENT_ONGOING and ability.verb == verb:
 			return ability
 	return null
-
-
-## Whether a Level is read on either row now.
-static func _level_read(state: MatchState, cards: MatchCards) -> bool:
-	if state == null or cards == null:
-		return false
-	return _read_anywhere(state, cards, VERB_LEVEL)
 
 
 ## Whether an Ongoing with `verb` is read on either row now.

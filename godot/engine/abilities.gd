@@ -461,10 +461,7 @@ static func _draw_for(ctx: TriggerContext, seat: int) -> void:
 
 ## Ember, Cinder: the chosen hand cards, each Discarded with its own On discard Batch.
 static func _discard_chosen(ctx: TriggerContext) -> void:
-	var chosen: Array[int] = []
-	for at: int in range(ctx.indices.size()):
-		chosen.append(ctx.chosen_card(at))
-	for card: int in chosen:
+	for card: int in ctx.chosen_cards():
 		discard(ctx, card)
 
 
@@ -512,7 +509,7 @@ static func _grow_power(ctx: TriggerContext, card: int, scope: String) -> void:
 	if scope == SCOPE_MATCH:
 		ctx.state.memory_for(card).power += amount
 	elif scope == SCOPE_TURN:
-		_turn_power(ctx.state, card, amount)
+		turn_power(ctx.state, card, amount)
 	else:
 		ctx.state.card_state_for(card).power_delta += amount
 	stats_changed(ctx, card, scope == SCOPE_MATCH)
@@ -520,13 +517,13 @@ static func _grow_power(ctx: TriggerContext, card: int, scope: String) -> void:
 
 ## Idler on a Pass: Power +amount and Add +amount_2 until end of turn.
 static func _pass_bonus(ctx: TriggerContext) -> void:
-	_turn_power(ctx.state, ctx.card, ctx.ability.amount)
+	turn_power(ctx.state, ctx.card, ctx.ability.amount)
 	ctx.state.card_state_for(ctx.card).grant(CardState.KIND_ADD, ctx.ability.amount_2, SCOPE_TURN)
 	stats_changed(ctx, ctx.card, false)
 
 
 ## A Power change of `amount` on `card` until end of turn (end_turn_changes takes it back).
-static func _turn_power(state: MatchState, card: int, amount: int) -> void:
+static func turn_power(state: MatchState, card: int, amount: int) -> void:
 	var held: CardState = state.card_state_for(card)
 	held.power_delta += amount
 	held.grant(KIND_POWER, amount, SCOPE_TURN)
@@ -610,11 +607,7 @@ static func _delve(ctx: TriggerContext) -> void:
 	for card: int in top:
 		if card == drawn:
 			continue
-		var at: int = piles.deck.size()
-		if ctx.rng != null:
-			at = ctx.rng.pick_index(piles.deck.size() + 1)
-		if piles.deck.insert(at, card) != OK:
-			piles.deck.append(card)
+		insert_at_random(piles.deck, card, ctx.rng)
 
 
 # --- Helpers ----------------------------------------------------------------------------
@@ -661,8 +654,9 @@ static func hidden_holder(state: MatchState, card: int) -> int:
 		return state.first_seat
 	for seat: int in range(state.seats.size()):
 		var piles: MatchState.SeatPiles = state.seats[seat]
-		var face_down: bool = piles.board.has(card) and not piles.is_revealed(card)
-		if face_down or piles.hand.has(card) or piles.deck.has(card):
+		if piles.board.has(card):
+			return MatchEvent.PUBLIC if piles.is_revealed(card) else seat
+		if piles.hand.has(card) or piles.deck.has(card):
 			return seat
 	return MatchEvent.PUBLIC
 
@@ -681,3 +675,13 @@ static func _end_turn_changes_of(held: CardState) -> void:
 			held.power_delta -= value
 	held.granted = kept
 	held.copied_base = {}
+
+
+## Puts `card` into `deck` at a random position drawn from `rng` (glossary "shuffle into":
+## one pick_index over size + 1); at the bottom with no stream.
+static func insert_at_random(deck: Array[int], card: int, rng: MatchRng) -> void:
+	var at: int = deck.size()
+	if rng != null:
+		at = rng.pick_index(deck.size() + 1)
+	if deck.insert(at, card) != OK:
+		deck.append(card)

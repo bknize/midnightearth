@@ -101,7 +101,6 @@ const VERBS: Array[String] = [
 const DROSS_ID: String = "dross"
 ## CARD_CREATED `to`.
 const TO_HAND: String = "hand"
-const TO_ROW: String = "row"
 ## MatchState.created keys.
 const KEY_DEF: String = "def"
 const KEY_OWNER: String = "owner"
@@ -310,7 +309,7 @@ static func _prepare_quorum(ctx: TriggerContext) -> void:
 static func _quorum_next(ctx: TriggerContext, from: int) -> int:
 	var order: Array[int] = _commit_order(ctx.state)
 	for at: int in range(from, order.size()):
-		if _revealed_slots(ctx.state, order[at]).size() > _quorum_size(ctx):
+		if revealed_slots(ctx.state, order[at]).size() > _quorum_size(ctx):
 			return at
 	return -1
 
@@ -320,7 +319,7 @@ static func _quorum_next(ctx: TriggerContext, from: int) -> int:
 static func _ask_quorum(ctx: TriggerContext, stage: int) -> void:
 	ctx.data[DATA_STAGE] = stage
 	var asked: int = _commit_order(ctx.state)[stage]
-	var options: Array[int] = _revealed_slots(ctx.state, asked)
+	var options: Array[int] = revealed_slots(ctx.state, asked)
 	var size: int = _quorum_size(ctx)
 	if ctx.choose(Choice.Zone.OWN_BOARD, options, true, size, size, false, asked):
 		pass  # More options than `amount`: always a prompt.
@@ -392,9 +391,7 @@ static func _finale(ctx: TriggerContext) -> void:
 	var gain: int = ctx.ability.amount * count
 	if gain <= 0:
 		return
-	var held: CardState = ctx.state.card_state_for(ctx.card)
-	held.power_delta += gain
-	held.grant(Abilities.KIND_POWER, gain, Abilities.SCOPE_TURN)
+	Abilities.turn_power(ctx.state, ctx.card, gain)
 	Abilities.stats_changed(ctx, ctx.card, false)
 
 
@@ -529,8 +526,7 @@ static func _gag(ctx: TriggerContext) -> void:
 ## on both rows of an affected seat is Muted until end of turn.
 static func _resolve_quorum(ctx: TriggerContext) -> void:
 	var kept: Array = ctx.data.get(DATA_KEPT, [])
-	for at: int in range(ctx.indices.size()):
-		kept.append(ctx.chosen_card(at))
+	kept.append_array(ctx.chosen_cards())
 	ctx.data[DATA_KEPT] = kept
 	var stage: int = ctx.data.get(DATA_STAGE, -1)
 	var next: int = _quorum_next(ctx, stage + 1)
@@ -539,7 +535,7 @@ static func _resolve_quorum(ctx: TriggerContext) -> void:
 		return
 	for seat: int in _commit_order(ctx.state):
 		var piles: MatchState.SeatPiles = ctx.state.seats[seat]
-		var slots: Array[int] = _revealed_slots(ctx.state, seat)
+		var slots: Array[int] = revealed_slots(ctx.state, seat)
 		if slots.size() <= _quorum_size(ctx):
 			continue
 		var row: Array[int] = []
@@ -559,7 +555,7 @@ static func _commit_order(state: MatchState) -> Array[int]:
 
 
 ## The slots of `seat`'s revealed row cards, ascending.
-static func _revealed_slots(state: MatchState, seat: int) -> Array[int]:
+static func revealed_slots(state: MatchState, seat: int) -> Array[int]:
 	var out: Array[int] = []
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	for slot: int in range(piles.board.size()):
@@ -577,13 +573,9 @@ static func _quorum_size(ctx: TriggerContext) -> int:
 static func _read_stasis(state: MatchState, cards: MatchCards, seat: int) -> int:
 	if cards == null or not cards.has_verb(VERB_STASIS):
 		return -1
-	var piles: MatchState.SeatPiles = state.seats[seat]
-	for card: int in piles.board:
-		if not piles.is_revealed(card) or not Scoring.reads_ongoing(state, card):
-			continue
-		for ability: CardAbility in Abilities.on_moment(card, cards, MOMENT_ONGOING):
-			if ability.verb == VERB_STASIS:
-				return card
+	for card: int in state.seats[seat].board:
+		if AbilitiesGraveyardControl.own_ongoing(state, cards, card, VERB_STASIS) != null:
+			return card
 	return -1
 
 
@@ -593,8 +585,15 @@ static func _dross_amounts(state: MatchState, cards: MatchCards, seat: int) -> A
 	if cards == null or not cards.has_verb(VERB_DROSS):
 		return out
 	for card: int in state.seats[seat].hand:
-		for ability: CardAbility in Abilities.on_moment(card, cards, MOMENT_ONGOING):
-			if ability.verb == VERB_DROSS and ability.zone == TriggerContext.ZONE_HAND:
+		var def: CardDef = cards.def_of(card)
+		if def == null:
+			continue
+		for ability: CardAbility in def.abilities:
+			if (
+				ability.moment == MOMENT_ONGOING
+				and ability.verb == VERB_DROSS
+				and ability.zone == TriggerContext.ZONE_HAND
+			):
 				out.append(ability.amount)
 	return out
 
