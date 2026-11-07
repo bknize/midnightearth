@@ -277,9 +277,11 @@ position, its candidate commits and the value of each. Values are integers.
 - R53. The repository shall carry under `trainer/windows/` the runner script (polls the
   queue folder, runs every `.cmd` it finds, logs each to its own file, and on its own start
   runs every `.cmd` in an `autostart` folder), the batch-logon grant script from the spike,
-  a `start-mcp.cmd` that starts the trainer service from the training worktree, and a
-  `SETUP.md` listing every admin step Ben does once (the task pointing at the stable copy
-  of the runner, the firewall rules, the account).
+  a `start-mcp.cmd` that starts the trainer service from the training worktree, a
+  `runner-shim.ps1` that the existing `trainer-runner` task's file is replaced with (it runs
+  the stable copy of the runner), and a `SETUP.md` listing the admin steps of a fresh PC
+  only (the account, SSH, the firewall rules, the batch-logon right, the task); on the
+  current PC every A2 step runs over SSH as `trainer`, with no admin (C11).
 - R54. When the runner starts after a reboot, the trainer service shall start from
   `autostart` and shall report the interrupted run through `health` and `run_status` (R37).
 - R55. The trainer shall never call a bash script; every PC-side path shall go through the
@@ -328,6 +330,7 @@ entry point, the run store, and the MCP server with its bearer token."
 | C8 | Round 2 Q4, the bots guide: (a) a rewrite task at the end of A2 on the cycle branch, blocked until Ben has committed or discarded his working-copy edits; (b) a new guide beside the old; (c) nothing this cycle | 4a |
 | C9 | T06 review (DC-16), S1: R17 and plan P6 disagreed with each other and with the code on which per-card records follow a permuted identity. (a) Amend R17 and P6 to the implemented rule: Memory and created-card definitions are keyed by card id and move with the identity; Board changes, statuses and `chosen` stay with the row slot, because moving them would put a status on a different visible slot and change the seat's view; (b) change the code to re-key everything through the permutation | 1a (Ben, 2026-11-07) |
 | C10 | `/cycle test` DC-16 code review: F1, candidates were played on different deals (the determinization seed held the candidate index), so a label's ranking carried the deal noise and a move's value depended on `k`; F5, the match worker seeded bots by seat only, so `random` against `random` replayed every seat-swapped game as a mirror and the rung-0 check could not see a seat bias. (a) fix both before the merge (R28 and P10 amended: the determinization seed is `derive_seed(label_seed, [det_index])`; the worker seeds a bot off its seat by its side), re-pin and redo rung 0; (b) F1 only; (c) neither | 1a (Ben, 2026-11-07) |
+| C11 | After DC-16 (amends C5): Ben wants the PC maintained over SSH, not at the PC. C5's one-time re-point of the `trainer-runner` task needs admin (a non-admin SSH session cannot change a scheduled task), but the task only launches `C:\Users\trainer\spike\runner.ps1`, a file `trainer` owns. (a) Replace that file over SSH with a shim that runs the stable copy `C:\Users\trainer\trainer\runner.ps1` (refreshed by `sync_code`), and swap the live runner by a queued job that starts the new one and stops the old; no admin step in A2, `SETUP.md` keeps admin steps for a fresh PC only; (b) keep the re-point | 1a (Ben, 2026-11-07) |
 
 Defaults stated by the interrogator, open to Ben's veto at sign-off (none changes a
 decision above): a hidden card's identity is permuted within its owner's hidden set, so a
@@ -433,8 +436,9 @@ Milestone A2 (`cycle-11b-bot-trainer`):
       readable by Ben; a request without the token answered 401 (R40 to R52, R60).
 - [ ] One sampled position labelled again by the Mac's play-out worker gives the PC's
       values (R23, R60).
-- [ ] The runner, grant and start scripts and `SETUP.md` are tracked; the task points at
-      the stable copy; after a service restart an interrupted run is reported (R53, R54).
+- [ ] The runner, shim, grant and start scripts and `SETUP.md` are tracked; the task's file
+      is the shim, swapped in over SSH with no admin step (C11); after a service restart an
+      interrupted run is reported (R53, R54).
 - [ ] `docs/systems/bot-training.md` rewritten (after Ben's working-copy edits are settled),
       `CLAUDE.md` has the `trainer/` row, the cycle rows carry the PC's rollouts per second
       (R56, R57).
