@@ -25,8 +25,11 @@ const LINE_UNPINNED: String = ""
 ## DC-08 T07 (R5) added `bot=<name>` after the decks; the DC-09 T07 pin under the greedy
 ## bot was "Board: match ended seed=1 decks=bloom/ruin bot=greedy winner=0 wins=4-0
 ## rounds=4 end=wins actions=72". Emptied at DC-13 T01 (cycle 9 R70: only the random bot
-## is left); the orchestrator re-pins it.
-const EXPECTED_LINE: String = LINE_UNPINNED
+## is left); re-pinned at DC-13 T11 (rules 7, the random bot).
+const EXPECTED_LINE: String = (
+	"Board: match ended seed=1 decks=greed/greed bot=random winner=0 wins=3-1 rounds=7"
+	+ " end=rounds actions=121"
+)
 ## The bot the helpers build: the random bot, the only one (cycle 9 R70).
 const BOT: String = "random"
 const LINE_SKIP_NOTE: String = (

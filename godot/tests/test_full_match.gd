@@ -41,7 +41,10 @@ extends FullMatchHarness
 # bot=tuned winner=0 wins=4-0 rounds=4 end=wins actions=74".
 # Emptied at DC-13 T01 (cycle 9 R70: only the random bot is left); while empty the golden
 # case is skipped and the orchestrator re-pins it from its print.
-const GOLDEN: String = ""
+# Re-pinned at DC-13 T11 (rules 7, greed/ramp, the random bot, C12 to C14).
+const GOLDEN: String = (
+	"seed=1 decks=greed/greed bot=random winner=0 wins=3-1 rounds=7 end=rounds actions=121"
+)
 # END GOLDEN
 
 const SEED: int = 1
