@@ -159,6 +159,21 @@ func is_over() -> bool:
 	return _state.phase == MatchState.Phase.OVER
 
 
+## Both seats' Round wins, indexed by seat: a copy of what full_state()["wins"] holds,
+## read without serializing the match (Rollout's outcomes, NSC-211). Public.
+func round_wins() -> Array[int]:
+	var out: Array[int] = []
+	out.assign(_state.wins)
+	return out
+
+
+## The match result's winner: the seat that won, or -1 for a draw or while the match is
+## in progress (full_state()["result"]["winner"], read without serializing). Public.
+func match_winner() -> int:
+	var held: int = _state.result.get("winner", -1)
+	return held
+
+
 ## The Turn number: every seat's base Energy (R6); 0 before start().
 func energy() -> int:
 	return _state.turn
