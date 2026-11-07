@@ -3,11 +3,12 @@ extends FullMatchHarness
 ## Full bot-vs-bot matches (C11): R33 (replay through JSON reaches an equal full state),
 ## R37 (the bot is a function of its seed and view, so a seed always plays the same match),
 ## R38 (the engine never rejects a bot action): seed 1 ends, no hand exceeds the harness's
-## HAND_BOUND (DC-13 T02: the opening hand plus a draw a turn, no cap until T03), no commit
-## exceeds the seat's budget (carry and the free first card included), no view or redacted
-## event leaks a hidden card (prompts included) and the log replays to an equal state.
-## DC-06 (T03, R25): the leak scan covers destroyed face-down cards (their redacted
-## CARD_DESTROYED and DESTROYED_CLEARED, and their row entries in every view).
+## HAND_BOUND (rules 7: the Hand size plus the Turn's draw, the discard-down after each
+## Commit), no commit exceeds the seat's Budget (the free first card and Memory included),
+## no view or redacted event leaks a hidden card (prompts included) and the log replays to
+## an equal state. DC-13 T03 (cycle 9 P15): the leak scan treats both Piles as public and
+## the other seat's hand, Deck, face-down Commit and unlooked face-down row cards as hidden;
+## ten seeds of random against random end, replay and scan clean.
 ## The 50-seed sweep and its "Sweep: ..." / "Sweep pairing ..." lines live in
 ## sweep/test_sweep.gd, outside the gate (NSC-133: `make sweep`); the shared play-and-check
 ## helpers are in fixtures/full_match_harness.gd.
@@ -17,16 +18,15 @@ extends FullMatchHarness
 ## CARD_RETURNED never names one to the other seat, and a face-down row entry shows no cost,
 ## growth or uses).
 ## DC-09 T06 review: the other seat's redacted STATS_CHANGED shows neutral stats
-## (FullMatchRun.check_neutral_stats) and the view's pile_entries name no hidden pile card.
+## (FullMatchRun.check_neutral_stats).
 ##
 ## Matches are played as main.gd plays its smoke run: the shipped pool and deck list, each
 ## seat's deck the seed's own pairing (DeckList.seeded_pick, DC-07 R6, P14, C15), one
 ## BotRegistry.default_name() bot per seat (`random`, cycle 9 R73) on the engine's
 ## MatchCards, seeded BotRegistry.seed_for(match_seed, seat) (cycle 7 P15), asked
 ## only for the awaited seat. A harness cap of MAX_ACTIONS fails a runaway match. Every log
-## names both decks and replays with them (R7). DC-07 T08: the leak scan covers the
-## destroyed piles and recoveries. Cycle 7 T05: every choose() is timed (the test reads the
-## clock, never a bot, R18; the sweep checks the 99th percentile, R17, DC-08).
+## names both decks and replays with them (R7). Cycle 7 T05: every choose() is timed (the
+## test reads the clock, never a bot, R18; the sweep checks the 99th percentile, R17, DC-08).
 
 # GOLDEN (cycle 7 T05, R56: pinned by the orchestrator at verification)
 # Seed 1's line under the default bot (tuned, k 24), pinned at DC-08 T11 (the greedy game
@@ -45,6 +45,8 @@ const GOLDEN: String = ""
 # END GOLDEN
 
 const SEED: int = 1
+## The seeds 1..TEN_SEEDS of the gate's multi-seed case (DC-13 T03).
+const TEN_SEEDS: int = 10
 const GOLDEN_SKIP_NOTE: String = "GOLDEN is empty (DC-13 T01): pin it from the Golden print"
 const REASONS: Array[String] = [
 	MatchEngine.REASON_WINS,
@@ -80,6 +82,23 @@ func test_seed_1_plays_to_the_end_and_replays() -> void:
 	# The face-down commit and the redacted private events were really scanned.
 	assert_int(run.face_down_seen).is_greater(0)
 	assert_int(run.redacted_seen).is_greater(0)
+	# Rules 7: the bots answered discard-downs and the scan read public Pile entries.
+	assert_int(run.discard_downs).is_greater(0)
+	assert_int(run.pile_seen).is_greater(0)
+
+
+## DC-13 T03 (cycle 9 R67, P15): ten seeds of random against random each end with no
+## rejected action, keep every hand within its bound and every commit within its Budget,
+## leak nothing at any step (Piles public, hands, Decks and face-down cards private) and
+## replay through JSON to an equal full state.
+func test_ten_seeds_of_random_vs_random_end_replay_and_scan_clean() -> void:
+	var ended: int = 0
+	for match_seed: int in range(1, TEN_SEEDS + 1):
+		var run: FullMatchRun = _play(match_seed, true)
+		_assert_run(run)
+		if run.engine.is_over():
+			ended += 1
+	assert_int(ended).is_equal(TEN_SEEDS)
 
 
 ## R37: the bots are functions of their seeds and views, so seed 1 plays the same match

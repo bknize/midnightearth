@@ -5,17 +5,20 @@ extends RefCounted
 ##
 ## DC-13 T02 stub: every ability is a known name with no behaviour yet. fire() finds the
 ## abilities of a card that sit on a moment and fizzles each of them with the reason
-## REASON_NO_TARGET, so the engine compiles and plays every card as a plain body (Power, a
-## ×1 Bonus) until T05 adds the trigger queue and T06 the verbs. No ability opens a prompt
-## yet, so answer() and decline() are reached only by a hand-made prompt; they close it.
+## REASON_NO_TARGET, so the engine plays every card as a plain body until T05 adds the
+## trigger queue and T06 the verbs. No ability opens a prompt yet (the discard-down is
+## TurnFlow's), so answer() and decline() are reached only by a hand-made prompt; they close
+## it.
 ##
 ## Prompt keys (plan P12) are shared with MatchState.prompt and SeatView.prompt: KEY_SEAT,
 ## KEY_CARD and KEY_VERB here, the zone, options and flags in Choice.
 
-## EFFECT_FIZZLED `reason`: no eligible target.
+## TRIGGER_FIZZLED `reason`: no eligible target.
 const REASON_NO_TARGET: String = "no_target"
-## EFFECT_FIZZLED `reason`: the ability's limited uses are spent.
+## TRIGGER_FIZZLED `reason`: the ability's limited uses are spent.
 const REASON_SPENT: String = "spent"
+## TRIGGER_FIZZLED `reason`: the pulse's 50 resolutions are spent (Q4, T05).
+const REASON_EXHAUSTED: String = "exhausted"
 const KEY_SEAT: String = "seat"
 const KEY_CARD: String = "card"
 const KEY_VERB: String = "verb"
@@ -37,8 +40,8 @@ static func on_moment(card: int, cards: MatchCards, moment: String) -> Array[Car
 
 
 ## Fires `card`'s abilities on `moment` for its Controller `seat` (the T02 stub): one public
-## EFFECT_FIZZLED {seat, card, verb, moment, reason: REASON_NO_TARGET} per ability on that
-## moment, in printed order, and nothing else. Empty for a card with none.
+## TRIGGER_FIZZLED {seat, card, crew: "", verb, reason: REASON_NO_TARGET} per ability on
+## that moment, in printed order, and nothing else. Empty for a card with none.
 static func fire(
 	_state: MatchState, cards: MatchCards, _rng: MatchRng, seat: int, card: int, moment: String
 ) -> Array[MatchEvent]:
@@ -47,11 +50,11 @@ static func fire(
 		var fizzled: Dictionary = {
 			"seat": seat,
 			"card": card,
+			"crew": "",
 			"verb": ability.verb,
-			"moment": moment,
 			"reason": REASON_NO_TARGET,
 		}
-		out.append(MatchEvent.new(MatchEvent.Kind.EFFECT_FIZZLED, fizzled))
+		out.append(MatchEvent.new(MatchEvent.Kind.TRIGGER_FIZZLED, fizzled))
 	return out
 
 
@@ -71,24 +74,41 @@ static func prompt_text(prompt: Dictionary, cards: MatchCards) -> String:
 
 
 ## Answers the open prompt of `state` with the positions `indices` of `zone` (a single
-## choice is one position): the prompt closes with CHOICE_MADE {seat, card, zone, indices},
-## private to the prompted seat. No T02 ability applies a choice. Empty when none is open.
+## choice is one position): the prompt closes with choice_made(). No ability applies a
+## choice before DC-13 T06 (the discard-down is TurnFlow's). Empty when none is open.
 static func answer(state: MatchState, zone: int, indices: Array[int]) -> Array[MatchEvent]:
 	var out: Array[MatchEvent] = []
 	var prompt: Dictionary = state.prompt
 	state.prompt = {}
 	if prompt.is_empty():
 		return out
+	out.append(choice_made(state, prompt, zone, indices))
+	return out
+
+
+## CHOICE_MADE for an answer to `prompt` (plan event table): {seat, card, zone, index,
+## target, indices}, `card` the source (-1 for a Crew or the discard-down), `zone` its name,
+## `index` and `target` the one position and the card there (both -1 for a set answer, which
+## lists its positions in `indices`). Private to the prompted seat: the other seat's copy
+## hides `target`. Read `state` before the answer moves any card.
+static func choice_made(
+	state: MatchState, prompt: Dictionary, zone: int, indices: Array[int]
+) -> MatchEvent:
 	var seat: int = prompt.get(KEY_SEAT, -1)
 	var card: int = prompt.get(KEY_CARD, -1)
+	var index: int = -1
+	if indices.size() == 1 and not Choice.is_multi_prompt(prompt):
+		index = indices[0]
+	var target: int = Choice.resolve(state, seat, zone, index) if index >= 0 else -1
 	var made: Dictionary = {
 		"seat": seat,
 		"card": card,
 		"zone": Choice.zone_name(zone),
+		"index": index,
+		"target": target,
 		"indices": MatchState.plain(indices),
 	}
-	out.append(MatchEvent.new(MatchEvent.Kind.CHOICE_MADE, made, seat))
-	return out
+	return MatchEvent.new(MatchEvent.Kind.CHOICE_MADE, made, seat)
 
 
 ## Declines the open optional prompt of `state` (plan P12): the prompt closes and its

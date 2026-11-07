@@ -37,8 +37,7 @@ static func spots(prompt: Dictionary, own_size: int) -> Array[CardSpot]:
 	if prompt.is_empty():
 		return out
 	var asked: int = prompt.get("seat", 0)
-	var zone: int = prompt.get("zone", Choice.NO_ZONE)
-	var zone_label: String = Choice.zone_name(zone)
+	var zone_label: String = Choice.zone_name(Choice.zone_of(prompt))
 	var raw: Array = prompt.get("options", [])
 	for entry: Variant in raw:
 		var option: int = entry

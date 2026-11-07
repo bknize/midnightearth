@@ -124,33 +124,28 @@ func test_the_opponent_hand_is_hidden_in_deal_steps() -> void:
 # --- Reveals and scores ---------------------------------------------------------------
 
 
-func test_reveal_steps_carry_engine_order_and_flat() -> void:
+## Rules 7 (DC-13 T03): every revealed fixture card Scores in the same pulse, so each flip
+## pulse folds its CARD_SCORED in and carries the card's Power (CARD_REVEALED `power`).
+func test_reveal_steps_carry_the_cards_power() -> void:
 	var cards: CardDb = FixtureDecks.cards()
 	var reveals: int = 0
-	var next_order: int = 0
 	for step: BoardStep in _steps(1.0):
-		if step.kind == BoardStep.Kind.TURN_START:
-			next_order = 0
 		if step.kind != BoardStep.Kind.PULSE or step.revealed:
 			continue
 		reveals += 1
 		var payload: Dictionary = step.source.payload
-		var order: int = payload["order"]
-		var flat: int = payload["flat"]
-		assert_int(step.order).is_equal(order)
-		assert_int(step.order).is_equal(next_order)
-		assert_int(step.flat).is_equal(flat)
+		var power: int = payload["power"]
+		assert_int(step.flat).is_equal(power)
 		assert_int(step.card).is_greater_equal(0)
 		var def: CardDef = cards.card_at(step.card % MatchRules.DECK_SIZE)
 		assert_object(def).is_not_null()
 		assert_int(def.power).is_equal(step.flat)
-		next_order += 1
 	assert_int(reveals).is_greater(0)
 
 
-## Since DC-05 T03 a turn's scores are its walk's totals: each seat's last CARD_SCORED
-## score after the turn's WALK_STARTED (0 for a seat with no card), and every TURN_END step
-## carries them.
+## Rules 7 (DC-13 T03): a Turn's Scores are its Walk's walking totals rounded once: each
+## seat's last CARD_SCORED `total` after the Turn's WALK_STARTED (0 for a seat with no
+## card), rounded (Scoring.walk_score), and every TURN_END step carries them.
 func test_turn_end_scores_are_the_walk_totals() -> void:
 	var walk_totals: Array[int] = [0, 0]
 	var turn_ends: int = 0
@@ -159,8 +154,8 @@ func test_turn_end_scores_are_the_walk_totals() -> void:
 			walk_totals = [0, 0]
 		elif event.kind == MatchEvent.Kind.CARD_SCORED:
 			var seat: int = event.payload["seat"]
-			var score: int = event.payload["score"]
-			walk_totals[seat] = score
+			var total: int = event.payload["total"]
+			walk_totals[seat] = Scoring.walk_score(total)
 		elif event.kind == MatchEvent.Kind.TURN_ENDED:
 			turn_ends += 1
 			var raw: Array = event.payload["scores"]
@@ -181,37 +176,38 @@ func test_turn_end_scores_are_the_walk_totals() -> void:
 	assert_int(steps_seen).is_equal(turn_ends)
 
 
-# --- Burns ----------------------------------------------------------------------------
+# --- Discards (rules 7: nothing is burned) ----------------------------------------------
 
 
-func test_burn_steps_go_entry_to_exit() -> void:
-	# Seed 1 may never burn, so the synthetic events always run; a real burn is checked too.
-	var own: MatchEvent = _event(MatchEvent.Kind.CARD_BURNED, {"seat": 0, "card": 5}, 0)
-	var theirs: MatchEvent = _event(MatchEvent.Kind.CARD_BURNED, {"seat": 1, "card": 25}, 1)
-	var events: Array[MatchEvent] = [own.redacted_for(0), theirs.redacted_for(0)]
-	var steps: Array[BoardStep] = BoardSteps.from_events(events, 1.0)
-	assert_int(steps.size()).is_equal(2)
-	assert_int(steps[0].kind).is_equal(BoardStep.Kind.BURN)
-	assert_int(steps[0].seat).is_equal(0)
-	assert_int(steps[0].card).is_equal(5)
-	assert_float(steps[0].duration).is_equal_approx(0.45, EPSILON)
-	assert_int(steps[1].kind).is_equal(BoardStep.Kind.BURN)
-	assert_int(steps[1].seat).is_equal(1)
-	assert_int(steps[1].card).is_equal(-1)
-	for step: BoardStep in _steps(1.0):
-		if step.kind == BoardStep.Kind.BURN:
-			assert_float(step.duration).is_equal_approx(0.45, EPSILON)
-			assert_float(step.delay).is_equal_approx(0.0, EPSILON)
+## Every discard of the match (the discard-downs and the Round-end clears) is a DISCARD step
+## for its card's Owner, the card public (a Pile entry is public, R19, R24).
+func test_discard_steps_name_the_owner_and_the_card() -> void:
+	var events: Array[MatchEvent] = _match_events()
+	var steps: Array[BoardStep] = _steps(1.0)
+	var discards: int = _count_events(events, MatchEvent.Kind.CARD_DISCARDED)
+	assert_int(discards).is_greater(0)
+	assert_int(_count_kind(steps, BoardStep.Kind.DISCARD)).is_equal(discards)
+	for step: BoardStep in steps:
+		if step.kind != BoardStep.Kind.DISCARD:
+			continue
+		var owner: int = step.source.payload["owner"]
+		assert_int(step.seat).is_equal(owner)
+		assert_int(step.card).is_greater_equal(0)
+		assert_float(step.duration).is_equal_approx(0.45, EPSILON)
+	assert_bool(MatchEvent.Kind.keys().has("CARD_BURNED")).is_false()
 
 
 # --- Rounds ---------------------------------------------------------------------------
 
 
-func test_the_round_sweep_precedes_the_deal_of_rounds_after_the_first() -> void:
+## Rules 7: the hands are dealt once, at Match start (eight DEAL steps), and a later Round
+## starts with the table sweep straight after the last Round's end, then its first Turn.
+func test_the_round_sweep_follows_the_round_end_and_nothing_is_dealt_again() -> void:
 	var events: Array[MatchEvent] = _match_events()
 	var steps: Array[BoardStep] = _steps(1.0)
 	var rounds: int = _count_events(events, MatchEvent.Kind.ROUND_STARTED)
 	assert_int(rounds).is_greater(1)
+	assert_int(_count_kind(steps, BoardStep.Kind.DEAL)).is_equal(2 * MatchRules.OPENING_HAND)
 	assert_int(_count_kind(steps, BoardStep.Kind.CLEAR_TABLE)).is_equal(rounds - 1)
 	for i: int in range(steps.size()):
 		var step: BoardStep = steps[i]
@@ -219,12 +215,9 @@ func test_the_round_sweep_precedes_the_deal_of_rounds_after_the_first() -> void:
 			continue
 		assert_int(i).is_greater(0)
 		assert_int(steps[i - 1].kind).is_equal(BoardStep.Kind.ROUND_END)
-		assert_int(steps[i + 1].kind).is_equal(BoardStep.Kind.DEAL)
+		assert_int(steps[i + 1].kind).is_equal(BoardStep.Kind.TURN_START)
 		assert_float(step.duration).is_equal_approx(0.40, EPSILON)
 		assert_float(step.delay).is_equal_approx(0.0, EPSILON)
-		# Deals of the new round: the first has no stagger, the rest wait 0.12 s.
-		assert_float(steps[i + 1].delay).is_equal_approx(0.0, EPSILON)
-		assert_float(steps[i + 2].delay).is_equal_approx(0.12, EPSILON)
 
 
 func test_round_end_and_match_end_carry_the_tally() -> void:
@@ -386,7 +379,7 @@ func test_reveal_then_score_is_one_flip_pulse() -> void:
 
 func test_a_flip_pulse_keeps_its_place_before_effects_between_reveal_and_score() -> void:
 	var fired: MatchEvent = _event(
-		MatchEvent.Kind.EFFECT_FIRED, {"seat": 0, "card": 4, "verb": "draw", "trigger": "on_reveal"}
+		MatchEvent.Kind.TRIGGER_FIRED, {"seat": 0, "card": 4, "verb": "draw", "moment": "on_reveal"}
 	)
 	var events: Array[MatchEvent] = [_reveal_event(4), fired, _scored_event(4)]
 	var steps: Array[BoardStep] = BoardSteps.from_events(events, 1.0)
@@ -410,14 +403,14 @@ func test_a_score_with_no_reveal_is_a_revealed_pulse() -> void:
 func test_effect_event_steps_and_durations() -> void:
 	var cases: Array = [
 		[
-			MatchEvent.Kind.EFFECT_FIRED,
-			{"seat": 0, "card": 3, "verb": "draw", "trigger": "on_reveal"},
+			MatchEvent.Kind.TRIGGER_FIRED,
+			{"seat": 0, "card": 3, "crew": "", "verb": "draw", "moment": "on_reveal"},
 			BoardStep.Kind.EFFECT,
 			0.25,
 		],
 		[
-			MatchEvent.Kind.EFFECT_FIZZLED,
-			{"seat": 0, "card": 3, "verb": "destroy_random_opponent"},
+			MatchEvent.Kind.TRIGGER_FIZZLED,
+			{"seat": 0, "card": 3, "crew": "", "verb": "discard_own", "reason": "no_target"},
 			BoardStep.Kind.FIZZLE,
 			0.15,
 		],
@@ -434,18 +427,6 @@ func test_effect_event_steps_and_durations() -> void:
 			0.2,
 		],
 		[
-			MatchEvent.Kind.CARD_DESTROYED,
-			{"seat": 1, "card": 25, "slot": 0},
-			BoardStep.Kind.DESTROY,
-			0.35,
-		],
-		[
-			MatchEvent.Kind.DESTROYED_CLEARED,
-			{"seat": 1, "card": 25, "slot": 0},
-			BoardStep.Kind.CLEAR_DESTROYED,
-			0.45,
-		],
-		[
 			MatchEvent.Kind.CARD_MOVED,
 			{"seat": 0, "card": 3, "from_slot": 0, "to_slot": 2},
 			BoardStep.Kind.MOVE,
@@ -453,13 +434,13 @@ func test_effect_event_steps_and_durations() -> void:
 		],
 		[
 			MatchEvent.Kind.CARD_RETURNED,
-			{"seat": 0, "card": 3, "slot": 1},
+			{"owner": 0, "card": 3, "slot": 1},
 			BoardStep.Kind.RETURN,
 			0.3,
 		],
 		[
 			MatchEvent.Kind.CARD_DISCARDED,
-			{"seat": 1, "card": -1},
+			{"owner": 1, "card": 25, "from": "hand", "reason": "discard", "pile_index": 0},
 			BoardStep.Kind.DISCARD,
 			0.45,
 		],
@@ -474,42 +455,50 @@ func test_effect_event_steps_and_durations() -> void:
 		assert_float(step.duration).is_equal_approx(seconds / 2.0, EPSILON)
 
 
-func test_move_and_destroy_carry_their_slots() -> void:
+func test_a_move_carries_its_slots() -> void:
 	var moved: BoardStep = _one(
 		_event(MatchEvent.Kind.CARD_MOVED, {"seat": 0, "card": 3, "from_slot": 0, "to_slot": 2})
 	)
 	assert_int(moved.from_slot).is_equal(0)
 	assert_int(moved.slot).is_equal(2)
-	var destroyed: BoardStep = _one(
-		_event(MatchEvent.Kind.CARD_DESTROYED, {"seat": 1, "card": 25, "slot": 3})
-	)
-	assert_int(destroyed.slot).is_equal(3)
 
 
+## PROMPT_OPENED (the v7 prompt, P12) is the viewer's untimed PROMPT, with its options; the
+## other seat's prompt has no beat.
 func test_prompt_is_untimed_and_only_for_the_viewer() -> void:
 	var asked: Dictionary = {
 		"seat": 0,
-		"card": 8,
-		"verb": "switch_stats",
-		"text": "Pick",
-		"zone": "board",
-		"options": [1, 2],
+		"card": -1,
+		"crew": "",
+		"verb": "discard_down",
+		"text": "Discard 1",
+		"zone": "own_hand",
+		"options": [0, 1, 2, 3, 4],
+		"multi": true,
+		"exact": 1,
+		"min": 1,
+		"optional": false,
+		"resume": "commit",
+		"step": "D4",
 	}
-	var own: BoardStep = _one(_event(MatchEvent.Kind.CHOICE_REQUESTED, asked), 4.0)
+	var own: BoardStep = _one(_event(MatchEvent.Kind.PROMPT_OPENED, asked), 4.0)
 	assert_int(own.kind).is_equal(BoardStep.Kind.PROMPT)
 	assert_float(own.duration).is_equal_approx(0.0, EPSILON)
-	assert_array(own.options).is_equal([1, 2])
+	assert_array(own.options).is_equal([0, 1, 2, 3, 4])
+	assert_str(own.zone).is_equal("own_hand")
+	assert_str(own.text).is_equal("Discard 1")
 	var other: Dictionary = asked.duplicate()
 	other["seat"] = 1
-	var events: Array[MatchEvent] = [_event(MatchEvent.Kind.CHOICE_REQUESTED, other)]
+	var events: Array[MatchEvent] = [_event(MatchEvent.Kind.PROMPT_OPENED, other)]
 	assert_array(BoardSteps.from_events(events, 1.0, 0)).is_empty()
 
 
+## The v7 kinds the board has no beat for before DC-13 T09 make no step.
 func test_bookkeeping_events_have_no_step() -> void:
 	var events: Array[MatchEvent] = [
-		_event(MatchEvent.Kind.BONUS_ZERO_SET, {"seat": 1}),
-		_event(MatchEvent.Kind.ENERGY_CARRIED, {"seat": 0, "amount": 2}),
-		_event(MatchEvent.Kind.FREE_FIRST_SET, {"seat": 0}),
+		_event(MatchEvent.Kind.DRAW_EMPTY, {"seat": 1}),
+		_event(MatchEvent.Kind.WALK_ENDED, {"totals": [0, 0], "scores": [0, 0]}),
+		_event(MatchEvent.Kind.ENERGY_GRANTED, {"seat": 0, "amount": 1, "source": 3}),
 	]
 	assert_array(BoardSteps.from_events(events, 1.0)).is_empty()
 
@@ -578,16 +567,16 @@ func test_choice_declined_yields_a_decline_step() -> void:
 	assert_float(step.duration).is_equal_approx(0.15, EPSILON)
 
 
-func test_a_salvaged_clear_is_a_return_and_a_pile_clear_is_not() -> void:
-	var salvaged: Dictionary = {"seat": 0, "card": 7, "slot": 1, "pile": false, "salvaged": true}
-	var returned: BoardStep = _one(_event(MatchEvent.Kind.DESTROYED_CLEARED, salvaged))
-	assert_int(returned.kind).is_equal(BoardStep.Kind.RETURN)
-	assert_int(returned.slot).is_equal(1)
-	assert_bool(returned.pile).is_false()
-	var piled: Dictionary = {"seat": 0, "card": 7, "slot": 1, "pile": true}
-	var cleared: BoardStep = _one(_event(MatchEvent.Kind.DESTROYED_CLEARED, piled))
-	assert_int(cleared.kind).is_equal(BoardStep.Kind.CLEAR_DESTROYED)
-	assert_bool(cleared.pile).is_true()
-	var bare: BoardStep = _one(_event(MatchEvent.Kind.DESTROYED_CLEARED, {"seat": 0, "card": 7}))
-	assert_int(bare.kind).is_equal(BoardStep.Kind.CLEAR_DESTROYED)
-	assert_bool(bare.pile).is_true()
+## Rules 7 (DC-13 T03, interim until T09): a v7 CARD_SCORED's walking total, rounded, is
+## the pulse's score, its Power the added points and its Bonus value the chip's mult.
+func test_a_v7_score_maps_its_total_power_and_bonus_value() -> void:
+	var scored: Dictionary = {
+		"seat": 1, "card": 25, "slot": 0, "power": 1, "bonus_value": 12500, "total": 43750,
+		"pass": 1,
+	}
+	var step: BoardStep = _one(_event(MatchEvent.Kind.CARD_SCORED, scored))
+	assert_int(step.kind).is_equal(BoardStep.Kind.PULSE)
+	assert_int(step.score).is_equal(4)
+	assert_int(step.added).is_equal(1)
+	assert_int(step.flat).is_equal(1)
+	assert_int(step.mult).is_equal(125)

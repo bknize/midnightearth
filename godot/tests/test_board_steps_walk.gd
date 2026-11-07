@@ -90,18 +90,19 @@ func test_a_second_score_for_a_card_yields_a_short_pulse_with_again() -> void:
 	assert_float(steps[1].duration).is_equal_approx(0.5, EPSILON)
 
 
-func test_destroyed_cleared_yields_clear_destroyed_and_destroy_does_not_remove() -> void:
+## Rules 7 (DC-13 T03): a Round-end clear sends a row card to its Owner's Pile as a public
+## Discard, a DISCARD step for that Owner.
+func test_a_round_end_clear_yields_a_discard_for_the_owner() -> void:
 	var cleared: BoardStep = _one(
-		_event(MatchEvent.Kind.DESTROYED_CLEARED, {"seat": 1, "card": 25, "slot": 2})
+		_event(
+			MatchEvent.Kind.CARD_DISCARDED,
+			{"owner": 1, "card": 25, "from": "row", "reason": "round_end", "pile_index": 3}
+		)
 	)
-	assert_int(cleared.kind).is_equal(BoardStep.Kind.CLEAR_DESTROYED)
-	assert_int(cleared.slot).is_equal(2)
+	assert_int(cleared.kind).is_equal(BoardStep.Kind.DISCARD)
+	assert_int(cleared.seat).is_equal(1)
+	assert_int(cleared.card).is_equal(25)
 	assert_float(cleared.duration).is_equal_approx(0.45, EPSILON)
-	var marked: BoardStep = _one(
-		_event(MatchEvent.Kind.CARD_DESTROYED, {"seat": 1, "card": 25, "slot": 2})
-	)
-	assert_int(marked.kind).is_equal(BoardStep.Kind.DESTROY)
-	assert_float(marked.duration).is_equal_approx(0.35, EPSILON)
 
 
 func test_turn_end_takes_time_for_the_fly_in_and_count() -> void:
@@ -129,7 +130,7 @@ func test_a_swap_mid_pulse_plays_the_move_before_the_score() -> void:
 	# this pulse. The flip carries no score, and 41's pulse plays after the moves.
 	var reveal: MatchEvent = _reveal_event(40)
 	var fired: MatchEvent = _event(
-		MatchEvent.Kind.EFFECT_FIRED, {"seat": 0, "card": 40, "verb": "swap_places"}
+		MatchEvent.Kind.TRIGGER_FIRED, {"seat": 0, "card": 40, "verb": "swap_places"}
 	)
 	var moved: MatchEvent = _event(
 		MatchEvent.Kind.CARD_MOVED, {"seat": 0, "card": 40, "from_slot": 0, "to_slot": 2}

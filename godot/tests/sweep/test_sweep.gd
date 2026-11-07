@@ -6,17 +6,16 @@ extends FullMatchHarness
 ## bot is BotRegistry.default_name() (`random`, cycle 9 R73) unless the SWEEP_BOT
 ## environment variable names another; a name the registry cannot build fails every match.
 ## The sweep prints "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=.. slowest_us=..
-## prompts=.. destroyed_hidden=.. pile_hidden=.. recoveries=.. recoveries_hidden=.. sets=..
-## memory_hidden=.. crew_prompts=.. declines=.. bot=.. p95_us=.. p99_us=.." (crew_prompts and
-## declines since DC-11 T11, cycle 8 R56, R57, R73) and per pairing played "Sweep pairing
-## <a>/<b>: seeds=.. longest=.. seed=.. slowest_us=.. seed=.." (DC-07 T08; cycle 7 T05, R17,
-## R19, R56).
+## prompts=.. discard_downs=.. empty_draws=.. pile_seen=.. looked=.. sets=..
+## memory_hidden=.. crew_prompts=.. declines=.. bot=.. p95_us=.. p99_us=.." and per pairing
+## played "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=.. slowest_us=.. seed=..".
 ## Every match checks what test_full_match.gd's seed 1 does (FullMatchHarness._assert_run):
-## it ends, no hand exceeds 7, no commit exceeds the budget, nothing hidden leaks and the log
-## replays; the 99th-percentile decision stays under DECISION_BUDGET_US. The coverage
-## counters (_assert_coverage: the scan met face-down cards, prompts, hidden destroys and so
-## on) are asserted only for the default bot, whose play they were set for; another SWEEP_BOT
-## prints a line saying they were skipped.
+## it ends, no hand exceeds the harness's HAND_BOUND, no commit exceeds the Budget, nothing
+## hidden leaks and the log replays; the 99th-percentile decision stays under
+## DECISION_BUDGET_US. The coverage counters (_assert_coverage) are asserted only for the
+## default bot; another SWEEP_BOT prints a line saying they were skipped. DC-13 T03 (rules
+## 7): the destroyed-pile and recovery counters went with the v6 piles; the discard-downs,
+## empty draws, Pile entries and looked-at cards are counted (T08 resets the coverage set).
 
 const SWEEP_FIRST: int = 1
 const SWEEP_LAST: int = 50
@@ -86,10 +85,10 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	for pairing: String in _pairings():
 		pairing_records[pairing] = _empty_record()
 	var memory_hidden: int = 0
-	var destroyed_hidden: int = 0
-	var pile_hidden: int = 0
-	var recoveries: int = 0
-	var recoveries_hidden: int = 0
+	var discard_downs: int = 0
+	var empty_draws: int = 0
+	var pile_seen: int = 0
+	var looked: int = 0
 	var set_answers: int = 0
 	var crew_prompts: int = 0
 	var declines: int = 0
@@ -106,10 +105,10 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 		face_down_seen += run.face_down_seen
 		redacted_seen += run.redacted_seen
 		choices += run.choices
-		destroyed_hidden += run.destroyed_hidden_seen
-		pile_hidden += run.pile_hidden_seen
-		recoveries += run.recoveries_seen
-		recoveries_hidden += run.hidden_recoveries_seen
+		discard_downs += run.discard_downs
+		empty_draws += run.empty_draws
+		pile_seen += run.pile_seen
+		looked += run.looked_seen
 		memory_hidden += run.memory_hidden_seen
 		set_answers += run.set_answers
 		crew_prompts += run.crew_prompts
@@ -136,8 +135,8 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 		(
 			(
 				"Sweep: longest=%d seed=%d longest_walk=%d walk_seed=%d"
-				+ " slowest_us=%d prompts=%d destroyed_hidden=%d pile_hidden=%d"
-				+ " recoveries=%d recoveries_hidden=%d sets=%d memory_hidden=%d"
+				+ " slowest_us=%d prompts=%d discard_downs=%d empty_draws=%d"
+				+ " pile_seen=%d looked=%d sets=%d memory_hidden=%d"
 				+ " crew_prompts=%d declines=%d bot=%s"
 				+ " p95_us=%d p99_us=%d"
 			)
@@ -148,10 +147,10 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 				longest_walk_seed,
 				slowest_us,
 				sweep_prompts,
-				destroyed_hidden,
-				pile_hidden,
-				recoveries,
-				recoveries_hidden,
+				discard_downs,
+				empty_draws,
+				pile_seen,
+				looked,
 				set_answers,
 				memory_hidden,
 				crew_prompts,
@@ -178,10 +177,9 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 			"face_down_seen": face_down_seen,
 			"redacted_seen": redacted_seen,
 			"choices": choices,
-			"destroyed_hidden": destroyed_hidden,
-			"pile_hidden": pile_hidden,
-			"recoveries": recoveries,
-			"memory_hidden": memory_hidden,
+			"discard_downs": discard_downs,
+			"empty_draws": empty_draws,
+			"pile_seen": pile_seen,
 			"longest_walk": longest_walk,
 			"crew_prompts_scanned": crew_prompts_scanned,
 		}
@@ -201,42 +199,28 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 
 
 ## The sweep's coverage counters (`counts`, keyed by name, set by the sweep test) for the
-## default bot: the scan really met face-down and redacted cards, prompts, hidden destroys,
-## hidden pile entries, recoveries, hidden memory, a walk and a Crew prompt. Each depends on
-## how the bot happens to play, so a SWEEP_BOT other than the default skips them.
+## default bot under rules 7 (DC-13 T03): the scan really met face-down and redacted cards,
+## prompts, discard-downs, empty draws, public Pile entries and a Walk. Each depends on how
+## the bot happens to play, so a SWEEP_BOT other than the default skips them. DC-13 T08
+## resets the set for the random bot's play (Crew prompts, Pile shuffles, looked-at cards
+## and hidden Memory join when T06 and T07 make them reachable).
 func _assert_coverage(counts: Dictionary) -> void:
 	var face_down_seen: int = counts["face_down_seen"]
 	var redacted_seen: int = counts["redacted_seen"]
 	var choices: int = counts["choices"]
-	var destroyed_hidden: int = counts["destroyed_hidden"]
-	var pile_hidden: int = counts["pile_hidden"]
-	var recoveries: int = counts["recoveries"]
-	var memory_hidden: int = counts["memory_hidden"]
+	var discard_downs: int = counts["discard_downs"]
+	var empty_draws: int = counts["empty_draws"]
+	var pile_seen: int = counts["pile_seen"]
 	var walk: int = counts["longest_walk"]
-	var crew_scanned: int = counts["crew_prompts_scanned"]
 	assert_int(face_down_seen).is_greater(0)
 	assert_int(redacted_seen).is_greater(0)
-	# The sweep really answered prompts, so their leak scan and replay ran (DC-05 T05).
 	assert_int(choices).override_failure_message("no prompt in the sweep").is_greater(0)
-	# A destroyed face-down card was really scanned (DC-06 R20, R21): a redacted destroy or
-	# clear, or a destroyed face-down slot in a view.
-	var no_hidden_destroy: String = "no destroyed face-down card in the sweep"
-	assert_int(destroyed_hidden).override_failure_message(no_hidden_destroy).is_greater(0)
+	var no_discard: String = "no discard-down in the sweep"
+	assert_int(discard_downs).override_failure_message(no_discard).is_greater(0)
+	var no_empty: String = "no empty draw in the sweep"
+	assert_int(empty_draws).override_failure_message(no_empty).is_greater(0)
+	assert_int(pile_seen).override_failure_message("no Pile entry in the sweep").is_greater(0)
 	assert_int(walk).override_failure_message("no walk in the sweep").is_greater(0)
-	# DC-07 T08: the scan really covered the piles and recoveries. An opponent's pile entry
-	# whose identity is not public was shown (as a hidden entry) to some view, and a card
-	# left a destroyed pile for a hand (Grave Robber, R19).
-	var no_pile: String = "no hidden destroyed-pile entry in the sweep"
-	assert_int(pile_hidden).override_failure_message(no_pile).is_greater(0)
-	var no_recovery: String = "no recovery in the sweep"
-	assert_int(recoveries).override_failure_message(no_recovery).is_greater(0)
-	# Cycle 8 R8, R31: memory on a hidden card really reached the scan, redacted for the
-	# other seat (a growth on a hand card: Rain, Redwood, Vine).
-	var no_memory: String = "no private memory event in the sweep"
-	assert_int(memory_hidden).override_failure_message(no_memory).is_greater(0)
-	# Cycle 8 R73 (DC-11 T11): a Crew prompt really reached the scan, from both seats' views.
-	var no_crew: String = "no Crew prompt in the sweep"
-	assert_int(crew_scanned).override_failure_message(no_crew).is_greater(0)
 
 
 ## A pairing's record before any seed: no seeds, no match, no decision.

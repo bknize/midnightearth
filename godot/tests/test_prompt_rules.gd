@@ -231,7 +231,7 @@ func test_the_confirm_text_follows_the_set_size() -> void:
 
 
 func test_a_pile_prompt_glows_no_row_card_and_routes_strip_entries() -> void:
-	var prompt: Dictionary = _prompt(Choice.Zone.BOTH_DESTROYED, [0, 1])
+	var prompt: Dictionary = _prompt(Choice.Zone.BOTH_PILES, [0, 1])
 	assert_int(PromptRules.glow_set(prompt, _view(OWN_SIZE)).size()).is_equal(0)
 	var lift: PromptTap = PromptRules.route(true, 1, false)
 	assert_int(lift.kind).is_equal(PromptRules.Tap.LIFT_ELIGIBLE)

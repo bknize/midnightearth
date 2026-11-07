@@ -1,38 +1,31 @@
 class_name MatchEngine
 extends RefCounted
-## The match entry point (R3, C1): create from a seed, the card pool, the deck list and a
-## deck id per seat (DC-07 P2, P3; every definition then comes from MatchCards), start() once,
-## then apply() actions. Each accepted call runs the match to the next point that needs a
-## seat's decision and returns every event on the way, in order (R4).
+## The match entry point: create from a seed, the card pool, the deck list and a deck id per
+## seat (every definition then comes from MatchCards), start() once, then apply() actions.
+## Each accepted call runs the match to the next point that needs a seat's decision and
+## returns every event on the way, in order (R4).
 ##
-## Flow: _begin_round() -> _begin_turn() -> commit (first, face down, with its slots) ->
-## commit (second) -> _resolve() (both commits merge into their rows, then the walk starts)
-## -> _run_walk() (ScoreWalk pulses every card on both rows; an open prompt pauses it,
-## phase AWAIT_CHOICE, until apply(CHOOSE), apply(CHOOSE_SET) or apply(DECLINE) from the
-## prompted seat resumes it) -> _end_turn() (energy, the turn's winner) -> next
-## _begin_turn(), or after turn 7 _end_round() -> _after_round(), which either ends the
-## match (R20-R22) or begins the next round. Concede goes straight to _end_match().
+## Rules version 7 (cycle 9 plan P14; DC-13 T03). The rules of a Turn outside the Walk are
+## TurnFlow's, the Walk is ScoreWalk's and the arithmetic Scoring's; this class validates
+## actions and sequences them:
+## start(): MATCH_STARTED, Match start (TurnFlow.start_match: both Decks shuffled once, four
+## cards dealt), Round 1, Turn 1 -> commit (first, face down) -> its On commit and
+## discard-down (TurnFlow.after_commit; a discard-down prompt is phase AWAIT_CHOICE until the
+## seat's CHOOSE_SET answers it) -> commit (second; both Commits merge into their rows) -> its
+## On commit and discard-down -> the Walk (ScoreWalk; a prompt pauses it) -> turn end
+## (TurnFlow.end_turn) -> the next Turn, or after Turn 7 Round end (TurnFlow.end_round) ->
+## the match end checks (_after_round). Concede goes straight to _end_match().
 ##
-## DC-13 T02 (cycle 9 plan, wave 2): the v6 structure (deal, draw, energy, walk) with the v2
-## cards and rules version 7; every ability fizzles (Abilities.fire), so no prompt opens and
-## no Crew fires until T05-T07, and T03 rewrites the turn flow.
-##
-## Randomness: one MatchRng seeded from the match seed. Each round start draws seat 0's
-## shuffle, seat 1's shuffle, then a coin flip only while no round has been won (plan,
-## replay contract). No T02 ability draws from the stream.
-##
-## Round boundaries (orchestrator, DC-05 T04): round start clears `energy.carry`,
-## `energy.free_first` and `bonus_zero_pending` along with the rows, so an effect that
-## fires in a round's last turn (a carry, a free first card, a bonus-0 mark) does nothing
-## for the next round.
+## Randomness: one MatchRng seeded from the match seed. Match start draws seat 0's shuffle
+## then seat 1's; Round 1 draws the coin flip for the first committer. Nothing else draws
+## before the abilities of DC-13 T05 to T07.
 ##
 ## An illegal action returns a failure code and changes nothing: no state, no events, no
-## accepted action (R26). Nothing here prints, asserts or pushes an error (R27).
+## accepted action (R9). Nothing here prints, asserts or pushes an error.
 ##
-## Commits are positional (plan P1). A commit with cards and no slots takes the
-## compatibility default (EngineAction): its slots resolve to the row's right end,
-## row_size .. row_size + k - 1, when it is validated, and the resolved slots are what the
-## state, the COMMITTED event and the action log hold.
+## Commits are positional. A commit with cards and no slots takes the compatibility default
+## (EngineAction): its slots resolve to the row's right end when it is validated, and the
+## resolved slots are what the state, the COMMITTED event and the action log hold.
 
 const SEATS: int = 2
 const REASON_WINS: String = "wins"
@@ -40,25 +33,25 @@ const REASON_ROUNDS: String = "rounds"
 const REASON_SUDDEN_DEATH: String = "sudden_death"
 const REASON_CONCEDE: String = "concede"
 
-## The match's 40 definitions by instance id (DC-07 P3); built by create() only when the
-## pool, the list and both deck ids are good, else an empty MatchCards.
+## The match's definitions by instance id; built by create() only when the pool, the list
+## and both deck ids are good, else an empty MatchCards.
 var _cards: MatchCards = MatchCards.new()
 ## Why start() must fail (EngineError.Code), decided by create(); NONE when it may start.
 var _setup_error: int = EngineError.Code.NONE
 var _rng: MatchRng = null
 var _state: MatchState = null
-## Every accepted action in order, copied; T07's ActionLog is built from this.
+## Every accepted action in order, copied; the ActionLog is built from this.
 var _accepted: Array[EngineAction] = []
 ## Events of the call in progress.
 var _events: Array[MatchEvent] = []
 
 
 ## A match on `match_seed` where seat s plays the deck `deck_ids[s]` of `decks`, its cards
-## from the pool `cards` and its three Crew from the Crew pool `crew` (DC-07 R5, P2, P3;
-## cycle 8 R42, P12). An empty id resolves to DeckList.seeded_pick(match_seed, seat) (R6,
-## P14), so deck_ids() and the log hold the resolved ids. Never fails here: a bad pool,
-## Crew pool or list makes start() fail with CARD_DATA_INVALID, and an id the list does not
-## hold (or a `deck_ids` other than one id per seat) with DECK_UNKNOWN.
+## from the pool `cards` and its three Crew from the Crew pool `crew`. An empty id resolves
+## to DeckList.seeded_pick(match_seed, seat), so deck_ids() and the log hold the resolved
+## ids. Never fails here: a bad pool, Crew pool or list makes start() fail with
+## CARD_DATA_INVALID, and an id the list does not hold (or a `deck_ids` other than one id
+## per seat) with DECK_UNKNOWN.
 static func create(
 	match_seed: int, cards: CardDb, decks: DeckList, ids: Array[String], crew: CrewPool
 ) -> MatchEngine:
@@ -76,23 +69,23 @@ static func create(
 	return engine
 
 
-## Deals round 1 and runs to the first decision point. Not logged: it is fully determined
-## by the seed and the deck ids. Its first event is MATCH_STARTED {decks, crew} (DC-07;
-## cycle 8 R42: `crew` is both seats' Crew ids in slot order, seat 0's first). Fails
-## with CARD_DATA_INVALID on a failed pool or deck list (R8, R3), DECK_UNKNOWN on a deck id
-## the list does not hold (DC-07 P2), and MALFORMED when the match has already started;
-## either way nothing changes.
+## Starts the match and runs to the first decision point. Not logged: it is fully determined
+## by the seed and the deck ids. Its first event is MATCH_STARTED {decks, crew}. Fails with
+## CARD_DATA_INVALID on a failed pool or deck list, DECK_UNKNOWN on a deck id the list does
+## not hold, and MALFORMED when the match has already started; either way nothing changes.
 func start() -> ApplyResult:
 	if _setup_error != EngineError.Code.NONE:
 		return ApplyResult.failure(_setup_error)
 	if _state.phase != MatchState.Phase.NOT_STARTED:
 		return ApplyResult.failure(EngineError.Code.MALFORMED)
 	_events.clear()
-	# The seed stays out of every event: it would predict each shuffle (R28, R29).
+	# The seed stays out of every event: it would predict each shuffle.
 	var crew: Array = [_cards.crew_ids(0), _cards.crew_ids(1)]
-	_emit(MatchEvent.Kind.MATCH_STARTED, {"decks": _plain_strings(_state.deck_ids), "crew": crew})
+	var decks: Array = []
+	decks.assign(_state.deck_ids)
+	_emit(MatchEvent.Kind.MATCH_STARTED, {"decks": decks, "crew": crew})
+	TurnFlow.start_match(_state, _cards, _rng, _emit)
 	_begin_round()
-	_begin_turn()
 	_state.rng_state = _rng.state
 	return ApplyResult.success(_events)
 
@@ -110,11 +103,13 @@ func apply(action: EngineAction) -> ApplyResult:
 	if accepted.kind == EngineAction.Kind.CONCEDE:
 		_concede(accepted.seat)
 	elif accepted.kind == EngineAction.Kind.CHOOSE:
-		_choose(accepted.zone, accepted.index)
+		var picked: Array[int] = [accepted.index]
+		_answer(accepted.zone, picked, false)
 	elif accepted.kind == EngineAction.Kind.CHOOSE_SET:
-		_choose_set(accepted.zone, accepted.indices)
+		_answer(accepted.zone, accepted.indices, false)
 	elif accepted.kind == EngineAction.Kind.DECLINE:
-		_decline()
+		var none: Array[int] = []
+		_answer(Choice.NO_ZONE, none, true)
 	else:
 		_commit(accepted.seat, accepted.cards, accepted.slots)
 	_state.rng_state = _rng.state
@@ -122,7 +117,7 @@ func apply(action: EngineAction) -> ApplyResult:
 
 
 ## The seat whose decision is awaited: the committer, or while a prompt is open the
-## prompted seat (P9); -1 before start() and once the match is over.
+## prompted seat; -1 before start() and once the match is over.
 func awaited_seat() -> int:
 	if _state.phase == MatchState.Phase.AWAIT_FIRST:
 		return _state.first_seat
@@ -133,9 +128,9 @@ func awaited_seat() -> int:
 	return -1
 
 
-## A copy of the open prompt (plan P9, P12; DC-07 P7; cycle 8 P9: MatchState.prompt), or {}
-## when none is open. It names no hidden card: options are positions (Choice) and the
-## source is revealed (or a Crew, which is public).
+## A copy of the open prompt (MatchState.prompt, plan P12), or {} when none is open. It
+## names no hidden card: options are positions (Choice) and the source is revealed (or a
+## Crew, which is public).
 func open_prompt() -> Dictionary:
 	return _state.prompt.duplicate(true)
 
@@ -144,57 +139,59 @@ func is_over() -> bool:
 	return _state.phase == MatchState.Phase.OVER
 
 
-## This turn's base energy (R13): equal to the turn number; 0 before start(). A seat's
-## actual budget adds its carry: budget_for().
+## The Turn number: every seat's base Energy (R6); 0 before start().
 func energy() -> int:
 	return _state.turn
 
 
-## `seat`'s energy budget this turn (R9): the turn number plus the energy an effect
-## carried into this turn for that seat. 0 for a seat other than 0 or 1.
+## `seat`'s Budget this Turn (R6, R7): TurnFlow.budget, the Turn plus the Energy granted for
+## it. 0 for a seat other than 0 or 1.
 func budget_for(seat: int) -> int:
-	if seat < 0 or seat >= SEATS:
-		return 0
-	return _state.turn + _state.energy.carry[seat]
+	return TurnFlow.budget(_state, _cards, seat)
 
 
-## Both seats' budgets, indexed by seat (R9).
+## Both seats' Budgets, indexed by seat.
 func budgets() -> Array[int]:
 	var out: Array[int] = [budget_for(0), budget_for(1)]
 	return out
 
 
-## The redacted view for seat 0 or 1 (R28, R29): no seed, no deck order and no id from
-## the opponent's hand, deck, face-down commit or burn. Null for any other seat.
+## `seat`'s Hand size now (R11): TurnFlow.hand_size. The base for a seat other than 0 or 1.
+func hand_size_for(seat: int) -> int:
+	if seat < 0 or seat >= SEATS:
+		return MatchRules.HAND_SIZE
+	return TurnFlow.hand_size(_state, _cards, seat)
+
+
+## The redacted view for seat 0 or 1 (R57): no seed, no Deck order and no id from the
+## opponent's hand, Deck or face-down Commit. Null for any other seat.
 func view_for(seat: int) -> SeatView:
 	if seat < 0 or seat >= SEATS:
 		return null
-	return SeatView.build(_state, seat, awaited_seat(), budgets(), _cards)
+	return SeatView.build(_state, seat, awaited_seat(), _cards)
 
 
-## The full-state read (R30), for tests and replay only: it includes hidden information,
-## everything view_for() omits (seed, stream state, decks, hands, pending, burns).
+## The full-state read, for tests and replay only: it includes hidden information,
+## everything view_for() omits (seed, stream state, Decks, hands, pending).
 func full_state() -> Dictionary:
 	return _state.to_dict()
 
 
-## The replayable log (R31, DC-07 R7): this match's seed, its resolved deck ids and copies
-## of its accepted actions only.
+## The replayable log: this match's seed, its resolved deck ids and copies of its accepted
+## actions only.
 func action_log() -> ActionLog:
 	return ActionLog.create(_state.match_seed, _state.deck_ids, _accepted)
 
 
-## The deck id each seat plays, indexed by seat, as resolved by create() (an empty id
-## already replaced by its seeded pick; DC-07 P2, P14). A copy.
+## The deck id each seat plays, indexed by seat, as resolved by create(). A copy.
 func deck_ids() -> Array[String]:
 	var out: Array[String] = []
 	out.assign(_state.deck_ids)
 	return out
 
 
-## The match's definitions by instance id (DC-07 P3), for the bot and the board; an empty
-## MatchCards when start() would fail. Names no hidden card: both deck lists are public and
-## an instance id indexes its origin's list, not the shuffled deck.
+## The match's definitions by instance id, for the bot and the board; an empty MatchCards
+## when start() would fail.
 func match_cards() -> MatchCards:
 	return _cards
 
@@ -215,8 +212,7 @@ func accepted_actions() -> Array[EngineAction]:
 
 
 ## EngineError.Code.NONE when the action may be applied now.
-## Order: match status, then shape, then (commits only) seat, then LegalPlays.validate
-## with the resolved slots, the seat's row size, its budget and its free first card.
+## Order: match status, then shape, then the per-kind check.
 func _check(action: EngineAction) -> int:
 	if _state.phase == MatchState.Phase.NOT_STARTED:
 		return EngineError.Code.NOT_STARTED
@@ -231,7 +227,7 @@ func _check(action: EngineAction) -> int:
 func _check_kind(action: EngineAction) -> int:
 	match action.kind:
 		EngineAction.Kind.CONCEDE:
-			# Either seat may concede at any time (R23).
+			# Either seat may concede at any time.
 			return EngineError.Code.NONE
 		EngineAction.Kind.CHOOSE:
 			return _check_choice(action)
@@ -242,14 +238,21 @@ func _check_kind(action: EngineAction) -> int:
 	return _check_commit(action)
 
 
-## A well-formed choice (R31): a prompt is open (NO_PROMPT), the action is the prompted
-## seat's (WRONG_SEAT), and its zone and index are one of the options of a single-target
-## prompt (NOT_ELIGIBLE, which a CHOOSE on a multi-select prompt also returns; DC-07 P7).
-func _check_choice(action: EngineAction) -> int:
+## A prompt is open (NO_PROMPT) and the action is the prompted seat's (WRONG_SEAT).
+func _check_prompted(action: EngineAction) -> int:
 	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _state.prompt.is_empty():
 		return EngineError.Code.NO_PROMPT
 	if action.seat != _prompt_seat():
 		return EngineError.Code.WRONG_SEAT
+	return EngineError.Code.NONE
+
+
+## A well-formed choice: _check_prompted, then its zone and index are one of the options of
+## a single-target prompt (NOT_ELIGIBLE, which a CHOOSE on a multi-select also returns).
+func _check_choice(action: EngineAction) -> int:
+	var code: int = _check_prompted(action)
+	if code != EngineError.Code.NONE:
+		return code
 	if Choice.is_multi_prompt(_state.prompt):
 		return EngineError.Code.NOT_ELIGIBLE
 	if not Choice.is_offered(_state.prompt, action.zone, action.index):
@@ -257,15 +260,14 @@ func _check_choice(action: EngineAction) -> int:
 	return EngineError.Code.NONE
 
 
-## A well-formed set choice (DC-07 P7, R23): a prompt is open (NO_PROMPT), the action is
-## the prompted seat's (WRONG_SEAT), the prompt is a multi-select (a single-target prompt
-## rejects a set: NOT_ELIGIBLE), and the set is in the prompt's zone, every index one of its
-## options and none repeated (BAD_SET). The empty set passes: it declines (R24).
+## A well-formed set choice: _check_prompted, the prompt is a multi-select (else
+## NOT_ELIGIBLE), and the set is in the prompt's zone, every index one of its options, none
+## repeated, and its size the prompt's `exact` and at least its `min` (BAD_SET; R14: the
+## discard-down takes exactly the excess).
 func _check_set(action: EngineAction) -> int:
-	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _state.prompt.is_empty():
-		return EngineError.Code.NO_PROMPT
-	if action.seat != _prompt_seat():
-		return EngineError.Code.WRONG_SEAT
+	var code: int = _check_prompted(action)
+	if code != EngineError.Code.NONE:
+		return code
 	if not Choice.is_multi_prompt(_state.prompt):
 		return EngineError.Code.NOT_ELIGIBLE
 	if not Choice.is_valid_set(_state.prompt, action.zone, action.indices):
@@ -273,21 +275,19 @@ func _check_set(action: EngineAction) -> int:
 	return EngineError.Code.NONE
 
 
-## A well-formed decline (cycle 8 R52, R53, P10): a prompt is open (NO_PROMPT), the action
-## is the prompted seat's (WRONG_SEAT) and the prompt is optional (NOT_OPTIONAL).
+## A well-formed decline: _check_prompted and the prompt is optional (NOT_OPTIONAL).
 func _check_decline(action: EngineAction) -> int:
-	if _state.phase != MatchState.Phase.AWAIT_CHOICE or _state.prompt.is_empty():
-		return EngineError.Code.NO_PROMPT
-	if action.seat != _prompt_seat():
-		return EngineError.Code.WRONG_SEAT
+	var code: int = _check_prompted(action)
+	if code != EngineError.Code.NONE:
+		return code
 	if not Choice.is_optional_prompt(_state.prompt):
 		return EngineError.Code.NOT_OPTIONAL
 	return EngineError.Code.NONE
 
 
-## A well-formed commit: the awaited seat, then LegalPlays.validate_with over the hand's
-## effective costs (cycle 8 R4, P3). While a prompt is open the engine awaits a choice, so
-## every commit fails with WRONG_SEAT.
+## A well-formed commit: the awaited committer (while a prompt is open every commit fails
+## with WRONG_SEAT), then LegalPlays.validate_with over the hand's effective costs and the
+## seat's Budget (R8, R9).
 func _check_commit(action: EngineAction) -> int:
 	if _state.phase == MatchState.Phase.AWAIT_CHOICE or action.seat != awaited_seat():
 		return EngineError.Code.WRONG_SEAT
@@ -296,7 +296,7 @@ func _check_commit(action: EngineAction) -> int:
 		action.cards,
 		_resolved_slots(action),
 		piles.hand,
-		ScoreWalk.effective_costs(piles.hand, _state, _cards),
+		Scoring.effective_costs(piles.hand, _state, _cards),
 		piles.board.size(),
 		budget_for(action.seat),
 		_state.energy.free_first[action.seat]
@@ -304,7 +304,7 @@ func _check_commit(action: EngineAction) -> int:
 
 
 ## A commit's explicit slots: its own, or for the compatibility default (cards with no
-## slots) the right end of the seat's row, row_size .. row_size + k - 1.
+## slots) the right end of the seat's row.
 func _resolved_slots(action: EngineAction) -> Array[int]:
 	if not action.slots.is_empty() or action.cards.is_empty():
 		var own: Array[int] = []
@@ -326,289 +326,73 @@ func _is_well_formed(action: EngineAction) -> bool:
 	if action.kind == EngineAction.Kind.COMMIT:
 		return true
 	var bare: bool = action.cards.is_empty() and action.slots.is_empty()
-	# What is left of the known kinds: CONCEDE, CHOOSE and DECLINE.
 	return bare and EngineAction.Kind.values().has(action.kind)
 
 
-# --- Rounds ---------------------------------------------------------------------------
+# --- The flow -------------------------------------------------------------------------
 
 
-## Round start (R11): refill and shuffle both decks (seat 0 first), pick turn 1's first
-## committer, clear both boards, deal the opening hands. Each deck is rebuilt from its
-## origin's 20 instance ids, so a card another seat recovered last round is back in its
-## origin's deck (DC-07 P3, R9, C12).
 func _begin_round() -> void:
-	_state.round_number += 1
-	_state.sudden_death = _state.round_number > MatchRules.ROUNDS
-	_state.turn = 0
-	_state.scores[0] = 0
-	_state.scores[1] = 0
-	_state.last_turn_winner = -1
-	_state.pending.clear()
-	_state.pending_slots.clear()
-	# The boards clear, so every card leaves them: their modifiers go too (plan, card_states).
-	_state.card_states.clear()
-	# Card memory is for the match (cycle 8 R2, P2): `_state.memory` is kept.
-	_state.walk = MatchState.WalkState.new()
-	_state.prompt = {}
-	# Effects do not reach across rounds (see the class comment).
-	_state.energy = MatchState.EnergyState.new()
-	_state.bonus_zero_pending[0] = false
-	_state.bonus_zero_pending[1] = false
-	_state.reset_crew_uses(_cards)  # Per round resets, per match keeps (cycle 8 R43, P13).
-	for seat: int in range(SEATS):
-		var piles: MatchState.SeatPiles = _state.seats[seat]
-		piles.deck.clear()
-		for index: int in range(MatchRules.DECK_SIZE):
-			piles.deck.append(seat * MatchRules.DECK_SIZE + index)
-		piles.hand.clear()
-		piles.board.clear()
-		piles.revealed.clear()
-		piles.burned.clear()
-		piles.destroyed.clear()
-		piles.destroyed_known.clear()
-		_rng.shuffle_in_place(piles.deck)
-	var by_coin: bool = _state.last_round_winner < 0
-	_state.first_seat = _round_first_seat()
-	_emit(
-		MatchEvent.Kind.ROUND_STARTED,
-		{
-			"round": _state.round_number,
-			"sudden_death": _state.sudden_death,
-			"first_seat": _state.first_seat,
-			"first_by_coin": by_coin,
-		}
-	)
-	for seat: int in range(SEATS):
-		for _deal: int in range(MatchRules.OPENING_HAND):
-			_deal_card(seat)
-
-
-## Turn 1's first committer (R18, C9). The most recent round winner of the match goes
-## second, looking past tied rounds and including sudden-death rounds; before any round is
-## won, a coin flip from the engine stream decides. This is the only coin flip in the
-## engine, so the stream is consumed by coins only until the first won round.
-func _round_first_seat() -> int:
-	if _state.last_round_winner >= 0:
-		return 1 - _state.last_round_winner
-	return _rng.coin_flip()
-
-
-## Round end (R19, R24): each destroyed pile empties into its burn pile first (DC-07 R17),
-## then the higher board wins the round; equal boards award no win. The
-## event carries the turn-7 scores. The table is not cleared here (C15): when the match
-## goes on, the next _begin_round() resets scores, pending, hands, boards, burns and decks;
-## when this round ends the match, its boards, hands and scores stay as the final table.
-func _end_round() -> void:
-	# Each destroyed pile empties into its burn pile (DC-07 R17, P6), after the last turn's
-	# clear has filled it.
-	_state.burn_destroyed_piles()
-	var winner: int = _leader()
-	if winner >= 0:
-		_state.wins[winner] += 1
-		_state.last_round_winner = winner
-	_emit(
-		MatchEvent.Kind.ROUND_ENDED,
-		{
-			"round": _state.round_number,
-			"scores": _pair(_state.scores),
-			"winner": winner,
-			"wins": _pair(_state.wins),
-		}
-	)
-	_after_round(winner)
-
-
-## Match end checks after a round (R20-R22), in this order:
-## - a won sudden-death round ends the match, reason sudden_death, even when that win is
-##   the seat's fourth (3-3 after round 7 into a sudden-death win);
-## - a seat on 4 wins ends it, reason wins;
-## - after round 7, the seat with more wins takes it, reason rounds.
-## Otherwise the next round starts; past round 7 it is a sudden-death round, so a tied
-## sudden-death round starts another. A match end leaves the finished round's table in
-## place (C15); only _begin_round() clears it.
-func _after_round(winner: int) -> void:
-	var played: int = _state.round_number
-	if _state.sudden_death:
-		if winner >= 0:
-			_end_match(winner, REASON_SUDDEN_DEATH, played)
-			return
-	elif winner >= 0 and _state.wins[winner] >= MatchRules.WINS_TO_TAKE:
-		_end_match(winner, REASON_WINS, played)
-		return
-	elif _state.round_number >= MatchRules.ROUNDS:
-		var leader: int = _wins_leader()
-		if leader >= 0:
-			_end_match(leader, REASON_ROUNDS, played)
-			return
-	_begin_round()
+	TurnFlow.begin_round(_state, _rng, _emit)
 	_begin_turn()
 
 
-# --- Turns ----------------------------------------------------------------------------
-
-
-## Turn start (R12, R13, R17): set the first committer, clear this turn's spend, then draw
-## 1 card per seat, and await the first committer. `energy` is the base (the turn);
-## `budgets` and `free_first` are per seat. No Crew fires yet (DC-13 T07).
+## Turn start; a drain paused on a prompt (T05, T07) leaves the phase AWAIT_CHOICE.
 func _begin_turn() -> void:
-	_state.turn += 1
-	if _state.turn > 1 and _state.last_turn_winner >= 0:
-		_state.first_seat = _state.last_turn_winner
-	_state.phase = MatchState.Phase.AWAIT_FIRST
-	_state.energy.spent[0] = 0
-	_state.energy.spent[1] = 0
-	var free: Array = []
-	free.assign(_state.energy.free_first)
-	_emit(
-		MatchEvent.Kind.TURN_STARTED,
-		{
-			"round": _state.round_number,
-			"turn": _state.turn,
-			"energy": energy(),
-			"budgets": _pair(budgets()),
-			"free_first": free,
-			"first_seat": _state.first_seat,
-		}
-	)
-	for seat: int in range(SEATS):
-		_draw_card(seat)
+	if TurnFlow.begin_turn(_state, _cards, _rng, _emit):
+		_state.phase = MatchState.Phase.AWAIT_CHOICE
 
 
-## The two-step commit (R5, R7, R14, R15). `slots` are explicit (already resolved). The
-## commit's cost (with the free first card) is recorded in `energy.spent`, and the seat's
-## free first card is consumed whether or not it was used (plan P7). The first commit is
-## held face down in `pending` and `pending_slots`; the COMMITTED event's `slots` are
-## public, its `cards` private.
-func _commit(seat: int, cards: Array[int], slots: Array[int]) -> void:
-	var committed: Array[int] = []
-	committed.assign(cards)
-	var committed_slots: Array[int] = []
-	committed_slots.assign(slots)
-	var piles: MatchState.SeatPiles = _state.seats[seat]
-	for card: int in committed:
-		piles.hand.erase(card)
-	# Effective costs (cycle 8 R4, P3): memory follows the card, so leaving the hand first
-	# changes nothing.
-	var costs: Array[int] = ScoreWalk.effective_costs(committed, _state, _cards)
-	var cost: int = LegalPlays.commit_cost_with(committed, costs, _state.energy.free_first[seat])
-	_state.energy.spent[seat] = maxi(cost, 0)
-	_state.energy.free_first[seat] = false
-	_emit(
-		MatchEvent.Kind.COMMITTED,
-		{
-			"seat": seat,
-			"count": committed.size(),
-			"cards": MatchState.plain(committed),
-			"slots": MatchState.plain(committed_slots),
-		},
-		seat
-	)
-	if _state.phase == MatchState.Phase.AWAIT_FIRST:
-		_state.pending.assign(committed)
-		_state.pending_slots.assign(committed_slots)
+## An accepted Commit: TurnFlow.accept_commit, then its On commit and discard-down.
+func _commit(seat: int, picked: Array[int], slots: Array[int]) -> void:
+	TurnFlow.accept_commit(_state, _cards, _emit, seat, picked, slots)
+	if TurnFlow.after_commit(_state, _cards, _rng, _emit, seat):
+		_state.phase = MatchState.Phase.AWAIT_CHOICE
+		return
+	_commit_done(seat)
+
+
+## `seat`'s Commit step is complete (its discard-down done): the second seat is awaited
+## after the first's, and the Walk starts after the second's.
+func _commit_done(seat: int) -> void:
+	if seat == _state.first_seat:
 		_state.phase = MatchState.Phase.AWAIT_SECOND
 		return
-	var first_cards: Array[int] = []
-	first_cards.assign(_state.pending)
-	var first_slots: Array[int] = []
-	first_slots.assign(_state.pending_slots)
-	_state.pending.clear()
-	_state.pending_slots.clear()
-	_resolve(first_cards, first_slots, committed, committed_slots)
-
-
-## Resolution (R8, plan P2): both commits merge into their rows at their slots, first
-## committer first, before anything is revealed or scored; then the walk runs.
-func _resolve(
-	first_cards: Array[int],
-	first_slots: Array[int],
-	second_cards: Array[int],
-	second_slots: Array[int]
-) -> void:
-	var first: int = _state.first_seat
-	_merge_row(_state, first, first_cards, first_slots)
-	_merge_row(_state, 1 - first, second_cards, second_slots)
+	_state.phase = MatchState.Phase.AWAIT_SECOND
 	ScoreWalk.begin(_state)
-	_emit(
-		MatchEvent.Kind.WALK_STARTED,
-		{"round": _state.round_number, "turn": _state.turn, "first_seat": _state.first_seat}
-	)
+	_emit(MatchEvent.Kind.WALK_STARTED, {"first_seat": _state.first_seat})
 	_run_walk()
 
 
-## Places `cards` into `seat`'s row of `state` at their final slots (plan P1): walks the
-## merged row's indices 0..n-1, taking the committed card whose slot matches, else the next
-## card already on the row. Played cards keep their relative order. Static and pure over
-## `state`.
-static func _merge_row(state: MatchState, seat: int, cards: Array[int], slots: Array[int]) -> void:
-	var piles: MatchState.SeatPiles = state.seats[seat]
-	var old_row: Array[int] = []
-	old_row.assign(piles.board)
-	var merged: Array[int] = []
-	var next_new: int = 0
-	var next_old: int = 0
-	for slot: int in range(old_row.size() + cards.size()):
-		if next_new < cards.size() and slots[next_new] == slot:
-			merged.append(cards[next_new])
-			next_new += 1
-		elif next_old < old_row.size():
-			merged.append(old_row[next_old])
-			next_old += 1
-	piles.board.assign(merged)
-
-
-## The walk (R11-R17): pulses until the walk ends, then ends the turn. Every walk
-## recomputes every card on both rows, so cards played in earlier turns score again (they
-## are already revealed: no second CARD_REVEALED). Abilities fire inside the pulses
-## (ScoreWalk, Abilities: the T02 stub fizzles them) with the engine stream, and their
-## events reach `_events` through `_emit` with their owners. A pulse finding an open prompt
-## pauses the walk here: phase AWAIT_CHOICE, the prompted seat awaited, the turn not ended;
-## no T02 ability opens one.
+## The Walk: pulses until it ends (WALK_ENDED), then turn end. A pulse finding an open
+## prompt pauses it here: phase AWAIT_CHOICE, the prompted seat awaited.
 func _run_walk() -> void:
-	var sink: Callable = _emit
 	while _state.walk.active:
-		if ScoreWalk.step(_state, _cards, _rng, sink):
+		if ScoreWalk.step(_state, _cards, _rng, _emit):
 			_state.phase = MatchState.Phase.AWAIT_CHOICE
 			return
 	_end_turn()
 
 
-## An accepted choice of position `index` of `zone` (R32): the prompt closes (CHOICE_MADE,
-## Abilities.answer) and what it paused resumes. The phase returns to the one a walk runs
-## in (AWAIT_SECOND) until the walk pauses again or the turn ends.
-func _choose(zone: int, index: int) -> void:
+## An accepted answer to the open prompt: positions `indices` of `zone`, or the decline.
+## The discard-down is TurnFlow's and resumes its Commit; any other prompt closes through
+## Abilities (CHOICE_MADE or CHOICE_DECLINED) and resumes what it paused per its `resume`.
+func _answer(zone: int, indices: Array[int], declined: bool) -> void:
 	var resume: String = Choice.resume_of(_state.prompt)
+	if TurnFlow.is_discard_down(_state.prompt):
+		var seat: int = TurnFlow.answer_discard_down(_state, _cards, _rng, _emit, indices)
+		_commit_done(seat)
+		return
 	_state.phase = MatchState.Phase.AWAIT_SECOND
-	var picked: Array[int] = [index]
-	_events.append_array(Abilities.answer(_state, zone, picked))
-	_resume(resume)
-
-
-## An accepted set choice (R24), as _choose().
-func _choose_set(zone: int, indices: Array[int]) -> void:
-	var resume: String = Choice.resume_of(_state.prompt)
-	_state.phase = MatchState.Phase.AWAIT_SECOND
-	_events.append_array(Abilities.answer(_state, zone, indices))
-	_resume(resume)
-
-
-## An accepted decline, as _choose(): the optional prompt closes without its ability
-## (CHOICE_DECLINED) and what it paused resumes.
-func _decline() -> void:
-	var resume: String = Choice.resume_of(_state.prompt)
-	_state.phase = MatchState.Phase.AWAIT_SECOND
-	_events.append_array(Abilities.decline(_state))
-	_resume(resume)
-
-
-## Resumes after an answered prompt per its `resume`: the paused walk, or for a turn-start
-## prompt the first committer's decision (no T02 Crew prompts at turn start).
-func _resume(resume: String) -> void:
+	if declined:
+		_events.append_array(Abilities.decline(_state))
+	else:
+		_events.append_array(Abilities.answer(_state, zone, indices))
 	if resume == Choice.RESUME_TURN_START:
 		_state.phase = MatchState.Phase.AWAIT_FIRST
-	else:
+	elif resume == Choice.RESUME_WALK:
 		_run_walk()
+	# RESUME_COMMIT, RESUME_TURN_END and RESUME_ROUND_END resume with DC-13 T05's queue.
 
 
 ## The open prompt's seat, or -1 when none is open.
@@ -619,25 +403,13 @@ func _prompt_seat() -> int:
 	return seat
 
 
-## Turn end (R17), only once the walk is complete: the energy carry is 0 for both seats (no
-## T02 ability carries, grants or returns), then the scores are the walk totals and the
-## higher one wins the turn. DC-13 T03 replaces this with the v2 turn end (P14).
+## Turn end (TurnFlow.end_turn), then the next Turn, or after Turn 7 the Round end.
 func _end_turn() -> void:
-	for seat: int in range(SEATS):
-		_state.energy.carry[seat] = 0
-	var winner: int = _leader()
-	_state.last_turn_winner = winner
-	_emit(
-		MatchEvent.Kind.TURN_ENDED,
-		{
-			"round": _state.round_number,
-			"turn": _state.turn,
-			"scores": _pair(_state.scores),
-			"winner": winner,
-		}
-	)
+	if TurnFlow.end_turn(_state, _cards, _rng, _emit):
+		_state.phase = MatchState.Phase.AWAIT_CHOICE
+		return
 	if _state.turn >= MatchRules.TURNS:
-		_end_round()
+		_after_round(TurnFlow.end_round(_state, _cards, _rng, _emit))
 	else:
 		_begin_turn()
 
@@ -645,18 +417,39 @@ func _end_turn() -> void:
 # --- Match end ------------------------------------------------------------------------
 
 
-## Concede (R23): the other seat wins at once, whoever was awaited. A concede always falls
-## inside a round, and that unfinished round does not count as played.
+## Match end checks after a Round (R1), in this order:
+## - a won sudden-death Round ends the match, reason sudden_death;
+## - a seat on 4 wins ends it, reason wins;
+## - after Round 7, the seat with more wins takes it, reason rounds.
+## Otherwise the next Round starts; past Round 7 it is a sudden-death Round. A match end
+## leaves the table as it stands.
+func _after_round(winner: int) -> void:
+	var played: int = _state.round_number
+	if _state.sudden_death:
+		if winner >= 0:
+			_end_match(winner, REASON_SUDDEN_DEATH, played)
+			return
+	elif winner >= 0 and _state.wins[winner] >= MatchRules.WINS_TO_TAKE:
+		_end_match(winner, REASON_WINS, played)
+		return
+	elif _state.round_number >= MatchRules.ROUNDS:
+		var leader: int = TurnFlow.leader(_state.wins)
+		if leader >= 0:
+			_end_match(leader, REASON_ROUNDS, played)
+			return
+	_begin_round()
+
+
+## Concede: the other seat wins at once, whoever was awaited. A concede always falls inside
+## a Round, and that unfinished Round does not count as played.
 func _concede(seat: int) -> void:
 	_emit(MatchEvent.Kind.CONCEDED, {"seat": seat})
 	_end_match(1 - seat, REASON_CONCEDE, _state.round_number - 1)
 
 
-## Ends the match (R25). `rounds_played` counts completed rounds, sudden death included,
-## so it equals the number of ROUND_ENDED events in the match; a concede in round N
-## reports N-1 (C14). The table is left as it stands (C15): hands, boards and scores of
-## the last round, so view_for() shows the final table on every end path. Every later
-## action fails with MATCH_OVER (_check).
+## Ends the match. `rounds_played` counts completed Rounds, sudden death included, so it
+## equals the number of ROUND_ENDED events in the match. The table is left as it stands.
+## Every later action fails with MATCH_OVER.
 func _end_match(winner: int, reason: String, rounds_played: int) -> void:
 	_state.phase = MatchState.Phase.OVER
 	# A concede can come while a prompt is open; nothing answers it any more.
@@ -671,71 +464,17 @@ func _end_match(winner: int, reason: String, rounds_played: int) -> void:
 		{
 			"winner": winner,
 			"reason": reason,
-			"wins": _pair(_state.wins),
+			"wins": MatchState.plain(_state.wins),
 			"rounds_played": rounds_played,
 		}
 	)
 
 
-# --- Cards ----------------------------------------------------------------------------
-
-
-func _deal_card(seat: int) -> void:
-	var piles: MatchState.SeatPiles = _state.seats[seat]
-	if piles.deck.is_empty():
-		return
-	var card: int = piles.deck[0]
-	piles.deck.remove_at(0)
-	piles.hand.append(card)
-	_emit(MatchEvent.Kind.CARD_DEALT, {"seat": seat, "card": card}, seat)
-
-
-## Draw (canon R13): the top card of `seat`'s Deck goes to its hand, CARD_DRAWN {seat,
-## card} private to the seat; nothing when the Deck is empty. There is no hand cap and no
-## burn under rules 7 (the discard-down lands with DC-13 T03).
-func _draw_card(seat: int) -> void:
-	var piles: MatchState.SeatPiles = _state.seats[seat]
-	if piles.deck.is_empty():
-		return
-	var card: int = piles.deck[0]
-	piles.deck.remove_at(0)
-	piles.hand.append(card)
-	_emit(MatchEvent.Kind.CARD_DRAWN, {"seat": seat, "card": card}, seat)
-
-
-## The seat with the higher board score, or -1 when they are equal.
-func _leader() -> int:
-	if _state.scores[0] > _state.scores[1]:
-		return 0
-	if _state.scores[1] > _state.scores[0]:
-		return 1
-	return -1
-
-
-## The seat with more round wins, or -1 when they are level.
-func _wins_leader() -> int:
-	if _state.wins[0] > _state.wins[1]:
-		return 0
-	if _state.wins[1] > _state.wins[0]:
-		return 1
-	return -1
-
-
-func _pair(values: Array[int]) -> Array:
-	return [values[0], values[1]]
-
-
-static func _plain_strings(values: Array[String]) -> Array:
-	var out: Array = []
-	out.assign(values)
-	return out
-
-
 # --- Decks ----------------------------------------------------------------------------
 
 
-## `deck_ids` with each empty id replaced by the seat's seeded pick (DC-07 R6, P14), when
-## `decks` loaded; otherwise unchanged. Seats beyond SEATS are not looked at.
+## `deck_ids` with each empty id replaced by the seat's seeded pick, when `decks` loaded;
+## otherwise unchanged. Seats beyond SEATS are not looked at.
 static func _resolved_deck_ids(
 	match_seed: int, decks: DeckList, ids: Array[String]
 ) -> Array[String]:
@@ -750,8 +489,8 @@ static func _resolved_deck_ids(
 
 ## Why a match on these inputs cannot start (an EngineError.Code), or NONE: a failed or
 ## missing pool, or a deck list that failed to load or to validate against it and the Crew
-## pool `crew` (cycle 8 R41), is CARD_DATA_INVALID (R3, R8); a `deck_ids` that does not
-## name one deck per seat, or names one the list does not hold, is DECK_UNKNOWN (DC-07 P2).
+## pool `crew`, is CARD_DATA_INVALID; a `deck_ids` that does not name one deck per seat, or
+## names one the list does not hold, is DECK_UNKNOWN.
 static func _deck_problem(
 	cards: CardDb, decks: DeckList, crew: CrewPool, requested: int, resolved: Array[String]
 ) -> int:

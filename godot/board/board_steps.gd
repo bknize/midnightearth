@@ -13,9 +13,11 @@ extends RefCounted
 ## prompt code through strip_step(), no event maps to them), destroy mark 0.35, destroyed
 ## fly-out 0.45, turn end 0.6 (the tally fly-in and the count). Turn start, walk start,
 ## prompt and match end are instant (a prompt
-## waits on the player, not on a clock). BONUS_ZERO_SET, ENERGY_CARRIED and FREE_FIRST_SET
-## have no step: the next TURN_STARTED carries their result (budgets, free_first), and
-## CARD_REVEALED / STATS_CHANGED carry the cleared bonus (times 100, plus 0).
+## waits on the player, not on a clock).
+## DC-13 T03 (rules 7, the v7 event table): TRIGGER_FIRED, TRIGGER_FIZZLED and PROMPT_OPENED
+## take the old effect, fizzle and prompt beats; CARD_DISCARDED and CARD_RETURNED name the
+## card's `owner`; the destroy, burn and recover kinds are gone. The v7 kinds with no beat
+## yet (DRAW_EMPTY, WALK_ENDED, statuses, exits, ...) are DC-13 T09's.
 
 const CLEAR_TIME: float = 0.40
 const DEAL_TIME: float = 0.30
@@ -76,8 +78,6 @@ static func from_events(
 			made.append(_move_run(events, at, folded))
 		elif event.kind == MatchEvent.Kind.CARD_UNREVEALED:
 			made.append(_unreveal(event))
-		elif event.kind == MatchEvent.Kind.CARD_RECOVERED:
-			made.append(_recover(event))
 		else:
 			made = _steps_for(event, viewer, after_deal)
 		for step: BoardStep in made:
@@ -131,20 +131,6 @@ static func _crew_fire(event: MatchEvent) -> BoardStep:
 	return step
 
 
-## A destroyed card leaving its row: to the pile it flies off; a salvaged one (`pile` false)
-## returns to its owner's hand instead (cycle 8 R65).
-static func _cleared(event: MatchEvent) -> BoardStep:
-	var payload: Dictionary = event.payload
-	# An event without the key is a pile clear, as every DC-07 clear was.
-	var to_pile: bool = payload.get("pile", true)
-	var kind: int = BoardStep.Kind.CLEAR_DESTROYED if to_pile else BoardStep.Kind.RETURN
-	var step: BoardStep = _card_step(kind, event)
-	step.slot = payload.get("slot", -1)
-	step.pile = to_pile
-	step.duration = CLEAR_DESTROYED_TIME if to_pile else RETURN_TIME
-	return step
-
-
 static func _unreveal(event: MatchEvent) -> BoardStep:
 	var step: BoardStep = _card_step(BoardStep.Kind.UNREVEAL, event)
 	step.slot = event.payload.get("slot", -1)
@@ -152,11 +138,12 @@ static func _unreveal(event: MatchEvent) -> BoardStep:
 	return step
 
 
-static func _recover(event: MatchEvent) -> BoardStep:
-	var step: BoardStep = _card_step(BoardStep.Kind.RECOVER, event)
-	step.from_seat = event.payload.get("from_seat", -1)
-	step.slot = event.payload.get("position", -1)
-	step.duration = RECOVER_TIME
+## A step for a v7 event that names its card's `owner` rather than a `seat`
+## (CARD_DISCARDED, CARD_RETURNED; DC-13 T03): the owner is the step's seat.
+static func _owner_step(kind: int, event: MatchEvent) -> BoardStep:
+	var step: BoardStep = _make(kind, event)
+	step.seat = event.payload.get("owner", -1)
+	step.card = event.payload.get("card", -1)
 	return step
 
 
@@ -230,6 +217,15 @@ static func _pulse(reveal: MatchEvent, scored: MatchEvent) -> BoardStep:
 		step.added = values.get("added", 0)
 		step.score = values.get("score", -1)
 		step.again = values.get("again", false)
+		if values.has("total"):
+			# Rules 7 (DC-13 T03, interim until T09): the walking total, rounded, is the
+			# tally; the Bonus value in hundredths is the chip's mult.
+			var total: int = values["total"]
+			var bonus: int = values.get("bonus_value", MatchRules.SCALE)
+			step.flat = values.get("power", step.flat)
+			step.added = step.flat
+			step.score = Scoring.walk_score(total)
+			step.mult = Scoring.round_half_up(bonus, MatchRules.BONUS_ONE)
 		# On a first reveal the chips wait for the flip to finish (R31).
 		step.chip_delay = REVEAL_TIME if reveal != null else 0.0
 		step.duration = maxf(step.duration, step.chip_delay + ScoreChips.chips_time(step))
@@ -256,19 +252,12 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			var draw: BoardStep = _card_step(BoardStep.Kind.DRAW, event)
 			draw.duration = DRAW_TIME
 			out.append(draw)
-		MatchEvent.Kind.CARD_BURNED:
-			var burn: BoardStep = _card_step(BoardStep.Kind.BURN, event)
-			var burn_slot: int = payload.get("slot", -1)
-			var burn_row: int = payload.get("row_seat", -1)
-			burn.slot = burn_slot
-			burn.row_seat = burn_row
-			burn.duration = BURN_TIME
-			out.append(burn)
 		MatchEvent.Kind.TURN_STARTED:
 			var start: BoardStep = _make(BoardStep.Kind.TURN_START, event)
 			var start_round: int = payload["round"]
 			var start_turn: int = payload["turn"]
-			var start_energy: int = payload["energy"]
+			# Rules 7: every seat's base Energy is the Turn; `budgets` adds its grants.
+			var start_energy: int = payload.get("energy", start_turn)
 			start.round_number = start_round
 			start.turn = start_turn
 			start.energy = start_energy
@@ -286,19 +275,19 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			_append_commit(out, event, viewer)
 		MatchEvent.Kind.WALK_STARTED:
 			out.append(_make(BoardStep.Kind.WALK_START, event))
-		MatchEvent.Kind.EFFECT_FIRED:
+		MatchEvent.Kind.TRIGGER_FIRED:
 			var fired: BoardStep = _card_step(BoardStep.Kind.EFFECT, event)
 			fired.verb = payload.get("verb", "")
-			fired.trigger = payload.get("trigger", "")
+			fired.trigger = payload.get("moment", payload.get("trigger", ""))
 			fired.duration = EFFECT_TIME
 			out.append(fired)
-		MatchEvent.Kind.EFFECT_FIZZLED:
+		MatchEvent.Kind.TRIGGER_FIZZLED:
 			var fizzled: BoardStep = _card_step(BoardStep.Kind.FIZZLE, event)
 			fizzled.verb = payload.get("verb", "")
 			fizzled.reason = payload.get("reason", "")
 			fizzled.duration = FIZZLE_TIME
 			out.append(fizzled)
-		MatchEvent.Kind.CHOICE_REQUESTED:
+		MatchEvent.Kind.PROMPT_OPENED:
 			# Only the viewer's own prompt shows; the bot's request has no beat.
 			var asked_seat: int = payload["seat"]
 			if asked_seat == viewer:
@@ -331,11 +320,6 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			stats.cause = payload.get("cause", "")
 			stats.duration = STATS_TIME
 			out.append(stats)
-		MatchEvent.Kind.CARD_DESTROYED:
-			var destroyed: BoardStep = _card_step(BoardStep.Kind.DESTROY, event)
-			destroyed.slot = payload.get("slot", -1)
-			destroyed.duration = DESTROY_TIME
-			out.append(destroyed)
 		MatchEvent.Kind.CREW_FIRED:
 			out.append(_crew_fire(event))
 		MatchEvent.Kind.CHOICE_DECLINED:
@@ -344,15 +328,13 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			declined.seat = declined_seat
 			declined.duration = DECLINE_TIME
 			out.append(declined)
-		MatchEvent.Kind.DESTROYED_CLEARED:
-			out.append(_cleared(event))
 		MatchEvent.Kind.CARD_RETURNED:
-			var returned: BoardStep = _card_step(BoardStep.Kind.RETURN, event)
+			var returned: BoardStep = _owner_step(BoardStep.Kind.RETURN, event)
 			returned.slot = payload.get("slot", -1)
 			returned.duration = RETURN_TIME
 			out.append(returned)
 		MatchEvent.Kind.CARD_DISCARDED:
-			var discarded: BoardStep = _card_step(BoardStep.Kind.DISCARD, event)
+			var discarded: BoardStep = _owner_step(BoardStep.Kind.DISCARD, event)
 			discarded.duration = DISCARD_TIME
 			out.append(discarded)
 		MatchEvent.Kind.TURN_ENDED:

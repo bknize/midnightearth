@@ -144,6 +144,35 @@ func test_answers_a_set_prompt_with_offered_options() -> void:
 	assert_int(drawn.size()).is_greater(1)
 
 
+## Rules 7 (DC-13 T03; cycle 9 R70): the bot answers a real discard-down with a set of
+## exactly its `exact` hand positions, every one offered, which the engine accepts; over 16
+## bot seeds more than one set is drawn.
+func test_answers_a_discard_down_with_exactly_exact_cards() -> void:
+	var drawn: Dictionary[String, bool] = {}
+	for bot_seed: int in range(1, 17):
+		var engine: MatchEngine = FixtureDecks.engine(1, _db())
+		assert_bool(engine.start().ok).is_true()
+		var seat: int = engine.awaited_seat()
+		var piles: MatchState.SeatPiles = engine._state.seats[seat]
+		piles.hand.append(piles.deck.pop_back())
+		var none: Array[int] = []
+		assert_bool(engine.apply(EngineAction.commit(seat, none)).ok).is_true()
+		var view: SeatView = engine.view_for(seat)
+		var exact: int = view.prompt.get("exact", -1)
+		assert_int(exact).is_equal(2)
+		var options: Array[int] = Choice.options_of(view.prompt)
+		var bot: RandomBot = RandomBot.new(bot_seed, engine.match_cards())
+		var action: EngineAction = bot.choose(view, engine)
+		assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE_SET)
+		assert_int(action.zone).is_equal(Choice.Zone.OWN_HAND)
+		assert_int(action.indices.size()).is_equal(exact)
+		for index: int in action.indices:
+			assert_bool(options.has(index)).is_true()
+		assert_bool(engine.apply(action).ok).is_true()
+		drawn[str(action.indices)] = true
+	assert_int(drawn.size()).is_greater(1)
+
+
 ## Views collected along one random-vs-random match on `match_seed` (fixture deck).
 func _views(match_seed: int) -> Array[SeatView]:
 	var out: Array[SeatView] = []
