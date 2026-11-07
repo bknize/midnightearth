@@ -2,7 +2,7 @@
 type: planning
 tags: [planning, bot, training, llm, architecture]
 status: growing
-related: ["[[planning/planning-moc]]", "[[planning/bot-trainer-spike]]", "[[systems/bot-training]]", "[[planning/bot-ladder]]", "[[systems/game-loop]]", "[[specs/cycle-7-bot-players/spec]]"]
+related: ["[[planning/planning-moc]]", "[[specs/cycle-9-rules-v2/spec]]", "[[specs/ruleset-v2/spec]]", "[[planning/bot-trainer-spike]]", "[[systems/bot-training]]", "[[planning/bot-ladder]]", "[[systems/game-loop]]", "[[specs/cycle-7-bot-players/spec]]"]
 created: 2026-11-06
 updated: 2026-11-06
 uid: 1260ecea-5fcf-425a-bf1f-6951276f5c24
@@ -72,6 +72,20 @@ cheap rollout policy (no previews), about 25 ms. Labeling one decision point wit
 That's roughly 1,500 labels an hour, or 12,000 a night, and about 8 times more with the cheap
 rollout policy. Positions late in the match are cheaper to label than early ones, so the
 generator should not over-sample early turns by accident.
+
+## Master after DC-13 and DC-14 (2026-11-07)
+
+Ben: the bots are to be developed for this `master` (`bee0500`, rules version 7). The merge
+changed several things this design assumed:
+
+| Assumption above | What `master` has now | Consequence |
+|---|---|---|
+| Reuse `greedy_v1`, `tuned`, `matrix` and weights files | DC-13 T01 "the strip" kept only `random`. Gone: the worker, candidate generation, the evaluator, weights files, the stamp code, the hand sampler and regret matching. `scripts/bot/` and `make bot-*` survive but drive nothing ([[planning/bot-ladder]]: "rerun provision suspended"). | Cycle A rebuilds a **match worker**, a **stamp** (rules version + data hash) and a **yardstick ladder**: `random` is the first yardstick, and each promoted policy becomes the next one. The SPRT and pentanomial code in `scripts/bot/` can be reused once a worker feeds it. |
+| `preview()` scores candidate commits cheaply | Preview mode is removed. `MatchState.duplicate()` survives. | Candidates are scored only by applying them to a clone and playing out, which is exactly the play-out farm's job. The shipped policy needs its own cheap features (section 5), since there's no preview to lean on. |
+| `HandSampler` determinizes the opponent | Deleted. Information model (ruleset-v2 R53): own hand private; rows, both Piles and both Crew public; the face-down commit's count and slots public. | The play-out worker samples the opponent's hand and both deck orders from the unseen cards: the deck list minus everything the seat's view shows. Piles are public, so this is tighter than before. |
+| Rounds nearly independent | 40-card decks that persist across Rounds and run dry around Round 6 (R62), public Piles, statuses with durations. | T5 (play to the match end) was the right call. |
+| Four fixture decks | Six strategy decks (greed, ramp, combo, disruption, graveyard, control), fixtures "for testing and bot training" (R63). Each strategy has a one-paragraph plan: by Round 2, by Round 5, and the last two Rounds (R62). | The R62 plans are ready-made context for the LLM plan proposer, and a natural first plan vocabulary. |
+| v6 cost: ~82 decisions per match, 0.34 s | B5: about **146 actions** per match. Random vs random, full match: 0.27 s per worker on the M3, **0.46–0.77 s** on the PC. The PC runs about 1,250 matches a minute at 16 workers. | Re-estimate: with random rollouts from an average mid-match position (~0.035 s of PC time each at 16 workers' throughput), one position with 8 candidates × 16 determinizations is ~128 rollouts ≈ 4.5 s → ~800 positions an hour, ~6,000 a night. A smarter rollout policy costs more. Cycle A must profile the engine's per-action cost: long-lived workers, no per-step `full_state()`, and possibly a lighter clone. |
 
 ## Components
 

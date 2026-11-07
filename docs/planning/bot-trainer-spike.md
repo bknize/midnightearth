@@ -198,6 +198,8 @@ Run everything in **one administrator PowerShell window**, in order.
 
 ### B2. Code onto the PC as a bundle (about 10 min)
 
+**Done 2026-11-07** on `master` `bee0500` (rules version 7, after the DC-13 and DC-14 merge). The bundle is 2.2 MB; the clone is clean.
+
 This is a manual version of `sync_code` (T2). Nothing is pushed.
 
 - [ ] **Mac:** `git bundle create` of `master`, then `scp` it to `midnight-pc:spike/midnightearth.bundle`.
@@ -206,6 +208,8 @@ This is a manual version of `sync_code` (T2). Nothing is pushed.
       the Mac's `master`.
 
 ### B3. Does it run headless on Windows? (about 30 min)
+
+**Done 2026-11-07, all pass.** Import 15 s; boot 2 s with `Main ready`; every gate suite PASSED (43 s). The only error lines are Godot's exit-time leak report ("138 resources still in use at exit" and two PagedAllocator lines), which the Mac gate tolerates too. The 50-seed sweep PASSED (41 s). Its 33 summary and pairing lines are **identical to the Mac's once timing fields are removed**. The PC's p99 is 2,042 µs against the Mac's 1,190 µs, with the random bot. The driver selftest was skipped: DC-13 left `scripts/bot/` driving nothing.
 
 From `spike\midnightearth\godot`, the same commands `scripts/check.sh` runs, each logged and
 searched for `SCRIPT ERROR|Parse Error|Failed to load script|ERROR:`:
@@ -221,6 +225,8 @@ searched for `SCRIPT ERROR|Parse Error|Failed to load script|ERROR:`:
       becomes cycle A work.
 
 ### B4. Same seeds, same matches? (about 20 min)
+
+**Done 2026-11-07: identical.** DC-13 deleted `godot/tools/bot_worker.gd`, so `bench.py` below no longer runs. The spike used a throwaway `godot/tools/spike_bench.gd`, untracked and copied into both clones (the Mac's is a scratch worktree of `bee0500`). It plays random vs random on each seed's own pairing, with no scans, and records SHA-256 of the full action log and of the final `full_state()`. A driver, `bench2.py`, hashes those records. Seeds 1–50 gave `c3b954706528fc4b` and seeds 1–400 gave `e5f48322e7e3b68d` on **both** machines, at every worker count. Seed 1 is combo vs graveyard in 265 actions, the same as the gate's golden pin.
 
 The PC's labels are only worth anything if a match played there replays exactly the same on
 the Mac. `bench.py` (below) runs the bot worker directly over a seed range, on N workers at once.
@@ -238,6 +244,17 @@ Verified on the Mac 2026-11-06: seeds 1–4, tuned vs `greedy_v1`, gave the same
       cross-platform determinism fault), and the spike stops there.
 
 ### B5. How fast are play-outs? (about 1.5 h, detached)
+
+**Measured 2026-11-07** with `spike_bench.gd` (random vs random, full matches, about 146 actions each, batches of 25 per Godot process):
+
+| Machine | Workers | Matches per minute | Seconds per match per worker |
+|---|---|---|---|
+| PC | 16 | 1,246 | 0.77 |
+| PC | 12 | 1,083 | 0.67 |
+| PC | 8 | 1,040 | 0.46 |
+| Mac (M3) | 8 | 1,783 | 0.27 |
+
+The PC does about 70% of the Mac's throughput. SMT threads 9–16 add only about 20%. Rules v2 matches are longer than v6's (about 146 actions against 82 decisions), so the architecture's per-rollout costs need re-estimating (see the architecture note's 2026-11-07 section). Throttling run: see the results table.
 
 There's no rollout-from-mid-match entry yet; that's cycle A. A full match from the start is the
 longest possible play-out, so it gives an upper bound. `greedy_v1` on both sides is a greedy
@@ -367,12 +384,12 @@ if __name__ == "__main__":
 | # | Measure | Result |
 |---|---|---|
 | A/B0 | SSH as `trainer` works, `trainer` not an admin, the detached job survives a disconnect | **Pass** (2026-11-06): SSH as `desktop-q7m5vjd\trainer`, not an admin; long jobs through the `trainer-runner` task; CUDA visible from the runner |
-| B2 | Commit on the PC = Mac `master`? | |
-| B3 | Import / boot (`Main ready`) / gate tests (`Statistics:`) | |
-| B3 | Sweep `p99_us=` and `stamp=` on the PC | |
-| B3 | `driver.py selftest` on Windows | |
-| B4 | `digest=` on the PC and on the Mac, equal? | |
-| B5 | Games per minute at 16 / 12 / 8 workers (and the Mac at 8) | |
+| B2 | Commit on the PC = Mac `master`? | **Pass**: `bee0500` (rules version 7) |
+| B3 | Import / boot (`Main ready`) / gate tests (`Statistics:`) | **Pass**: 15 s / 2 s / all suites PASSED |
+| B3 | Sweep `p99_us=` and `stamp=` on the PC | **Pass**: p99 2,042 µs (Mac 1,190); no stamp any more (DC-13); counters identical to the Mac |
+| B3 | `driver.py selftest` on Windows | Skipped: the bot tooling drives nothing after DC-13 |
+| B4 | `digest=` on the PC and on the Mac, equal? | **Pass**: `c3b954706528fc4b` (1–50), `e5f48322e7e3b68d` (1–400) on both |
+| B5 | Games per minute at 16 / 12 / 8 workers (and the Mac at 8) | 1,246 / 1,083 / 1,040 (Mac 1,783), random vs random, full matches |
 | B5 | First vs last 5 min of the 30-min run (throttling) | |
 | B6 | Each model: `pp2048`, `tg256`, VRAM used | |
 | B6 | Server with 4 slots: aggregate tok/s, median s/request | |
