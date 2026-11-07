@@ -13,31 +13,44 @@ grow_vertical = 2
 theme = ExtResource("2_theme")
 script = ExtResource("1_picker")
 
-[node name="Center" type="CenterContainer" parent="."]
+[node name="Scroll" type="ScrollContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+horizontal_scroll_mode = 0
 
-[node name="Box" type="VBoxContainer" parent="Center"]
+[node name="Margin" type="MarginContainer" parent="Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 24
+
+[node name="Center" type="CenterContainer" parent="Scroll/Margin"]
+layout_mode = 2
+
+[node name="Box" type="VBoxContainer" parent="Scroll/Margin/Center"]
 custom_minimum_size = Vector2(720, 0)
 layout_mode = 2
 theme_override_constants/separation = 20
 
-[node name="Title" type="Label" parent="Center/Box"]
+[node name="Title" type="Label" parent="Scroll/Margin/Center/Box"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 40
 horizontal_alignment = 1
 text = "Choose decks"
 
-[node name="Columns" type="HBoxContainer" parent="Center/Box"]
+[node name="Columns" type="HBoxContainer" parent="Scroll/Margin/Center/Box"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 24
 
-[node name="StartButton" type="Button" parent="Center/Box"]
+[node name="StartButton" type="Button" parent="Scroll/Margin/Center/Box"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Start"
