@@ -2,6 +2,7 @@ import json
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List
 from unittest import mock
@@ -32,10 +33,15 @@ def play_req(seed: int) -> Dict[str, Any]:
     return {"kind": "play", "seed": str(seed), "decks": [], "generator": "random"}
 
 
+def run_all(farm: Farm, reqs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    with ThreadPoolExecutor(len(reqs)) as pool:
+        return list(pool.map(farm.request, reqs))
+
+
 class FarmTest(unittest.TestCase):
     def test_ordering_and_ids_across_workers(self) -> None:
         with make_farm(4) as farm:
-            replies = farm.map([play_req(1000 + i) for i in range(40)])
+            replies = run_all(farm, [play_req(1000 + i) for i in range(40)])
             self.assertEqual(farm.stamp, STAMP)
         for i, rep in enumerate(replies):
             self.assertEqual(rep["log"]["seed"], str(1000 + i))
@@ -48,7 +54,7 @@ class FarmTest(unittest.TestCase):
 
     def test_restart_counted_after_crash(self) -> None:
         with make_farm(1, 30.0, "--crash-after", "3") as farm:
-            replies = farm.map([play_req(i) for i in range(10)])
+            replies = run_all(farm, [play_req(i) for i in range(10)])
             self.assertEqual([r["log"]["seed"] for r in replies], [str(i) for i in range(10)])
             self.assertEqual(farm.restarts, 3)
 
@@ -85,11 +91,11 @@ class FarmTest(unittest.TestCase):
         with self.assertRaises(FarmError):
             farm.request(play_req(1))
         with self.assertRaises(FarmError):
-            farm.map([play_req(2)])
+            farm.request(play_req(2))
         failed = make_farm(1)
         failed.start()
         try:
-            failed._fail("boom")
+            failed._close("boom")
             with self.assertRaises(FarmError) as ctx:
                 failed.request(play_req(2))
             self.assertNotIsInstance(ctx.exception, RequestFailed)

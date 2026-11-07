@@ -223,8 +223,8 @@ class Farm:
 
     def request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Send a request (the farm sets its `id`), block for the reply. Raises FarmError."""
-        job = _Job(next(self._ids), dict(request, id=0))
-        job.request["id"] = job.id
+        job_id = next(self._ids)
+        job = _Job(job_id, dict(request, id=job_id))
         self._enqueue(job)
         job.done.wait()
         with self._lock:
@@ -232,24 +232,6 @@ class Farm:
         if job.reply is None:
             raise self._failure(job)
         return job.reply
-
-    def map(self, requests: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Replies in request order, the requests running across the workers."""
-        jobs: List[_Job] = []
-        for req in requests:
-            job = _Job(next(self._ids), dict(req))
-            job.request["id"] = job.id
-            jobs.append(job)
-            self._enqueue(job)
-        out: List[Dict[str, Any]] = []
-        for job in jobs:
-            job.done.wait()
-            with self._lock:
-                self._pending.pop(job.id, None)
-            if job.reply is None:
-                raise self._failure(job)
-            out.append(job.reply)
-        return out
 
     # internals
 
@@ -288,9 +270,6 @@ class Farm:
                 job.error = reason
                 job.done.set()
         self._stop.set()
-
-    def _fail(self, message: str) -> None:
-        self._close(message)
 
     def _spawn(self, slot: int) -> _Proc:
         """Start a worker and wait for its hello line."""
@@ -334,7 +313,7 @@ class Farm:
             try:
                 proc = self._spawn(slot)
             except Exception as e:
-                self._fail(str(e) if isinstance(e, FarmError) else
+                self._close(str(e) if isinstance(e, FarmError) else
                            "%s: %s" % (type(e).__name__, e))
                 return
             finally:
@@ -352,7 +331,7 @@ class Farm:
                     proc = self._serve(slot, proc, job)
                 except Exception as e:  # whatever it is, the job gets an error reply
                     job.error = "%s: %s" % (type(e).__name__, e)
-                    self._fail(str(e) if isinstance(e, FarmError) else job.error)
+                    self._close(str(e) if isinstance(e, FarmError) else job.error)
                     return
                 finally:
                     with self._lock:
