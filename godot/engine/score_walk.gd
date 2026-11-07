@@ -247,8 +247,8 @@ static func score_stage(
 ) -> bool:
 	var subjects: Array[int] = [card]
 	var runs: int = 2 if state.walk.pulse_twice else 1
-	for run: int in range(runs):
-		score(state, cards, sink, seat, card, run + 1)
+	for pass_index: int in range(runs):
+		score(state, cards, sink, seat, card, pass_index + 1)
 		# What the Score's Crew read as it was then (Navigator's count, Captain's slot; T07).
 		var context: Dictionary = {
 			CrewAbilities.KEY_SCORED_COUNT: state.walk.scored_count[seat],

@@ -271,8 +271,8 @@ static func spent(state: MatchState) -> int:
 
 ## Records that `source`'s retrigger applies to `seat`'s other On reveals this Turn (Q6;
 ## Encore in milestone B, `stub_retrigger` in the tests). Stacks by one per call.
-static func add_retrigger(state: MatchState, seat: int, source: int) -> void:
-	var sources: Array = state.walk.retrigger_on_reveal[seat]
+static func add_retrigger(state: MatchState, for_seat: int, source: int) -> void:
+	var sources: Array = state.walk.retrigger_on_reveal[for_seat]
 	sources.append(source)
 
 
@@ -388,17 +388,17 @@ static func _finish(state: MatchState, cards: MatchCards, ctx: TriggerContext) -
 ## named by the entry's `then_draw` makes the denied draw once if its Deck is no longer
 ## empty (CARD_DRAWN, private); with the Deck still empty nothing happens.
 static func _then_draw(state: MatchState, sink: Callable, entry: Dictionary) -> void:
-	var seat: int = entry.get(KEY_THEN_DRAW, -1)
-	if seat < 0 or seat >= state.seats.size():
+	var drawer: int = entry.get(KEY_THEN_DRAW, -1)
+	if drawer < 0 or drawer >= state.seats.size():
 		return
-	var piles: MatchState.SeatPiles = state.seats[seat]
+	var piles: MatchState.SeatPiles = state.seats[drawer]
 	if piles.deck.is_empty():
 		return
 	var card: int = piles.deck[0]
 	piles.deck.remove_at(0)
 	piles.hand.append(card)
 	if sink.is_valid():
-		sink.call(MatchEvent.Kind.CARD_DRAWN, {"seat": seat, "card": card}, seat)
+		sink.call(MatchEvent.Kind.CARD_DRAWN, {"seat": drawer, "card": card}, drawer)
 
 
 ## How many extra resolutions the retriggers add after `ctx` (Q6): one per source in its
@@ -640,22 +640,22 @@ static func _pile_entries(
 ## every Crew on its moment, a seat event that seat's, a card event its subject's seat's
 ## (once per subject).
 static func _crew_entries(
-	out: Array[Dictionary], cards: MatchCards, event: Dictionary, seat: int
+	out: Array[Dictionary], cards: MatchCards, event: Dictionary, crew_seat: int
 ) -> void:
 	var moment: String = event["moment"]
 	var subjects: Array[int] = event["subjects"]
 	var subject_seats: Array[int] = event["seats"]
 	var event_seat: int = event["seat"]
 	for slot: int in range(MatchRules.CREW_SIZE):
-		var crew: CrewDef = cards.crew_def(seat, slot)
+		var crew: CrewDef = cards.crew_def(crew_seat, slot)
 		if crew == null or crew.moment != moment:
 			continue
-		if SEATLESS_MOMENTS.has(moment) or (SEAT_MOMENTS.has(moment) and event_seat == seat):
-			out.append(_entry(KIND_CREW, seat, -1, slot, 0, moment, -1, event_seat))
+		if SEATLESS_MOMENTS.has(moment) or (SEAT_MOMENTS.has(moment) and event_seat == crew_seat):
+			out.append(_entry(KIND_CREW, crew_seat, -1, slot, 0, moment, -1, event_seat))
 			continue
 		for at: int in range(subjects.size()):
-			if subject_seats[at] == seat:
-				out.append(_entry(KIND_CREW, seat, -1, slot, 0, moment, subjects[at], seat))
+			if subject_seats[at] == crew_seat:
+				out.append(_entry(KIND_CREW, crew_seat, -1, slot, 0, moment, subjects[at], crew_seat))
 
 
 ## Whether a watcher of `watch` Controlled by `watcher_seat` wakes for a seat event of
@@ -690,7 +690,7 @@ static func _card_watches(
 ## One queue entry as plain data.
 static func _entry(
 	kind: String,
-	seat: int,
+	entry_seat: int,
 	card: int,
 	crew_slot: int,
 	ability: int,
@@ -700,7 +700,7 @@ static func _entry(
 ) -> Dictionary:
 	return {
 		"kind": kind,
-		"seat": seat,
+		"seat": entry_seat,
 		"card": card,
 		"crew_slot": crew_slot,
 		"ability": ability,
