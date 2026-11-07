@@ -544,7 +544,9 @@ static func on_commit(
 
 ## Each card of `discarded`, in order, wakes its On discard Batch (at Round end, D12, the
 ## cleared rows wake one Batch), and the queue drains at `step` (D4, D6, D10 or D12) for
-## `seat` (the discarding seat, -1 for none).
+## `seat` (the discarding seat, -1 for none). Each Batch carries the context {from, reason}
+## of its Discards (DC-14 T13: Tithe watches the exit pass's Condemned, Reliquary the hand);
+## an ability's own Discard from a hand wakes with none, which reads as from the hand.
 static func on_discard(
 	state: MatchState,
 	cards: MatchCards,
@@ -554,13 +556,17 @@ static func on_discard(
 	step: String,
 	seat: int = -1
 ) -> bool:
+	var context: Dictionary = {"from": FROM_HAND, "reason": REASON_DISCARD_DOWN}
+	if step == STEP_EXIT_PASS:
+		context = {"from": FROM_ROW, "reason": REASON_CONDEMNED}
 	if step == STEP_ROUND_END:
-		if TriggerQueue.wake(state, cards, MOMENT_DISCARD, discarded).is_empty():
+		context = {"from": FROM_ROW, "reason": REASON_ROUND_END}
+		if TriggerQueue.wake(state, cards, MOMENT_DISCARD, discarded, -1, context).is_empty():
 			pass  # Nothing watches the Round-end clear.
 	else:
 		for card: int in discarded:
 			var subjects: Array[int] = [card]
-			if TriggerQueue.wake(state, cards, MOMENT_DISCARD, subjects).is_empty():
+			if TriggerQueue.wake(state, cards, MOMENT_DISCARD, subjects, -1, context).is_empty():
 				pass  # Nothing watches this Discard.
 	return TriggerQueue.drain(state, cards, rng, sink, step, seat)
 

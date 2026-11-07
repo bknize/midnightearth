@@ -106,6 +106,27 @@ const VERBS: Dictionary[String, Dictionary] = {
 	"quorum": {"moments": ["on_start"], KEY_AMOUNT: [1, 5]},
 	"silence_opposing": {"moments": ["on_reveal"]},
 	"dross_walk_end": {"moments": ["ongoing"], KEY_AMOUNT: [1, 99]},
+	# Graveyard and Control (DC-14 T13, AbilitiesGraveyardControl).
+	"fuse": {"moments": ["on_score"], KEY_AMOUNT: [1, 3], KEY_AMOUNT_2: [1, 10]},
+	"tithe_energy": {"moments": ["on_discard"], KEY_AMOUNT: [1, 3], KEY_CAP: [1, 5]},
+	"reliquary_mult": {"moments": ["on_discard"], KEY_AMOUNT: [101, 200], KEY_CAP: [125, 300]},
+	"pile_power": {"moments": ["ongoing"], KEY_AMOUNT: [1, 3], KEY_AMOUNT_2: [1, 10]},
+	"wraith_fade": {"moments": ["ongoing"]},
+	"condemn_other_gain": {"moments": ["on_reveal"]},
+	"revive": {"moments": ["on_reveal"]},
+	"exhume": {"moments": ["on_reveal"], KEY_AMOUNT: [1, 3]},
+	"immolate": {"moments": ["on_reveal"]},
+	"reset_piles": {"moments": ["on_reveal"]},
+	"moved_add": {"moments": ["on_moved"], KEY_AMOUNT: [25, 100]},
+	"pin": {"moments": ["on_reveal"]},
+	"swap_self": {"moments": ["on_reveal"]},
+	"skip_next": {"moments": ["on_reveal"]},
+	"fence": {"moments": ["ongoing"]},
+	"rightmost_mult": {"moments": ["ongoing"], KEY_AMOUNT: [125, 200]},
+	"level_power": {"moments": ["ongoing"]},
+	"shake": {"moments": ["on_reveal"]},
+	"reverse_opposing": {"moments": ["on_reveal"]},
+	"cull": {"moments": ["on_reveal"], KEY_AMOUNT: [1, 7]},
 }
 ## The verb whose card may carry a printed Cost above MatchRules.MAX_PRINTED_COST (R12).
 const COST_EXCEPTION_VERB: String = "cost_on_turn"

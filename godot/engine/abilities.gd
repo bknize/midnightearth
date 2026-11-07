@@ -158,6 +158,9 @@ static func prepare(ctx: TriggerContext) -> void:
 		return
 	if ALWAYS_READY.has(ctx.verb):
 		return
+	if AbilitiesGraveyardControl.handles(ctx.verb):
+		AbilitiesGraveyardControl.prepare(ctx)  # DC-14 T13: Graveyard and Control.
+		return
 	match ctx.verb:
 		VERB_DISCARD_OWN:
 			_prepare_discard_own(ctx)
@@ -192,6 +195,9 @@ static func resolve(ctx: TriggerContext) -> void:
 		return
 	if AbilitiesComboDisruption.handles(ctx.verb):
 		AbilitiesComboDisruption.resolve(ctx)  # Combo and Disruption (DC-14 T12).
+		return
+	if AbilitiesGraveyardControl.handles(ctx.verb):
+		AbilitiesGraveyardControl.resolve(ctx)  # DC-14 T13: Graveyard and Control.
 		return
 	match ctx.verb:
 		VERB_DRAW:
@@ -257,6 +263,10 @@ static func choice_made(
 	if indices.size() == 1 and not Choice.is_multi_prompt(prompt):
 		index = indices[0]
 	var target: int = Choice.resolve(state, seat, zone, index) if index >= 0 else -1
+	if _unseen_by(state, seat, target):
+		# DC-14 T13: a face-down opposing card is chosen by its slot (Pin's both rows); the
+		# chooser does not learn it by choosing it.
+		target = MatchEvent.HIDDEN_CARD
 	var made: Dictionary = {
 		"seat": seat,
 		"card": card,
@@ -386,6 +396,17 @@ static func _can_shift(ctx: TriggerContext) -> bool:
 	if seat < 0 or ctx.state.seats[seat].board.size() < 2:
 		return false
 	return not Statuses.is_anchored(ctx.state, ctx.cards, ctx.card)
+
+
+## Whether `card` is face down on the row of the seat other than `seat`, and `seat` has not
+## looked at it.
+static func _unseen_by(state: MatchState, seat: int, card: int) -> bool:
+	if card < 0 or seat < 0 or seat >= state.seats.size():
+		return false
+	var other: MatchState.SeatPiles = state.seats[1 - seat]
+	if not other.board.has(card) or other.is_revealed(card):
+		return false
+	return not state.seats[seat].looked.has(card)
 
 
 ## Whether `seat`'s Commit this Turn was a Pass (Idler, P14).

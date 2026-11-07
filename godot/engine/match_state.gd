@@ -456,7 +456,10 @@ class EnergyState:
 ## its score stage); `scores_twice` (Q7) runs the score stage of every later pulse twice
 ## (`pulse_twice` is its value when the pulse in progress started), and
 ## `retrigger_on_reveal[seat]` lists the cards whose retrigger applies to that seat's other
-## On reveals (Q6); both last the Turn (TurnFlow clears them at turn end).
+## On reveals (Q6); both last the Turn (TurnFlow clears them at turn end). DC-14 T13, the
+## reveal-stage hook (Skip): `hook_pending` counts the Skips waiting for the next reveal;
+## that reveal arms `hook_card` with `hook_moves` moves, made after its D7
+## (AbilitiesGraveyardControl.arm_skip, skip_hook); ScoreWalk.begin clears all three.
 class WalkState:
 	extends RefCounted
 
@@ -473,6 +476,10 @@ class WalkState:
 	var retrigger_on_reveal: Array[Array] = [[], []]
 	## The cards revealed this Turn (Finale reads them, DC-14 T12), by instance id.
 	var revealed_this_turn: Dictionary[int, bool] = {}
+	var hook_pending: int = 0
+	## -1 when no reveal is armed.
+	var hook_card: int = -1
+	var hook_moves: int = 0
 
 	## The ids of the cards Scored this Walk, ascending.
 	func scored_ids() -> Array[int]:
@@ -495,6 +502,9 @@ class WalkState:
 		out.pulse_twice = pulse_twice
 		out.retrigger_on_reveal.assign(_retriggers())
 		out.revealed_this_turn.assign(revealed_this_turn)
+		out.hook_pending = hook_pending
+		out.hook_card = hook_card
+		out.hook_moves = hook_moves
 		return out
 
 	func to_dict() -> Dictionary:
@@ -511,6 +521,9 @@ class WalkState:
 			"pulse_twice": pulse_twice,
 			"retrigger_on_reveal": _retriggers(),
 			"revealed_this_turn": _revealed_ids(),
+			"hook_pending": hook_pending,
+			"hook_card": hook_card,
+			"hook_moves": hook_moves,
 		}
 
 	## Clears the Turn's retriggers, Scores twice and reveals (turn end).

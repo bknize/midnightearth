@@ -62,6 +62,26 @@ const CANON: Array = [
 	["ra08", "Graft", "ramp", 4, 3, "", 0, "grow_right_mult_times"],
 	["ra09", "Layaway", "ramp", 5, 6, "", 0, "cost_down_self"],
 	["ra10", "Colossus", "ramp", 12, 12, "", 0, "cost_on_turn"],
+	["gy01", "Fuse", "graveyard", 2, 1, "", 0, "fuse"],
+	["gy02", "Tithe", "graveyard", 2, 2, "", 0, "tithe_energy"],
+	["gy03", "Reliquary", "graveyard", 3, 2, "mult", 125, "reliquary_mult"],
+	["gy04", "Boneyard", "graveyard", 3, 2, "", 0, "pile_power"],
+	["gy05", "Wraith", "graveyard", 3, 3, "", 0, "wraith_fade"],
+	["gy06", "Glutton", "graveyard", 4, 2, "", 0, "condemn_other_gain"],
+	["gy07", "Revive", "graveyard", 4, 3, "", 0, "revive"],
+	["gy08", "Exhume", "graveyard", 4, 4, "", 0, "exhume"],
+	["gy09", "Immolator", "graveyard", 5, 4, "", 0, "immolate"],
+	["gy10", "Reset", "graveyard", 6, 5, "", 0, "reset_piles"],
+	["ct01", "Eddy", "control", 2, 1, "add", 25, "moved_add"],
+	["ct02", "Pin", "control", 2, 2, "", 0, "pin"],
+	["ct03", "Shepherd", "control", 3, 3, "", 0, "swap_self"],
+	["ct04", "Skip", "control", 3, 3, "", 0, "skip_next"],
+	["ct05", "Fence", "control", 3, 3, "", 0, "fence"],
+	["ct06", "Herald", "control", 4, 3, "", 0, "rightmost_mult"],
+	["ct07", "Level", "control", 4, 4, "", 0, "level_power"],
+	["ct08", "Shake", "control", 5, 5, "", 0, "shake"],
+	["ct09", "Tempest", "control", 6, 5, "", 0, "reverse_opposing"],
+	["ct10", "Cull", "control", 7, 7, "", 0, "cull"],
 ]
 ## The Combo and Disruption rows (DC-14 T12), as CANON but the last column the verbs of
 ## their abilities in printed order (Hex has two).
@@ -106,6 +126,19 @@ const TEXTS: Dictionary[String, String] = {
 	),
 	"ra09": "On commit (while in your hand): this card costs 1 less for the match.",
 	"ra10": "Ongoing (while in your hand): on Turn 7 this card's Cost is 7.",
+	"gy02":
+	(
+		"On discard (a Condemned card of yours Discarded at turn end): you have +1 Energy"
+		+ " next Turn for each such card, at most +3 per turn end."
+	),
+	"gy05": "Ongoing: your Condemned cards have Fade instead of Condemned when exit marks resolve.",
+	"ct01": "On moved: this card's Add gets +0.25 until end of turn.",
+	"ct06": "Ongoing: while this card is in the rightmost slot of your row, its Mult is ×1.5.",
+	"ct10":
+	(
+		"On reveal: each seat chooses five cards on its row; Condemn every card on both rows"
+		+ " that was not chosen."
+	),
 }
 
 # --- Helpers --------------------------------------------------------------------------
@@ -152,17 +185,19 @@ func _assert_valid(db: CardDb) -> void:
 # --- The shipped file -----------------------------------------------------------------
 
 
-## Milestone A's 50 plus DC-14 T12's 20 Deck cards and Dross (created only, outside every
+## Milestone A's 50 plus DC-14 T12's and T13's 40 Deck cards (90) and Dross (created only, outside every
 ## tag count; canon cards-v2 section 1).
-func test_the_shipped_file_loads_70_deck_cards_and_dross() -> void:
+func test_the_shipped_file_loads_90_deck_cards_and_dross() -> void:
 	var db: CardDb = CardDb.load_default()
 	_assert_valid(db)
-	assert_int(db.size()).is_equal(71)
+	assert_int(db.size()).is_equal(91)
 	assert_int(db.cards_tagged("evergreen").size()).is_equal(30)
 	assert_int(db.cards_tagged("greed").size()).is_equal(10)
 	assert_int(db.cards_tagged("ramp").size()).is_equal(10)
 	assert_int(db.cards_tagged("combo").size()).is_equal(10)
 	assert_int(db.cards_tagged("disruption").size()).is_equal(10)
+	assert_int(db.cards_tagged("graveyard").size()).is_equal(10)
+	assert_int(db.cards_tagged("control").size()).is_equal(10)
 	assert_int(db.created_cards().size()).is_equal(1)
 	var dross: CardDef = db.card_by_id("dross")
 	assert_object(dross).is_not_null()
