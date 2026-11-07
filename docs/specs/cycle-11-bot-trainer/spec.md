@@ -406,21 +406,21 @@ label shards' lines with timing fields removed.
 
 Milestone A1 (this branch):
 
-- [ ] `make check` green, gdUnit under 30 s; golden unchanged; `make sweep` clean (R58, R59).
-- [ ] Engine and driver stamps equal, `r7-…` (R1), and a suite pins that a changed data
+- [x] `make check` green, gdUnit under 30 s; golden unchanged; `make sweep` clean (R58, R59).
+- [x] Engine and driver stamps equal, `r7-…` (R1), and a suite pins that a changed data
       file changes the stamp.
-- [ ] `make bot-selftest` green on the Mac; `make bot-eval` with `random` against `random`
+- [x] `make bot-selftest` green on the Mac; `make bot-eval` with `random` against `random`
       PASS or CAP near 0.500 with `exit=0` (R13, R14); the deleted tooling is gone (R14).
-- [ ] The rollout suite passes: determinized copy preserves the view and the real state,
+- [x] The rollout suite passes: determinized copy preserves the view and the real state,
       hidden identities move with their records, same seeds same values, the seed-1 pin
       (R16 to R23); `grep -rn Rollout godot/engine/bot godot/board godot/main.gd` is empty
       (R24).
-- [ ] The play-out worker answers `hello`, `play`, `label`, an error and `quit`; two runs of
+- [x] The play-out worker answers `hello`, `play`, `label`, an error and `quit`; two runs of
       a 20-position request file on 1 and 8 workers print the same digest (R25 to R31);
       rollouts per second per worker recorded in the cycle row (R30).
-- [ ] Ladder note: rungs table with `random` at rung 0 and the new stamp, the promotion and
+- [x] Ladder note: rungs table with `random` at rung 0 and the new stamp, the promotion and
       re-stamp rules, no Calibration block (R3 to R6).
-- [ ] Constitution Check passes (see plan); spec, plan and tasks signed off by Ben and
+- [x] Constitution Check passes (see plan); spec, plan and tasks signed off by Ben and
       committed before implementation begins.
 
 Milestone A2 (`cycle-11b-bot-trainer`):
