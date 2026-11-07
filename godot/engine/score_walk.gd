@@ -52,6 +52,9 @@ static func begin(state: MatchState) -> void:
 	walk.scored.clear()
 	walk.scored_count[0] = 0
 	walk.scored_count[1] = 0
+	walk.hook_pending = 0
+	walk.hook_card = -1
+	walk.hook_moves = 0
 
 
 ## The next slot to pulse as (seat, slot), or (-1, -1) when the Walk is over or neither
@@ -122,16 +125,20 @@ static func score_slot(
 			return true
 	if scores_now(state, seat, card):
 		return score_stage(state, cards, rng, sink, seat, card)
+	if not state.queue.is_empty():
+		# A reveal-stage hook's On moved Batch still drains in D8 (Skip, DC-14 T13).
+		return TriggerQueue.drain(state, cards, rng, sink, STEP_SCORE)
 	return false
 
 
-## Resumes the pulse whose D7 drain paused on a prompt, once that drain has finished: its
-## score stage (score_slot() on `walk.pulse_seat`, `walk.pulse_slot`). True when it paused
-## again.
+## Resumes the pulse whose D7 drain paused on a prompt, once that drain has finished: the
+## reveal-stage hook (Skip, AbilitiesGraveyardControl.skip_hook), then its score stage
+## (score_slot() on `walk.pulse_seat`, `walk.pulse_slot`). True when it paused again.
 static func resume_pulse(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable
 ) -> bool:
 	var walk: MatchState.WalkState = state.walk
+	AbilitiesGraveyardControl.skip_hook(state, cards, rng, sink)
 	return score_slot(state, cards, rng, sink, walk.pulse_seat, walk.pulse_slot)
 
 
@@ -186,14 +193,19 @@ static func reveal(
 
 ## The reveal stage's abilities (DC-13 T05): `card`'s On reveal wakes a Batch
 ## (TriggerQueue.wake) and the queue drains (D7) on the pulse's budget; true when the drain
-## paused on a prompt.
+## paused on a prompt. DC-14 T13: a waiting Skip arms on `card` as it is revealed and its
+## move runs once D7 has drained (the reveal-stage hook; resume_pulse() after a pause).
 static func reveal_stage(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, _seat: int, card: int
 ) -> bool:
+	AbilitiesGraveyardControl.arm_skip(state, card)
 	var subjects: Array[int] = [card]
 	if TriggerQueue.wake(state, cards, MOMENT_REVEAL, subjects).is_empty():
 		pass  # Nothing watches this reveal: the drain is empty.
-	return TriggerQueue.drain(state, cards, rng, sink, STEP_REVEAL)
+	if TriggerQueue.drain(state, cards, rng, sink, STEP_REVEAL):
+		return true
+	AbilitiesGraveyardControl.skip_hook(state, cards, rng, sink)
+	return false
 
 
 ## Whether `card` on `seat`'s row Scores this pulse (R33): it is revealed and not Squelched

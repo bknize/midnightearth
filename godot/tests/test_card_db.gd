@@ -61,6 +61,26 @@ const CANON: Array = [
 	["ra08", "Graft", "ramp", 4, 3, "", 0, "grow_right_mult_times"],
 	["ra09", "Layaway", "ramp", 5, 6, "", 0, "cost_down_self"],
 	["ra10", "Colossus", "ramp", 12, 12, "", 0, "cost_on_turn"],
+	["gy01", "Fuse", "graveyard", 2, 1, "", 0, "fuse"],
+	["gy02", "Tithe", "graveyard", 2, 2, "", 0, "tithe_energy"],
+	["gy03", "Reliquary", "graveyard", 3, 2, "mult", 125, "reliquary_mult"],
+	["gy04", "Boneyard", "graveyard", 3, 2, "", 0, "pile_power"],
+	["gy05", "Wraith", "graveyard", 3, 3, "", 0, "wraith_fade"],
+	["gy06", "Glutton", "graveyard", 4, 2, "", 0, "condemn_other_gain"],
+	["gy07", "Revive", "graveyard", 4, 3, "", 0, "revive"],
+	["gy08", "Exhume", "graveyard", 4, 4, "", 0, "exhume"],
+	["gy09", "Immolator", "graveyard", 5, 4, "", 0, "immolate"],
+	["gy10", "Reset", "graveyard", 6, 5, "", 0, "reset_piles"],
+	["ct01", "Eddy", "control", 2, 1, "add", 25, "moved_add"],
+	["ct02", "Pin", "control", 2, 2, "", 0, "pin"],
+	["ct03", "Shepherd", "control", 3, 3, "", 0, "swap_self"],
+	["ct04", "Skip", "control", 3, 3, "", 0, "skip_next"],
+	["ct05", "Fence", "control", 3, 3, "", 0, "fence"],
+	["ct06", "Herald", "control", 4, 3, "", 0, "rightmost_mult"],
+	["ct07", "Level", "control", 4, 4, "", 0, "level_power"],
+	["ct08", "Shake", "control", 5, 5, "", 0, "shake"],
+	["ct09", "Tempest", "control", 6, 5, "", 0, "reverse_opposing"],
+	["ct10", "Cull", "control", 7, 7, "", 0, "cull"],
 ]
 ## Rules texts checked word for word against rules/cards-v2 (a sample over the moments).
 const TEXTS: Dictionary[String, String] = {
@@ -81,6 +101,19 @@ const TEXTS: Dictionary[String, String] = {
 	),
 	"ra09": "On commit (while in your hand): this card costs 1 less for the match.",
 	"ra10": "Ongoing (while in your hand): on Turn 7 this card's Cost is 7.",
+	"gy02":
+	(
+		"On discard (a Condemned card of yours Discarded at turn end): you have +1 Energy"
+		+ " next Turn for each such card, at most +3 per turn end."
+	),
+	"gy05": "Ongoing: your Condemned cards have Fade instead of Condemned when exit marks resolve.",
+	"ct01": "On moved: this card's Add gets +0.25 until end of turn.",
+	"ct06": "Ongoing: while this card is in the rightmost slot of your row, its Mult is ×1.5.",
+	"ct10":
+	(
+		"On reveal: each seat chooses five cards on its row; Condemn every card on both rows"
+		+ " that was not chosen."
+	),
 }
 
 # --- Helpers --------------------------------------------------------------------------
@@ -127,13 +160,16 @@ func _assert_valid(db: CardDb) -> void:
 # --- The shipped file -----------------------------------------------------------------
 
 
-func test_the_shipped_file_loads_50_cards_30_evergreen_10_greed_10_ramp() -> void:
+## DC-14 T13 adds Graveyard and Control (70 cards); T12's Combo and Disruption bring 90.
+func test_the_shipped_file_loads_the_pool_by_tag() -> void:
 	var db: CardDb = CardDb.load_default()
 	_assert_valid(db)
-	assert_int(db.size()).is_equal(50)
+	assert_int(db.size()).is_equal(70)
 	assert_int(db.cards_tagged("evergreen").size()).is_equal(30)
 	assert_int(db.cards_tagged("greed").size()).is_equal(10)
 	assert_int(db.cards_tagged("ramp").size()).is_equal(10)
+	assert_int(db.cards_tagged("graveyard").size()).is_equal(10)
+	assert_int(db.cards_tagged("control").size()).is_equal(10)
 
 
 ## Every row of the canon: name, tag, Cost, Power, Bonus and the ability's verb; a plain

@@ -91,8 +91,12 @@ static func mult_product(mults: Array[int]) -> int:
 
 
 ## `card`'s effective stats (see the class comment); zero Power and no Bonus for a card with
-## no definition.
-static func stats(card: int, state: MatchState, cards: MatchCards) -> Stats:
+## no definition. DC-14 T13: the Graveyard and Control Ongoings join last
+## (AbilitiesGraveyardControl.ongoing_stats: Boneyard, Herald, then Level unless
+## `levelled` is false, which is how Level reads a row "before any Level applies").
+static func stats(
+	card: int, state: MatchState, cards: MatchCards, levelled: bool = true
+) -> Stats:
 	var out: Stats = Stats.new()
 	var def: CardDef = cards.def_of(card) if cards != null else null
 	if def == null:
@@ -110,6 +114,7 @@ static func stats(card: int, state: MatchState, cards: MatchCards) -> Stats:
 		out.adds.append_array(held.granted_of(CardState.KIND_ADD))
 		out.mults.append_array(held.granted_of(CardState.KIND_MULT))
 	out.power += ongoing_power(card, state, cards)
+	AbilitiesGraveyardControl.ongoing_stats(out, card, state, cards, levelled)
 	return out
 
 
