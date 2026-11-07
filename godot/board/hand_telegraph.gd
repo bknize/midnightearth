@@ -15,7 +15,7 @@ const SHOW_SCALE: float = 1.25
 ## rest is the hold.
 const RISE_SHARE: float = 0.25
 const BACK_SHARE: float = 0.2
-const MIN_TIME: float = 0.01
+const MIN_TIME: float = EffectPlayer.MIN_TWEEN_TIME
 
 
 ## Plays the telegraph of `step` (TELEGRAPH: `card`, `reason`) over `step.duration`. Returns

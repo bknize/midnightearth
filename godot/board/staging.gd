@@ -13,7 +13,7 @@ var _free_first: bool = false
 var _row: Array[int] = []
 ## The player's whole row by instance id, as last reported by the board.
 var _row_ids: Array[int] = []
-var _costs: Dictionary = {}
+var _costs: Dictionary[int, int] = {}
 ## Hand costs read from the view, cached until the board clears them (a played step).
 var _view_costs: Dictionary[int, int] = {}
 

@@ -39,14 +39,11 @@ static func step_touches(
 		BoardStep.Kind.EFFECT, BoardStep.Kind.FIZZLE:
 			# A public hand trigger pulses the viewer's own hand card (C14).
 			return step.from_hand and held_id >= 0 and step.card == held_id
-		BoardStep.Kind.STATS, BoardStep.Kind.STATUS:
-			# Restat or re-badge: the step names the held card (R9).
-			return held_id >= 0 and step.card == held_id
-		BoardStep.Kind.UNREVEAL, BoardStep.Kind.EXIT, BoardStep.Kind.CONTROL:
-			# Flip down, or leave the row for a Pile or a hand: the step names the held card.
-			return held_id >= 0 and step.card == held_id
-		BoardStep.Kind.RETURN, BoardStep.Kind.DISCARD:
-			# Remove or send away: the step names the held card.
+		BoardStep.Kind.STATS, BoardStep.Kind.STATUS, BoardStep.Kind.UNREVEAL, \
+		BoardStep.Kind.EXIT, BoardStep.Kind.CONTROL, BoardStep.Kind.RETURN, \
+		BoardStep.Kind.DISCARD:
+			# Restat, re-badge, flip down, leave the row or the hand: the step names the held
+			# card (R9).
 			return held_id >= 0 and step.card == held_id
 		BoardStep.Kind.CREW_FIRE:
 			# A Crew has no instance id: any firing sets a held Crew down first.

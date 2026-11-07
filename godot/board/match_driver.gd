@@ -192,27 +192,27 @@ func action_count() -> int:
 func result_line() -> String:
 	if _end_payload.is_empty():
 		return ""
-	var winner: int = _end_payload["winner"]
-	var reason: String = _end_payload["reason"]
-	var rounds: int = _end_payload["rounds_played"]
-	var raw_wins: Array = _end_payload["wins"]
+	var summary_line: String = summary(
+		_seed, _engine.deck_ids(), _bot_name, _end_payload, _engine.accepted_action_count()
+	)
+	return "Board: match ended " + summary_line
+
+
+## The fields of a finished match as the smoke lines print them (main.gd's "Engine smoke:"
+## and result_line()): "seed=.. decks=a/b bot=.. winner=.. wins=x-y rounds=.. end=..
+## actions=..", from a MATCH_ENDED `payload`.
+static func summary(
+	p_seed: int, decks: Array[String], bot_name: String, payload: Dictionary, actions: int
+) -> String:
+	var winner: int = payload["winner"]
+	var reason: String = payload["reason"]
+	var rounds: int = payload["rounds_played"]
+	var raw_wins: Array = payload["wins"]
 	var wins: Array[int] = []
 	wins.assign(raw_wins)
-	var decks: Array[String] = _engine.deck_ids()
 	return (
-		"Board: match ended seed=%d decks=%s/%s bot=%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
-		% [
-			_seed,
-			decks[0],
-			decks[1],
-			_bot_name,
-			winner,
-			wins[0],
-			wins[1],
-			rounds,
-			reason,
-			_engine.accepted_action_count(),
-		]
+		"seed=%d decks=%s/%s bot=%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
+		% [p_seed, decks[0], decks[1], bot_name, winner, wins[0], wins[1], rounds, reason, actions]
 	)
 
 

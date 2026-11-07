@@ -137,10 +137,7 @@ func _on_decks_requested() -> void:
 	var last_ids: Array[String] = ["", ""]
 	if driver != null:
 		last_ids = driver.deck_ids()
-	if _seed_fixed:
-		_seed = BoardSeeds.bumped(driver.match_seed if driver != null else _seed)
-	else:
-		_seed = BoardSeeds.clock_seed()
+	_seed = BoardSeeds.rematch(_seed_fixed, driver.match_seed if driver != null else _seed)
 	remove_child(_board)
 	_board.queue_free()
 	_board = null
@@ -185,29 +182,9 @@ func _run_smoke(cards: CardDb) -> bool:
 	for event: MatchEvent in last.events:
 		if event.kind != MatchEvent.Kind.MATCH_ENDED:
 			continue
-		var payload: Dictionary = event.payload
-		var winner: int = payload["winner"]
-		var reason: String = payload["reason"]
-		var rounds: int = payload["rounds_played"]
-		var raw_wins: Array = payload["wins"]
-		var wins: Array[int] = []
-		wins.assign(raw_wins)
 		print(
-			(
-				"Engine smoke: seed=%d decks=%s/%s bot=%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
-				% [
-					SMOKE_SEED,
-					decks[0],
-					decks[1],
-					_bot_name,
-					winner,
-					wins[0],
-					wins[1],
-					rounds,
-					reason,
-					actions
-				]
-			)
+			"Engine smoke: "
+			+ MatchDriver.summary(SMOKE_SEED, decks, _bot_name, event.payload, actions)
 		)
 		return true
 	push_error("Engine smoke: match ended without a MATCH_ENDED event")

@@ -79,35 +79,28 @@ func _role_of(collection: CardCollection3D) -> Role:
 
 
 func _act() -> bool:
-	if can_act.is_null():
-		return false
-	var ok: bool = can_act.call()
-	return ok
+	return _ask(can_act, false, [])
 
 
 func _locked() -> bool:
-	if is_locked.is_null():
-		return true
-	var locked: bool = is_locked.call()
-	return locked
+	return _ask(is_locked, true, [])
 
 
 func _affordable(card: Variant) -> bool:
-	if can_afford.is_null():
-		return false
-	var ok: bool = can_afford.call(card)
-	return ok
+	return _ask(can_afford, false, [card])
 
 
 func _played(card: Variant) -> bool:
-	if is_played.is_null():
-		return false
-	var ok: bool = is_played.call(card)
-	return ok
+	return _ask(is_played, false, [card])
 
 
 func _staged(card: Variant) -> bool:
-	if is_staged.is_null():
-		return false
-	var ok: bool = is_staged.call(card)
-	return ok
+	return _ask(is_staged, false, [card])
+
+
+## The board's answer from `question` called with `args`, or `unset` when none is wired.
+static func _ask(question: Callable, unset: bool, args: Array) -> bool:
+	if question.is_null():
+		return unset
+	var answer: bool = question.callv(args)
+	return answer

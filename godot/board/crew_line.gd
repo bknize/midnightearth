@@ -22,7 +22,6 @@ var _collections: Array[CardCollection3D] = [null, null]
 ## Per seat, the Crew cards in slot order.
 var _cards: Array[Array] = [[], []]
 ## Per seat, the CrewDefs in slot order.
-var _defs: Array[Array] = [[], []]
 
 
 ## The badge text for `uses_left` uses: "2 left", "1 left", "spent" at 0 and "" for the
@@ -57,7 +56,7 @@ func build(parent: Node3D, view: SeatView, pool: CrewPool) -> void:
 		made.drag_strategy = strategy
 		made.name = "CrewLine%d" % seat
 		made.position = ORIGINS[seat]
-		made.card_move_tween_duration = 0.01
+		made.card_move_tween_duration = EffectPlayer.MIN_TWEEN_TIME
 		parent.add_child(made)
 		var zone: Area3D = made.get_node_or_null("DropZone") as Area3D
 		if zone != null:
@@ -78,7 +77,6 @@ func clear() -> void:
 			made.queue_free()
 		_collections[seat] = null
 		_cards[seat] = []
-		_defs[seat] = []
 
 
 ## Whether `card` is one of the Crew cards.
@@ -99,20 +97,6 @@ func card_at(seat: int, slot: int) -> BoardCard:
 	return raw as BoardCard
 
 
-## The badge text on `seat`'s Crew at `slot` ("" when none or unlimited).
-func badge_of(seat: int, slot: int) -> String:
-	var card: BoardCard = card_at(seat, slot)
-	if card == null or card.badge == null:
-		return ""
-	return card.badge.text
-
-
-## Whether `seat`'s Crew at `slot` is dimmed as spent.
-func is_dimmed(seat: int, slot: int) -> bool:
-	var card: BoardCard = card_at(seat, slot)
-	return card != null and card.has_meta(&"crew_dim")
-
-
 ## Shows `uses_left` on `seat`'s Crew at `slot`: the badge text, and the dim when spent.
 func set_uses(seat: int, slot: int, uses_left: int) -> void:
 	var card: BoardCard = card_at(seat, slot)
@@ -121,25 +105,13 @@ func set_uses(seat: int, slot: int, uses_left: int) -> void:
 	card.set_badge(badge_text(uses_left))
 	var spent: bool = is_spent(uses_left)
 	card.set_dim(spent)
-	if spent:
-		card.set_meta(&"crew_dim", true)
-	elif card.has_meta(&"crew_dim"):
-		card.remove_meta(&"crew_dim")
 
 
-## Plays what a step means for the Crew: CREW_FIRE lifts the Crew and updates its badge, and
-## CLEAR_TABLE (a new round) refills the per-round badges.
+## Plays what a step means for the Crew: CREW_FIRE lifts the Crew and updates its badge (a
+## v2 Crew's uses are for the match, so a new round changes nothing here).
 func note_step(step: BoardStep) -> void:
 	if step.kind == BoardStep.Kind.CREW_FIRE:
 		fire(step.seat, step.slot, step.uses_left, step.duration)
-	elif step.kind == BoardStep.Kind.CLEAR_TABLE:
-		new_round()
-
-
-## A round starts: nothing to refill, since a v2 Crew's uses are for the match (cycle 9
-## plan P4; the board reconciles its Crew line with DC-13 T09). Kept as the CLEAR_TABLE hook.
-func new_round() -> void:
-	pass
 
 
 ## A Crew fires (CREW_FIRE, R61): it lifts toward the camera and settles over `seconds`, and
@@ -173,6 +145,5 @@ func _fill(seat: int, made: CardCollection3D, view: SeatView, pool: CrewPool) ->
 		made.append_card(card)
 		card.show_crew(def.name, def.text)
 		_cards[seat].append(card)
-		_defs[seat].append(def)
 		var left: int = uses[slot] if slot < uses.size() else -1
 		set_uses(seat, _cards[seat].size() - 1, left)

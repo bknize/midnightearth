@@ -255,10 +255,6 @@ func set_selected(on: bool) -> void:
 		mesh.position.z = SELECT_RAISE if on else 0.0
 
 
-func is_selected() -> bool:
-	return _selected
-
-
 func clear_glow() -> void:
 	if _glow != null:
 		_glow.visible = false
