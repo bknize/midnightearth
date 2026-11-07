@@ -175,10 +175,10 @@ func _multi_prompt(options: Array[int]) -> Dictionary:
 
 func test_tap_on_an_eligible_card_in_a_multi_prompt_lifts_it() -> void:
 	var prompt: Dictionary = _multi_prompt([0, 2])
-	var tap: PromptTap = PromptRules.on_tap(CardSpot.new(0, false, 2), true, prompt, OWN_SIZE)
+	var tap: PromptTap = PromptRules.on_tap(CardSpot.new(0, true, 2), true, prompt, OWN_SIZE)
 	assert_int(tap.kind).is_equal(PromptRules.Tap.LIFT_ELIGIBLE)
 	assert_int(tap.index).is_equal(2)
-	var other: PromptTap = PromptRules.on_tap(CardSpot.new(0, false, 1), true, prompt, OWN_SIZE)
+	var other: PromptTap = PromptRules.on_tap(CardSpot.new(0, true, 1), true, prompt, OWN_SIZE)
 	assert_int(other.kind).is_equal(PromptRules.Tap.LIFT)
 
 
