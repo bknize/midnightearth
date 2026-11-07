@@ -361,7 +361,9 @@ class SeatPiles:
 ## any Crew bonus, TurnFlow.budget); nothing carries. `next_turn_grants` (milestone B, Tithe)
 ## move into `grants` when a Turn ends; a true `free_first` makes the leftmost card of that
 ## seat's next Commit cost 0 and is consumed by that Commit or the next turn end (Lantern);
-## `spent` is what the seat's Commit this Turn cost.
+## `spent` is what the seat's Commit this Turn cost. `free_first_next` (DC-13 T06) is a
+## free first card granted for the next Turn (Lantern's On reveal): at turn end it becomes
+## `free_first` (Abilities.end_turn_changes), and a `free_first` not used that Turn ends.
 class EnergyState:
 	extends RefCounted
 
@@ -369,6 +371,7 @@ class EnergyState:
 	var next_turn_grants: Array[int] = [0, 0]
 	var free_first: Array[bool] = [false, false]
 	var spent: Array[int] = [0, 0]
+	var free_first_next: Array[bool] = [false, false]
 
 	func copy() -> EnergyState:
 		var out: EnergyState = EnergyState.new()
@@ -376,16 +379,20 @@ class EnergyState:
 		out.next_turn_grants.assign(next_turn_grants)
 		out.free_first.assign(free_first)
 		out.spent.assign(spent)
+		out.free_first_next.assign(free_first_next)
 		return out
 
 	func to_dict() -> Dictionary:
 		var flags: Array = []
 		flags.assign(free_first)
+		var next_flags: Array = []
+		next_flags.assign(free_first_next)
 		return {
 			"grants": MatchState.plain(grants),
 			"next_turn_grants": MatchState.plain(next_turn_grants),
 			"free_first": flags,
 			"spent": MatchState.plain(spent),
+			"free_first_next": next_flags,
 		}
 
 

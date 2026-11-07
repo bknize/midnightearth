@@ -4,9 +4,9 @@ extends GdUnitTestSuite
 ## adds its Power to its Controller's walking total, then the total is multiplied by its
 ## Bonus value (Scoring); CARD_SCORED carries {power, bonus_value, total} in ten-thousandths;
 ## the Walk ends with each Score its total rounded once and WALK_ENDED {totals, scores}. The
-## slot cursor alternates the rows from the first committer's, and every ability on the
-## moment that fires (on_reveal at a reveal, on_score after a score) fizzles `no_target` (the
-## T02 stub, until T05 and T06). States are built directly on the shipped Greed deck:
+## slot cursor alternates the rows from the first committer's, and every ability fires on
+## its moment (on_reveal at a reveal, on_score after a score; DC-13 T06's verbs). States
+## are built directly on the shipped Greed deck:
 ## instance 4 * k .. 4 * k + 3 are the four copies of gr0(k+1), seat 1 adds DECK_SIZE.
 
 const SEED: int = 1
@@ -230,48 +230,50 @@ func test_an_empty_walk_ends_on_its_first_step() -> void:
 # --- The stub abilities ---------------------------------------------------------------
 
 
-## Ember's on-reveal Discard and Flare's on-reveal Condemn fizzle `no_target` right after
-## their reveal, before their score; Courier's on-score draw fizzles after its score. Nothing
-## else happens: no draw, no discard, the hands and piles unchanged.
-func test_every_ability_fizzles_no_target_on_its_moment() -> void:
+## Ember's On reveal Discards the one hand card right after its reveal, before its Score;
+## Courier's On score draws after its Score; Flare's On reveal Condemns it and it still
+## Scores (DC-13 T06). Each fires once, publicly, in that order.
+func test_each_ability_fires_on_its_moment() -> void:
 	var row_0: Array[int] = [EMBER, COURIER, FLARE]
 	var state: MatchState = _state(row_0, _typed([]), 0)
-	state.seats[0].hand.assign(_typed([PIP, PIP + 1]))
+	state.seats[0].hand.assign(_typed([PIP]))
 	state.seats[0].deck.assign(_typed([PIP + 2]))
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
-	var fizzled: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.TRIGGER_FIZZLED)
-	assert_int(fizzled.size()).is_equal(3)
+	var fired: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.TRIGGER_FIRED)
+	assert_int(fired.size()).is_equal(3)
 	var expected: Array[Array] = [[EMBER, "discard_own"], [COURIER, "draw"], [FLARE, "condemn_self"]]
-	for at: int in range(fizzled.size()):
-		var event: MatchEvent = fizzled[at]
+	for at: int in range(fired.size()):
+		var event: MatchEvent = fired[at]
 		var row: Array = expected[at]
 		var card: int = row[0]
 		var verb: String = row[1]
 		assert_int(event.owner_seat).is_equal(MatchEvent.PUBLIC)
 		assert_int(_payload_int(event, "card")).is_equal(card)
 		assert_int(_payload_int(event, "seat")).is_equal(0)
-		assert_str(_payload_str(event, "crew")).is_equal("")
 		assert_str(_payload_str(event, "verb")).is_equal(verb)
-		assert_str(_payload_str(event, "reason")).is_equal(Abilities.REASON_NO_TARGET)
-	# Ember's fizzle comes between its reveal and its score; Courier's after its score.
+	assert_array(_of_kind(recorder.events, MatchEvent.Kind.TRIGGER_FIZZLED)).is_empty()
+	# Ember's fires between its reveal and its Score, Courier's after its Score.
 	var kinds: Array[int] = []
 	for event: MatchEvent in recorder.events:
-		kinds.append(event.kind)
+		if event.kind in [
+			MatchEvent.Kind.CARD_REVEALED, MatchEvent.Kind.CARD_SCORED, MatchEvent.Kind.TRIGGER_FIRED
+		]:
+			kinds.append(event.kind)
 	var reveal: int = MatchEvent.Kind.CARD_REVEALED
 	var score: int = MatchEvent.Kind.CARD_SCORED
-	var fizzle: int = MatchEvent.Kind.TRIGGER_FIZZLED
-	var ended: int = MatchEvent.Kind.WALK_ENDED
-	var order: Array[int] = [
-		reveal, fizzle, score, reveal, score, fizzle, reveal, fizzle, score, ended
-	]
+	var fire: int = MatchEvent.Kind.TRIGGER_FIRED
+	var order: Array[int] = [reveal, fire, score, reveal, score, fire, reveal, fire, score]
 	assert_array(kinds).is_equal(order)
-	assert_array(state.seats[0].hand).is_equal(_typed([PIP, PIP + 1]))
-	assert_array(state.seats[0].deck).is_equal(_typed([PIP + 2]))
+	assert_array(state.seats[0].hand).is_equal(_typed([PIP + 2]))
+	assert_array(state.seats[0].deck).is_empty()
+	assert_array(state.seats[0].pile).is_equal(_typed([PIP]))
+	assert_str(Statuses.exit_mark_of(state, FLARE)).is_equal(Statuses.CONDEMNED)
 	assert_int(state.scores[0]).is_equal(_power(EMBER) + _power(COURIER) + _power(FLARE))
 
 
-## An Ongoing ability (Banner) and a plain body fire nothing on either moment.
+## An Ongoing ability (Banner) and a plain body fire nothing on either moment; Banner's
+## Ongoing gives the plain Pip Power +4 when it Scores (DC-13 T06).
 func test_ongoing_and_plain_cards_fire_nothing() -> void:
 	var state: MatchState = _state(_typed([BANNER, PIP]), _typed([]), 0)
 	for moment: String in ["on_reveal", "on_score"]:
@@ -282,7 +284,7 @@ func test_ongoing_and_plain_cards_fire_nothing() -> void:
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
 	assert_array(_of_kind(recorder.events, MatchEvent.Kind.TRIGGER_FIZZLED)).is_empty()
-	assert_int(state.scores[0]).is_equal(_power(BANNER) + _power(PIP))
+	assert_int(state.scores[0]).is_equal(_power(BANNER) + _power(PIP) + 4)
 
 
 ## A Walk with no sink emits nothing and reaches the same totals and Scores.

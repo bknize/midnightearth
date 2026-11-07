@@ -6,8 +6,8 @@ extends GdUnitTestSuite
 ## only for a lone Squelch (read from Statuses.Applied.wakes_squelch, which the T05 queue
 ## will consume); cessations (turn, permanent, board scope); protections (Ward over a seat,
 ## Bastion's Ongoing); exit marks with replacement and the exit pass in Q3 order. Built on
-## StubAbilities' shipped-card deck; "fires" is read as the T02 Abilities stub's
-## TRIGGER_FIZZLED events, the only events a firing ability makes before DC-13 T05.
+## StubAbilities' shipped-card deck; "fires" is read as the card's TRIGGER_FIRED (DC-13 T06:
+## Scout's draw is live); a card that does not fire makes no trigger event at all.
 
 const SEED: int = 1
 ## Seat 1's copy of a seat-0 instance id.
@@ -69,13 +69,13 @@ func test_the_stub_pool_builds() -> void:
 	assert_str(defs.def_of(StubAbilities.BRACE + OTHER).name).is_equal("Brace")
 
 
-## An unmuted Scout fires its On reveal (the stub fizzles it) and Scores; a Muted Scout
-## fires nothing and still Scores.
+## An unmuted Scout fires its On reveal (DC-13 T06: TRIGGER_FIRED) and Scores; a Muted
+## Scout fires nothing and still Scores.
 func test_muted_fires_nothing_and_scores() -> void:
 	var plain: MatchState = StubAbilities.table(_typed([StubAbilities.SCOUT]), false)
 	var seen: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(plain, seen)
-	assert_int(seen.of_kind(MatchEvent.Kind.TRIGGER_FIZZLED).size()).is_equal(1)
+	assert_int(seen.cards_of(MatchEvent.Kind.TRIGGER_FIRED).count(StubAbilities.SCOUT)).is_equal(1)
 	var state: MatchState = StubAbilities.table(_typed([StubAbilities.SCOUT]), false)
 	var muted: Statuses.Applied = StubAbilities.stub_mute(
 		state, _defs(), StubAbilities.SCOUT, Callable()
@@ -106,7 +106,7 @@ func test_squelched_scores_nothing_and_fires() -> void:
 	assert_array(rec.cards_of(MatchEvent.Kind.CARD_REVEALED)).contains_exactly(
 		[StubAbilities.SCOUT]
 	)
-	assert_int(rec.of_kind(MatchEvent.Kind.TRIGGER_FIZZLED).size()).is_equal(1)
+	assert_int(rec.cards_of(MatchEvent.Kind.TRIGGER_FIRED).count(StubAbilities.SCOUT)).is_equal(1)
 	assert_array(rec.of_kind(MatchEvent.Kind.CARD_SCORED)).is_empty()
 	assert_int(state.scores[0]).is_equal(0)
 
