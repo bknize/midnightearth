@@ -27,6 +27,9 @@ five pass. Godot's exit codes are never trusted: every stage greps its output fo
 gdUnit4 exit 0 or 101 is a pass. A cycle's only acceptance criterion is "buildable and
 testable", which means `make check` is green plus one screenshot per feature from the
 Godot MCP (P7). If `make` itself fails on the Xcode license, use `scripts/check.sh`.
+Before the gate, `/cycle test` runs `/code-review medium` then `/simplify` on the cycle's
+diff, report-only and `medium` unless Ben names otherwise, never `ultra` unprompted
+(`docs/decisions/0004-review-tools-in-the-cycle.md`).
 
 `make sweep` runs the 50-seed bot sweep (`godot/tests/sweep/`) outside the gate, at
 `/cycle test` and for bot reruns; `make sweep BOT=<name>` sweeps another bot.
@@ -39,7 +42,8 @@ warnings to errors, so every project `.gd` is fully typed; test suites are exemp
 
 - **Orchestrator** — the Claude Code session (Opus 5.5). Owns a dev cycle, dispatches
   the interrogator and implementers, runs `make check`, drives the Godot MCP, posts to
-  Linear. At `/spec` it relays the interview word for word and never answers for Ben.
+  Linear, runs `/code-review` and `/simplify` at `/cycle test`. At `/spec` it relays the
+  interview word for word and never answers for Ben.
 - **Interrogator** (`.claude/agents/interrogator.md`, Fable 5.1) — dispatched by every
   `/spec`; interviews Ben in plain-text rounds (relayed through the orchestrator) and
   writes spec/plan/tasks. Never writes code.

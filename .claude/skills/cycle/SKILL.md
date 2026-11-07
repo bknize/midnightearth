@@ -83,6 +83,21 @@ The acceptance ritual (P7). A cycle is done only when every box is ticked. A spe
 waive the screenshot for an engine- or tooling-only cycle (DC-01 C12): then the proof is
 the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
 
+0. Review and simplify (ADR 0004). On `<cycle branch>`, before the gate:
+   a. `/code-review medium <cycle branch>` (report only; never `--fix`, `max` or `ultra`
+      unless Ben names it; never `--comment`). Sort the findings into blocker /
+      should-fix / nit and put them to Ben as one numbered question. Apply accepted
+      one-line fixes yourself; dispatch anything larger to `implementer`
+      (`implementer-engine` under `godot/engine/`) with the finding quoted. File declined
+      findings in Backlog (`type/bug` or `type/chore`, label `spec/<slug>`).
+      `scripts/check.sh`; `make sweep` if `godot/engine/` changed. Commit
+      `dc-NN: review fixes`.
+   b. `/simplify <cycle branch>`. Read its diff: revert anything that weakens a test,
+      touches the seeded RNG, the action log or replay, or reaches outside the cycle's
+      diff. `scripts/check.sh`; `make sweep` if `godot/engine/` changed. Commit
+      `dc-NN: simplify`.
+   Either commit is omitted when empty. If a skill is not listed in this session, tell
+   Ben, skip it and note the skip in the cycle row. Red means no merge.
 1. `scripts/check.sh` on `<cycle branch>`: must exit 0. Paste the stage summary. Then run
    `make sweep` (the 50-seed sweep, outside the gate since NSC-133) and paste its summary
    lines (`Sweep: ...`, the `Sweep pairing` lines, the `stamp=` and `p99_us=` fields).
