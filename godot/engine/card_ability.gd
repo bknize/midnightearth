@@ -84,6 +84,28 @@ const VERBS: Dictionary[String, Dictionary] = {
 	"cost_on_turn": {"moments": ["ongoing"], KEY_AMOUNT: [0, 7], KEY_AMOUNT_2: [1, 7]},
 	"pass_power_add": {"moments": ["on_commit"], KEY_AMOUNT: [1, 5], KEY_AMOUNT_2: [25, 100]},
 	"free_first_next_turn": {"moments": ["on_reveal"]},
+	# Milestone B, Combo and Disruption (DC-14 T12, AbilitiesComboDisruption).
+	"wick": {"moments": ["on_score"], KEY_AMOUNT: [1, 3]},
+	"fade_other_own": {"moments": ["on_reveal"]},
+	"fleeting_chosen": {"moments": ["on_reveal"]},
+	"scrap": {"moments": ["on_reveal"], KEY_AMOUNT: [25, 100], KEY_CAP: [25, 300]},
+	"copy_self_to_hand": {"moments": ["on_reveal"]},
+	"scores_twice": {"moments": ["on_commit"]},
+	"retrigger_reveals": {"moments": ["on_reveal"]},
+	"reverb": {"moments": ["on_reveal"], KEY_AMOUNT: [1, 5]},
+	"finale": {"moments": ["on_reveal"], KEY_AMOUNT: [1, 5]},
+	"mute_opposing": {"moments": ["on_reveal"]},
+	"squelch_opposing": {"moments": ["on_reveal"]},
+	"create_dross": {"moments": ["on_reveal"], KEY_AMOUNT: [1, 5]},
+	"move_to_opposing": {"moments": ["on_reveal"]},
+	"hex_choose": {"moments": ["on_reveal"]},
+	"mute_chosen": {"moments": ["on_start"]},
+	"mute_random_opposing": {"moments": ["on_score"]},
+	"stasis": {"moments": ["ongoing"]},
+	"gag": {"moments": ["on_commit"]},
+	"quorum": {"moments": ["on_start"], KEY_AMOUNT: [1, 5]},
+	"silence_opposing": {"moments": ["on_reveal"]},
+	"dross_walk_end": {"moments": ["ongoing"], KEY_AMOUNT: [1, 99]},
 }
 ## The verb whose card may carry a printed Cost above MatchRules.MAX_PRINTED_COST (R12).
 const COST_EXCEPTION_VERB: String = "cost_on_turn"

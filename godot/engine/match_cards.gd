@@ -9,8 +9,8 @@ extends RefCounted
 ## definition whichever seat controls it. Both seats may name the same deck. Cards created
 ## in a match (milestone B: Dross, Twin's copies) take ids from CREATED_BASE up, never
 ## colliding with a Deck card; record_created() gives one its definition and Owner, and
-## def_of() and origin_of() answer for it as for a Deck card. A failed build holds no
-## definitions and reports why through build_error().
+## def_of() and origin_of() answer for it as for a Deck card (its verbs join has_verb()). A
+## failed build holds no definitions and reports why through build_error().
 ##
 ## It also holds each seat's three Crew, resolved from its deck's `crew` list through the
 ## Crew pool: crew_for(seat) in deck order (slot 0..2). Crew are not cards: they have no
@@ -33,6 +33,9 @@ var _crew: Array[CrewDef] = []
 ## Extra verbs the trigger queue asks before Abilities (DC-13 T05): none in a shipped match;
 ## the test fixtures set one for their stub verbs (set_verb_handler).
 var _verb_handler: VerbHandler = null
+## The pool the match was built from (DC-14 T12): created cards take their definition from
+## it by id (pool_def: Dross). Null after a failed build.
+var _pool: CardDb = null
 
 
 ## Resolves the definitions of a match where seat s plays the deck `deck_ids[s]` of
@@ -63,6 +66,7 @@ static func build(cards: CardDb, decks: DeckList, ids: Array[String], crew: Crew
 			seat_crew.append(crew.crew_of(crew_id))
 	out._defs = defs
 	out._crew = seat_crew
+	out._pool = cards
 	out._deck_ids.assign(ids)
 	for def: CardDef in defs:
 		if def == null:
@@ -126,7 +130,17 @@ func record_created(instance: int, def: CardDef, owner: int) -> bool:
 		return false
 	_created[instance] = def
 	_created_owner[instance] = owner
+	for ability: CardAbility in def.abilities:
+		_verbs[ability.verb] = true
 	return true
+
+
+## The pool's definition with the id `card_id` (a created-only card such as Dross, or any
+## other), or null when unknown or after a failed build.
+func pool_def(card_id: String) -> CardDef:
+	if _pool == null:
+		return null
+	return _pool.card_by_id(card_id)
 
 
 ## Whether any definition of the match carries an ability with the verb `verb`, on either

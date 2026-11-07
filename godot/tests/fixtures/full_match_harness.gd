@@ -87,14 +87,7 @@ func _state_int(state: Dictionary, key: String) -> int:
 ## Turn that ability names, plus its Memory's `cost_delta` (the full state's "memory"),
 ## never below MatchRules.MIN_COST. An unknown id costs more than any Budget.
 func _card_cost(deck_ids: Array[String], card: int, state: Dictionary) -> int:
-	var origin: int = card / MatchRules.DECK_SIZE
-	if card < 0 or origin >= deck_ids.size():
-		return MAX_ACTIONS
-	var listed: Array[String] = _decks().card_ids(deck_ids[origin])
-	var index: int = card % MatchRules.DECK_SIZE
-	if index >= listed.size():
-		return MAX_ACTIONS
-	var def: CardDef = _db().card_by_id(listed[index])
+	var def: CardDef = _def_of(deck_ids, card, state)
 	if def == null:
 		return MAX_ACTIONS
 	var cost: int = def.cost
@@ -106,6 +99,25 @@ func _card_cost(deck_ids: Array[String], card: int, state: Dictionary) -> int:
 	var kept: Dictionary = memory.get(card, {})
 	var delta: int = kept.get("cost_delta", 0)
 	return maxi(cost + delta, MatchRules.MIN_COST)
+
+
+## The definition of one card instance of a match on `deck_ids`: a Deck card's from the
+## pool and the list (id = Owner * DECK_SIZE + index), a created card's (DC-14 T12) from the
+## full state's `created` {def, owner}; null when unknown.
+func _def_of(deck_ids: Array[String], card: int, state: Dictionary) -> CardDef:
+	if card >= MatchCards.CREATED_BASE:
+		var created: Dictionary = state.get("created", {})
+		var made: Dictionary = created.get(card, {})
+		var def_id: String = made.get("def", "")
+		return _db().card_by_id(def_id)
+	var origin: int = card / MatchRules.DECK_SIZE
+	if card < 0 or origin >= deck_ids.size():
+		return null
+	var listed: Array[String] = _decks().card_ids(deck_ids[origin])
+	var index: int = card % MatchRules.DECK_SIZE
+	if index >= listed.size():
+		return null
+	return _db().card_by_id(listed[index])
 
 
 ## The summed Cost of a Commit whose cards are in slot order, less the leftmost card's when
@@ -447,6 +459,10 @@ func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult)
 func _opens_window(event: MatchEvent) -> bool:
 	match event.kind:
 		MatchEvent.Kind.CARD_REVEALED, MatchEvent.Kind.CARD_DISCARDED:
+			return not event.is_private()
+		MatchEvent.Kind.CARD_CREATED:
+			# A creation is public (DC-14 T12): the new card is named once, then it is the
+			# holding seat's hidden hand card like any other.
 			return not event.is_private()
 		MatchEvent.Kind.EXIT_RESOLVED:
 			var to: String = event.payload.get("to", "")

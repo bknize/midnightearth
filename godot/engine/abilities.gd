@@ -41,6 +41,9 @@ extends RefCounted
 ## STATS_CHANGED {card, power, mult, add, cost, permanent, cause}, private to the seat that
 ## holds the card while it is in a hand or Deck or face down on a row.
 ##
+## Milestone B: the Combo and Disruption verbs (AbilitiesComboDisruption.handles()) go to
+## that module's prepare() and resolve() before any verb here (DC-14 T12).
+##
 ## Prompt keys (plan P12) are shared with MatchState.prompt and SeatView.prompt: KEY_SEAT,
 ## KEY_CARD and KEY_VERB here, the zone, options and flags in Choice.
 
@@ -150,6 +153,9 @@ static func prepare(ctx: TriggerContext) -> void:
 	if ctx.card < 0 or ctx.ability == null or ctx.state == null:
 		ctx.fizzle(REASON_NO_TARGET)
 		return
+	if AbilitiesComboDisruption.handles(ctx.verb):
+		AbilitiesComboDisruption.prepare(ctx)  # Combo and Disruption (DC-14 T12).
+		return
 	if ALWAYS_READY.has(ctx.verb):
 		return
 	match ctx.verb:
@@ -183,6 +189,9 @@ static func prepare(ctx: TriggerContext) -> void:
 ## ctx.indices; never after a decline): the verb applies, every amount read now (Q5).
 static func resolve(ctx: TriggerContext) -> void:
 	if ctx.state == null or ctx.ability == null:
+		return
+	if AbilitiesComboDisruption.handles(ctx.verb):
+		AbilitiesComboDisruption.resolve(ctx)  # Combo and Disruption (DC-14 T12).
 		return
 	match ctx.verb:
 		VERB_DRAW:

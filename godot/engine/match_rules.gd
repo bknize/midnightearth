@@ -32,6 +32,9 @@ const BONUS_ONE: int = 100
 const MULT_VALUES: Array[int] = [125, 150, 200]
 ## The legal printed Adds, in hundredths (+0.25, +0.5, +1).
 const ADD_VALUES: Array[int] = [25, 50, 100]
+## The printed Mults below ×1, in hundredths, a named exception the loader also accepts:
+## Saboteur's ×0.75 (canon cards-v2 section 3, C27; DC-14 T12).
+const MULT_BELOW_ONE: Array[int] = [75]
 ## The floor of an effective Cost (canon R12): a reduction never takes it lower.
 const MIN_COST: int = 0
 ## The highest printed Cost; the one card above it carries the `cost_on_turn` verb (R12).
