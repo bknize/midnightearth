@@ -166,8 +166,7 @@ static func uses_left(card: int, state: MatchState, cards: MatchCards) -> int:
 
 
 ## The Ongoing abilities with verb `verb` that `seat`'s revealed row cards make apply now,
-## in slot order. Whether an Ongoing is read (a Squelched card's is not) joins with DC-13 T04
-## through reads_ongoing().
+## in slot order. A Squelched card's Ongoing is not read (reads_ongoing()).
 static func ongoing_on_row(
 	state: MatchState, cards: MatchCards, seat: int, verb: String
 ) -> Array[CardAbility]:
@@ -187,10 +186,10 @@ static func ongoing_on_row(
 	return out
 
 
-## Whether `card`'s Ongoing abilities are read now (R33): always until DC-13 T04 adds the
-## Squelched and Silenced halves.
-static func reads_ongoing(_state: MatchState, _card: int) -> bool:
-	return true
+## Whether `card`'s Ongoing abilities are read now (R33): not while it is Squelched (or
+## Silenced, which holds the Squelched half), Statuses.
+static func reads_ongoing(state: MatchState, card: int) -> bool:
+	return not Statuses.has(state, card, Statuses.SQUELCHED)
 
 
 ## Fills `out` from the printed Power and Bonus of `def`, the Mult grown by `kept`.

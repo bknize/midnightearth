@@ -42,7 +42,8 @@ var own_board: Array[int] = []
 var opponent_board: Array[int] = []
 ## The rows with what each card shows, in slot order: {card, power, mult, add, revealed,
 ## cost, grown, uses_left, statuses, exit_mark}, the stats as `own_hand_row`, `statuses` the
-## status words it holds and `exit_mark` its exit mark ("" for none; both from DC-13 T04).
+## badge words it shows (Statuses.badges: "Silenced" for both halves) and `exit_mark` its
+## exit mark (Statuses.CONDEMNED, FLEETING or FADE; "" for none).
 ## An opposing face-down card shows card MatchEvent.HIDDEN_CARD, Power 0, no Bonus (mult
 ## 100, add 0), cost 0, grown false, uses_left -1, no statuses and no mark (R58).
 var own_row: Array[Dictionary] = []
@@ -235,8 +236,13 @@ static func _row(
 		if own or revealed:
 			entry = _card_entry(state, card, cards)
 		entry["revealed"] = revealed
-		entry["statuses"] = []
-		entry["exit_mark"] = ""
+		var words: Array = []  # Hidden from the other seat while face down (R58).
+		var mark: String = ""
+		if own or revealed:
+			words.assign(Statuses.badges(state, cards, card))
+			mark = Statuses.exit_mark_of(state, card)
+		entry["statuses"] = words
+		entry["exit_mark"] = mark
 		out.append(entry)
 	return out
 

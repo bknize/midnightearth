@@ -14,11 +14,15 @@ extends RefCounted
 ## One pulse (resolution section 3): the reveal stage flips a face-down card
 ## (CARD_REVEALED {seat, card, slot, power, mult, add, statuses}) and runs its On reveal
 ## (reveal_stage(): Abilities.fire, the T02 stub; DC-13 T05 replaces it with the Batch and
-## the D7 drain); then, when the card Scores (scores_now(); T04 adds Squelched), the score
-## stage adds its Power to its Controller's walking total and multiplies the total by its
-## Bonus value (Scoring.step_total, R26), CARD_SCORED {seat, card, slot, power, bonus_value,
-## total, pass: 1}, and runs its On score (score_stage(); T05: the Batch and D8). Integer
-## only, so every platform agrees.
+## the D7 drain); then the score stage belongs to the card in the slot once the reveal
+## stage has resolved (score_slot(), cycle 5 C23): a card that landed there by a Move Scores
+## now (revealing in full first when face down), the pulsed card moved ahead is reached
+## later, one moved behind the cursor waits for the next Walk (R44; Movement keeps the row's
+## length, so the cursor does not change). When that card Scores (scores_now(): revealed and
+## not Squelched or Silenced, R33), the score stage adds its Power to its Controller's
+## walking total and multiplies the total by its Bonus value (Scoring.step_total, R26),
+## CARD_SCORED {seat, card, slot, power, bonus_value, total, pass: 1}, and runs its On score
+## (score_stage(); T05: the Batch and D8). Integer only, so every platform agrees.
 ##
 ## Events go to `sink` as sink.call(kind, payload) for the Walk's own public events and
 ## sink.call(kind, payload, owner) for an ability's events. A Walk with no valid sink emits
@@ -87,6 +91,24 @@ static func step(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Call
 		reveal(state, cards, sink, seat, card)
 		if reveal_stage(state, cards, rng, sink, seat, card):
 			return true
+	return score_slot(state, cards, rng, sink, seat, at.y)
+
+
+## The score stage of the pulse on `slot` of `seat`'s row (cycle 5 C23, C24; R44): it
+## belongs to the card in the slot now, after the reveal stage resolved. A face-down card
+## that landed there reveals in full first; then it Scores when scores_now(). True when a
+## stage paused on a prompt.
+static func score_slot(
+	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int, slot: int
+) -> bool:
+	var piles: MatchState.SeatPiles = state.seats[seat]
+	if slot < 0 or slot >= piles.board.size():
+		return false
+	var card: int = piles.board[slot]
+	if not piles.is_revealed(card):
+		reveal(state, cards, sink, seat, card)
+		if reveal_stage(state, cards, rng, sink, seat, card):
+			return true
 	if scores_now(state, seat, card):
 		score(state, cards, sink, seat, card)
 		return score_stage(state, cards, rng, sink, seat, card)
@@ -117,7 +139,7 @@ static func finish(state: MatchState, sink: Callable) -> void:
 
 ## Flips `card` face up on `seat`'s row: it joins the revealed set, leaves every seat's
 ## `looked`, and CARD_REVEALED {seat, card, slot, power, mult, add, statuses} is public
-## (`statuses` the status words, T04).
+## (`statuses` the badge words it shows, Statuses.badges).
 static func reveal(
 	state: MatchState, cards: MatchCards, sink: Callable, seat: int, card: int
 ) -> void:
@@ -136,7 +158,7 @@ static func reveal(
 		"power": shown.power,
 		"mult": shown.mult(),
 		"add": shown.add(),
-		"statuses": [],
+		"statuses": _plain_words(Statuses.badges(state, cards, card)),
 	}
 	sink.call(MatchEvent.Kind.CARD_REVEALED, revealed)
 
@@ -151,11 +173,11 @@ static func reveal_stage(
 	return false
 
 
-## Whether `card` on `seat`'s row Scores this pulse (R33): it is revealed; DC-13 T04 adds
-## that a Squelched or Silenced card does not.
+## Whether `card` on `seat`'s row Scores this pulse (R33): it is revealed and not Squelched
+## (nor Silenced, which holds the Squelched half). A Muted or exit-marked card Scores (R39).
 static func scores_now(state: MatchState, seat: int, card: int) -> bool:
 	var piles: MatchState.SeatPiles = state.seats[seat]
-	return piles.is_revealed(card)
+	return piles.is_revealed(card) and not Statuses.has(state, card, Statuses.SQUELCHED)
 
 
 ## The Score of `card` on `seat`'s row (R26, R28, R29): its Controller's walking total gains
@@ -195,7 +217,14 @@ static func score_stage(
 	return false
 
 
-## Sends an ability's events to `sink` with their owners, when the sink is valid.
+## An untyped copy of `words`, so a payload holds plain data.
+static func _plain_words(words: Array[String]) -> Array:
+	var out: Array = []
+	out.assign(words)
+	return out
+
+
+## Sends an ability's events to `sink` with their owners when the sink is valid.
 static func _forward(events: Array[MatchEvent], sink: Callable) -> void:
 	if not sink.is_valid():
 		return

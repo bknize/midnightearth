@@ -1,7 +1,8 @@
 class_name TestCardMemory
 extends GdUnitTestSuite
 ## CardMemory (cycle 9 plan P8; DC-13 T03): a card instance's Memory for the match,
-## {power, mult_add_steps, mult_times_steps, mult_cap, add_steps, cost_delta, uses_left}.
+## {power, mult_add_steps, mult_times_steps, mult_cap, add_steps, cost_delta, uses_left,
+## permanent_statuses} (the last from DC-13 T04).
 ## Its plain form round-trips; it is empty only while every growth is 0 or empty and
 ## `uses_left` is unread (-1); copies are independent. MatchState keeps it by instance id,
 ## creating an entry only through memory_for(). Scoring reads it (test_scoring.gd).
@@ -32,6 +33,7 @@ func test_defaults_are_empty() -> void:
 			"add_steps": 0,
 			"cost_delta": 0,
 			"uses_left": -1,
+			"permanent_statuses": [],
 		}
 	)
 
@@ -63,6 +65,7 @@ func test_to_dict_is_plain_data() -> void:
 			"add_steps": 50,
 			"cost_delta": -1,
 			"uses_left": 0,
+			"permanent_statuses": [],
 		}
 	)
 	plain["power"] = 9

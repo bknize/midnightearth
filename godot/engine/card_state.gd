@@ -9,8 +9,16 @@ extends RefCounted
 ## entry {kind: "add" or "mult", value: hundredths, until: "turn", "row" or "score"} after
 ## the printed and grown ones; `copied_base` (Mirror, Q5), when not empty, replaces the
 ## printed Power and Bonuses as {power, adds: [hundredths], mults: [hundredths]} until turn
-## end. DC-13 T04 adds the statuses with their cessations, the exit mark and the
-## protections (P8, P9).
+## end.
+##
+## Statuses (P8, P9, DC-13 T04; Statuses is their only writer): `statuses` maps a status
+## (Statuses.MUTED, SQUELCHED or ANCHORED; Silenced is never stored, it is both halves
+## present) to its cessation {kind: "turn" | "permanent" | "condition", condition, source};
+## a "permanent" status lives in CardMemory.permanent_statuses instead, so it survives the
+## row. `exit_mark` is "" or one of Statuses.CONDEMNED, FLEETING, FADE (at most one, R38).
+## `protections` lists the statuses an effect has made the card unable to take ("cannot be
+## X"); Ongoing protections (Bastion) and anchors (Brace) are read from the definition while
+## the Ongoing is read, never stored (derived, plan Data model).
 
 const KIND_ADD: String = "add"
 const KIND_MULT: String = "mult"
@@ -24,11 +32,24 @@ var power_delta: int = 0
 var granted: Array[Dictionary] = []
 ## The copied base, {} when none.
 var copied_base: Dictionary = {}
+## Board-scoped statuses: status to cessation (see the class comment).
+var statuses: Dictionary[String, Dictionary] = {}
+## The exit mark, "" for none.
+var exit_mark: String = ""
+## Statuses the card cannot be given ("cannot be X"), from effects (each at most once).
+var protections: Array[String] = []
 
 
 ## True when every field is at its default, so the entry changes nothing.
 func is_default() -> bool:
-	return power_delta == 0 and granted.is_empty() and copied_base.is_empty()
+	return (
+		power_delta == 0
+		and granted.is_empty()
+		and copied_base.is_empty()
+		and statuses.is_empty()
+		and exit_mark == ""
+		and protections.is_empty()
+	)
 
 
 ## Grants a Bonus of `kind` (KIND_ADD or KIND_MULT) worth `value` hundredths until `until`.
@@ -54,6 +75,11 @@ func copy() -> CardState:
 	for entry: Dictionary in granted:
 		out.granted.append(entry.duplicate(true))
 	out.copied_base = copied_base.duplicate(true)
+	for status: String in statuses:
+		var cessation: Dictionary = statuses[status]
+		out.statuses[status] = cessation.duplicate(true)
+	out.exit_mark = exit_mark
+	out.protections.assign(protections)
 	return out
 
 
@@ -66,4 +92,23 @@ func to_dict() -> Dictionary:
 		"power_delta": power_delta,
 		"granted": listed,
 		"copied_base": copied_base.duplicate(true),
+		"statuses": _statuses_dict(),
+		"exit_mark": exit_mark,
+		"protections": _plain_protections(),
 	}
+
+
+## The statuses as plain, copied data.
+func _statuses_dict() -> Dictionary:
+	var out: Dictionary = {}
+	for status: String in statuses:
+		var cessation: Dictionary = statuses[status]
+		out[status] = cessation.duplicate(true)
+	return out
+
+
+## The protections as a plain list.
+func _plain_protections() -> Array:
+	var out: Array = []
+	out.assign(protections)
+	return out

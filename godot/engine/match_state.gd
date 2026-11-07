@@ -73,6 +73,10 @@ var prompt: Dictionary = {}
 ## Per seat, the uses left of each of its Crew in slot order: CrewDef.UNLIMITED (-1) for an
 ## unlimited Crew. Filled at Match start (reset_crew_uses). Public.
 var crew_uses: Array[Array] = [[], []]
+## Per seat, the protections over every card that seat controls (Ward: "your cards cannot be
+## Muted", DC-13 T04, plan P9): status to cessation, as CardState.statuses. Written by
+## Statuses; the `turn` ones end at turn end.
+var seat_protections: Array[Dictionary] = [{}, {}]
 
 
 func _init(p_match_seed: int = 0) -> void:
@@ -128,6 +132,7 @@ func to_dict() -> Dictionary:
 		"walk": walk.to_dict(),
 		"prompt": prompt.duplicate(true),
 		"crew_uses": _crew_uses_list(),
+		"seat_protections": _seat_protections_list(),
 	}
 
 
@@ -165,6 +170,7 @@ func duplicate() -> MatchState:
 	out.walk = walk.copy()
 	out.prompt = prompt.duplicate(true)
 	out.crew_uses.assign(_crew_uses_list())
+	out.seat_protections.assign(_seat_protections_list())
 	return out
 
 
@@ -268,6 +274,14 @@ func _crew_uses_list() -> Array:
 	var out: Array = []
 	for seat_uses: Array in crew_uses:
 		out.append(seat_uses.duplicate())
+	return out
+
+
+## The seat protections as deep-copied dictionaries (to_dict() and duplicate()).
+func _seat_protections_list() -> Array:
+	var out: Array = []
+	for held: Dictionary in seat_protections:
+		out.append(held.duplicate(true))
 	return out
 
 
