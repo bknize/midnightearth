@@ -20,3 +20,6 @@ bootstrap:  ; @scripts/bootstrap.sh
 sweep:      ; @$(if $(filter command line,$(origin BOT)),SWEEP_BOT=$(BOT) )$(if $(filter command line,$(origin WEIGHTS)),SWEEP_WEIGHTS=$(WEIGHTS) )scripts/check.sh sweep
 bot-eval:   ; @scripts/bot-eval.sh --a $(BOT) --b $(REF) --seeds $(SEEDS)
 bot-selftest: ; @python3 -I scripts/bot/driver.py selftest
+# The bot trainer's unit tests (cycle 11 P19), outside `check`. No Godot.
+.PHONY: trainer-test
+trainer-test: ; @python3 -I -m unittest discover -s trainer/tests -t .
