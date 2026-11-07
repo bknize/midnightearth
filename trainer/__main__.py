@@ -1,4 +1,4 @@
-"""Trainer CLI: serve, run (stubs until T09/T10) and selftest."""
+"""Trainer CLI: serve (stub until T10), run and selftest."""
 import sys
 import unittest
 from pathlib import Path
@@ -21,12 +21,15 @@ def _selftest() -> int:
 def main(argv: Optional[List[str]] = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     cmd = args[0] if args else ""
-    if cmd in ("serve", "run"):
-        print("trainer %s: not yet implemented" % cmd)
+    if cmd == "run":
+        from trainer.run import cli_run
+        return cli_run(args[1:])
+    if cmd == "serve":
+        print("trainer serve: not yet implemented")
         return 3
     if cmd == "selftest":
         return _selftest()
-    print("usage: python -I -m trainer serve|run|selftest")
+    print("usage: python -I trainer serve|run|selftest")
     return 2
 
 
