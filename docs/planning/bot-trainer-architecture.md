@@ -12,7 +12,7 @@ supersedes:
 
 # Bot trainer: an LLM-assisted program on the training PC
 
-> The proposed architecture for a bot-training app on Ben's Windows laptop. It labels positions with scored play-outs, uses a local LLM as a deck operator to propose plans, distils a fast scripted policy from the labels, and is driven from the Mac over MCP on the LAN. Ben's decisions (T1–T6) are at the end; the build goes through `/spec`.
+> The proposed architecture for a bot-training app on Ben's Windows laptop. It labels positions with scored play-outs, uses a local LLM as a deck operator to propose plans, distils a fast scripted policy from the labels, and is driven from the Mac over MCP on the LAN. Ben's decisions (T1–T8) are at the end; the build goes through `/spec`.
 
 ## Why the current loop is not enough
 
@@ -251,6 +251,8 @@ ledger row in [[planning/bot-ladder]].
 | T4 | Shipped policy form | **(a), (b) and (c), in stages** | (a) integer linear weights first (cycle B). (b) per-deck round-start plan tables next (cycle C, with plans). (c) quantized small trees as a measured experiment (cycle D or later): each tree policy must pass the same quiet sweep on the Mac, p99 under 10 ms, or it doesn't ship. The export format has a `form` field (`linear`, `linear+plans`, `trees`) so the bot loads whichever passed. |
 | T5 | Play-out horizon | **(b) Always to the end of the match** | About 4× the rollout cost of round-end play-outs (see the revised throughput). The value is the match result, with the round-win difference as a small tiebreak. Per-match Crew uses and round-win pressure are scored exactly. |
 | T6 | Where the code lives | **(a) `trainer/` in this repo** | Same commit and stamp as the engine. Add a row to the CLAUDE.md layout table and a `make trainer-test` target (Python unit tests, runnable on both machines). |
+| T7 | Remote access to the PC | **(b) SSH into a separate non-admin Windows account, `trainer`** | Windows' built-in OpenSSH server. Key login only (the Mac's dedicated key `~/.ssh/midnight_pc`), passwords off, `AllowUsers trainer`, and port 22 open only to the Mac's address on the Private profile. The orchestrator installs per-user tools (Python, Godot, llama.cpp, models) and runs everything as `trainer`. Anything needing admin stays with Ben at the PC: the SSH server, firewall rules, the NVIDIA driver, system-wide Git, power and update settings. Long jobs are started detached, outside the SSH session's job object, so a dropped connection or a sleeping Mac doesn't kill them. |
+| T8 | After the spike | **(a) Keep SSH for maintenance; runs go through the MCP server's fixed verbs** | The MCP design above stands. SSH is for setup, updates and diagnosis. The trainer service runs as `trainer` too, so neither path has admin rights. |
 
 The options as they were put to Ben:
 

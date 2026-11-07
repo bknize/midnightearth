@@ -1,6 +1,6 @@
 ---
 type: planning
-tags: [planning, bot, training, llm, spike, windows]
+tags: [planning, bot, training, llm, spike, windows, ssh]
 status: seedling
 related: ["[[planning/bot-trainer-architecture]]", "[[planning/planning-moc]]", "[[systems/bot-training]]"]
 created: 2026-11-06
@@ -12,7 +12,7 @@ supersedes:
 
 # Bot trainer spike: a one-day checklist for the Windows PC
 
-> What Ben does at the training PC (and the orchestrator does on the Mac) in one day, to replace the estimates in [[planning/bot-trainer-architecture]] with measured numbers before `/spec` for cycle A.
+> Ben's short admin session at the training PC, then the orchestrator's runbook over SSH from the Mac. Together they replace the estimates in [[planning/bot-trainer-architecture]] with measured numbers before `/spec` for cycle A.
 
 **The spike answers five questions:**
 
@@ -22,16 +22,89 @@ supersedes:
 4. Which ~8–9B model runs fast enough on the RTX 3070, and does it slow the play-outs down?
 5. Can the Mac reach an MCP server on the PC across the LAN?
 
-**Nothing from the spike is committed as code.** The throwaway scripts below live outside the
-repo, in `C:\trainer-spike\`. The results go into the table at the end, and the orchestrator
-copies them into the architecture note.
+**Who does what (T7).** Ben does Part A at the PC, as an administrator: about 20 minutes, and
+everything that needs admin rights or a person in the room. The orchestrator then does Part B
+from the Mac, over SSH, as the non-admin Windows account `trainer`. No step in Part B needs
+admin rights. Downloads in Part B are listed with sources and sizes, and Ben approves them in
+chat first.
 
-Commands are PowerShell unless they're marked **Mac**. Placeholders are in angle brackets.
+**Nothing from the spike is committed as code.** The throwaway scripts live in
+`C:\Users\trainer\spike\` on the PC. The results go into the table at the end, and the
+orchestrator copies them into the architecture note.
 
-## 0. Prepare the PC (about 45 min)
+Paths used below, all under the `trainer` profile:
 
-- [ ] **Plug in the charger and stop sleep.** The Nov 5 run was killed from outside. Here sleep,
-      lid close and update reboots are the risks.
+| Name | Path |
+|---|---|
+| Spike folder | `C:\Users\trainer\spike\` (logs in `spike\logs\`) |
+| Repo clone | `C:\Users\trainer\spike\midnightearth\` |
+| Godot | `C:\Users\trainer\tools\godot\Godot_v4.6.3-stable_win64_console.exe` |
+| Python | `C:\Users\trainer\AppData\Local\Programs\Python\Python314\python.exe` (per-user install) |
+| llama.cpp | `C:\Users\trainer\tools\llama\` |
+| Models | `C:\Users\trainer\models\` |
+
+## Part A: Ben at the PC (admin, about 20 min)
+
+Run everything in **one administrator PowerShell window**, in order.
+
+- [ ] **A1. Plug in the charger, use the vendor's performance mode** (Eluktronics Control Center),
+      and keep the vents clear.
+- [ ] **A2. Create the `trainer` account.** Use a strong password and keep it in your password
+      manager. Nobody needs it day to day, because SSH uses the key. Then sign the account in
+      once with no window, so Windows creates its profile folder.
+
+  ```powershell
+  $pw = Read-Host -AsSecureString "Password for trainer"
+  New-LocalUser -Name trainer -Password $pw -PasswordNeverExpires -AccountNeverExpires -Description "Bot trainer (SSH only)"
+  Start-Process cmd.exe -ArgumentList '/c exit' -Credential (New-Object pscredential('trainer', $pw)) -LoadUserProfile -Wait
+  Test-Path C:\Users\trainer   # must print True
+  ```
+
+- [ ] **A3. Install the SSH server,** make PowerShell its default shell, and start it
+      automatically.
+
+  ```powershell
+  Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+  New-ItemProperty -Path HKLM:\SOFTWARE\OpenSSH -Name DefaultShell -Value "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -PropertyType String -Force
+  Set-Service sshd -StartupType Automatic; Start-Service sshd
+  ```
+
+- [ ] **A4. Key login only, and only for `trainer`.** This turns passwords off and inserts
+      `AllowUsers trainer` before any `Match` block (sshd refuses it inside one). Then it tests
+      the config and restarts the server.
+
+  ```powershell
+  $c = "$env:ProgramData\ssh\sshd_config"
+  $lines = @(Get-Content $c) -replace '^#?\s*PasswordAuthentication\s.*', 'PasswordAuthentication no'
+  $m = 0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^Match\s' } | Select-Object -First 1
+  if ($null -eq $m) { $lines += 'AllowUsers trainer' } else { $lines = $lines[0..($m - 1)] + 'AllowUsers trainer' + $lines[$m..($lines.Count - 1)] }
+  Set-Content -Path $c -Value $lines -Encoding ascii
+  & "$env:WINDIR\System32\OpenSSH\sshd.exe" -t; if ($LASTEXITCODE -eq 0) { Restart-Service sshd; "sshd ok" }
+  ```
+
+- [ ] **A5. Install the Mac's public key** for `trainer`, readable only by `trainer`, SYSTEM and
+      Administrators. This is a public key, so it's safe to paste.
+
+  ```powershell
+  $d = 'C:\Users\trainer\.ssh'; New-Item -ItemType Directory -Force $d | Out-Null
+  Set-Content -Path "$d\authorized_keys" -Encoding ascii -Value 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINQCIx6Dw59pXW/P5Rt9KT5tA0czoAclMdaNOkewPJdP midnightearth-mac-to-pc'
+  icacls "$d\authorized_keys" /inheritance:r /grant 'trainer:F' /grant 'SYSTEM:F' /grant 'Administrators:F'
+  icacls "$d\authorized_keys" /setowner trainer
+  ```
+
+- [ ] **A6. Firewall: the network must be Private.** Then open SSH (22) and the spike's MCP
+      port (8765) to the Mac only (192.168.68.52).
+
+  ```powershell
+  Get-NetConnectionProfile | Format-Table InterfaceAlias, NetworkCategory
+  # If it says Public:  Set-NetConnectionProfile -InterfaceAlias "<alias>" -NetworkCategory Private
+  New-NetFirewallRule -DisplayName "ssh-from-mac" -Direction Inbound -Protocol TCP -LocalPort 22 -RemoteAddress 192.168.68.52 -Profile Private -Action Allow
+  New-NetFirewallRule -DisplayName "bot-trainer-mcp-from-mac" -Direction Inbound -Protocol TCP -LocalPort 8765 -RemoteAddress 192.168.68.52 -Profile Private -Action Allow
+  ```
+
+- [ ] **A7. Stop sleep and lid-close actions** (the Nov 5 run was killed from outside), and
+      pause Windows Update (Settings → Windows Update → Pause updates). Set Active hours to cover
+      overnight runs.
 
   ```powershell
   powercfg /change standby-timeout-ac 0
@@ -40,157 +113,122 @@ Commands are PowerShell unless they're marked **Mac**. Placeholders are in angle
   powercfg /setactive SCHEME_CURRENT
   ```
 
-- [ ] **Use the vendor's performance mode** (Eluktronics Control Center) and the Windows
-      "Best performance" power mode. Keep the vents clear.
-- [ ] **Pause Windows Update for a week** (Settings → Windows Update → Pause updates), and set
-      Active hours to cover the overnight run.
-- [ ] **Give the PC a fixed LAN address:** a DHCP reservation on the router. Note the address as
-      `<PC_IP>`, and note the Mac's as `<MAC_IP>`.
-- [ ] **Update the NVIDIA driver** (Studio or Game Ready, current), then check it with
-      `nvidia-smi`. Note the driver and CUDA versions.
-- [ ] **Install Git for Windows** (it includes Git LFS) and **Python 3.14 for Windows**, to match
-      the Mac's 3.14.6. Tick "Add to PATH". Check:
+- [ ] **A8. Install Git for Windows** for all users (it includes Git LFS) with the defaults, and
+      **update the NVIDIA driver** (current Studio or Game Ready). Check both: `git --version`
+      and `nvidia-smi`.
+- [ ] **A9. Router:** add DHCP reservations for the PC and for the Mac. The Mac must keep
+      192.168.68.52, or the firewall rules stop matching.
+- [ ] **A10. Send the orchestrator the PC's address:**
+      `(Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias "<alias>").IPAddress`.
 
-  ```powershell
-  git --version; py -3.14 --version
+## Part B: the orchestrator over SSH
+
+### B0. Connect and check the detach trick (about 15 min)
+
+- [ ] **Mac:** add the host to `~/.ssh/config` and test the connection.
+
+  ```
+  Host midnight-pc
+    HostName <PC_IP>
+    User trainer
+    IdentityFile ~/.ssh/midnight_pc
+    IdentitiesOnly yes
+    ServerAliveInterval 30
   ```
 
-- [ ] **Install Godot 4.6.3 for Windows:** download `Godot_v4.6.3-stable_win64.exe.zip` from
-      godotengine.org and unzip it to `C:\Godot\`. Use the
-      `Godot_v4.6.3-stable_win64_console.exe` build, which prints to the terminal.
+  `ssh midnight-pc whoami` must print `<pcname>\trainer`. Also check that `trainer` isn't an
+  admin: `ssh midnight-pc "whoami /groups | findstr /i S-1-5-32-544"` must print nothing.
+- [ ] **Long jobs:** Windows OpenSSH ends every process a session started when that session
+      closes. So long jobs are created through WMI (`Win32_Process.Create`), which puts them
+      outside the session. Save `spike\detach.ps1` (below), start a 2-minute
+      `Start-Sleep`-and-write job with it, disconnect, reconnect, and check the job finished and
+      wrote its log. If WMI is blocked for a standard user, fall back to a scheduled task that
+      Ben creates once at the PC.
 
-  ```powershell
-  setx GODOT_BIN "C:\Godot\Godot_v4.6.3-stable_win64_console.exe"
-  ```
+`C:\Users\trainer\spike\detach.ps1`:
 
-  Open a new PowerShell window so `GODOT_BIN` takes effect.
+```powershell
+param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string]$Command)
+$logs = "$HOME\spike\logs"; New-Item -ItemType Directory -Force $logs | Out-Null
+$log = "$logs\$Name.log"
+$godot = "$HOME\tools\godot\Godot_v4.6.3-stable_win64_console.exe"
+$line = "cmd.exe /c `"set GODOT_BIN=$godot&& cd /d $HOME\spike\midnightearth && $Command > `"$log`" 2>&1`""
+$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $line }
+"started $Name pid=$($r.ProcessId) rc=$($r.ReturnValue) log=$log"
+```
 
-## 1. Get the code onto the PC as a bundle (about 15 min)
+### B1. Tools, as `trainer` (about 30 min; downloads approved by Ben first)
+
+| Download | Source | Approx. size |
+|---|---|---|
+| Python 3.14 (latest 3.14.x, 64-bit installer) | python.org | ~30 MB |
+| Godot 4.6.3 Windows (`Godot_v4.6.3-stable_win64.exe.zip`) | godotengine.org / GitHub releases | ~60 MB |
+| llama.cpp Windows CUDA 12 build + `cudart` zip | github.com/ggml-org/llama.cpp releases | ~200 MB + ~400 MB |
+| MCP Python SDK (`mcp[cli]`) and `huggingface_hub`, in a venv | PyPI | ~30 MB |
+| 2–3 GGUF models at Q4_K_M | Hugging Face (names confirmed at download) | ~5–7 GB each |
+
+- [ ] **Python** per-user and silent, no admin needed:
+      `python-3.14.x-amd64.exe /quiet InstallAllUsers=0 PrependPath=1 Include_test=0`.
+      Check with `& "$HOME\AppData\Local\Programs\Python\Python314\python.exe" --version`.
+- [ ] **Godot** unzipped to `tools\godot\`. Check with `--version`.
+      `setx GODOT_BIN "<path>"` for the interactive sessions.
+- [ ] **llama.cpp** unzipped to `tools\llama\`. `llama-cli.exe --list-devices` must list the
+      RTX 3070. CUDA works from an SSH session; if it doesn't, that is a finding.
+- [ ] **A venv** at `spike\venv` with `mcp[cli]` and `huggingface_hub`.
+
+### B2. Code onto the PC as a bundle (about 10 min)
 
 This is a manual version of `sync_code` (T2). Nothing is pushed.
 
-- [ ] **Mac:** make a bundle of `master`.
+- [ ] **Mac:** `git bundle create` of `master`, then `scp` it to `midnight-pc:spike/midnightearth.bundle`.
+- [ ] **PC:** `$env:GIT_LFS_SKIP_SMUDGE="1"; git clone spike\midnightearth.bundle spike\midnightearth`.
+      Art isn't needed headless, and the bundle holds only LFS pointers. The commit must match
+      the Mac's `master`.
 
-  ```bash
-  git -C /Users/Crofts/Dev/nightscience/midnightearth bundle create ~/Desktop/midnightearth.bundle master
-  ```
+### B3. Does it run headless on Windows? (about 30 min)
 
-- [ ] **Copy the file to the PC** (USB stick or a shared folder) as `C:\trainer-spike\midnightearth.bundle`.
-- [ ] **PC:** clone it without fetching the art. Art isn't needed headless, and the bundle holds
-      only LFS pointers.
+From `spike\midnightearth\godot`, the same commands `scripts/check.sh` runs, each logged and
+searched for `SCRIPT ERROR|Parse Error|Failed to load script|ERROR:`:
 
-  ```powershell
-  cd C:\trainer-spike
-  $env:GIT_LFS_SKIP_SMUDGE = "1"
-  git clone midnightearth.bundle midnightearth
-  cd midnightearth; git log --oneline -1
-  ```
+- [ ] **Import:** `--headless --path . --import`
+- [ ] **Boot:** `--headless --path . --quit-after 120 -- --seed=1`. The output must contain
+      `Main ready`.
+- [ ] **Gate tests:** `-s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --ignoreHeadlessMode --continue --add res://tests --ignore res://tests/sweep`.
+      Exit 0 or 101 passes. Note the `Statistics:` line.
+- [ ] **50-seed sweep:** the same, with `--add res://tests/sweep`. Note `p99_us=` and `stamp=`.
+      This p99 is for information only; the 10 ms rule is judged on the Mac.
+- [ ] **Driver selftest:** `python -I scripts\bot\driver.py selftest`. Any path or POSIX failure
+      becomes cycle A work.
 
-  Note the commit. It must match the Mac's `master`.
-
-## 2. Does it run headless on Windows? (about 30 min)
-
-- [ ] **Import:** this builds `godot\.godot`. Check the log for errors.
-
-  ```powershell
-  cd C:\trainer-spike\midnightearth\godot
-  & $env:GODOT_BIN --headless --path . --import *> import.log
-  Select-String -Path import.log -Pattern 'SCRIPT ERROR|Parse Error|Failed to load script|ERROR:'
-  ```
-
-  No matches means it passed.
-- [ ] **Boot:** the output must contain `Main ready`.
-
-  ```powershell
-  & $env:GODOT_BIN --headless --path . --quit-after 120 -- --seed=1 *> boot.log
-  Select-String -Path boot.log -Pattern 'Main ready|SCRIPT ERROR|ERROR:'
-  ```
-
-- [ ] **Gate tests (gdUnit4):** a run that ends in exit code 0 or 101 passed. Note the
-      `Statistics:` line.
-
-  ```powershell
-  & $env:GODOT_BIN --headless --path . -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --ignoreHeadlessMode --continue --add res://tests --ignore res://tests/sweep *> test.log; $LASTEXITCODE
-  Select-String -Path test.log -Pattern 'Statistics:|FAILED'
-  ```
-
-- [ ] **The 50-seed sweep:** note the `Sweep:` lines, especially `p99_us=` and `stamp=`. The
-      PC's p99 is for information only; the 10 ms rule is judged on the Mac.
-
-  ```powershell
-  & $env:GODOT_BIN --headless --path . -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd --ignoreHeadlessMode --continue --add res://tests/sweep *> sweep.log
-  Select-String -Path sweep.log -Pattern 'Sweep:|Sweep pairing|Statistics:'
-  ```
-
-- [ ] **The Python driver on Windows:** it uses only the standard library.
-
-  ```powershell
-  cd C:\trainer-spike\midnightearth
-  py -3.14 -I scripts\bot\driver.py selftest
-  ```
-
-  Note any failures. Path or POSIX problems here become cycle A work.
-
-## 3. Same seeds, same matches? (about 30 min)
+### B4. Same seeds, same matches? (about 20 min)
 
 The PC's labels are only worth anything if a match played there replays exactly the same on
-the Mac. The engine is integer-only and seeded, so they should match. This step proves it.
-It calls the bot worker directly rather than `driver.py eval`, because the eval's SPRT can stop
-early, and then the two machines wouldn't play the same set of seeds.
+the Mac. `bench.py` (below) runs the bot worker directly over a seed range, on N workers at once.
+It prints games per minute and a SHA-256 **digest** of every game record and every decision's
+action, with timings left out. It calls the worker directly, not `driver.py eval`, because the
+eval's SPRT can stop early, and then the two machines wouldn't play the same seeds.
 
-Both machines run the same stdlib script, `bench.py` (below). It runs the worker over a seed
-range in batches of 25, on N workers at once, then prints:
-- games per minute;
-- a SHA-256 **digest** of every game record and every decision's action, with timings left
-  out.
+Verified on the Mac 2026-11-06: seeds 1–4, tuned vs `greedy_v1`, gave the same digest
+(`ddebd095c9686a8c`) at 1 and 2 workers.
 
-The same commit, seeds and bots must give the same digest on both machines.
+- [ ] **Both machines,** from the repo root:
+      `python -I <bench.py> --a tuned --b greedy_v1 --seeds 1-50 --workers 2`.
+- [ ] **The `digest=` lines must be equal.** If they differ, rerun with `--keep`, copy both
+      outputs to the Mac, and find the first decision that differs. That is an engine bug (a
+      cross-platform determinism fault), and the spike stops there.
 
-- [ ] **PC:**
-
-  ```powershell
-  cd C:\trainer-spike\midnightearth
-  py -3.14 -I C:\trainer-spike\bench.py --a tuned --b greedy_v1 --seeds 1-50 --workers 2
-  ```
-
-- [ ] **Mac** (save the same script to the scratchpad or `~/Desktop/bench.py`; `GODOT_BIN` is
-      the Mac's Godot):
-
-  ```bash
-  cd /Users/Crofts/Dev/nightscience/midnightearth
-  GODOT_BIN="/Applications/Godot 4.6.app/Contents/MacOS/Godot" python3 -I ~/Desktop/bench.py --a tuned --b greedy_v1 --seeds 1-50 --workers 2
-  ```
-
-- [ ] **Compare the `digest=` lines.** Equal means the matches are identical. If they differ,
-      rerun both with `--keep` and send the orchestrator both `bench-out` folders. It finds
-      the first decision that differs. That is an engine bug (a cross-platform determinism
-      fault), and the spike stops here.
-
-## 4. How fast are play-outs? (about 1.5 h, mostly waiting)
+### B5. How fast are play-outs? (about 1.5 h, detached)
 
 There's no rollout-from-mid-match entry yet; that's cycle A. A full match from the start is the
 longest possible play-out, so it gives an upper bound. `greedy_v1` on both sides is a greedy
-rollout policy.
+rollout policy. All of these are started with `detach.ps1`.
 
-- [ ] **Workers sweep:** 200 seeds each, at 16, 12 and 8 workers. Record games per minute for
-      each.
+- [ ] **Workers sweep:** `--seeds 1-200` at 16, 12 and 8 workers. Record games per minute for each.
+- [ ] **Throttling:** 30 minutes at the best worker count (`--seeds 1-3000 --minutes 30`).
+      `bench.py` prints games per minute every 5 minutes; compare the first and last.
+- [ ] **Mac, for scale:** the same 200-seed run at 8 workers.
 
-  ```powershell
-  foreach ($w in 16, 12, 8) { py -3.14 -I C:\trainer-spike\bench.py --a greedy_v1 --b greedy_v1 --seeds 1-200 --workers $w }
-  ```
-
-- [ ] **Throttling:** 30 minutes at the best worker count from the sweep. `bench.py` prints games
-      per minute every 5 minutes; compare the first and last. Note the CPU temperature if the
-      vendor tool shows it.
-
-  ```powershell
-  py -3.14 -I C:\trainer-spike\bench.py --a greedy_v1 --b greedy_v1 --seeds 1-3000 --workers <best> --minutes 30
-  ```
-
-- [ ] **Mac, for scale:** the same 200-seed run at 8 workers, so the PC's numbers can be read
-      against the 0.34 s per match the architecture estimate is built on.
-
-`C:\trainer-spike\bench.py` (standard library only; run from the repo root):
+`C:\Users\trainer\spike\bench.py` (standard library only; run from the repo root):
 
 ```python
 import argparse, concurrent.futures, hashlib, json, os, shutil, subprocess, tempfile, time
@@ -236,48 +274,24 @@ if args.keep: print("  kept", out)
 else: shutil.rmtree(out, ignore_errors=True)
 ```
 
-## 5. Which model, and how fast? (about 2 h)
+### B6. Which model, and how fast? (about 2 h)
 
-- [ ] **Install llama.cpp:** from the llama.cpp GitHub releases, download the newest
-      `llama-<build>-bin-win-cuda-12.x-x64.zip` and the matching `cudart-llama-bin-win-cuda-12.x-x64.zip`.
-      Unzip both into `C:\llama\`. Check:
+- [ ] **Download 2–3 GGUF models at Q4_K_M** with `hf download` into `models\`. Candidates: a
+      Qwen ~8–9B instruct (the current Qwen3 / Qwen3.5 build), a Llama 3.x 8B instruct, and a
+      Gemma ~9–12B instruct, which needs a smaller context. Confirm the exact repos on Hugging
+      Face, and get Ben's approval of the list, before downloading.
+- [ ] **Raw speed:** `llama-bench.exe -m <model> -ngl 99 -p 2048 -n 256`. Record `pp2048`, `tg256`,
+      and the VRAM in use (`nvidia-smi`).
+- [ ] **Parallel serving:** start `llama-server.exe -m <model> -ngl 99 -c 16384 -np 4 --host 127.0.0.1 --port 8080`
+      detached, then run `llm_load.py` (below). Record the aggregate tokens per second and the
+      median seconds per request.
+- [ ] **Play-outs and LLM together:** `bench.py` at the best worker count while `llm_load.py`
+      loops. Record how much each one drops.
+- [ ] **A plan proposal, by eye:** one real prompt per model (the rules, the two decklists and one
+      position from a B4 game kept with `--keep`). This only checks that the JSON plans are valid
+      and sensible; the real model choice comes from play-out scores in cycle C.
 
-  ```powershell
-  C:\llama\llama-cli.exe --version; C:\llama\llama-cli.exe --list-devices
-  ```
-
-  The RTX 3070 must be listed.
-- [ ] **Download 2–3 GGUF models at Q4_K_M,** each about 5–7 GB, from Hugging Face into
-      `C:\models\`. Check the current names on Hugging Face first. Candidates:
-      - a Qwen ~8–9B instruct (the current Qwen3 / Qwen3.5 build)
-      - a Llama 3.x 8B instruct
-      - a Gemma ~9–12B instruct. A 12B only fits with a smaller context, so try it last.
-- [ ] **Raw speed:** prompt processing at 2,048 tokens and generation of 256 tokens, with every
-      layer on the GPU.
-
-  ```powershell
-  C:\llama\llama-bench.exe -m C:\models\<model>.gguf -ngl 99 -p 2048 -n 256
-  ```
-
-  Record `pp2048` and `tg256` in tokens per second, and the VRAM in use (`nvidia-smi`).
-- [ ] **Parallel serving:** start the server with 4 slots and a 16k context shared between
-      them.
-
-  ```powershell
-  C:\llama\llama-server.exe -m C:\models\<model>.gguf -ngl 99 -c 16384 -np 4 --host 127.0.0.1 --port 8080
-  ```
-
-  Then run `C:\trainer-spike\llm_load.py` (below) to time 40 requests at 4 at a time. Record
-  the aggregate tokens per second and the median seconds per request.
-- [ ] **Play-outs and LLM together:** run `bench.py` at the best worker count (step 4) while
-      `llm_load.py` loops. Record the play-out games per minute and the LLM tokens per second.
-      How much each one drops is the number that matters.
-- [ ] **A plan proposal, by eye:** send one real prompt per model (the orchestrator writes it
-      from the rules, the two decklists and one position from a step 3 game kept with `--keep`) and paste back
-      the replies. This only checks that the model returns valid JSON plans and isn't
-      nonsense; the real model choice comes from play-out scores in cycle C.
-
-`C:\trainer-spike\llm_load.py` (standard library only):
+`C:\Users\trainer\spike\llm_load.py` (standard library only):
 
 ```python
 import json, time, urllib.request, concurrent.futures, statistics
@@ -298,79 +312,61 @@ print("median s/request %.2f  aggregate tok/s %.1f"
       % (statistics.median(r[0] for r in res), sum(r[1] for r in res) / wall))
 ```
 
-## 6. Can the Mac reach MCP on the PC? (about 30 min)
+### B7. Can the Mac reach MCP on the PC? (about 20 min)
 
-- [ ] **PC:** install the MCP Python SDK in a spike virtual environment.
+- [ ] **PC:** save `spike\health_server.py` (below) and start it detached from the venv. It
+      listens on 8765, which only the Mac can reach (A6). The spike has no token, so that
+      firewall rule is its only lock; cycle A adds the bearer token.
+- [ ] **Mac:** add it for this machine only, outside the repo's `.mcp.json`:
+      `claude mcp add --transport http --scope local bot-trainer-spike http://<PC_IP>:8765/mcp`.
+      Then, in a new session, call `health`. Record the reply and the round-trip time.
+- [ ] **Clean up:** stop the server, `claude mcp remove bot-trainer-spike`. Keep the 8765 firewall
+      rule for cycle A's server.
 
-  ```powershell
-  cd C:\trainer-spike; py -3.14 -m venv venv; .\venv\Scripts\pip install "mcp[cli]"
-  ```
+`C:\Users\trainer\spike\health_server.py`:
 
-- [ ] **PC:** save `C:\trainer-spike\health_server.py`:
-
-  ```python
-  import os, platform, shutil, subprocess
-  from mcp.server.fastmcp import FastMCP
-  mcp = FastMCP("bot-trainer-spike", host="0.0.0.0", port=8765)
-  @mcp.tool()
-  def health() -> dict:
-      """Spike health check: host, Python, Godot, GPU, free disk."""
-      godot = subprocess.run([os.environ["GODOT_BIN"], "--version"],
-                             capture_output=True, text=True).stdout.strip()
-      gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.used,memory.total",
-                            "--format=csv,noheader"], capture_output=True, text=True).stdout.strip()
-      return {"host": platform.node(), "python": platform.python_version(), "godot": godot,
-              "gpu": gpu, "free_gb": shutil.disk_usage("C:\\").free // 2**30}
-  if __name__ == "__main__":
-      mcp.run(transport="streamable-http")
-  ```
-
-  Run it with `.\venv\Scripts\python health_server.py`.
-- [ ] **PC:** allow the port from the Mac only, on the Private profile. Run this in an
-      administrator PowerShell. The spike has no token, so this firewall rule is its only
-      lock; cycle A adds the bearer token.
-
-  ```powershell
-  New-NetFirewallRule -DisplayName "bot-trainer-spike" -Direction Inbound -Protocol TCP -LocalPort 8765 -RemoteAddress <MAC_IP> -Profile Private -Action Allow
-  ```
-
-  Check that the Wi-Fi or Ethernet network is set to Private.
-- [ ] **Mac:** add it for this machine only, outside the repo's `.mcp.json`, then start a new
-      Claude Code session and ask it to call `health`.
-
-  ```bash
-  claude mcp add --transport http --scope local bot-trainer-spike http://<PC_IP>:8765/mcp
-  ```
-
-  Record the reply and the round-trip time.
-- [ ] **Clean up at the end of the spike:** remove the firewall rule
-      (`Remove-NetFirewallRule -DisplayName "bot-trainer-spike"`) and the Mac entry
-      (`claude mcp remove bot-trainer-spike`).
+```python
+import os, platform, shutil, subprocess
+from mcp.server.fastmcp import FastMCP
+mcp = FastMCP("bot-trainer-spike", host="0.0.0.0", port=8765)
+@mcp.tool()
+def health() -> dict:
+    """Spike health check: host, Python, Godot, GPU, free disk."""
+    godot = subprocess.run([os.environ["GODOT_BIN"], "--version"],
+                           capture_output=True, text=True).stdout.strip()
+    gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.used,memory.total",
+                          "--format=csv,noheader"], capture_output=True, text=True).stdout.strip()
+    return {"host": platform.node(), "python": platform.python_version(), "godot": godot,
+            "gpu": gpu, "free_gb": shutil.disk_usage("C:\\").free // 2**30}
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
+```
 
 ## Results (fill in)
 
 | # | Measure | Result |
 |---|---|---|
-| 1 | Commit on the PC = Mac `master`? | |
-| 2 | Import / boot (`Main ready`) / gate tests (`Statistics:`) | |
-| 2 | Sweep `p99_us=` and `stamp=` on the PC | |
-| 2 | `driver.py selftest` on Windows | |
-| 3 | `digest=` on the PC and on the Mac, equal? | |
-| 4 | Games per minute at 16 / 12 / 8 workers (and the Mac at 8) | |
-| 4 | First vs last 5 min of the 30-min run (throttling) | |
-| 5 | Each model: `pp2048`, `tg256`, VRAM used | |
-| 5 | Server with 4 slots: aggregate tok/s, median s/request | |
-| 5 | Play-outs + LLM together: games/min and tok/s, each vs alone | |
-| 5 | Plan JSON valid and sensible? (each model) | |
-| 6 | MCP `health` from the Mac: reply and round trip | |
+| A/B0 | SSH as `trainer` works, `trainer` not an admin, the detached job survives a disconnect | |
+| B2 | Commit on the PC = Mac `master`? | |
+| B3 | Import / boot (`Main ready`) / gate tests (`Statistics:`) | |
+| B3 | Sweep `p99_us=` and `stamp=` on the PC | |
+| B3 | `driver.py selftest` on Windows | |
+| B4 | `digest=` on the PC and on the Mac, equal? | |
+| B5 | Games per minute at 16 / 12 / 8 workers (and the Mac at 8) | |
+| B5 | First vs last 5 min of the 30-min run (throttling) | |
+| B6 | Each model: `pp2048`, `tg256`, VRAM used | |
+| B6 | Server with 4 slots: aggregate tok/s, median s/request | |
+| B6 | Play-outs + LLM together: games/min and tok/s, each vs alone | |
+| B6 | Plan JSON valid and sensible? (each model) | |
+| B7 | MCP `health` from the Mac: reply and round trip | |
 | — | Driver version, CUDA version, peak CPU temperature | |
 
 ## Go / no-go for `/spec` cycle A
 
-- **Go** when steps 2, 3 and 6 pass. Slow numbers in steps 4 or 5 change the sizing, not the plan.
-- **Stop and fix first** when step 3 finds any mismatch (an engine determinism bug), or step 2
-  can't import or boot on Windows.
-- **Revisit T1** (native Windows) only if step 2's Python driver needs heavy changes and the
+- **Go** when B0, B3, B4 and B7 pass. Slow numbers in B5 or B6 change the sizing, not the plan.
+- **Stop and fix first** when B4 finds any mismatch (an engine determinism bug), or B3 can't
+  import or boot on Windows.
+- **Revisit T1** (native Windows) only if the Python driver needs heavy changes and the
   play-out throughput is still poor after them.
 
 From the results, the orchestrator updates [[planning/bot-trainer-architecture]]:
@@ -381,6 +377,6 @@ From the results, the orchestrator updates [[planning/bot-trainer-architecture]]
 
 ## Related
 
-- [[planning/bot-trainer-architecture]]: the design these numbers feed
+- [[planning/bot-trainer-architecture]]: the design these numbers feed (T7, T8 for access)
 - [[systems/bot-training]]: the driver, the sweep and the gates exercised here
 - [[planning/planning-moc]]
