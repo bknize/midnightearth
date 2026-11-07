@@ -37,7 +37,7 @@ extends RefCounted
 ##   CARD_RETURNED {owner, card}; CARD_LOOKED {seat, card, slot, from_seat}
 ## - CREW_FIRED {seat, crew, slot, moment}
 ## - TURN_ENDED {scores, winner, wins} (+ `round`, `turn`); ROUND_ENDED {winner, wins}
-##   (+ `round`, `scores`); CONCEDED {seat}; MATCH_ENDED {winner, reason, wins,
+##   (+ `round`, `scores`, `turn_wins`); CONCEDED {seat}; MATCH_ENDED {winner, reason, wins,
 ##   rounds_played}
 
 enum Kind {

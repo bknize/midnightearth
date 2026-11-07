@@ -107,6 +107,8 @@ static func begin_round(state: MatchState, rng: MatchRng, sink: Callable) -> voi
 		state.scores[seat] = 0
 		state.totals[seat] = 0
 	state.last_turn_winner = -1
+	for seat: int in range(SEATS):
+		state.turn_wins[seat] = 0
 	state.pending.clear()
 	state.pending_slots.clear()
 	state.walk = MatchState.WalkState.new()
@@ -442,6 +444,8 @@ static func settle_turn(state: MatchState, sink: Callable) -> void:
 		state.energy.spent[seat] = 0
 	var winner: int = leader(state.scores)
 	state.last_turn_winner = winner
+	if winner >= 0:
+		state.turn_wins[winner] += 1
 	var ended: Dictionary = {
 		"scores": MatchState.plain(state.scores),
 		"winner": winner,
@@ -455,7 +459,7 @@ static func settle_turn(state: MatchState, sink: Callable) -> void:
 ## Round end (R1, R2, R20): every card on both rows goes to its Owner's Pile as a Discard,
 ## the first seat's row first, each in slot order (CARD_DISCARDED, from row, reason
 ## round_end); hands, Decks and Piles stay; On discard drains once (D12). Then the Round is
-## awarded (award_round()): the higher Score of its last Walk wins it, a tie awards none;
+## awarded (award_round()): the seat with more Turn wins takes it (C13), a tie awards none;
 ## `last_round_winner` is that winner (-1 for a tie), ROUND_ENDED {winner, wins, round,
 ## scores}. Returns the winner, or -1; ROUND_PAUSED when D12 paused on a prompt (the engine
 ## awards the Round once the drain has finished).
@@ -478,7 +482,7 @@ static func end_round(state: MatchState, cards: MatchCards, rng: MatchRng, sink:
 ## The Round is awarded (the second half of end_round(), and what the engine resumes after
 ## a D12 paused on a prompt): see end_round(). Returns the winner, or -1.
 static func award_round(state: MatchState, sink: Callable) -> int:
-	var winner: int = leader(state.scores)
+	var winner: int = leader(state.turn_wins)
 	if winner >= 0:
 		state.wins[winner] += 1
 	state.last_round_winner = winner
@@ -487,6 +491,7 @@ static func award_round(state: MatchState, sink: Callable) -> int:
 		"wins": MatchState.plain(state.wins),
 		"round": state.round_number,
 		"scores": MatchState.plain(state.scores),
+		"turn_wins": MatchState.plain(state.turn_wins),
 	}
 	sink.call(MatchEvent.Kind.ROUND_ENDED, ended)
 	return winner

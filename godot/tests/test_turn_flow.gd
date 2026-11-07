@@ -431,6 +431,7 @@ func test_round_end_sends_both_rows_to_their_owners_piles() -> void:
 	state.seats[1].pile.assign(_typed([49]))
 	state.card_state_for(41).power_delta = 2
 	state.scores.assign([4, 9])
+	state.turn_wins.assign([2, 3])  # C13: more Turn wins take the Round.
 	var recorder: Recorder = _recorder()
 	var winner: int = TurnFlow.end_round(state, _defs(), MatchRng.new(SEED), recorder.record)
 	assert_int(winner).is_equal(1)

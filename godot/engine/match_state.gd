@@ -54,6 +54,8 @@ var wins: Array[int] = [0, 0]
 var match_scores: Array[int] = [0, 0]
 ## Winner of the last resolved Turn in this Round; -1 for a tie or none yet.
 var last_turn_winner: int = -1
+## Turns each seat has won in this Round; the more takes the Round (spec C13).
+var turn_wins: Array[int] = [0, 0]
 ## Winner of the previous Round (R3): -1 after a tied Round or before any Round ended.
 var last_round_winner: int = -1
 ## winner, reason, rounds_played; empty while the match is in progress.
@@ -133,6 +135,7 @@ func to_dict() -> Dictionary:
 		"wins": plain(wins),
 		"match_scores": plain(match_scores),
 		"last_turn_winner": last_turn_winner,
+		"turn_wins": plain(turn_wins),
 		"last_round_winner": last_round_winner,
 		"result": result.duplicate(true),
 		"actions_applied": actions_applied,
@@ -170,6 +173,7 @@ func duplicate() -> MatchState:
 	out.wins.assign(wins)
 	out.match_scores.assign(match_scores)
 	out.last_turn_winner = last_turn_winner
+	out.turn_wins.assign(turn_wins)
 	out.last_round_winner = last_round_winner
 	out.result = result.duplicate(true)
 	out.actions_applied = actions_applied

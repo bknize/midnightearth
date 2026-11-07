@@ -1,7 +1,7 @@
 class_name TestRoundMatchEnd
 extends GdUnitTestSuite
 ## MatchEngine Round and Match end under rules 7 (cycle 9 R1 to R3; DC-13 T03): a Round is
-## won by the higher Score of its last Walk and a tied Round awards none (today's rule, R1);
+## won by the seat with more Turn wins (spec C13) and a tied Round awards none (R1);
 ## Round end sends both rows to their Owners' Piles (R2); the first committer of a Round's
 ## Turn 1 is the previous Round's loser, after a tied Round the seat that did not commit
 ## first on its last Turn, and a coin flip only in Round 1 (R3); four wins end the Match,
@@ -275,6 +275,45 @@ func test_tied_round_awards_no_win() -> void:
 	assert_array(_payload_ints(ended, "wins")).is_equal(_typed([0, 0]))
 	assert_int(_state_int(engine, "last_round_winner")).is_equal(-1)
 	assert_int(_state_int(engine, "round")).is_equal(2)
+
+
+## C13 (Ben, 2a): the Round goes to the seat with more Turn wins, not the higher last Walk.
+## Seat 0 commits one card on each of Turns 1 and 2 while seat 1 passes, so seat 0's row
+## Scores and wins Turns 1 to 6; seat 1 commits its strongest card on Turn 7 and wins that
+## Walk. Seat 0 takes the Round on Turn wins (6-1) whoever had the higher last Walk.
+func test_more_turn_wins_take_the_round_over_the_last_walk() -> void:
+	var engine: MatchEngine = _started(SEED)
+	var defs: MatchCards = engine.match_cards()
+	var seen: Array[MatchEvent] = []
+	var guard: int = 0
+	while not engine.is_over() and _state_int(engine, "round") == 1 and guard < 60:
+		guard += 1
+		var action: EngineAction = FixtureDecks.discard_answer(engine)
+		if action == null:
+			var seat: int = engine.awaited_seat()
+			var turn: int = _state_int(engine, "turn")
+			var plays: bool = (seat == 0 and turn <= 2) or (seat == 1 and turn == MatchRules.TURNS)
+			var cards: Array[int] = []
+			if plays:
+				var best: int = -1
+				var best_power: int = 0
+				for card: int in _seat_list(engine, "hand", seat):
+					var def: CardDef = defs.def_of(card)
+					if def.cost <= engine.budget_for(seat) and def.power > best_power:
+						best = card
+						best_power = def.power
+				if best >= 0:
+					cards.append(best)
+			action = EngineAction.commit(seat, cards)
+		var result: ApplyResult = engine.apply(action)
+		assert_bool(result.ok).is_true()
+		seen.append_array(result.events)
+	var ended: MatchEvent = _last(seen, MatchEvent.Kind.ROUND_ENDED)
+	var turn_wins: Array[int] = _payload_ints(ended, "turn_wins")
+	var scores: Array[int] = _payload_ints(ended, "scores")
+	assert_array(turn_wins).is_equal(_typed([6, 1]))
+	assert_int(scores[1]).is_greater(scores[0])
+	assert_int(_payload_int(ended, "winner")).is_equal(0)
 
 
 # --- R3: who commits first ------------------------------------------------------------
