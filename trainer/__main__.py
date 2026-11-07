@@ -25,8 +25,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         from trainer.run import cli_run
         return cli_run(args[1:])
     if cmd == "serve":
-        print("trainer serve: not yet implemented")
-        return 3
+        from trainer.server import serve
+        return serve(args[1:])
     if cmd == "selftest":
         return _selftest()
     print("usage: python -I trainer serve|run|selftest")

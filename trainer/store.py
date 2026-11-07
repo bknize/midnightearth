@@ -58,14 +58,15 @@ def _strip_timing(value: Any) -> Any:
 
 
 class Store:
-    def __init__(self, data_dir: Optional[Path] = None) -> None:
+    def __init__(self, data_dir: Optional[Path] = None, recover_on_open: bool = True) -> None:
         self.data_dir = Path(data_dir) if data_dir is not None else default_data_dir()
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(str(self.data_dir / DB_NAME))
+        self.db = sqlite3.connect(str(self.data_dir / DB_NAME), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(_SCHEMA)
         self.db.commit()
-        self.recover()
+        if recover_on_open:
+            self.recover()
 
     def close(self) -> None:
         self.db.close()
