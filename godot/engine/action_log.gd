@@ -39,9 +39,6 @@ const KEY_ACTIONS: String = "actions"
 const INT64_MAX_DIGITS: String = "9223372036854775807"
 const INT64_MIN_TEXT: String = "-9223372036854775808"
 const INT64_MIN: int = -9223372036854775807 - 1
-## Larger whole floats cannot be told apart from their neighbours, so they are rejected.
-## The bound lives in EngineAction, which checks the action entries against it.
-const MAX_SAFE_FLOAT: float = EngineAction.MAX_SAFE_FLOAT
 const CHAR_ZERO: int = 48
 const CHAR_NINE: int = 57
 const CHAR_MINUS: int = 45
@@ -106,7 +103,7 @@ static func from_json(text: String) -> ActionLog:
 			return null
 	var format_raw: Variant = d[KEY_FORMAT]
 	var rules_raw: Variant = d[KEY_RULES]
-	if not (_is_whole_number(format_raw) and _is_whole_number(rules_raw)):
+	if not (EngineAction.is_whole_number(format_raw) and EngineAction.is_whole_number(rules_raw)):
 		return null
 	var seed_raw: Variant = d[KEY_SEED]
 	if not seed_raw is String:
@@ -119,8 +116,8 @@ static func from_json(text: String) -> ActionLog:
 		return null
 	var entries: Array = actions_raw
 	var out_log: ActionLog = ActionLog.new()
-	out_log.format_version = _as_int(format_raw)
-	out_log.rules_version = _as_int(rules_raw)
+	out_log.format_version = EngineAction.as_int(format_raw)
+	out_log.rules_version = EngineAction.as_int(rules_raw)
 	out_log.match_seed = _parse_int64(seed_text)
 	if d.has(KEY_DECKS):
 		var parsed_decks: Array[String] = _parse_decks(d[KEY_DECKS])
@@ -215,21 +212,3 @@ static func _parse_int64(text: String) -> int:
 	if text == INT64_MIN_TEXT:
 		return INT64_MIN
 	return text.to_int()
-
-
-## Converts a value already checked by _is_whole_number to int without an unsafe call.
-static func _as_int(value: Variant) -> int:
-	if value is int:
-		var whole: int = value
-		return whole
-	var number: float = value
-	return int(number)
-
-
-static func _is_whole_number(value: Variant) -> bool:
-	if value is int:
-		return true
-	if value is float:
-		var f: float = value
-		return is_finite(f) and f == floorf(f) and absf(f) <= MAX_SAFE_FLOAT
-	return false

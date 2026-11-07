@@ -153,9 +153,9 @@ static func from_dict(d: Dictionary) -> EngineAction:
 		return null
 	var kind_name: String = kind_raw
 	var seat_raw: Variant = d[KEY_SEAT]
-	if not _is_whole_number(seat_raw):
+	if not is_whole_number(seat_raw):
 		return null
-	var parsed_seat: int = _as_int(seat_raw)
+	var parsed_seat: int = as_int(seat_raw)
 	if parsed_seat < 0 or parsed_seat > 1:
 		return null
 	if kind_name == KIND_COMMIT:
@@ -192,21 +192,21 @@ static func _choose_from_dict(d: Dictionary, parsed_seat: int) -> EngineAction:
 		return null
 	var zone_raw: Variant = d[KEY_ZONE]
 	var index_raw: Variant = d[KEY_INDEX]
-	if not (_is_whole_number(zone_raw) and _is_whole_number(index_raw)):
+	if not (is_whole_number(zone_raw) and is_whole_number(index_raw)):
 		return null
-	return choose(parsed_seat, _as_int(zone_raw), _as_int(index_raw))
+	return choose(parsed_seat, as_int(zone_raw), as_int(index_raw))
 
 
 static func _choose_set_from_dict(d: Dictionary, parsed_seat: int) -> EngineAction:
 	if not (d.has(KEY_ZONE) and d.has(KEY_INDEX)):
 		return null
 	var zone_raw: Variant = d[KEY_ZONE]
-	if not _is_whole_number(zone_raw):
+	if not is_whole_number(zone_raw):
 		return null
 	var parsed_indices: Array[int] = []
 	if not _parse_ints(d[KEY_INDEX], parsed_indices):
 		return null
-	return choose_set(parsed_seat, _as_int(zone_raw), parsed_indices)
+	return choose_set(parsed_seat, as_int(zone_raw), parsed_indices)
 
 
 ## Appends every entry of `raw` to `out` as an int; false when `raw` is not an Array of
@@ -216,14 +216,15 @@ static func _parse_ints(raw: Variant, out: Array[int]) -> bool:
 		return false
 	var entries: Array = raw
 	for entry: Variant in entries:
-		if not _is_whole_number(entry):
+		if not is_whole_number(entry):
 			return false
-		out.append(_as_int(entry))
+		out.append(as_int(entry))
 	return true
 
 
-## Converts a value already checked by _is_whole_number to int without an unsafe call.
-static func _as_int(value: Variant) -> int:
+## Converts a value already checked by is_whole_number to int without an unsafe call.
+## Shared with ActionLog's header parsing.
+static func as_int(value: Variant) -> int:
 	if value is int:
 		var whole: int = value
 		return whole
@@ -231,7 +232,7 @@ static func _as_int(value: Variant) -> int:
 	return int(number)
 
 
-static func _is_whole_number(value: Variant) -> bool:
+static func is_whole_number(value: Variant) -> bool:
 	if value is int:
 		return true
 	if value is float:

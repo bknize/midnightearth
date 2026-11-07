@@ -17,8 +17,9 @@ extends RefCounted
 ## the match end checks (_after_round). Concede goes straight to _end_match().
 ##
 ## Randomness: one MatchRng seeded from the match seed. Match start draws seat 0's shuffle
-## then seat 1's; Round 1 draws the coin flip for the first committer. Nothing else draws
-## before the abilities of DC-13 T05 to T07.
+## then seat 1's; Round 1 draws the coin flip for the first committer; the card abilities
+## and Crew (TriggerQueue, Abilities, CrewAbilities) draw from the same stream as they
+## resolve.
 ##
 ## An illegal action returns a failure code and changes nothing: no state, no events, no
 ## accepted action (R9). Nothing here prints, asserts or pushes an error.

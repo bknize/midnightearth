@@ -131,7 +131,7 @@ static func begin_round(state: MatchState, rng: MatchRng, sink: Callable) -> voi
 
 ## Turn start (resolution steps 1 to 3): the commit order, each seat's spend and Commit
 ## count cleared, TURN_STARTED, the draws (first seat first), then On start. The phase is
-## AWAIT_FIRST. True when a drain paused on a prompt (none before T05 and T07).
+## AWAIT_FIRST. True when a drain (D1 or D2) paused on a prompt.
 static func begin_turn(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> bool:
 	state.turn += 1
 	if state.turn > 1 and state.last_turn_winner >= 0:
