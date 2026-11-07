@@ -6,9 +6,13 @@ extends GdUnitTestSuite
 ## _assert_run asserts them. It holds no test of its own and is not a suite (not test_*.gd).
 ## See test_full_match.gd for what a match checks and test_sweep.gd for the sweep.
 
-## The shipped decks (cycle 8 R10); the sweep's pairings are every "a/b" of them.
-const DECKS: Array[String] = ["ruin", "drift", "bloom", "echo"]
+## The shipped decks (cycle 9 R61, milestone A); the sweep's pairings are every "a/b" of them.
+const DECKS: Array[String] = ["greed", "ramp"]
 const MAX_ACTIONS: int = 2000
+## The largest hand a seat can hold under the DC-13 T02 interim rules: the opening hand plus
+## one draw a turn, with no cap and no burn (hands go back to the Deck at round start; the
+## discard-down to MatchRules.HAND_SIZE lands with T03).
+const HAND_BOUND: int = MatchRules.OPENING_HAND + MatchRules.TURNS
 
 var _cached_db: CardDb = null
 var _cached_decks: DeckList = null
@@ -16,7 +20,7 @@ var _cached_decks: DeckList = null
 # --- Helpers --------------------------------------------------------------------------
 
 
-## The shipped pool (DC-07 T08: the Ruin and Drift cards; DC-09 T04: Bloom and Echo too).
+## The shipped pool (DC-13 T02: the 30 evergreen, 10 Greed and 10 Ramp cards).
 func _db() -> CardDb:
 	if _cached_db == null:
 		_cached_db = CardDb.load_default()
@@ -339,7 +343,7 @@ func _check_step(
 	for seat: int in range(MatchEngine.SEATS):
 		var size: int = _state_list(after, "hand", seat).size()
 		run.max_hand = maxi(run.max_hand, size)
-		if size > MatchRules.HAND_CAP:
+		if size > HAND_BOUND:
 			run.hand_violations.append(
 				"after action %d: seat %d holds %d" % [run.actions, seat, size]
 			)
@@ -456,9 +460,9 @@ func _scan_hidden_rows(run: FullMatchRun, view: SeatView, where: String) -> void
 			run.destroyed_hidden_seen += 1
 		var card: int = entry.get(MatchEvent.KEY_CARD, MatchEvent.HIDDEN_CARD)
 		var flat: int = entry.get("flat", 0)
-		var times: int = entry.get("times", MatchRules.MULT_ONE)
+		var times: int = entry.get("times", MatchRules.BONUS_ONE)
 		var plus: int = entry.get("plus", 0)
-		var no_bonus: bool = times == MatchRules.MULT_ONE and plus == 0
+		var no_bonus: bool = times == MatchRules.BONUS_ONE and plus == 0
 		if card != MatchEvent.HIDDEN_CARD or flat != 0 or not no_bonus:
 			run.leaks.append(where + ": face-down slot %d shows its card" % slot)
 		var cost: int = entry.get("cost", 0)
@@ -622,7 +626,7 @@ func _assert_run(run: FullMatchRun) -> void:
 	assert_bool(run.engine.is_over()).override_failure_message(label + "did not end").is_true()
 	assert_bool(run.end_payload.is_empty()).override_failure_message(no_end).is_false()
 	_assert_none(run.hand_violations, label + "hand over the cap")
-	var cap: int = MatchRules.HAND_CAP
+	var cap: int = HAND_BOUND
 	assert_int(run.max_hand).override_failure_message(label + "hand over cap").is_less_equal(cap)
 	_assert_none(run.energy_violations, label + "commit over energy")
 	_assert_none(run.leaks, label + "hidden card leaked")

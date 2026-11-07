@@ -75,7 +75,7 @@ const KEY_TARGET: String = "target"
 ## stats and memory flag (cycle 8 R8, R73): no flat, no bonus (×1.00, +0), cost 0, not
 ## permanent. `seat` and `cause` stay, so the event still counts as a change on that seat.
 const STATS_HIDDEN: Dictionary = {
-	"flat": 0, "times": MatchRules.MULT_ONE, "plus": 0, "cost": 0, "permanent": false
+	"flat": 0, "times": MatchRules.BONUS_ONE, "plus": 0, "cost": 0, "permanent": false
 }
 
 var kind: int = Kind.ROUND_STARTED

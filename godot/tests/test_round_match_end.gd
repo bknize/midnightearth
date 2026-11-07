@@ -9,9 +9,10 @@ extends GdUnitTestSuite
 ## stays in view_for() after MATCH_ENDED on every end path).
 ##
 ## Round outcomes come from real actions: both seats pass turns 1-6, and on turn 7 the
-## chosen winner commits one card (any card is affordable at 7 energy and has flat >= 1,
-## so its walk scores at least 1; scores are the DC-05 walk totals, derived here by
-## _walk_score) while the other passes. A round where everyone passes is a 0-0 tie.
+## chosen winner commits one card (any fixture card is affordable at 7 energy and has
+## Power >= 1, so its walk scores at least 1; scores are the T02 interim walk totals,
+## derived here by _walk_score) while the other passes. A round where everyone passes is a
+## 0-0 tie.
 
 const SEED: int = 1
 const SEARCH_SEEDS: int = 100
@@ -323,29 +324,22 @@ func _solo(card: int) -> int:
 	return _walk_score(row)
 
 
-## The P4 walk total of one row, from the definitions (DC-07 P4): the multiplier starts at
-## 100 (×1.00, hundredths), is multiplied by each card's ×-part (rounded to the nearest
-## hundredth) and gains its +-part before that card's flat is multiplied in, floored.
+## The walk total of one row, from the definitions: under the DC-13 T02 interim walk every
+## card scores its Power with a ×1 Bonus, so the total is the sum of the Powers (T03
+## brings the walking total).
 func _walk_score(row: Array[int]) -> int:
-	var mult: int = 100
 	var total: int = 0
 	for card: int in row:
 		var def: CardDef = _db().card_at(card % MatchRules.DECK_SIZE)
-		var times: int = def.bonus if def.bonus_kind == CardDef.BonusKind.TIMES else 100
-		var plus: int = def.bonus if def.bonus_kind == CardDef.BonusKind.PLUS else 0
-		mult = (mult * times + 50) / 100
-		mult += plus * 100
-		total += def.flat * mult / 100
+		total += def.power
 	return total
 
 
-## The effect-free hand cards, in hand order. Contested rounds play only these (DC-05 T04):
-## a destroy or a bonus-0 mark on the other board would break the scores _walk_score
-## predicts from the definitions.
+## The plain-body hand cards, in hand order (every fixture card since DC-13 T02).
 func _vanilla(hand: Array[int]) -> Array[int]:
 	var out: Array[int] = []
 	for card: int in hand:
-		if _db().card_at(card % MatchRules.DECK_SIZE).effect == null:
+		if _db().card_at(card % MatchRules.DECK_SIZE).is_plain():
 			out.append(card)
 	return out
 
@@ -382,9 +376,9 @@ func _cheapest(hand: Array[int]) -> int:
 	return best
 
 
+## Whether `card` has an ability (none of the fixture's has; no T02 ability prompts).
 func _is_prompt_card(card: int) -> bool:
-	var effect: CardEffect = _db().card_at(card % MatchRules.DECK_SIZE).effect
-	return effect != null and Choice.needs_choice(effect.verb)
+	return not _db().card_at(card % MatchRules.DECK_SIZE).is_plain()
 
 
 ## The events from the last ROUND_STARTED on: the round in progress or the final round.

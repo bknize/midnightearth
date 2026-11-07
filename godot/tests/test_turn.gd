@@ -2,11 +2,11 @@
 class_name TestTurn
 extends GdUnitTestSuite
 ## MatchEngine core flow: R3-R4 (entry point, run to the next decision), R9 (instance
-## ids), R11-R17 (round start, draw and burn, energy, two-step commit, the tied turn, turn
-## order for turns 2-7), R26-R27 (every error code leaves the state and the accepted
-## actions unchanged; the engine never prints). The action shapes (R5) are in
-## test_engine_action.gd; the walk's reveals and scores (DC-05 R11-R17, which replace
-## cycle 1's reveal interleave and summed flat) are in test_score_walk.gd. DC-05: R5-R8
+## ids), R11-R17 (round start, draw with no burn since rules 7, energy, two-step commit, the
+## tied turn, turn order for turns 2-7), R26-R27 (every error code leaves the state and the
+## accepted actions unchanged; the engine never prints). The action shapes (R5) are in
+## test_engine_action.gd; the walk's reveals and scores in test_score_walk.gd. DC-13 T02:
+## the fixture is 40 plain bodies (FixtureDecks) and the Crew the shipped v2 ones. DC-05: R5-R8
 ## (positional commits, the second committer sees
 ## the first's slots, both commits merge into their rows at resolution), R9-R10 (per-seat
 ## budget, free first card), a choice with no prompt, the empty-slots default. DC-07 T02:
@@ -164,29 +164,14 @@ func _event_dicts(events: Array[MatchEvent]) -> Array[Dictionary]:
 	return out
 
 
-## The first legal set of exactly `size` cards, or an empty list when none exists. Sets
-## with no prompt-verb card come first (DC-05 T05): a prompt would pause the walk these
-## flow tests expect to finish; when every set holds one, the first such set is used.
+## The first legal set of exactly `size` cards, or an empty list when none exists. The
+## fixture's cards are plain bodies (DC-13 T02), so no set opens a prompt.
 func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
-	var fallback: Array[int] = []
 	for s: Array in LegalPlays.enumerate(hand, energy, _defs()):
-		if s.size() != size:
-			continue
-		var cards: Array[int] = _typed(s)
-		if not _has_prompt_card(cards):
-			return cards
-		if fallback.is_empty():
-			fallback = cards
-	return fallback
-
-
-## Whether any of `cards` carries an effect that may open a prompt.
-func _has_prompt_card(cards: Array[int]) -> bool:
-	for card: int in cards:
-		var effect: CardEffect = _db().card_at(card % MatchRules.DECK_SIZE).effect
-		if effect != null and Choice.needs_choice(effect.verb):
-			return true
-	return false
+		if s.size() == size:
+			return _typed(s)
+	var none: Array[int] = []
+	return none
 
 
 func _ids(seat: int) -> Array[int]:
@@ -229,7 +214,7 @@ func test_start_and_apply_return_apply_results() -> void:
 # --- R1, R9, R11: round start ---------------------------------------------------------
 
 
-func test_round_one_start_deals_three_draws_one() -> void:
+func test_round_one_start_deals_four_draws_one() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var result: ApplyResult = engine.start()
 	var expected: Array[int] = [MatchEvent.Kind.MATCH_STARTED, MatchEvent.Kind.ROUND_STARTED]
@@ -374,34 +359,19 @@ func test_turn_start_draws_one_per_seat() -> void:
 		assert_int(_hand(engine, seat).size()).is_equal(MatchRules.OPENING_HAND + 2)
 
 
-func test_hand_at_cap_burns_the_draw() -> void:
-	# Passing every turn: 4 cards on turn 1, then 5, 6, 7; turn 5's draw is burned.
+## Rules 7 (DC-13 T02): there is no hand cap and no burn. Passing every turn, each hand grows
+## by one draw a turn and nothing is ever burned (the discard-down is DC-13 T03's).
+func test_draws_never_burn() -> void:
 	var engine: MatchEngine = _started(SEED)
-	_pass_until_turn(engine, 4)
+	_pass_until_turn(engine, MatchRules.TURNS)
 	for seat: int in range(2):
-		assert_int(_hand(engine, seat).size()).is_equal(MatchRules.HAND_CAP)
-	var hands_before: Array[Array] = [_hand(engine, 0), _hand(engine, 1)]
-	var decks_before: Array[Array] = [_deck(engine, 0), _deck(engine, 1)]
-	_pass(engine)
-	var result: ApplyResult = _pass(engine)
-	assert_int(engine.energy()).is_equal(5)
-	assert_array(_of_kind(result.events, MatchEvent.Kind.CARD_DRAWN)).is_empty()
-	var burned: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.CARD_BURNED)
-	assert_int(burned.size()).is_equal(2)
-	for seat: int in range(2):
-		var burn: MatchEvent = burned[seat]
-		assert_int(_payload_int(burn, "seat")).is_equal(seat)
-		assert_int(burn.owner_seat).is_equal(seat)
-		var top: Array[int] = _typed(decks_before[seat])
-		assert_int(_payload_int(burn, "card")).is_equal(top[0])
-		assert_int(_hand(engine, seat).size()).is_equal(MatchRules.HAND_CAP)
-		assert_array(_hand(engine, seat)).is_equal(_typed(hands_before[seat]))
-		assert_array(_burned(engine, seat)).is_equal(_typed([top[0]]))
-	# Still at the cap a turn later: a second burn each.
-	_pass_until_turn(engine, 6)
-	for seat: int in range(2):
-		assert_int(_hand(engine, seat).size()).is_equal(MatchRules.HAND_CAP)
-		assert_int(_burned(engine, seat).size()).is_equal(2)
+		assert_int(_hand(engine, seat).size()).is_equal(
+			MatchRules.OPENING_HAND + MatchRules.TURNS
+		)
+		assert_array(_burned(engine, seat)).is_empty()
+		assert_int(_deck(engine, seat).size()).is_equal(
+			MatchRules.DECK_SIZE - MatchRules.OPENING_HAND - MatchRules.TURNS
+		)
 
 
 # --- R13: energy ----------------------------------------------------------------------
@@ -478,7 +448,7 @@ func test_tied_turn_keeps_the_first_committer() -> void:
 
 func test_turn_winner_commits_first_next_turn() -> void:
 	# Turn 4: the first committer passes, the second plays a card and wins the turn.
-	# A 7-card hand always holds a card of cost <= 4 (only 6 of 20 cost more).
+	# An 8-card hand holds a card of cost <= 4 (only 12 of the 40 cost more).
 	var engine: MatchEngine = _started(SEED)
 	_pass_until_turn(engine, 4)
 	var first: int = engine.awaited_seat()
@@ -957,18 +927,9 @@ func test_spent_is_recorded_and_the_free_first_card_is_consumed() -> void:
 func _scripted_action(engine: MatchEngine) -> EngineAction:
 	var seat: int = engine.awaited_seat()
 	var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _defs())
-	# The highest-mask set with no prompt-verb card (DC-05 T05), so every step is a commit
-	# and 20 of them still reach round 2; the empty set always qualifies.
-	for at: int in range(sets.size() - 1, -1, -1):
-		var cards: Array[int] = _typed(sets[at])
-		if not _has_prompt_card(cards):
-			return EngineAction.commit(seat, cards)
-	return EngineAction.commit(seat, _none_cards())
-
-
-func _none_cards() -> Array[int]:
-	var none: Array[int] = []
-	return none
+	# The fixture's cards never prompt, so every step is a commit and 20 of them reach
+	# round 2; the empty set (mask 0) is always listed.
+	return EngineAction.commit(seat, _typed(sets[sets.size() - 1]))
 
 
 func test_same_seed_and_actions_give_equal_states_and_events() -> void:
@@ -995,12 +956,12 @@ func test_different_seeds_give_different_states() -> void:
 # --- DC-11 T08: Crew (cycle 8 R42, R43, plan P12, P13) ----------------------------------
 
 
-## A Ruin-vs-Drift match over the in-memory Ruin and Drift decks (not started): seat 0 holds
-## salvager, veil, quartermaster; seat 1 navigator, veil, tallyman.
+## A Greed-vs-Ramp match over the shipped data (not started): seat 0 holds tallyman, void,
+## engineer; seat 1 navigator, captain, dredger.
 func _crew_engine() -> MatchEngine:
-	var ids: Array[String] = [FixtureDecks.RUIN_DECK_ID, FixtureDecks.DRIFT_DECK_ID]
+	var ids: Array[String] = ["greed", "ramp"]
 	return MatchEngine.create(
-		SEED, FixtureDecks.drift_cards(), FixtureDecks.drift_decks(), ids, FixtureDecks.crew()
+		SEED, CardDb.load_default(), DeckList.load_default(), ids, CrewPool.load_default()
 	)
 
 
@@ -1010,9 +971,9 @@ func _crew_uses(engine: MatchEngine) -> Array:
 	return raw
 
 
-## Both seats' Crew ids of the Ruin-vs-Drift match, seat 0's first.
-func _ruin_drift_crew() -> Array:
-	return [["salvager", "veil", "quartermaster"], ["navigator", "veil", "tallyman"]]
+## Both seats' Crew ids of the Greed-vs-Ramp match, seat 0's first.
+func _greed_ramp_crew() -> Array:
+	return [["tallyman", "void", "engineer"], ["navigator", "captain", "dredger"]]
 
 
 ## MATCH_STARTED names both seats' Crew in slot order, seat 0's first, and is public.
@@ -1026,11 +987,12 @@ func test_match_started_names_both_seats_crew() -> void:
 	assert_int(opened.kind).is_equal(MatchEvent.Kind.MATCH_STARTED)
 	assert_int(opened.owner_seat).is_equal(MatchEvent.PUBLIC)
 	var shown: Array = opened.payload["crew"]
-	assert_array(shown).is_equal(_ruin_drift_crew())
+	assert_array(shown).is_equal(_greed_ramp_crew())
 	var fixture: ApplyResult = FixtureDecks.engine(SEED, _db()).start()
 	var first: MatchEvent = fixture.events[0]
 	var both: Array = first.payload["crew"]
-	var fixture_crew: Array = ["navigator", "gardener", "lookout"]
+	var fixture_crew: Array = []
+	fixture_crew.assign(FixtureDecks.CREW)
 	assert_array(both).is_equal([fixture_crew, fixture_crew])
 
 
@@ -1046,25 +1008,23 @@ func test_no_crew_pool_refuses_to_start() -> void:
 	assert_int(broken.start().error).is_equal(EngineError.Code.CARD_DATA_INVALID)
 
 
-## Round start gives every Crew its uses (-1 unlimited); the next round start resets a
-## per-round use and keeps a per-match one. The counts are in the full state and survive a
-## duplicate().
-func test_crew_uses_reset_per_round_and_keep_per_match() -> void:
+## Round start gives every Crew its uses: every v2 Crew is unlimited (-1, cycle 9 plan P4).
+## A later round start keeps what each seat has left (a v2 Crew's uses are for the match).
+## The counts are in the full state and survive a duplicate().
+func test_crew_uses_are_filled_once_and_kept() -> void:
 	var engine: MatchEngine = _crew_engine()
 	assert_bool(engine.start().ok).is_true()
 	var unlimited: int = CrewDef.UNLIMITED
-	assert_array(_crew_uses(engine)).is_equal([[1, 1, unlimited], [unlimited, 1, unlimited]])
-	# Seat 0 plays Ruin (Salvager, Veil, Quartermaster), seat 1 Drift (Navigator, Veil,
-	# Tallyman). Spend seat 0's Salvager (per round) and Veil (per match), and seat 1's Veil.
-	engine._state.crew_uses[0] = [0, 0, unlimited]
-	engine._state.crew_uses[1] = [unlimited, 0, unlimited]
+	var all_unlimited: Array = [unlimited, unlimited, unlimited]
+	assert_array(_crew_uses(engine)).is_equal([all_unlimited, all_unlimited])
+	engine._state.crew_uses[0] = [0, unlimited, unlimited]
 	assert_dict(engine._state.duplicate().to_dict()).is_equal(engine.full_state())
 	for _step: int in range(2 * MatchRules.TURNS + 2):
 		if _state_int(engine, "round") > 1 or engine.is_over():
 			break
 		assert_bool(_pass(engine).ok).is_true()
 	assert_int(_state_int(engine, "round")).is_equal(2)
-	assert_array(_crew_uses(engine)).is_equal([[1, 0, unlimited], [unlimited, 0, unlimited]])
+	assert_array(_crew_uses(engine)).is_equal([[0, unlimited, unlimited], all_unlimited])
 
 
 ## Every view carries both seats' Crew and their uses, the same for either seat (public).
@@ -1075,7 +1035,7 @@ func test_the_view_carries_both_seats_crew() -> void:
 		var view: SeatView = engine.view_for(seat)
 		var crew: Array = []
 		crew.append_array(view.crew)
-		assert_array(crew).is_equal(_ruin_drift_crew())
+		assert_array(crew).is_equal(_greed_ramp_crew())
 		var uses: Array = []
 		uses.append_array(view.crew_uses)
 		assert_array(uses).is_equal(_crew_uses(engine))
@@ -1083,4 +1043,4 @@ func test_the_view_carries_both_seats_crew() -> void:
 		var held: Array = shown["crew"]
 		var shown_crew: Array = []
 		shown_crew.append_array(held)
-		assert_array(shown_crew).is_equal(_ruin_drift_crew())
+		assert_array(shown_crew).is_equal(_greed_ramp_crew())

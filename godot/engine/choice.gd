@@ -1,62 +1,29 @@
 class_name Choice
 extends RefCounted
-## Prompt targets (R28-R34, plan P9, P10): the zones, which positions a prompt verb may
-## choose, and the card a position names. Pure: reads a MatchState, never writes one.
+## Prompt targets (R28-R34, plan P9, P10; cycle 9 plan P12): the zones, the prompt flags and
+## the card a position names. Pure: reads a MatchState, never writes one.
 ##
 ## Zones are relative to the prompted seat: OWN_* are its own hand and row, OPPONENT_* the
 ## other seat's. An index is the position in that zone's ordered list at the time of the
 ## choice (R30): a hand in hand order, a row in slot order. A face-down card is chosen by
 ## its position, never by its id.
 ##
-## Two-board zone (DC-05 T05): a verb whose targets may lie on either row
-## (RETURN_AT_TURN_END; the switch it also served retired at DC-07 T01) uses BOTH_BOARDS,
-## one flat list made of the prompted seat's own row in slot order followed by the
-## opponent's row in slot order. Index i < own row size is own slot i; otherwise it is
-## opponent slot i - own row size. Both row sizes are public, so either seat (and the
-## board's PromptRules) can map an index to a card.
+## Two-board zone: BOTH_BOARDS is one flat list made of the prompted seat's own row in slot
+## order followed by the opponent's row in slot order. Index i < own row size is own slot
+## i; otherwise it is opponent slot i - own row size. Both row sizes are public, so either
+## seat (and the board's PromptRules) can map an index to a card. BOTH_DESTROYED maps the
+## two destroyed piles the same way (v6; DC-13 T03 replaces it with the Pile zones).
 ##
-## Two-pile zone (DC-07 R19, P12, C12): RECOVER_DESTROYED uses BOTH_DESTROYED, the prompted
-## seat's own destroyed pile in pile order followed by the opponent's, mapped like
-## BOTH_BOARDS (index i < own pile size is own position i, else opponent position i - own
-## pile size). Both pile sizes are public; an opponent entry is chosen by position, and its
-## id is not public unless the card was revealed when it left the row (R18). A card
-## destroyed this turn is still on its row, not in a pile, so it is never offered (R21).
+## Which positions an ability may choose is its verb's (Abilities, DC-13 T06); the v6 verb
+## eligibility went with the v6 verbs (DC-13 T02).
 ##
-## Eligibility per verb (R20):
-## - DRAW_THEN_DISCARD: OWN_HAND, every position (after the draws).
-## - SWAP_PLACES: OWN_BOARD, every card but the source, revealed or not, destroyed or not
-##   (DC-06 R16).
-## - RETURN_AT_TURN_END: BOTH_BOARDS, every revealed card not destroyed but the source.
-## - RECOVER_DESTROYED: BOTH_DESTROYED, every position (DC-07 P12).
-## - SACRIFICE_DESTROY: OWN_BOARD, every live (not destroyed) card but the source, revealed
-##   or not; a multi-select (DC-07 P7, P12, R22): the answer is a set of those positions.
-## - DISCARD_OWN (DC-07 P12): OWN_HAND, every position.
-## - DESTROY_OWN_THEN_DRAW, DESTROY_OWN_THEN_FLAT_UP (DC-07 P12): OWN_BOARD, every live card
-##   but the source, revealed or not.
-## - COPY_STATS (DC-07 P12): OPPONENT_BOARD, every revealed live card.
-## - MOVE_OPPONENT_LEFT (DC-07 P12): OPPONENT_BOARD, every position but slot 0, face down or
-##   destroyed included: a face-down card is chosen by its position and its id stays hidden.
-## - SWAP_OPPONENT_RIGHT (DC-07 P12): OPPONENT_BOARD, every position but the rightmost, face
-##   down or destroyed included.
-## - GROW_OTHER_FLAT (cycle 8 P8): OWN_BOARD, every live card but the source, revealed or not.
-## - GROW_HAND_ONE_TIMES (cycle 8 P8): OWN_HAND, every position (one card auto-chooses).
-## - RETURN_OWN_AT_TURN_END (cycle 8 P8): OWN_BOARD, every live card not already marked to
-##   return but the source, revealed or not.
-## - RETURN_OPPONENT_AT_TURN_END (cycle 8 P8): OPPONENT_BOARD, every revealed live card not
-##   already marked to return.
-## Any other verb needs no choice: eligible() gives zone -1 and no options. The three
-## OPPONENT_BOARD verbs are DriftEffects' (DC-07 T07).
+## Multi-select prompts carry `multi` (KEY_MULTI) true; every prompt carries the key, false
+## for a single-target one. is_valid_set() checks a set answer against the prompt. Every
+## prompt also carries `optional`, `resume` (RESUME_WALK or RESUME_TURN_START) and `crew`
+## (the Crew id, "" for a card prompt).
 ##
-## Multi-select prompts (DC-07 P7, R22-R25): the prompt carries `multi` (KEY_MULTI) true;
-## every prompt carries the key, false for a single-target one. is_valid_set() checks a set
-## answer against the prompt.
-##
-## Optional prompts (cycle 8 R49, R52, plan P9): every prompt also carries `optional` (false
-## for every card prompt), `resume` (RESUME_WALK, or RESUME_TURN_START for a Crew prompt the
-## turn start opened) and `crew` (the Crew id, "" for a card prompt).
-##
-## Events name zones by ZONE_NAMES (as they name verbs and triggers by their JSON names);
-## MatchState.prompt, SeatView.prompt and EngineAction.choose use the enum value.
+## Events name zones by ZONE_NAMES; MatchState.prompt, SeatView.prompt and
+## EngineAction.choose use the enum value.
 
 enum Zone { OWN_HAND, OWN_BOARD, OPPONENT_HAND, OPPONENT_BOARD, BOTH_BOARDS, BOTH_DESTROYED }
 
@@ -66,17 +33,17 @@ const ZONE_NAMES: Array[String] = [
 ]
 const KEY_ZONE: String = "zone"
 const KEY_OPTIONS: String = "options"
-## Whether a prompt takes a set (DC-07 P7): MatchState.prompt, SeatView.prompt and
-## CHOICE_REQUESTED all carry it.
+## Whether a prompt takes a set: MatchState.prompt, SeatView.prompt and CHOICE_REQUESTED all
+## carry it.
 const KEY_MULTI: String = "multi"
-## Whether a prompt may be declined (cycle 8 R52, plan P9): every prompt carries it, false
-## for every card prompt; EngineAction.DECLINE is legal only while it is true.
+## Whether a prompt may be declined: every prompt carries it; EngineAction.DECLINE is legal
+## only while it is true.
 const KEY_OPTIONAL: String = "optional"
-## What an answered prompt resumes (cycle 8 P9, P11): RESUME_WALK for a prompt a walk paused
-## on, RESUME_TURN_START for a Crew prompt the turn start paused on.
+## What an answered prompt resumes: RESUME_WALK for a prompt a walk paused on,
+## RESUME_TURN_START for one the turn start paused on.
 const KEY_RESUME: String = "resume"
-## The Crew id of a Crew prompt (cycle 8 P9), "" for a card prompt (whose `card` is the
-## source; a Crew prompt's `card` is -1).
+## The Crew id of a Crew prompt, "" for a card prompt (whose `card` is the source; a Crew
+## prompt's `card` is -1).
 const KEY_CREW: String = "crew"
 const RESUME_WALK: String = "walk"
 const RESUME_TURN_START: String = "turn_start"
@@ -95,35 +62,9 @@ static func is_hand(zone: int) -> bool:
 	return zone == Zone.OWN_HAND or zone == Zone.OPPONENT_HAND
 
 
-## Whether `zone` is made of destroyed piles (DC-07 P12): its cards are off the rows, so
-## their identity is public only where `destroyed_known` says so (R18).
+## Whether `zone` is made of destroyed piles: its cards are off the rows.
 static func is_pile(zone: int) -> bool:
 	return zone == Zone.BOTH_DESTROYED
-
-
-## Whether `verb` (a CardEffect.Verb) needs a target chosen (the two grow prompt verbs and
-## the two prompt return verbs since cycle 8 P8).
-static func needs_choice(verb: int) -> bool:
-	return (
-		verb == CardEffect.Verb.DRAW_THEN_DISCARD
-		or verb == CardEffect.Verb.SWAP_PLACES
-		or verb == CardEffect.Verb.RETURN_AT_TURN_END
-		or verb == CardEffect.Verb.RECOVER_DESTROYED
-		or verb == CardEffect.Verb.SACRIFICE_DESTROY
-		or verb == CardEffect.Verb.DISCARD_OWN
-		or verb == CardEffect.Verb.DESTROY_OWN_THEN_DRAW
-		or verb == CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP
-		or verb == CardEffect.Verb.GROW_OTHER_FLAT
-		or verb == CardEffect.Verb.GROW_HAND_ONE_TIMES
-		or verb == CardEffect.Verb.RETURN_OWN_AT_TURN_END
-		or zone_for(verb) == Zone.OPPONENT_BOARD
-	)
-
-
-## Whether `verb` (a CardEffect.Verb) asks for a set of targets (DC-07 P7, R22): its prompt
-## is a multi-select, opened even for one eligible position (R25).
-static func is_multi(verb: int) -> bool:
-	return verb == CardEffect.Verb.SACRIFICE_DESTROY
 
 
 ## Whether the prompt dictionary `prompt` is a multi-select (its `multi` flag).
@@ -135,7 +76,7 @@ static func is_multi_prompt(prompt: Dictionary) -> bool:
 	return multi
 
 
-## Whether the prompt dictionary `prompt` may be declined (its `optional` flag; P9).
+## Whether the prompt dictionary `prompt` may be declined (its `optional` flag).
 static func is_optional_prompt(prompt: Dictionary) -> bool:
 	var raw: Variant = prompt.get(KEY_OPTIONAL, false)
 	if not raw is bool:
@@ -144,8 +85,8 @@ static func is_optional_prompt(prompt: Dictionary) -> bool:
 	return optional
 
 
-## What answering `prompt` resumes (its `resume`; P9): RESUME_TURN_START, else RESUME_WALK
-## (also for a prompt without the key).
+## What answering `prompt` resumes (its `resume`): RESUME_TURN_START, else RESUME_WALK (also
+## for a prompt without the key).
 static func resume_of(prompt: Dictionary) -> String:
 	var raw: Variant = prompt.get(KEY_RESUME, RESUME_WALK)
 	if not raw is String:
@@ -154,7 +95,7 @@ static func resume_of(prompt: Dictionary) -> String:
 	return RESUME_TURN_START if resume == RESUME_TURN_START else RESUME_WALK
 
 
-## The Crew id of `prompt` (its `crew`; P9), "" for a card prompt.
+## The Crew id of `prompt` (its `crew`), "" for a card prompt.
 static func crew_of(prompt: Dictionary) -> String:
 	var raw: Variant = prompt.get(KEY_CREW, "")
 	if not raw is String:
@@ -163,7 +104,7 @@ static func crew_of(prompt: Dictionary) -> String:
 	return crew
 
 
-## Whether `indices` is a valid answer to the multi-select `prompt` in `zone` (R23, P7): the
+## Whether `indices` is a valid answer to the multi-select `prompt` in `zone` (R23): the
 ## zone is the prompt's, every index is one of its options and none repeats. The empty set
 ## is valid (the decline, R24). The caller has checked the prompt is a multi-select.
 static func is_valid_set(prompt: Dictionary, zone: int, indices: Array[int]) -> bool:
@@ -177,47 +118,6 @@ static func is_valid_set(prompt: Dictionary, zone: int, indices: Array[int]) -> 
 			return false
 		seen[index] = true
 	return true
-
-
-## The zone `verb` chooses from, or NO_ZONE when it needs no choice.
-static func zone_for(verb: int) -> int:
-	match verb:
-		CardEffect.Verb.DRAW_THEN_DISCARD, CardEffect.Verb.DISCARD_OWN:
-			return Zone.OWN_HAND
-		CardEffect.Verb.SWAP_PLACES, CardEffect.Verb.SACRIFICE_DESTROY:
-			return Zone.OWN_BOARD
-		CardEffect.Verb.DESTROY_OWN_THEN_DRAW, CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP:
-			return Zone.OWN_BOARD
-		CardEffect.Verb.RETURN_AT_TURN_END:
-			return Zone.BOTH_BOARDS
-		CardEffect.Verb.RECOVER_DESTROYED:
-			return Zone.BOTH_DESTROYED
-		CardEffect.Verb.COPY_STATS, CardEffect.Verb.MOVE_OPPONENT_LEFT:
-			return Zone.OPPONENT_BOARD
-		CardEffect.Verb.SWAP_OPPONENT_RIGHT:
-			return Zone.OPPONENT_BOARD
-		CardEffect.Verb.GROW_OTHER_FLAT:
-			return Zone.OWN_BOARD
-		CardEffect.Verb.GROW_HAND_ONE_TIMES:
-			return Zone.OWN_HAND
-		CardEffect.Verb.RETURN_OWN_AT_TURN_END:
-			return Zone.OWN_BOARD
-		CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
-			return Zone.OPPONENT_BOARD
-	return NO_ZONE
-
-
-## The eligible targets of `verb` fired by `source` for `seat` (P9):
-## {"zone": int, "options": Array[int]}, the options ascending positions in that zone.
-static func eligible(state: MatchState, seat: int, verb: int, source: int) -> Dictionary:
-	var zone: int = zone_for(verb)
-	var options: Array[int] = []
-	var listed: Array[int] = zone_cards(state, seat, zone)
-	for index: int in range(listed.size()):
-		var card: int = listed[index]
-		if _is_eligible(state, seat, verb, source, zone, index, card):
-			options.append(index)
-	return {KEY_ZONE: zone, KEY_OPTIONS: options}
 
 
 ## The card at `index` of `zone` for `seat`, or -1 when the index or zone is out of range.
@@ -244,7 +144,7 @@ static func seat_at(state: MatchState, seat: int, zone: int, index: int) -> int:
 
 
 ## The position of `index` of `zone` for `seat` within its holder's own list (the hand, the
-## row or the destroyed pile), or -1 when out of range: CARD_RECOVERED `position`.
+## row or the destroyed pile), or -1 when out of range.
 static func local_index(state: MatchState, seat: int, zone: int, index: int) -> int:
 	var holder: int = seat_at(state, seat, zone, index)
 	if holder < 0:
@@ -299,42 +199,6 @@ static func options_of(prompt: Dictionary) -> Array[int]:
 	return out
 
 
-static func _is_eligible(
-	state: MatchState, seat: int, verb: int, source: int, zone: int, index: int, card: int
-) -> bool:
-	match verb:
-		CardEffect.Verb.DRAW_THEN_DISCARD, CardEffect.Verb.DISCARD_OWN:
-			return true
-		CardEffect.Verb.SWAP_PLACES:
-			return card != source
-		CardEffect.Verb.RETURN_AT_TURN_END:
-			return card != source and _is_live_and_revealed(state, seat, zone, index, card)
-		CardEffect.Verb.RECOVER_DESTROYED:
-			return true
-		CardEffect.Verb.SACRIFICE_DESTROY, CardEffect.Verb.DESTROY_OWN_THEN_DRAW:
-			return card != source and not state.is_destroyed(card)
-		CardEffect.Verb.DESTROY_OWN_THEN_FLAT_UP, CardEffect.Verb.GROW_OTHER_FLAT:
-			return card != source and not state.is_destroyed(card)
-		CardEffect.Verb.GROW_HAND_ONE_TIMES:
-			return true
-		CardEffect.Verb.RETURN_OWN_AT_TURN_END:
-			var live: bool = card != source and not state.is_destroyed(card)
-			return live and not EchoEffects.is_return_marked(state, card)
-		CardEffect.Verb.RETURN_OPPONENT_AT_TURN_END:
-			var shown: bool = _is_live_and_revealed(state, seat, zone, index, card)
-			return shown and not EchoEffects.is_return_marked(state, card)
-		CardEffect.Verb.COPY_STATS:
-			return _is_live_and_revealed(state, seat, zone, index, card)
-		CardEffect.Verb.MOVE_OPPONENT_LEFT:
-			return index > 0
-		CardEffect.Verb.SWAP_OPPONENT_RIGHT:
-			# A card stands to its right: the next position is on the same row.
-			return seat_at(state, seat, zone, index + 1) >= 0
-	return false
-
-
-## Whether `card` is revealed and not destroyed (DC-06 R16): the return skips destroyed
-## cards; the swap does not ask.
 ## The size of `zone`'s list held by `piles`: its hand, destroyed pile or row.
 static func _size_in(piles: MatchState.SeatPiles, zone: int) -> int:
 	if is_hand(zone):
@@ -342,17 +206,3 @@ static func _size_in(piles: MatchState.SeatPiles, zone: int) -> int:
 	if is_pile(zone):
 		return piles.destroyed.size()
 	return piles.board.size()
-
-
-static func _is_live_and_revealed(
-	state: MatchState, seat: int, zone: int, index: int, card: int
-) -> bool:
-	return not state.is_destroyed(card) and _is_revealed_at(state, seat, zone, index, card)
-
-
-static func _is_revealed_at(state: MatchState, seat: int, zone: int, index: int, card: int) -> bool:
-	var holder: int = seat_at(state, seat, zone, index)
-	if holder < 0:
-		return false
-	var piles: MatchState.SeatPiles = state.seats[holder]
-	return piles.is_revealed(card)

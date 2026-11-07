@@ -122,9 +122,17 @@ static func banner_text(text: String, crew_name: String) -> String:
 
 ## The HUD confirm button's text for a multi prompt with `count` cards selected (R48).
 static func confirm_text(prompt: Dictionary, count: int) -> String:
-	var verb: int = prompt.get("verb", -1)
-	var label: String = action_label(CardEffect.verb_name(verb))
+	var label: String = action_label(verb_of(prompt))
 	return "%s %d" % [label if label != "" else "Confirm", count]
+
+
+## The verb name of a prompt (the engine holds it by name since DC-13 T02), "" when absent.
+static func verb_of(prompt: Dictionary) -> String:
+	var raw: Variant = prompt.get("verb", "")
+	if not raw is String:
+		return ""
+	var verb: String = raw
+	return verb
 
 
 ## The option position the card at `hit` stands for, or -1 when it does not glow.
@@ -148,11 +156,10 @@ static func action_label(verb: String, multi: bool = false, selected: bool = fal
 
 
 ## The action button's text for an open prompt as the engine holds it
-## (MatchEngine.open_prompt): its `verb` is the CardEffect.Verb value, not the name (R41).
+## (MatchEngine.open_prompt): its `verb` is the verb's name (R41).
 static func action_label_for(prompt: Dictionary, selected: bool = false) -> String:
-	var verb: int = prompt.get("verb", -1)
 	var multi: bool = prompt.get("multi", false)
-	return action_label(CardEffect.verb_name(verb), multi, selected)
+	return action_label(verb_of(prompt), multi, selected)
 
 
 static func same_spot(a: CardSpot, b: CardSpot) -> bool:

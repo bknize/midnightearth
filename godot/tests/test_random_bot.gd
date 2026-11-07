@@ -90,40 +90,57 @@ func test_engine_never_rejects_the_random_bot_over_20_seeds() -> void:
 			return
 
 
-## R3 on the shipped Ruin and Drift decks too (their effects open other prompts).
-func test_engine_never_rejects_the_random_bot_on_ruin_and_drift() -> void:
-	for match_seed: int in range(1, 6):
-		if _play_out(match_seed, FixtureDecks.ruin_engine(match_seed)) < 0:
-			return
-		if _play_out(match_seed, FixtureDecks.drift_engine(match_seed)) < 0:
-			return
+## R3 on the shipped Greed and Ramp decks too (DC-13 T02: their abilities fizzle, so the
+## matches play plain bodies), in both seat orders.
+func test_engine_never_rejects_the_random_bot_on_greed_and_ramp() -> void:
+	var pairings: Array[Array] = [["greed", "ramp"], ["ramp", "greed"]]
+	for match_seed: int in range(1, 4):
+		for pairing: Array in pairings:
+			var ids: Array[String] = []
+			ids.assign(pairing)
+			var engine: MatchEngine = MatchEngine.create(
+				match_seed,
+				CardDb.load_default(),
+				DeckList.load_default(),
+				ids,
+				CrewPool.load_default()
+			)
+			if _play_out(match_seed, engine) < 0:
+				return
 
 
-## R3 on a multi-select prompt: every answer is a set of offered options, none repeated,
-## and the engine accepts it; over 16 seeds more than one set is drawn.
+## R3 on a multi-select prompt: every answer is a set of offered options, none repeated;
+## over 16 seeds more than one set is drawn. No T02 ability opens a prompt, so the prompt
+## is set on a real view by hand (the bot reads only its view).
 func test_answers_a_set_prompt_with_offered_options() -> void:
 	var drawn: Dictionary[String, bool] = {}
+	var engine: MatchEngine = FixtureDecks.engine(1, _db())
+	assert_bool(engine.start().ok).is_true()
+	var seat: int = engine.awaited_seat()
+	var options: Array[int] = [0, 1, 2, 3]
 	for bot_seed: int in range(1, 17):
-		var engine: MatchEngine = FixtureDecks.engine(1, FixtureDecks.sacrifice_cards())
-		assert_bool(engine.start().ok).is_true()
-		var own: Array[int] = [3, 7, 2, FixtureDecks.C02_SACRIFICE]
-		var theirs: Array[int] = [MatchRules.DECK_SIZE + 13, MatchRules.DECK_SIZE + 6]
-		assert_bool(FixtureDecks.play_table(engine, own, theirs)).is_true()
-		var seat: int = engine.awaited_seat()
 		var view: SeatView = engine.view_for(seat)
-		assert_bool(Choice.is_multi_prompt(view.prompt)).is_true()
-		var options: Array[int] = Choice.options_of(view.prompt)
+		view.prompt = {
+			"open": true,
+			"seat": seat,
+			"card": -1,
+			"verb": "discard_own",
+			"zone": Choice.Zone.OWN_HAND,
+			"options": options.duplicate(),
+			"multi": true,
+			"optional": false,
+		}
 		var action: EngineAction = RandomBot.new(bot_seed, engine.match_cards()).choose(
 			view, engine
 		)
 		assert_int(action.kind).is_equal(EngineAction.Kind.CHOOSE_SET)
+		assert_int(action.zone).is_equal(Choice.Zone.OWN_HAND)
 		var seen: Dictionary[int, bool] = {}
 		for index: int in action.indices:
 			assert_bool(options.has(index)).is_true()
 			assert_bool(seen.has(index)).is_false()
 			seen[index] = true
 		drawn[str(action.indices)] = true
-		assert_bool(engine.apply(action).ok).is_true()
 	assert_int(drawn.size()).is_greater(1)
 
 

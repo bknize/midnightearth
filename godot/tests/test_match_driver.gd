@@ -11,8 +11,6 @@ extends GdUnitTestSuite
 
 const SEED: int = 1
 const MAX_ACTIONS: int = 2000
-## Seeds tried, in order (1 first), until the prompt a case needs turns up.
-const PROMPT_SEEDS: int = 10
 ## An index no prompt offers (options are positions in a zone of at most a few cards).
 const NOT_AN_OPTION: int = 99
 ## Sentinel line meaning "not pinned yet".
@@ -163,26 +161,24 @@ func _prompted_seat(driver: MatchDriver) -> int:
 	return seat
 
 
-## A human-seat driver for `match_seed`, started and played until a prompt opens for seat 0
-## (or the match ends, or the cap): seat 1 by play_bot(), seat 0 by submit_player() with
-## the commit a RandomBot of its own would choose. Null when a step was rejected.
-func _drive_to_player_prompt(match_seed: int) -> MatchDriver:
-	var driver: MatchDriver = _driver(match_seed, false)
-	driver.start()
-	var bot: RandomBot = RandomBot.new(BotRegistry.seed_for(match_seed, 0), _defs())
-	var steps: int = 0
-	while not driver.is_over() and steps < MAX_ACTIONS:
-		if not driver.open_prompt().is_empty():
-			return driver
-		var result: ApplyResult = null
-		if driver.bot_turn_due():
-			result = driver.play_bot()
-		else:
-			result = driver.submit_player(bot.choose(driver.view(), driver._engine))
-		if not result.ok:
-			return null
-		steps += 1
-	return driver
+## Opens a hand-made prompt for `seat` on `driver`'s started match, at turn start (resume
+## `turn_start`, so the answer hands the turn back to the first committer): over positions
+## 0 and 1 of the seat's hand, a multi-select when `multi`. No DC-13 T02 ability opens a
+## prompt, so the driver's prompt paths are driven this way until T05 and T06.
+func _open_prompt(driver: MatchDriver, seat: int, multi: bool) -> void:
+	var state: MatchState = driver._engine._state
+	state.prompt = {
+		"seat": seat,
+		"card": -1,
+		"verb": "discard_own",
+		Choice.KEY_ZONE: Choice.Zone.OWN_HAND,
+		Choice.KEY_OPTIONS: [0, 1],
+		Choice.KEY_MULTI: multi,
+		Choice.KEY_OPTIONAL: false,
+		Choice.KEY_RESUME: Choice.RESUME_TURN_START,
+		Choice.KEY_CREW: "",
+	}
+	state.phase = MatchState.Phase.AWAIT_CHOICE
 
 
 # --- Tests ----------------------------------------------------------------------------
@@ -317,34 +313,19 @@ func test_play_bot_refuses_when_the_human_is_awaited() -> void:
 
 ## A bot's prompt (DC-05 T07): play_bot() answers it with a CHOICE action the engine
 ## accepts, and seat 0 sees the CHOICE_MADE. open_prompt() is seat 0's prompt only: empty
-## while seat 1 is prompted, set while seat 0 is. Stops at the first answered prompt.
+## while seat 1 is prompted. The prompt is hand-made (_open_prompt, DC-13 T02).
 func test_play_bot_answers_a_bot_prompt() -> void:
-	var answered: int = 0
-	for match_seed: int in range(1, PROMPT_SEEDS + 1):
-		var driver: MatchDriver = _driver(match_seed, true)
-		driver.start()
-		var steps: int = 0
-		while driver.bot_turn_due() and steps < MAX_ACTIONS:
-			var prompted: int = _prompted_seat(driver)
-			if prompted == 1:
-				assert_dict(driver.open_prompt()).is_empty()
-			elif prompted == 0:
-				assert_bool(driver.open_prompt().is_empty()).is_false()
-			var result: ApplyResult = driver.play_bot()
-			var where: String = "seed %d action %d" % [match_seed, steps]
-			assert_bool(result.ok).override_failure_message(where + " rejected").is_true()
-			if not result.ok:
-				return
-			if prompted >= 0:
-				answered += 1
-				var made: bool = _has_kind(driver.last_events(), MatchEvent.Kind.CHOICE_MADE)
-				assert_bool(made).override_failure_message(where + ": no CHOICE_MADE").is_true()
-			steps += 1
-			if answered > 0:
-				break
-		if answered > 0:
-			break
-	assert_int(answered).override_failure_message("no bot prompt in the seeds").is_greater(0)
+	var driver: MatchDriver = _driver(SEED, false)
+	driver.start()
+	_open_prompt(driver, 1, false)
+	assert_int(_prompted_seat(driver)).is_equal(1)
+	assert_dict(driver.open_prompt()).is_empty()
+	assert_bool(driver.bot_turn_due()).is_true()
+	var result: ApplyResult = driver.play_bot()
+	assert_bool(result.ok).is_true()
+	var made: bool = _has_kind(driver.last_events(), MatchEvent.Kind.CHOICE_MADE)
+	assert_bool(made).override_failure_message("no CHOICE_MADE").is_true()
+	assert_int(_prompted_seat(driver)).is_equal(-1)
 
 
 ## Seat 0's prompt (DC-05 T07): with no prompt open submit_choice() fails with NO_PROMPT;
@@ -357,17 +338,9 @@ func test_submit_choice_answers_the_open_player_prompt() -> void:
 	var early: ApplyResult = idle.submit_choice(Choice.Zone.OWN_HAND, 0)
 	assert_bool(early.ok).is_false()
 	assert_int(early.error).is_equal(EngineError.Code.NO_PROMPT)
-	var driver: MatchDriver = null
-	for match_seed: int in range(1, PROMPT_SEEDS + 1):
-		var candidate: MatchDriver = _drive_to_player_prompt(match_seed)
-		var rejected: String = "seed %d: a step was rejected" % match_seed
-		assert_bool(candidate != null).override_failure_message(rejected).is_true()
-		if candidate != null and not candidate.open_prompt().is_empty():
-			driver = candidate
-			break
-	assert_object(driver).override_failure_message("no seat-0 prompt in the seeds").is_not_null()
-	if driver == null:
-		return
+	var driver: MatchDriver = _driver(SEED, false)
+	driver.start()
+	_open_prompt(driver, MatchDriver.PLAYER_SEAT, false)
 	var prompt: Dictionary = driver.open_prompt()
 	var seat: int = prompt.get("seat", -1)
 	assert_int(seat).is_equal(MatchDriver.PLAYER_SEAT)
@@ -390,32 +363,23 @@ func test_submit_choice_answers_the_open_player_prompt() -> void:
 	assert_bool(made).override_failure_message("no CHOICE_MADE for seat 0").is_true()
 
 
-## DC-07 T05 (P7): submit_set() reaches the engine. With c02 given sacrifice_destroy and
-## seat 0's row [c04, c08, c02] set by hand, open_prompt() says `multi`, a set naming the
-## source fails with BAD_SET, and a valid set is accepted with CHOICE_MADE `indices`.
+## DC-07 T05 (P7): submit_set() reaches the engine. With a hand-made multi-select prompt
+## for seat 0 over hand positions 0 and 1, open_prompt() says `multi`, a set naming a
+## position it does not offer fails with BAD_SET, and a valid set is accepted with
+## CHOICE_MADE `indices`.
 func test_submit_set_answers_the_open_multi_prompt() -> void:
-	var driver: MatchDriver = MatchDriver.create(
-		SEED,
-		FixtureDecks.sacrifice_cards(),
-		FixtureDecks.decks(),
-		FixtureDecks.ids(),
-		false,
-		BOT,
-		FixtureDecks.crew()
-	)
+	var driver: MatchDriver = _driver(SEED, false)
 	driver.start()
-	var own: Array[int] = [3, 7, FixtureDecks.C02_SACRIFICE]
-	var none: Array[int] = []
-	assert_bool(FixtureDecks.play_table(driver._engine, own, none)).is_true()
+	_open_prompt(driver, MatchDriver.PLAYER_SEAT, true)
 	var prompt: Dictionary = driver.open_prompt()
 	var multi: bool = prompt.get(Choice.KEY_MULTI, false)
 	assert_bool(multi).is_true()
 	var count: int = driver.action_count()
 	var bad: Array[int] = [2]
-	var refused: ApplyResult = driver.submit_set(Choice.Zone.OWN_BOARD, bad)
+	var refused: ApplyResult = driver.submit_set(Choice.Zone.OWN_HAND, bad)
 	assert_int(refused.error).is_equal(EngineError.Code.BAD_SET)
 	var chosen: Array[int] = [1]
-	var result: ApplyResult = driver.submit_set(Choice.Zone.OWN_BOARD, chosen)
+	var result: ApplyResult = driver.submit_set(Choice.Zone.OWN_HAND, chosen)
 	assert_bool(result.ok).is_true()
 	assert_int(driver.action_count()).is_equal(count + 1)
 	var indices: Array = []

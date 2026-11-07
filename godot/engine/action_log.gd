@@ -4,16 +4,17 @@ extends RefCounted
 ## rules version, the match seed and both seats' deck ids, then every accepted action in
 ## order. Nothing derived.
 ##
-## JSON form (cycle 8 plan, action log format 4, P10; DC-07 P2 for the header):
-## {"format": 4, "rules": 6, "seed": "9007199254740993", "decks": ["ruin", "drift"],
+## JSON form (cycle 9 plan P1: format 5 and rules 7 since DC-13 T02, the v2 cards; the
+## entries are format 4's, cycle 8 P10; DC-07 P2 for the header):
+## {"format": 5, "rules": 7, "seed": "9007199254740993", "decks": ["greed", "ramp"],
 ##  "actions": [{"k": "commit", "s": 0, "c": [3, 7], "p": [0, 1]},
 ##              {"k": "choose", "s": 0, "z": 1, "i": 2},
 ##              {"k": "choose_set", "s": 1, "z": 1, "i": [0, 2]}, {"k": "decline", "s": 1},
 ##              {"k": "concede", "s": 1}]}
 ## A set choice (DC-07 P7) is logged with its indices as given, so replay applies the same
 ## set and draws the same random destroys from the stream. A decline (cycle 8 R52) is
-## logged like a choice, so replay closes the same optional prompt. A format-3 log (before
-## the decline) parses and fails replay with FORMAT_MISMATCH (R55).
+## logged like a choice, so replay closes the same optional prompt. A format-4 log (the v6
+## cards) parses and fails replay with FORMAT_MISMATCH (cycle 9 R65), as every older one.
 ##
 ## `decks` holds the resolved ids (a seeded pick already applied, MatchEngine.deck_ids()),
 ## so replay() rebuilds the same decks without drawing a pairing. A header without `decks`

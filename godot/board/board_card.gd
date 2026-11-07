@@ -77,15 +77,11 @@ func show_entry(def: CardDef, entry: Dictionary) -> void:
 	_name_label.text = def.name
 	var cost: int = entry.get("cost", def.cost)
 	_cost_label.text = str(cost)
-	var times: int = ScoreTracker.MULT_ONE
-	var plus: int = 0
-	if def.bonus_kind == CardDef.BonusKind.TIMES:
-		times = def.bonus
-	elif def.bonus_kind == CardDef.BonusKind.PLUS:
-		plus = def.bonus
-	var flat: int = entry.get("flat", def.flat)
-	times = entry.get("times", times)
-	plus = entry.get("plus", plus)
+	# The engine's view entries still carry the v6 keys (flat, times, plus; DC-13 T09 moves
+	# the face to power, mult and add). The printed fallback is the v2 Power and Mult.
+	var flat: int = entry.get("flat", def.power)
+	var times: int = entry.get("times", def.printed_mult())
+	var plus: int = entry.get("plus", 0)
 	_set_numbers(flat, times, plus)
 	_text_label.text = rules_text(def)
 	var grown: bool = entry.get("grown", false)
@@ -319,15 +315,9 @@ func _set_numbers(flat: int, times: int, plus: int) -> void:
 	_bonus_label.visible = _bonus_label.text != ""
 
 
-## The rules text of a face: the effect's text, or reminder text built from the printed stats.
+## The rules text of a face: the card's printed text, empty for a plain body (cycle 9 R22).
 static func rules_text(def: CardDef) -> String:
-	if def.effect != null:
-		return def.effect.text
-	if def.bonus_kind == CardDef.BonusKind.TIMES:
-		return "When this scores, your mult %s." % ScoreChips.mult_text(def.bonus)
-	if def.bonus_kind == CardDef.BonusKind.PLUS:
-		return "When this scores, your mult +%d." % def.bonus
-	return "Scores its flat at your mult."
+	return def.text
 
 
 ## The face's bonus text from a hundredths `times` and whole `plus`: "×1.25", "+1", "×1.25 +1"

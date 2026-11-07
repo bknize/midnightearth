@@ -18,7 +18,7 @@ func _def() -> CardDef:
 	var def: CardDef = CardDef.new()
 	def.name = "Sapling"
 	def.cost = 3
-	def.flat = 2
+	def.power = 2
 	return def
 
 

@@ -137,13 +137,13 @@ func test_action_label_names_the_move() -> void:
 
 
 func test_action_label_reads_the_engine_prompt_verb() -> void:
-	# MatchEngine.open_prompt() holds the CardEffect.Verb value, not its name (R41).
-	var cases: Dictionary[int, String] = {
-		CardEffect.Verb.SWAP_PLACES: "Swap",
-		CardEffect.Verb.DRAW_THEN_DISCARD: "Discard",
-		CardEffect.Verb.RETURN_AT_TURN_END: "Return",
+	# MatchEngine.open_prompt() holds the verb's name since DC-13 T02 (R41).
+	var cases: Dictionary[String, String] = {
+		"swap_places": "Swap",
+		"discard_own": "Discard",
+		"copy_stats": "Copy",
 	}
-	for verb: int in cases:
+	for verb: String in cases:
 		var prompt: Dictionary = {"seat": 0, "card": 7, "verb": verb, "zone": 0, "options": [1]}
 		assert_str(PromptRules.action_label_for(prompt)).is_equal(cases[verb])
 	assert_str(PromptRules.action_label_for({})).is_equal("")
@@ -166,7 +166,7 @@ func _multi_prompt(options: Array[int]) -> Dictionary:
 	return {
 		"seat": 0,
 		"card": 5,
-		"verb": CardEffect.Verb.SACRIFICE_DESTROY,
+		"verb": "sacrifice_destroy",
 		"zone": Choice.Zone.OWN_BOARD,
 		"options": options,
 		"multi": true,

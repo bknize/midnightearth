@@ -78,7 +78,7 @@ var deck_counts: Array[int] = [0, 0]
 var scores: Array[int] = [0, 0]
 ## Each seat's walk multiplier in hundredths (R14; DC-07 P4): the running value during a
 ## walk, the last walk's final value after it, 100 (×1.00) before the round's first walk.
-var mults: Array[int] = [MatchRules.MULT_ONE, MatchRules.MULT_ONE]
+var mults: Array[int] = [MatchRules.BONUS_ONE, MatchRules.BONUS_ONE]
 var wins: Array[int] = [0, 0]
 ## Counts past MatchRules.ROUNDS in sudden death.
 var round_number: int = 0
@@ -99,19 +99,19 @@ var first_seat: int = 0
 var sudden_death: bool = false
 ## The open prompt (plan, SeatView additions; DC-05 T05). Empty when none is open. For the
 ## prompted seat: {open: true, seat, card, verb, text, zone, options, multi, optional,
-## resume, crew}, with `verb` the CardEffect.Verb, `zone` the Choice.Zone (relative to this
+## resume, crew}, with `verb` the verb name, `zone` the Choice.Zone (relative to this
 ## seat) and `options` the eligible positions in it, ready for EngineAction.choose(seat,
 ## zone, options[i]), or when `multi` is true for EngineAction.choose_set(seat, zone, a
 ## subset) (DC-07 P7). When `optional` is true EngineAction.decline(seat) is legal too;
-## `resume` is "walk" or "turn_start" and `crew` the Crew id of a Crew prompt (its `verb` a
-## CrewDef.Verb, `card` -1, `text` the Crew's rules text), "" for a card prompt (cycle 8
+## `resume` is "walk" or "turn_start" and `crew` the Crew id of a Crew prompt (its `verb` the
+## Crew's verb, `card` -1, `text` the Crew's rules text), "" for a card prompt (cycle 8
 ## P9). For the other seat only {open: true, seat}.
 var prompt: Dictionary = {}
 ## Both seats' Crew ids in slot order, indexed by seat (cycle 8 R42, plan P12): public, as
 ## MATCH_STARTED `crew` names them. Empty per seat for a view built without definitions.
 var crew: Array[Array] = [[], []]
 ## Both seats' Crew uses left, as MatchState.crew_uses (cycle 8 R43): public;
-## CrewDef.UNLIMITED (-1) for a Crew of scope NONE.
+## CrewDef.UNLIMITED (-1) for an unlimited Crew.
 var crew_uses: Array[Array] = [[], []]
 
 
@@ -176,27 +176,19 @@ static func build(
 static func _prompt(state: MatchState, p_seat: int, cards: MatchCards) -> Dictionary:
 	if state.prompt.is_empty():
 		return {}
-	var asked: int = state.prompt.get(EffectResolver.KEY_SEAT, -1)
+	var asked: int = state.prompt.get(Abilities.KEY_SEAT, -1)
 	if asked != p_seat:
 		return {"open": true, "seat": asked}
-	var source: int = state.prompt.get(EffectResolver.KEY_CARD, -1)
-	var verb: int = state.prompt.get(EffectResolver.KEY_VERB, -1)
+	var source: int = state.prompt.get(Abilities.KEY_CARD, -1)
+	var verb: String = state.prompt.get(Abilities.KEY_VERB, "")
 	var zone: int = state.prompt.get(Choice.KEY_ZONE, Choice.NO_ZONE)
-	var text: String = ""
-	var effect: CardEffect = EffectResolver.effect_of(source, cards)
-	if effect != null:
-		text = effect.text
 	var crew_id: String = Choice.crew_of(state.prompt)
-	if crew_id != "" and cards != null:
-		for def: CrewDef in cards.crew_for(asked):
-			if def.id == crew_id:
-				text = def.text
 	return {
 		"open": true,
 		"seat": asked,
 		"card": source,
 		"verb": verb,
-		"text": text,
+		"text": Abilities.prompt_text(state.prompt, cards),
 		"zone": zone,
 		"options": MatchState.plain(Choice.options_of(state.prompt)),
 		"multi": Choice.is_multi_prompt(state.prompt),
