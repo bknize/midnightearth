@@ -378,6 +378,15 @@ print("median s/request %.2f  aggregate tok/s %.1f"
 
 ### B7. Can the Mac reach MCP on the PC? (about 20 min)
 
+**Done 2026-11-07: pass.** The venv has `mcp` 2.3.0, where `FastMCP` is now `MCPServer`
+(`mcp.server.mcpserver`) and host and port move to `run()`; the script below is the 2.x
+version (the 1.x one failed to import). Started through the runner. From the Mac, a raw
+streamable-HTTP session (`initialize`, `tools/list`, `tools/call health`) answered `health` in
+0.67 s cold and 0.37–0.39 s warm (the call shells out to Godot and `nvidia-smi`); a `ping`
+round trip is 17 ms. `claude mcp add --scope local` then `claude mcp get` reported
+**Connected**; the entry was removed again and the server stopped. The 8765 firewall rule stays.
+Cycle A pins `mcp>=2.3,<3` and adds the bearer token.
+
 - [ ] **PC:** save `spike\health_server.py` (below) and start it detached from the venv. It
       listens on 8765, which only the Mac can reach (A6). The spike has no token, so that
       firewall rule is its only lock; cycle A adds the bearer token.
@@ -391,8 +400,8 @@ print("median s/request %.2f  aggregate tok/s %.1f"
 
 ```python
 import os, platform, shutil, subprocess
-from mcp.server.fastmcp import FastMCP
-mcp = FastMCP("bot-trainer-spike", host="0.0.0.0", port=8765)
+from mcp.server.mcpserver import MCPServer
+mcp = MCPServer("bot-trainer-spike")
 @mcp.tool()
 def health() -> dict:
     """Spike health check: host, Python, Godot, GPU, free disk."""
@@ -403,7 +412,7 @@ def health() -> dict:
     return {"host": platform.node(), "python": platform.python_version(), "godot": godot,
             "gpu": gpu, "free_gb": shutil.disk_usage("C:\\").free // 2**30}
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=8765)
 ```
 
 ## Results (fill in)
@@ -422,11 +431,14 @@ if __name__ == "__main__":
 | B6 | Server with 4 slots: aggregate tok/s, median s/request | 107 tok/s, 8.9 s (855-token prompt, 256 out), at `-c 40960 -fa on -ctk q8_0 -ctv q8_0`. The checklist's f16 cache overflowed VRAM: 24 tok/s |
 | B6 | Play-outs + LLM together: games/min and tok/s, each vs alone | 16 workers: 1,172 → 940 games/min (−20%), LLM 107 → 74 tok/s (−31%). 12 workers: 1,177 → 892, LLM 81–105. Digest `7ae72eeb21c8d00d` (seeds 1–2000) unchanged by the load. GPU peaked at 80 °C |
 | B6 | Plan JSON valid and sensible? (each model) | **Valid, half sensible.** 18–28 s a reply, three plans each, always schema-valid. It reads the deck's R62 plan (hold Encore and Finale for the late Turns, Wick and Twin early, Shade to re-reveal) but misreads details: holds a card it also pairs, calls Reverb a 6/5, says Shade "checks the board", and fills required fields with filler (`n`, `mode`, `cards: ["4"]`). Thinking on: no answer in 8,000 tokens |
-| B7 | MCP `health` from the Mac: reply and round trip | |
+| B7 | MCP `health` from the Mac: reply and round trip | **Pass**: host DESKTOP-Q7M5VJD, Python 3.14.10, Godot 4.6.3, RTX 3070 Laptop 863/8192 MiB, 116 GB free; 0.37–0.67 s a call, 17 ms ping; Claude Code reports Connected |
 | B1 | Tools installed | **Pass**: Python 3.14.10 (NuGet), Godot 4.6.3, llama.cpp b12180 CUDA 12.4, mcp 2.3.0, huggingface_hub 2.4.0 |
 | — | Driver version, CUDA version, peak CPU temperature | Driver 566.36 (CUDA 12.x; not updated in A8), 136 GB free on C:; temperature pending |
 
 ## Go / no-go for `/spec` cycle A
+
+**Verdict 2026-11-07: Go.** B0, B3, B4 and B7 pass; B5 and B6 set the sizing (about 1,500 matches a
+minute alone, 940 beside the LLM; Qwen3.5-9B at 107 tok/s on four 10k slots).
 
 - **Go** when B0, B3, B4 and B7 pass. Slow numbers in B5 or B6 change the sizing, not the plan.
 - **Stop and fix first** when B4 finds any mismatch (an engine determinism bug), or B3 can't
