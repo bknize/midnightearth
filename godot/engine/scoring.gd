@@ -111,6 +111,17 @@ static func stats(card: int, state: MatchState, cards: MatchCards) -> Stats:
 	return out
 
 
+## The stats `card` of `seat` Scores with as the `count`th Score of that seat's Walk
+## (DC-13 T07, plan P13): stats(), then the Crew's grants for that Score, Void's held grants
+## and Tallyman's Mult (CrewAbilities.score_grants). Reads only; ScoreWalk spends the grants.
+static func score_stats(
+	card: int, state: MatchState, cards: MatchCards, seat: int, count: int
+) -> Stats:
+	var out: Stats = stats(card, state, cards)
+	CrewAbilities.score_grants(out, state, cards, seat, count)
+	return out
+
+
 ## Power that Ongoing abilities give `card` when it Scores (Banner, DC-13 T06): 0 until then.
 static func ongoing_power(_card: int, _state: MatchState, _cards: MatchCards) -> int:
 	return 0

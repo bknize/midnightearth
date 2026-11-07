@@ -80,6 +80,9 @@ var seat_protections: Array[Dictionary] = [{}, {}]
 ## The trigger queue (DC-13 T05, plan P11): its Batches, the drain in progress and the entry
 ## a drain paused on, so a full state taken while paused replays and resumes alike.
 var queue: TriggerQueue = TriggerQueue.new()
+## Per seat, the Void grants its next Scoring card will take (DC-13 T07, plan P13): a count
+## that stacks, spent when that card Scores and cleared at turn end (CrewAbilities). Public.
+var void_grants: Array[int] = [0, 0]
 
 
 func _init(p_match_seed: int = 0) -> void:
@@ -137,6 +140,7 @@ func to_dict() -> Dictionary:
 		"crew_uses": _crew_uses_list(),
 		"seat_protections": _seat_protections_list(),
 		"queue": queue.to_dict(),
+		"void_grants": plain(void_grants),
 	}
 
 
@@ -176,6 +180,7 @@ func duplicate() -> MatchState:
 	out.crew_uses.assign(_crew_uses_list())
 	out.seat_protections.assign(_seat_protections_list())
 	out.queue = queue.copy()
+	out.void_grants.assign(void_grants)
 	return out
 
 

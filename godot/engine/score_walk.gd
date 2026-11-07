@@ -216,11 +216,13 @@ static func score(
 ) -> void:
 	var walk: MatchState.WalkState = state.walk
 	var piles: MatchState.SeatPiles = state.seats[seat]
-	var stats: Scoring.Stats = Scoring.stats(card, state, cards)
+	var count: int = walk.scored_count[seat] + 1
+	var stats: Scoring.Stats = Scoring.score_stats(card, state, cards, seat, count)
 	var bonus: int = stats.bonus_value()
 	state.totals[seat] = Scoring.step_total(state.totals[seat], stats.power, bonus)
 	walk.scored[card] = true
-	walk.scored_count[seat] += 1
+	walk.scored_count[seat] = count
+	CrewAbilities.spend_grants(state, seat)
 	if not sink.is_valid():
 		return
 	var scored: Dictionary = {
@@ -246,7 +248,12 @@ static func score_stage(
 	var runs: int = 2 if state.walk.pulse_twice else 1
 	for run: int in range(runs):
 		score(state, cards, sink, seat, card, run + 1)
-		if TriggerQueue.wake(state, cards, MOMENT_SCORE, subjects).is_empty():
+		# What the Score's Crew read as it was then (Navigator's count, Captain's slot; T07).
+		var context: Dictionary = {
+			CrewAbilities.KEY_SCORED_COUNT: state.walk.scored_count[seat],
+			CrewAbilities.KEY_SLOT: state.seats[seat].board.find(card),
+		}
+		if TriggerQueue.wake(state, cards, MOMENT_SCORE, subjects, -1, context).is_empty():
 			pass  # Nothing watches this Score.
 	return TriggerQueue.drain(state, cards, rng, sink, STEP_SCORE)
 

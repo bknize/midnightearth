@@ -161,13 +161,13 @@ func test_an_empty_deck_draws_nothing_and_emits_draw_empty() -> void:
 	state.seats[1].hand.assign(_typed([40, 41]))
 	var recorder: Recorder = _recorder()
 	assert_bool(TurnFlow.draw(state, _defs(), MatchRng.new(SEED), recorder.record, 1)).is_false()
-	# DRAW_EMPTY, then the On empty draw drain (D1): the fixture's Void fizzles until T07.
+	# DRAW_EMPTY, then the On empty draw drain (D1): the fixture's Void fires (DC-13 T07).
 	assert_int(recorder.events[0].kind).is_equal(MatchEvent.Kind.DRAW_EMPTY)
 	assert_int(recorder.events[0].owner_seat).is_equal(MatchEvent.PUBLIC)
 	assert_dict(recorder.events[0].payload).is_equal({"seat": 1})
 	var seen: int = recorder.events.size()
 	for event: MatchEvent in recorder.events.slice(1):
-		assert_int(event.kind).is_equal(MatchEvent.Kind.TRIGGER_FIZZLED)
+		assert_int(event.kind).is_equal(MatchEvent.Kind.TRIGGER_FIRED)
 	assert_array(state.seats[1].hand).is_equal(_typed([40, 41]))
 	assert_bool(MatchEvent.Kind.keys().has("CARD_BURNED")).is_false()
 	# The resumed draw (Q11) finds the Deck still empty: nothing, and no second DRAW_EMPTY.
@@ -463,15 +463,16 @@ func test_round_end_sends_both_rows_to_their_owners_piles() -> void:
 
 
 ## The Budget is the Turn plus this Turn's grants (TurnFlow.budget); turn end moves the
-## next Turn's grants in and clears the spend.
+## next Turn's grants in and clears the spend. The fixture's Engineer adds 1 from Turn 3
+## (DC-13 T07).
 func test_budget_is_the_turn_plus_grants_and_turn_end_settles_them() -> void:
 	var state: MatchState = MatchState.new(SEED)
 	state.turn = 3
 	state.energy.grants.assign([1, 0])
 	state.energy.next_turn_grants.assign([0, 2])
 	state.energy.spent.assign([3, 1])
-	assert_int(TurnFlow.budget(state, _defs(), 0)).is_equal(4)
-	assert_int(TurnFlow.budget(state, _defs(), 1)).is_equal(3)
+	assert_int(TurnFlow.budget(state, _defs(), 0)).is_equal(5)
+	assert_int(TurnFlow.budget(state, _defs(), 1)).is_equal(4)
 	assert_int(TurnFlow.budget(state, _defs(), 2)).is_equal(0)
 	var recorder: Recorder = _recorder()
 	assert_bool(TurnFlow.end_turn(state, _defs(), MatchRng.new(SEED), recorder.record)).is_false()
