@@ -2,119 +2,224 @@
 type: system
 tags: [system, game-loop, engine]
 status: growing
-related: ["[[systems/systems-moc]]", "[[systems/cards-crew-decks]]", "[[systems/bot-training]]", "[[planning/phase-3-game-loop]]"]
+related: ["[[systems/systems-moc]]", "[[systems/cards-crew-decks]]", "[[systems/bot-training]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[rules/rules-v2]]", "[[rules/resolution]]", "[[planning/cycles]]", "[[planning/phase-3-game-loop]]"]
 created: 2026-11-05
-updated: 2026-11-05
+updated: 2026-11-06
 uid: 50267112-4326-429c-b245-ff481bd6da6b
-linear:
+linear: https://linear.app/night-science-llc/issue/NSC-160
 supersedes:
 ---
 
 # Game loop, events and triggers
 
-> How a Midnight Earth match runs today, from the first deal to the last round: the turn, the walk, the actions a seat can take, the events the engine reports, and when card effects and Crew fire.
+> How a Midnight Earth match runs today, from the first deal to the last Round: the Turn, the Walk and its walking total, statuses, movement, the trigger queue, the actions a seat can take, the events the engine reports and what each seat may know.
 
-Written from the code in `godot/engine/` as of DC-11 (rules version 6). Where a spec differs, the code wins and the difference is called out. Cards and Crew themselves are in [[systems/cards-crew-decks]]; bots are in [[systems/bot-training]].
+Written from the code in `godot/engine/` as of DC-14 (rules version 7, log format 5). The design canon is in [[rules/rules-moc]]; this guide is its as-built counterpart, and where the build reads the canon differently the difference is called out in [[#Where the build differs from the canon]]. Where a spec and the code differ, the code wins. Cards, Crew and decks are in [[systems/cards-crew-decks]]; the one bot is in [[systems/bot-training]]. How the rules were built is in the DC-13 and DC-14 rows of [[planning/cycles]]. Every capitalised word is defined in [[rules/glossary]].
 
 ## The shape of a match
 
-A match is two seats, 0 and 1. Each seat plays a 20-card deck and has three Crew. The board always seats the human at seat 0.
+A Match is two seats, 0 and 1. Each seat plays a 40-card Deck and brings three Crew. The board seats the human at seat 0. The numbers live in `MatchRules`.
 
-| Unit | Rule (from `MatchRules`) |
+| Unit | Rule |
 |---|---|
-| Match | First to **4** round wins. After round 7, more round wins takes it. If wins are level, **sudden death** rounds follow until one is won. |
-| Round | **7** turns. Both decks refill and reshuffle and both rows clear. Each seat is dealt **3** cards. |
-| Turn | Each seat draws 1 card, then both commit, then the walk scores both rows. |
-| Hand | At most **7** cards. A card drawn at the cap is burned. |
+| Match | First seat to **4** Round wins. After Round 7 the seat with more Round wins takes it. While the seats are level, **sudden-death** Rounds follow until one is won. A Match that can no longer progress ends on a **stalemate** (below). |
+| Round | **7** Turns. A Round goes to the seat that won **more of its Turns**; equal Turn wins award no Round win. Nothing is dealt, refilled or reshuffled at Round start. At Round end both rows go to the Piles. |
+| Turn | Each seat draws 1 card, then On start triggers fire, then both seats Commit (each followed by its discard-down), then the Walk scores both rows, then turn end. |
+| Energy | **Energy equals the Turn number**: 1 on Turn 1, 7 on Turn 7, plus any Energy an ability grants that Turn. Unspent Energy is lost. |
+| Hand | The opening hand of **4** is dealt once, at Match start. The base Hand size is **4**; a hand may be larger during a Turn and is cut down by the discard-down after its seat's Commit. |
+| Deck and Pile | A Deck is **40** cards, at most 4 copies of a card, shuffled once at Match start. Each seat has one face-up public **Pile** for the whole Match. |
 
-The rows persist for the whole round: a card played on turn 2 is still there on turn 7, and every walk scores the whole row again from zero. That is the heart of the game.
+The rows clear at every Round end, so a card played on Turn 2 is on its row through Turn 7 and every Walk scores the whole row again from zero. The Walk's walking total makes **order on the row** the heart of the game.
 
-A round is won by the higher score on turn 7's walk. Earlier turns add nothing to a total; their winners only decide **who commits first** next turn. A tied round awards no win. Concede ends the match at once, at any moment, even mid-prompt.
+A Round is **not** decided by Turn 7 alone: each Turn's higher Score is one Turn win (a tied Turn is no win), and the Round goes to the seat with more Turn wins (spec C13). Concede ends the Match at once, at any moment, even mid-prompt.
 
 ```mermaid
 flowchart TD
-    S[start: MATCH_STARTED] --> R[Round start: refill, shuffle, deal 3]
-    R --> T[Turn start: draw 1 each, turn-start Crew]
-    T --> C1[First seat commits face down]
-    C1 --> C2[Second seat commits]
-    C2 --> W[The walk: reveal and score both rows]
-    W --> E[Turn end: returns, clear destroyed, flips, energy]
-    E -->|turn < 7| T
-    E -->|turn 7| RE[Round end: piles burn, Gardener, winner]
-    RE -->|4 wins, round 7 decided, or a sudden-death win| M[MATCH_ENDED]
+    S[start: MATCH_STARTED] --> M[Match start: shuffle both Decks once, deal 4 each]
+    M --> R[Round start: first committer chosen]
+    R --> T[Turn start: draw 1 each, On start]
+    T --> C1[First seat commits, On commit, discard-down]
+    C1 --> C2[Second seat commits, On commit, discard-down]
+    C2 --> W[The Walk: reveal and Score both rows]
+    W --> E[Turn end: before-pass triggers, exit pass, after-pass triggers, statuses end, Energy settles]
+    E -->|Turn below 7| T
+    E -->|Turn 7| RE[Round end: both rows to the Piles, award the Round]
+    RE -->|Match end checks pass| MO[MATCH_ENDED]
     RE -->|otherwise| R
 ```
 
-## A turn, step by step
+## A Turn, step by step
+
+The module for everything outside the Walk is `turn_flow.gd` (`TurnFlow`). `MatchEngine` validates actions and sequences its calls. The step numbers below are those of [[rules/resolution]] section 2, and **D1 to D12** are its drain points (see [[#The trigger queue]]).
 
 ### Who commits first
 
-Turn 1 of round 1 goes to a coin flip. After that, the seat that **won the most recent round goes second** on turn 1, so the loser leads. Tied rounds are skipped when looking back. Within a round, the **winner of the last turn commits first**. A tied turn keeps the same order. The code is in `MatchEngine._round_first_seat()` and `_begin_turn()`.
+Turn 1 of Round 1 goes to a seeded **coin flip**. On Turn 1 of every later Round, the seat that **lost the previous Round** commits first. After a tied Round there is no loser, so the alternation simply continues: the seat that did not commit first on the last Turn of that Round goes first (spec C25). Inside a Round, the **winner of the last Turn commits first**; a tied Turn keeps the order. The code is `TurnFlow.begin_round()` and `begin_turn()`.
 
 Going first is a real cost. The first seat commits blind. The second seat knows how many cards the first seat placed and which slots they went into, but not which cards.
 
-### Energy, budget and free-first
+### Turn start (steps 1 to 3)
 
-A turn's base energy equals the turn number, so turn 1 has 1 and turn 7 has 7. A seat's **budget** is that base plus any energy a carry card saved from last turn (`budget_for(seat)`). Unspent energy is lost unless a revealed carry card is on the row at turn end.
+`TURN_STARTED` reports the Round, the Turn, the first seat and both Budgets. Each seat then draws one card, the first seat first (`TurnFlow.draw()`).
 
-**Free-first** is a one-shot grant from an effect: the seat's next commit doesn't pay for its leftmost card. That commit uses the grant up even if it holds no cards. Carry, free-first and the "next card has no bonus" mark all reset at round start, so a last-turn effect never reaches into the next round.
+- **Empty Deck.** A draw from an empty Deck draws nothing and fires `DRAW_EMPTY`. The seat's On empty draw Batch then drains (D1): every such trigger fires, in any Crew slot order, **with no re-check that the Deck is still empty** (spec C29). Then the **resumed draw** (Q11) happens once: if the Deck is no longer empty, the denied card is drawn; if it still is, nothing is drawn and no second On empty draw wakes. This holds for any draw, including a draw made by an effect.
+- Then the On start Batch of revealed cards and Crew drains (D2). Quorum, Hex and Dynamo act here, and a prompt here pauses the Turn before anyone Commits.
 
-Costs are **effective** costs: a card's memory can lower its printed cost, down to 0. `LegalPlays.validate_with` checks budget, that each card is in the hand once, and that the slots are valid.
+### Energy, Budget and Cost
 
-### The commit: blind, not simultaneous
+A seat's **Budget** on Turn N is N plus the Energy granted for this Turn (`TurnFlow.budget()`): Dynamo's "+1 Energy this Turn" lands in `energy.grants`, and Engineer adds +1 from Turn 3 of each Round. Nothing carries between Turns. Tithe's "+1 Energy next Turn" goes to `next_turn_grants`, which become the next Turn's grants at turn end (and are lost after Turn 7, because there is no next Turn in the Round).
 
-The commit is sequential but blind ([[planning/phase-3-game-loop]] R1, amended by R8). The first seat's cards wait face down in `pending` while the phase moves from `AWAIT_FIRST` to `AWAIT_SECOND`. Then the second seat commits.
+A card's **Cost** is its printed Cost, or the Cost an ability sets on a named Turn (Colossus costs 7 on Turn 7), plus Memory's Cost change, never below 0 (`Scoring.effective_cost()`). Lantern's **free first card** is a one-shot grant: the seat's next Commit pays nothing for its leftmost card, and a Commit of any card uses it up. `LegalPlays.validate_with` checks the Budget, that each card is in the hand once, and that the slots are valid.
 
-A commit names cards and **final slots**: slot 2 means "this card ends up at index 2". Old cards keep their order and slide around the new ones. No slots means append at the right; no cards is a pass. When the second commit lands, `_resolve()` merges both into their rows, first seat first, and starts the walk.
+### The Commit: blind, not simultaneous
 
-### The walk
+The Commit is sequential but blind ([[planning/phase-3-game-loop]] R1, amended by R8). The first seat's cards wait face down in `pending` while the phase moves from `AWAIT_FIRST` to `AWAIT_SECOND`. Then the second seat Commits, and both are placed into their rows face down, the first seat first.
 
-The walk is the scoring pass (`ScoreWalk`). It is also the moment the board animates the cursor stepping along the rows.
+A Commit names cards and **final slots**: slot 2 means "this card ends up at index 2". Old cards keep their order and slide around the new ones (`TurnFlow.merge_row()`). That is **Placement**, not a Move: it fires no On moved and breaks no Anchor. No slots means append at the right; no cards is a **Pass**, still an accepted Commit (Idler watches for it via `committed_count`).
 
-- **Reset.** Both scores go to 0 and both running multipliers go to ×1.00.
-- **Alternate.** The cursor pulses the first seat's slot 0, then the second seat's slot 0, then the first seat's slot 1, and so on. When one row runs out, the other finishes alone. Each slot is pulsed exactly once.
-- **Reveal, then score.** If the pulsed card is face down, it flips first. This is `CARD_REVEALED`, and its on-reveal triggers fire (see below). Then the card in that slot scores (`CARD_SCORED`).
-- **Score maths.** Each seat carries a running multiplier through its row. A card's ×-part multiplies it and its +-part adds whole units to it. Then the card adds `flat × multiplier`, rounded down. All of this is integer hundredths, so every platform agrees.
+### After each Commit: On commit and the discard-down (steps 5, 6, 8, 9)
 
-The running multiplier is why **order on the row matters**: a ×1.5 card in slot 0 boosts everything to its right, every walk, all round. Moves, flips and destroys exist to play with that order.
+When a Commit is accepted:
 
-A pulse belongs to its *slot*: if an effect moves another card into it mid-pulse, that card scores. A card moved ahead of the cursor is reached later; one moved behind it waits for the next walk. A **destroyed** card stays in its slot until turn end; the cursor flips it if face down and it scores nothing. The full rules are in [[specs/cycle-5-walk-cursor/spec]].
+1. The seat's **On commit** Batch drains (D3 for the first seat, D5 for the second). It covers the seat's revealed row cards, its hand cards whose text says "while in your hand" (Layaway), and its Crew (Salvager). A card committed this Turn is face down or pending and never fires.
+2. **The discard-down.** If the hand now holds more cards than the seat's **Hand size**, a multi-select prompt opens for that seat over its hand, accepting **exactly the excess**. The chosen cards go to its Pile as Discards and wake On discard (D4 or D6). Hand size is read once, here: the base 4, or the Quartermaster's 7, plus every Pantry's +2 (so 9 with both). No other check of Hand size exists.
 
-### Turn end, round end
+The next phase begins only when the discard-down is answered. The prompt is not optional, and `Choice.is_valid_set` rejects a set of the wrong size (`BAD_SET`).
 
-When the walk finishes, `_end_turn()` runs these steps in a fixed order:
+### The Walk
 
-1. Return marks resolve. Marked cards go back to their owner's hand, or burn at the cap.
-2. Destroyed cards leave their rows for their seat's destroyed pile.
-3. Echo cards flip face down in place, ready to reveal again next walk.
-4. The Crew queue drains (see Triggers).
-5. Energy settles. A revealed carry card saves `budget − spent` for next turn.
-6. `TURN_ENDED` reports the walk scores and the turn's winner.
+The Walk is the scoring pass (`ScoreWalk`, over `state.walk`), and the moment the board animates the cursor stepping along the rows.
 
-After turn 7, `_end_round()` burns both destroyed piles, fires round-end Crew (Gardener), then awards the round and emits `ROUND_ENDED`. Gardener's growth lands after the scores are final, so it only matters in later rounds.
+- **Reset.** Both walking totals go to 0. The Scores shown stay at the previous Walk's value until this one ends.
+- **Alternate.** The cursor pulses the first seat's slot 0, then the second seat's slot 0, then the first seat's slot 1, and so on. When one row runs out, the other finishes alone. A **pulse** belongs to its *slot*.
+- **Reveal stage.** A face-down card flips (`CARD_REVEALED`), its On reveal Batch wakes and drains (D7). A reveal-stage hook then runs, for a Skip waiting on this card (the Move happens after D7, its On moved Batch drains in D8).
+- **Score stage.** The card now in the slot Scores if it is revealed and not Squelched (`ScoreWalk.scores_now()`). It adds its Power to its Controller's walking total and multiplies the total by its Bonus value (`CARD_SCORED`), its On score Batch wakes, and the queue drains (D8). Under Reprise ("Scores twice") the score stage runs twice and wakes two Batches. A Muted card still Scores; a Squelched one does not.
+- **Walk end.** Each seat's walking total takes ×0.75 for every Dross in its hand, then each Score is the walking total rounded once to a whole number, half rounding up (`ScoreWalk.finish()`, `Scoring.walk_score()`). `WALK_ENDED` reports both. The Scores are also added to `match_scores`, the sum over the Match that decides a stalemate.
+
+A card moved ahead of the cursor is reached later this Walk; one moved behind it waits for the next Walk; one that lands on the pulsed slot Scores now. A **Condemned** card stays in its slot until turn end and still Scores and still fires. The cursor rules are in [[specs/cycle-5-walk-cursor/spec]].
+
+### Turn end (steps 11 to 16)
+
+`TurnFlow.end_turn()` runs these steps in a fixed order:
+
+1. **At turn end, before the exit pass** (Veil): one Batch, drain D9.
+2. **The exit pass** (`Statuses.exit_pass()`): the first seat's row first, each in slot order. Condemned goes to the Owner's Pile as a Discard, Fleeting goes to the Owner's hand, Fade Un-reveals in place keeping Memory and losing Board changes. Ongoing abilities that change exit marks (Wraith) are read once at the start of the pass. Each Discarded card then wakes its On discard Batch (D10).
+3. **At turn end, after the exit pass** (Shade): one Batch, drain D11, read against the rows as the pass left them.
+4. **Statuses end**: every status whose cessation is "until end of turn", every met named condition, every "until end of turn" Board change, the Turn's retriggers and Scores twice, and Void's unspent grants.
+5. **Energy settles**: this Turn's grants go and the next Turn's move in; unspent Energy is lost.
+6. **The Turn's winner is recorded** (the higher Score; a tie is no win) and counted in `turn_wins`. `TURN_ENDED` reports Scores, winner and wins.
+
+An exit mark given by the D10 or D11 drain waits for the next turn end.
+
+### Round end
+
+After Turn 7, `TurnFlow.end_round()` sends **every card on both rows to its Owner's Pile as a Discard** (first seat's row first, slot order; a Saboteur on the other row goes to its Owner, not its Controller), drains On discard once (D12), then awards the Round: the seat with more Turn wins takes it, equal Turn wins award none. `ROUND_ENDED` carries the winner, the wins, the Scores and `turn_wins`. Hands, Decks and Piles stay as they are. `turn_wins` is reset at Round start.
+
+### Match end
+
+`MatchEngine._after_round()` checks, in this order:
+
+1. A won **sudden-death** Round ends the Match (reason `sudden_death`).
+2. A seat on **4 wins** ends it (`wins`).
+3. After **Round 7**, the seat with more Round wins takes it (`rounds`).
+4. A **tied sudden-death Round with both Decks and both hands empty** is a **stalemate** (spec C12): no later Round can be won. The seat with the higher sum of its Walk Scores over the whole Match wins (`stalemate`); equal sums draw (winner -1). A seat whose Crew shuffles its Pile into its Deck (Dredger) and whose Pile is not empty is not stalled.
+
+Otherwise the next Round starts. **Concede** (`concede`) ends it at once; the unfinished Round does not count as played.
+
+## The walking total
+
+All scoring arithmetic is whole numbers (`scoring.gd`, `MatchRules`), so every platform agrees and a match replays from its log. A printed or granted Bonus is in hundredths (`BONUS_ONE` is ×1 or +1); a Bonus value and the walking total are in **ten-thousandths** (`SCALE`). When a card Scores for its Controller's seat:
+
+1. The walking total gains the card's **Power**.
+2. The card's **Bonus value** starts at 1, gains every Add it carries, then is multiplied by every Mult it carries; it is never below 0. A card with no Bonus has a Bonus value of 1.
+3. The walking total is multiplied by the Bonus value.
+
+Every multiply rounds half up to the nearest ten-thousandth (a negative half rounds toward +infinity); the Score is the final total rounded to a whole number once. A negative Power subtracts before the multiply, so a Score may be negative. A card Scores for the seat whose row it is on, whoever Owns it.
+
+A worked row, walking total from 0: A (Power 2, Mult ×1.5), B (Power 3, Add +1), C (Power 4, no Bonus). A: 0 + 2 = 2, ×1.5 = 3. B: 3 + 3 = 6, Bonus value 1 + 1 = 2, ×2 = 12. C: 12 + 4 = 16. The Score is **16**. The same cards in the order C, A, B score **24**: Power added early is multiplied by every later Bonus, so a Bonus on the far right multiplies the whole total.
+
+A card's effective stats come from one function, `Scoring.stats()`: its printed Power and Bonus (or Mirror's copied base), Memory's Power and grown Mult, Board changes (granted Power, Adds and Mults), Banner's Ongoing Power, and the Graveyard and Control Ongoings (Boneyard, Herald, Level). `Scoring.score_stats()` then adds the Crew grants for that Score (Void's held grants, Tallyman's fifth-Score Mult). Everything that shows a card's numbers (the walk, the views, the board) reads these functions. A Mult grows as its base plus the additive steps, then each multiplicative step, each rounded to the hundredth and capped where the card says (`Scoring.grown_mult()`).
+
+## Statuses and exit marks
+
+`statuses.gd` (`Statuses`) holds the seven statuses.
+
+| Status | What it does | Default end |
+|---|---|---|
+| Muted | Triggered abilities do not fire; the card Scores and its Ongoing abilities apply. | Turn end |
+| Squelched | The card does not Score and its Ongoing abilities stop; triggers still fire. | Turn end |
+| Silenced | Both halves at once: no triggers, no Score, no Ongoing. | Per half |
+| Anchored | The card cannot be moved by any effect. | Turn end, or as the ability says |
+| Condemned | Nothing now; Discarded to the Owner's Pile in the exit pass. | Resolved at turn end |
+| Fleeting | Nothing now; goes to the Owner's hand in the exit pass. | Resolved at turn end |
+| Fade | Nothing now; Un-reveals in place in the exit pass, keeping Memory. | Resolved at turn end |
+
+- **Silenced is never stored.** It is the Muted and Squelched halves both present, so ending one half leaves the other, and each half keeps its own cessation (`turn`, `permanent` which is Memory, or a `condition` such as Pin and Stasis lasting while their source stays on the row).
+- **Protections** drop only the part they block. A Silence against Ward's "cannot be Muted" lands as Squelched only, which wakes On squelch (spec C24).
+- **Exit marks**: a card holds at most one; a newer mark replaces an older. Veil swaps Condemned for Fleeting in D9, before the pass. Wraith turns your Condemned cards into Fade.
+- **Scope**: a Board-scoped status ends when the card leaves its row or is Un-revealed. A permanent one is Memory and survives both.
+- No card removes another from a row during the Turn. Condemn is the only way a card leaves a row to a Pile, and it happens at turn end (Round end clears the rest).
+- The board shows each held status as a badge word (`Statuses.badges()`).
+
+## Movement
+
+`movement.gd` (`Movement`) handles every change of slot. A **Move** is made by an effect; **Placement** (a Commit, Revive's putting a Pile card on the row) is not a Move.
+
+- **Stepwise moves use a ring**: left of the leftmost slot is the rightmost. `shift`, Nudge, "your other cards each move one slot left" and Shake use it. Fence replaces a ring wrap with Condemn.
+- **Anchored cards never move.** Moving cards slide past them; a swap that names one fizzles ("no target"); a reverse or reorder leaves Anchored cards in their slots and permutes the rest. Row A B C with B Anchored and "move your other cards one slot left" reads **C B A**.
+- Every Move emits one `CARD_MOVED` per card that changed slot (private to the row's seat while the card is face down) and hands those cards on as the **one On moved Batch** it wakes.
+- A Move keeps the row's length, so the cursor does not change. A Placement during a Walk at a passed slot moves the cursor on by one, so the passed cards stay passed.
+
+## The trigger queue
+
+Every ability has exactly one trigger moment: On reveal, On score, On commit, On start, On discard, On squelch, On empty draw, On moved, At turn end (before or after the exit pass), or Ongoing, which never fires and is read where it applies. `trigger_queue.gd` (`TriggerQueue`) is the one queue, and its data lives in `MatchState.queue`, so a drain paused on a prompt is saved and replayed.
+
+- **Batch and snapshot (Q2).** One resolution wakes one Batch (`TriggerQueue.wake()`). Its cards and Crew are fixed when it is created, so a watcher that moves another card cannot make it fire twice or skip it. Whether a card is Muted is read when its trigger comes up, not at the snapshot.
+- **Order (Q3).** Within a Batch, cards come before Crew. Among cards, the first seat's go first (row by slot, then hand), then the second seat's. Crew follow in Crew slot order.
+- **Never inline (Q1).** An effect finishes before the triggers it woke resolve. They are appended to the queue as a Batch, and the queue drains oldest first.
+- **Budget (Q4).** Each pulse has a budget of **50 resolutions** (`MatchRules.TRIGGER_BUDGET`), counted across D7 and D8 together; outside the Walk each drain has its own 50. Every pop counts one, whether it acts or fizzles for "no target", and so does each retrigger. When 50 are spent, every entry still queued fizzles with the reason `exhausted` (a public `TRIGGER_FIZZLED`) and the Walk goes on.
+- **Retriggers (Q6).** Encore adds one extra resolution straight after each of the seat's other On reveal resolutions this Turn, never to an extra one; choices and amounts are read again.
+- **Amounts are read at resolution (Q5).**
+- **Prompts (Q9).** No eligible target fizzles; one is chosen automatically; two or more open a prompt for the choosing seat wherever the queue is draining. Crew prompts are optional and open even for one target. Optional-count abilities (Immolator, Exhume) always prompt and may choose none.
+
+The twelve drain points, with what resumes after a prompt answered there (`TriggerQueue.RESUME_OF_STEP`):
+
+| Drain | Where | Resumes |
+|---|---|---|
+| D1 | On empty draw at turn start (or an effect's draw) | Turn start |
+| D2 | On start | Turn start |
+| D3, D5 | The first and second seat's On commit | The Commit (its discard-down) |
+| D4, D6 | On discard from the discard-down | The Commit |
+| D7 | After the reveal stage of a pulse | The Walk (hook, then the score stage) |
+| D8 | After the score stage of a pulse | The Walk (the next pulse) |
+| D9 | At turn end, before the exit pass | Turn end |
+| D10 | On discard after the exit pass | Turn end |
+| D11 | At turn end, after the exit pass | Turn end |
+| D12 | On discard at Round end | Round end (the award) |
+
+**Crew** fire only after the effect that caused them has fully resolved, as part of a Batch, after the cards (Q8). The ten Crew are in [[systems/cards-crew-decks]].
 
 ## Actions: the only way in
 
-Everything a seat does is one `EngineAction`, accepted only from the seat `awaited_seat()` names. A rejected action changes nothing (no state, events or log entry) and returns an `EngineError` code.
+Everything a seat does is one `EngineAction`, accepted only from the seat `awaited_seat()` names. A rejected action changes nothing (no state, events or log entry) and answers with an `EngineError` code.
 
 | Action | Log form | When it is legal |
 |---|---|---|
-| `commit` | `{"k":"commit","s":0,"c":[3,7],"p":[0,2]}` | Phase `AWAIT_FIRST` from the first seat, or `AWAIT_SECOND` from the other seat. It must be within budget. It is never legal while a prompt is open. |
+| `commit` | `{"k":"commit","s":0,"c":[3,7],"p":[0,2]}` | Phase `AWAIT_FIRST` from the first seat, or `AWAIT_SECOND` from the other seat, within the Budget. Never while a prompt is open. |
 | `choose` | `{"k":"choose","s":1,"z":1,"i":0}` | A single-target prompt is open for this seat, and zone + index is one of its options. |
-| `choose_set` | `{"k":"choose_set","s":0,"z":1,"i":[0,2]}` | A **multi-select** prompt is open, such as the sacrifice. The set may be empty, which declines that prompt. |
-| `decline` | `{"k":"decline","s":0}` | An **optional** prompt is open for this seat. In the UI this is the **Skip** button. |
+| `choose_set` | `{"k":"choose_set","s":0,"z":0,"i":[0,2]}` | A **multi-select** prompt is open: the discard-down (exactly the excess) and Immolator's any-size set. |
+| `decline` | `{"k":"decline","s":0}` | An **optional** prompt is open for this seat (the **Skip** button). |
 | `concede` | `{"k":"concede","s":1}` | Always, from either seat. |
 
-Each accepted call runs the match to the **next decision point** and returns every event on the way. So the second commit returns a whole batch: the walk, the turn end, the next turn's start and draws, maybe a round end.
+Each accepted call runs the match to the **next decision point** and reports every event on the way. So the second Commit's call reports a whole batch: the Walk, the turn end, the next Turn's start and draws, maybe a Round end.
 
 ### Prompts
 
-A prompt opens when an effect has two or more eligible targets. One target is chosen automatically (`CHOICE_MADE` with `auto` true); none, and the effect fizzles. The phase becomes `AWAIT_CHOICE` and the walk stops where it was. Options are **positions** in a zone (own hand, opponent board…), never card ids, so a face-down card can be picked without being named.
+A prompt is `MatchState.prompt` (`PROMPT_OPENED` announces it). Options are **positions** in a zone (own hand, either row, a Pile, the top of your Deck), never card ids, so a face-down card can be picked without being named. Every prompt carries:
 
-Every prompt carries two flags:
-
-- **`optional`.** Today only **Crew** prompts are optional, and they open even for a single target so that Skip is always offered. Every card prompt has `optional: false`, so declining one fails with `NOT_OPTIONAL`.
-- **`resume`.** This says what to continue once the prompt is answered. `"walk"` resumes the paused pulse at the exact stage it stopped, such as the next watcher or the score. `"turn_start"` resumes the turn-start Crew sequence (`TurnStart`). That sequence can pause the turn **before anyone commits**: Shade on turn 4 asks its seat first, and commits are rejected until it answers.
+- **`optional`**: Crew prompts, always; a card prompt with an optional count (Immolator, Exhume). The discard-down is not optional.
+- **`multi`, `exact`, `min`**: a multi-select and its size rules. The discard-down has `exact` equal to the excess.
+- **`resume` and `step`**: what to continue once the prompt is answered and the drain point it opened at (the table above). `"walk"` resumes the paused pulse at the exact stage it stopped; `"commit"` resumes the Commit; `"turn_start"`, `"turn_end"` and `"round_end"` resume those steps.
 
 ## Events: what happened, and who may know
 
@@ -123,146 +228,144 @@ A `MatchEvent` has a `kind`, a `payload` and an `owner_seat`. Public events have
 - The owner sees a private event unchanged.
 - For the other seat, every card id under `card` or `cards` becomes `-1`. The seat, slot and count stay visible.
 - A private `CHOICE_MADE` hides only the `target`.
-- A private `STATS_CHANGED` also shows neutral stats: flat 0, ×1.00, +0, cost 0.
-
-Why so strict? An instance id maps to a definition through the public deck lists. Revealing an id is the same as revealing the card. A hidden card's stats would name it too.
+- A private `STATS_CHANGED` also shows neutral stats (Power 0, no Bonus, Cost 0), because a hidden card's stats would name it through the public deck lists.
 
 | Event | When it fires | Who sees the card |
 |---|---|---|
-| `MATCH_STARTED` | First event of `start()`. It carries both deck ids and Crew, and never the seed. | Public |
-| `ROUND_STARTED` | Each round, with the first seat and whether a coin decided it | Public |
-| `CARD_DEALT`, `CARD_DRAWN` | Opening hand; turn-start and effect draws | Owner only |
-| `CARD_BURNED` | A draw at the hand cap. Also a return or salvage at the cap, which burns from the row, and a recovery from a pile at the cap. | Owner. A revealed card burned from a row is public. |
-| `TURN_STARTED` | Each turn, with energy, both budgets, free-first and the first seat | Public |
-| `COMMITTED` | Each commit | Count and slots are public; the cards are owner only |
-| `WALK_STARTED` | After both commits merge | Public |
-| `CARD_REVEALED` | The cursor flips a face-down card | Public |
-| `CARD_SCORED` | A card scores. It carries the multiplier, the points added, the running score and `again`. | Public |
-| `EFFECT_FIRED`, `EFFECT_FIZZLED` | A card effect fires, or finds no target or has no uses left | Public |
-| `CHOICE_REQUESTED`, `CHOICE_MADE`, `CHOICE_DECLINED` | A prompt opens, is answered, or is skipped | Requested and declined are public. Made hides its target when it is in a hand or face down. |
-| `STATS_CHANGED` | Flat, bonus or cost changed: growth, flat-up, no-bonus mark, end-of-walk clear | Public on a revealed card; owner only in a hand or face down |
-| `CARD_DESTROYED` | A destroy marks a card in place | Public if revealed. Otherwise only the owner sees which card. |
-| `CARD_MOVED`, `CARD_UNREVEALED` | Drift moves; un-reveals from Echo, Phoenix, Shade or Veil | Public, except a face-down card's move and Veil un-destroying a face-down card (owner only; the other seat sees the slot) |
-| `CARD_RETURNED`, `CARD_DISCARDED`, `CARD_RECOVERED`, `DESTROYED_CLEARED` | Turn-end returns and clears; discards; recovering from a pile | Public when the card's identity already was; discards are owner only |
-| `BONUS_ZERO_SET`, `FREE_FIRST_SET`, `ENERGY_CARRIED` | The three "next turn" effects | Public |
-| `CREW_FIRED` | A Crew ability fires, with uses left | Public |
-| `TURN_ENDED`, `ROUND_ENDED`, `CONCEDED`, `MATCH_ENDED` | The ends | Public |
+| `MATCH_STARTED`, `ROUND_STARTED` | The start; each Round | Public (never the seed) |
+| `CARD_DEALT`, `CARD_DRAWN` | The opening hand; draws | Owner only |
+| `DRAW_EMPTY`, `PILE_SHUFFLED_IN` | An empty-Deck draw; a Pile shuffled into a Deck (Dredger, Exhume, Reset) | Public |
+| `TURN_STARTED`, `ENERGY_GRANTED` | Each Turn with both Budgets; an Energy grant | Public |
+| `COMMITTED` | Each Commit | Count and slots public; cards owner only |
+| `PROMPT_OPENED`, `CHOICE_MADE`, `CHOICE_DECLINED` | A prompt opens, is answered, is skipped | Opened and declined public. Made hides its target when it is in a hand or face down. |
+| `CARD_DISCARDED` | Any card entering a Pile (`from` hand or row; `reason` discard, discard_down, condemned, round_end) | Public: a Pile entry is public |
+| `WALK_STARTED`, `WALK_ENDED` | The Walk's ends; `WALK_ENDED` carries totals, Scores and Dross counts | Public |
+| `CARD_REVEALED`, `CARD_SCORED` | A flip; a Score with Power, Bonus value and the total after | Public |
+| `TRIGGER_FIRED`, `TRIGGER_FIZZLED` | An ability resolves, or fizzles (`no_target`, `exhausted`, `spent`) | Public; private for a card firing from its Deck. A card firing **from its hand** is public and flagged `from_hand` (spec C14). |
+| `STATS_CHANGED` | Power, Bonus or Cost changed (Board change or Memory) | Public on a revealed card; owner only in a hand or face down |
+| `STATUS_SET`, `STATUS_ENDED`, `EXIT_MARKED`, `EXIT_RESOLVED` | Statuses and exit marks | Public on a revealed card; the row's seat only when face down |
+| `CARD_MOVED`, `CARD_UNREVEALED` | Moves; Un-reveals | Public, except a face-down card's move |
+| The Fleeting event | A card sent to its Owner's hand in the exit pass (the event keeps a v6 name; see [[#Changed from v6]]) | Public when the card's identity already was |
+| `CARD_LOOKED` | Delve, Lookout | The looking seat only |
+| `CARD_CREATED`, `CARD_PLACED`, `CONTROL_CHANGED` | Litter's Dross, Twin's copy; Revive and Exhume putting a Pile card on a row; Saboteur changing row | Public |
+| `CREW_FIRED` | A Crew ability fires | Public |
+| `TURN_ENDED`, `ROUND_ENDED`, `CONCEDED`, `MATCH_ENDED` | The ends; `ROUND_ENDED` carries `turn_wins` | Public |
 
 ### From events to animation
 
-The board animates **seat 0's redacted events**, never the engine's state. `MatchDriver` keeps `events_for(0)` of each call; `BoardSteps.from_events()` turns them into timed `BoardStep` beats (0.12 s for a plain pulse up to 0.6 s for the turn-end tally, ÷4 under autoplay); the board plays them one at a time, with `EffectPlayer` doing the lifts, flips, moves and destroys. A few mappings shape the feel:
+The board animates **seat 0's redacted events**, never the engine's state. `MatchDriver` keeps `events_for(0)` of each call; `BoardSteps.from_events()` turns them into timed `BoardStep` beats; the board plays them one at a time, with `EffectPlayer` doing the lifts, flips and moves. A few mappings shape the feel:
 
-- A `CARD_REVEALED` and its own `CARD_SCORED` fold into one **PULSE**: the card flips, then its score chips follow.
+- A `CARD_REVEALED` and its own `CARD_SCORED` fold into one pulse: the card flips, then its walking-total chip follows, and `WALK_ENDED` plays the tally.
 - A run of `CARD_MOVED` events is one re-layout.
 - The opponent's `COMMITTED` becomes a "bot thinks" wait, then face-down cards slide in.
-- Only the viewer's own `CHOICE_REQUESTED` becomes a beat; the bot's pick glows on `CHOICE_MADE`.
-- The three "next turn" events have no beat; the next `TURN_STARTED` shows their result.
-
-## Triggers: when effects fire
-
-Each card carries at most one `CardEffect`: a trigger, a verb, an amount and optional limited uses. The walk decides when the trigger fires. Inside one pulse, the order is:
-
-1. **Reveal.** `CARD_REVEALED`. If the revealing seat carries the "next card has no bonus" mark, it is spent on this card.
-2. **`on_reveal`.** The card's own effect.
-3. **`on_opponent_reveal` watchers.** These are the other seat's revealed, live cards, in row order.
-4. **`on_ally_reveal` watchers.** These are the revealing seat's *other* revealed, live cards, in row order.
-5. **Score.** `CARD_SCORED`.
-6. **`on_opponent_score` watchers.** The other seat's cards, for example the burst.
-7. **`on_score`.** The card's own effect, if it is still face up and live. It fires every time the card scores.
-
-Watcher lists are **snapshotted** when their stage starts. A watcher that moves another card can't make it fire twice or skip it. `ongoing` effects never "fire" in a pulse. They are read whenever stats are computed, like the neighbour and edge ×-parts. The carry card and the Echo flip act at turn end. `on_moved` fires inside the move that caused it. A destroyed card fires nothing, by any trigger.
-
-### The Crew trigger queue
-
-Crew don't react inline. When an effect destroys, moves, returns or un-reveals a card, it **pushes** an entry onto `MatchState.crew_queue`. Each entry records the trigger, the card's controller and the card. A push happens only when that seat has a Crew listening for the trigger. The queue is **drained** only after the causing effect has fully resolved. That is the rule from [[specs/cycle-8-ramp-bounce-crew/spec]] R46: a Crew never fires *inside* an effect. "Destroy two cards" settles its count before Salvager or Veil gets a say.
-
-These are the drain points:
-
-| Where | When |
-|---|---|
-| The walk | After each on-reveal effect, after each watcher, after a score's bursts and on-score effect together, and before any resumed step. A Crew prompt here pauses the pulse like a card prompt does. |
-| Turn start | After each turn-start Crew (Quartermaster's draws, Shade's flip). Lookout reacting to Shade's flip happens here. |
-| Turn end | After the returns, the clear and the Echo flip, before energy settles |
-| Round end | After the round-end Crew fire |
-
-Within one drain, each seat's entries fire in **row order** of their cards (R45). Each entry offers the seat's Crew in slot order. A Crew with no eligible target or no uses left does nothing and counts nothing (R48). Outside the walk, an optional Crew is declined automatically. In practice none can come up there, because only a destroy opens a Crew prompt.
+- The discard-down is a multi-select over the hand: the whole hand glows, the confirm button reads "Discard N" and stays disabled until exactly N are chosen.
+- Both Piles show as face-up strips (`deck_strip.gd`).
+- The opponent's hand trigger plays the **telegraph** (`hand_telegraph.gd`): a ghost of the card rises from the opponent's fan, flips face up to show its name and text, then sinks back.
 
 ## Determinism, replay and hidden information
 
-The engine is a pure function of **seed + deck ids + actions**. Its main random stream, `MatchRng`, is seeded from the match seed (a seeded deck pairing draws from its own derived stream); nothing reads the clock or the global generator. The stream is used for the round-start shuffles (seat 0's, then seat 1's), the turn-1 coin flip until a round is won, and a random destroy at the moment it fires. Walk order is fixed, so the same actions always draw the same numbers.
+The engine is a pure function of **seed + deck ids + actions**. Its one random stream, `MatchRng`, is seeded from the match seed (a seeded deck pairing draws from its own derived stream); nothing reads the clock or the global generator. The stream is used for the two Match-start shuffles (seat 0's, then seat 1's), the Round 1 coin flip, and random picks inside abilities (Jam, Fuse, Immolator, Shade's three, Skip, Shake, Exhume, Reset, Delve). Walk order is fixed, so the same actions always draw the same numbers.
 
 The **action log** (`ActionLog`) is a header plus the accepted actions:
 
-`{"format": 4, "rules": 6, "seed": "…", "decks": ["ruin","drift"], "actions": [ … ]}`
+`{"format": 5, "rules": 7, "seed": "…", "decks": ["greed","ramp"], "actions": [ … ]}`
 
-The seed is a string because JSON loses precision above 2^53. `replay()` rebuilds the match and applies every action in order. Another format fails with `FORMAT_MISMATCH`, another rules version with `RULES_MISMATCH` (format 4 added `decline`; rules 6 added the Crew), so an old log is never reinterpreted under new rules.
+The seed is a string because JSON loses precision above 2^53. `replay()` rebuilds the match and applies every action in order. Another format fails with `FORMAT_MISMATCH` (a format-4 log from the old cards fails here), another rules version with `RULES_MISMATCH`, so an old log is never reinterpreted under new rules.
 
-**Why `to_dict()` and `duplicate()` must cover every field.** All of a match's progress lives in `MatchState`, including the paused walk (`walk.paused_*`), the turn-start cursor, the open prompt, Crew uses and the Crew queue. Three things depend on that:
+**Why `to_dict()` and `duplicate()` must cover every field.** All of a match's progress lives in `MatchState`, including the paused Walk (`walk`), the trigger queue with its paused entry, the open prompt, `turn_wins`, `match_scores`, Void's grants and the looked-at cards. Replay tests compare `full_state()` (`to_dict()`), and a pause works only because it is data. A new `MatchState` field goes into the class comment, `to_dict()`, `duplicate()` and a test, in the same change. (The engine no longer has a preview mode; tests use a plain state copy.)
 
-- **Replay tests** compare `full_state()` (`to_dict()`). A field it leaves out is one replay can silently get wrong.
-- **Previews** finish a walk on a `duplicate()`. A field the copy shares or drops lets a preview corrupt the live match or resume a pause in the wrong place.
-- **Pausing** works only because the pause is data: a prompt can sit open across calls only if every piece of "where we were" is in the state.
+**What each seat can see** (`view_for(seat)` builds a `SeatView`, canon [[rules/rules-v2]] section 8):
 
-So a new `MatchState` field goes into the class comment, `to_dict()`, `duplicate()` and a test, in the same change.
-
-**What each seat can see.** `view_for(seat)` builds a `SeatView`: its own hand (with effective costs and stats), both rows with each card's shown stats and revealed and destroyed flags, the opponent's hand and deck *counts*, the count and slots of a face-down commit, budgets, scores, wins, Crew uses and the open prompt. It never holds the seed, the stream state, any deck order, or the id of an opponent card in a hand, deck, face-down commit or burn pile. Bots read only their own view, and their previews blank the opponent's unrevealed cards before scoring ([[systems/bot-training]]).
+- Its own hand with effective Costs and stats; both rows with each revealed card's shown stats, statuses and exit mark; **both Piles in full** (public the moment a card enters); the opponent's hand and Deck *counts*; the count and slots of a face-down Commit; both walking totals and Scores, Budgets and Hand sizes; both seats' Crew.
+- Face-down cards show only their slot. A card you looked at (Lookout) stays known to you alone until it is revealed or leaves the row.
+- It never holds the seed, the stream state, any Deck order, or the id or stats of a card in the opponent's hand, Deck or face-down Commit.
+- **A hand trigger is public (spec C14).** While a card in a hand triggers ("while in your hand": Layaway), its `TRIGGER_FIRED` names the card for both seats and the board shows its face as it fires; the card stays in the hand. The telegraph is deliberate and priced into those cards. Everything else about a hand or face-down card, including its Memory, stays private to its Owner until it is revealed or enters a Pile.
+- The one bot, `random`, reads only its own view ([[systems/bot-training]]).
 
 ## Life of a turn
 
-Here is an illustrative turn 3. You (seat 0) won turn 2, so you commit first. Each row already holds two cards from turns 1 and 2. You place a 1-cost card at slot 2 and a 2-cost card at slot 3, for a budget of 3. The bot plays one card at slot 2, and that card destroys a random opponent card on reveal. You have Salvager.
+An illustrative Turn 3. You (seat 0) won Turn 2, so you commit first. Each row already holds two cards. Your hand holds 5 after the draw; you Commit one card and keep 4, so you discard nothing. The bot holds 7 after its draw and Commits two, keeping 5, so its discard-down opens for one card. One of the bot's cards Condemns one of yours when it reveals.
 
 ```mermaid
 sequenceDiagram
     participant You as Seat 0 (you)
     participant E as MatchEngine
     participant Bot as Seat 1 (bot)
-    Note over E: TURN_STARTED turn 3, draws, turn-start Crew
-    You->>E: commit cards A, B at slots 2, 3
-    E-->>Bot: COMMITTED (bot sees: 2 cards, slots 2 and 3)
-    Bot->>E: commit card C at slot 2
-    Note over E: both commits merge, WALK_STARTED
+    Note over E: TURN_STARTED turn 3, Budget 3 each, draws, On start (D2)
+    You->>E: commit card A at slot 2
+    E-->>Bot: COMMITTED (bot sees: 1 card, slot 2)
+    Note over E: On commit (D3), your hand is 4, no discard-down
+    Bot->>E: commit cards C, D
+    Note over E: On commit (D5), the bot's hand is 5, discard-down opens
+    E-->>Bot: PROMPT_OPENED (Discard 1), phase AWAIT_CHOICE
+    Bot->>E: choose_set one card
+    Note over E: CARD_DISCARDED to the bot's Pile, On discard (D6), then both Commits merge, WALK_STARTED
     E-->>You: pulse your slot 0, bot slot 0, your slot 1, bot slot 1 (CARD_SCORED each)
-    E-->>You: your slot 2: CARD_REVEALED A, CARD_SCORED
-    E-->>You: bot slot 2: CARD_REVEALED C, EFFECT_FIRED, CARD_DESTROYED B
-    Note over E: effect resolved, Crew queue drains, Salvager is optional
-    E-->>You: CHOICE_REQUESTED (Salvager, optional), phase AWAIT_CHOICE
-    You->>E: decline (Skip)
-    E-->>You: CHOICE_DECLINED, then C scores
-    E-->>You: your slot 3: B flips, destroyed, scores nothing
-    Note over E: turn end: B to destroyed pile, energy settles, TURN_ENDED
-    Note over E: turn 4 starts: draws, then Shade may pause before commits
+    E-->>You: your slot 2: CARD_REVEALED A, CARD_SCORED, total multiplied by A's Bonus value
+    E-->>You: bot slot 2: CARD_REVEALED C, TRIGGER_FIRED, EXIT_MARKED one of yours Condemned
+    Note over E: the Condemned card still Scores in its slot
+    Note over E: turn end: D9, exit pass sends it to your Pile (D10), D11, Energy settles, TURN_ENDED
 ```
 
-Notice: the bot learned only "two cards, slots 2 and 3" from your commit. B was destroyed face down, so the bot's copy of `CARD_DESTROYED` shows the slot, not the card. Salvager asked only once the destroy had resolved, and your Skip is logged as `decline`, so replay closes the same prompt in the same place. And the bot's commit call returned everything through turn 4's start in one batch.
+Notice: the bot learned only "one card, slot 2" from your Commit. The Condemn did not remove your card mid-Walk: it Scored in its slot and left in the exit pass, and your Pile now shows it to both seats.
+
+## Changed from v6
+
+| Topic | Rules version 6 | Rules version 7 (built) |
+|---|---|---|
+| Hand | Dealt 3 each Round; cap 7; a draw at the cap was burned | Opening hand of 4 once; Hand size 4; a hand may exceed it; one discard-down after the seat's own Commit |
+| Deck | 20 cards, refilled and reshuffled each Round | 40 cards, at most 4 copies, shuffled once, never refilled; an empty draw fires On empty draw |
+| Piles | A destroyed pile and a private burn pile per seat | One public Pile per seat for the Match; rows clear into it at Round end |
+| Energy | Turn number plus carried energy | The Turn number plus granted Energy; nothing carries |
+| Round winner | The higher score on Turn 7's walk | The seat with more Turn wins (spec C13) |
+| Score | A running multiplier from ×1.00; each card added `flat × multiplier`, rounded down | A walking total from 0: add Power, multiply by the Bonus value; rounded once at Walk end |
+| Card removal | A destroy marked a card in place, with a random destroy | Condemn at turn end, with the Walk's slots stable |
+| Return and flip | Return marks (burned at the cap) and Echo's turn-end flip | Fleeting to the Owner's hand, Fade Un-reveals in place, in one exit pass |
+| Statuses | The destroyed and return marks only | Seven statuses, each with a cessation |
+| Movement | Far-left and far-right moves, one-slot shifts | Stepwise moves on a ring; Anchored cards stay |
+| Triggers | Seven triggers; a Crew queue drained at fixed points | Ten moments, one queue, twelve drain points, a budget of 50 per pulse |
+| Bots | Several bots with previews | The random bot only; no preview mode |
+| Event names | `CARD_DESTROYED`, `CARD_BURNED`, `DESTROYED_CLEARED` | Gone. `CARD_RETURNED` survives as the event for Fleeting's trip to the hand, keeping the v6 word |
+| Log | `{"format": 4, "rules": 6}` | `{"format": 5, "rules": 7}`; format 4 fails replay |
+
+## Where the build differs from the canon
+
+These are places where the code reads the canon in a particular way. The code is right for now; Ben can overrule any.
+
+- **Rounding.** [[rules/rules-v2]] says nothing is rounded between Scores. The build is integer, so it rounds to the nearest ten-thousandth after each multiply (spec C3), and Bonus values to the hundredth. Only the final Score is rounded to a whole number.
+- **Rounds and Turn wins.** The glossary and spec C13 say a Round goes to more Turn wins. `TurnFlow.end_round()`'s header comment still says "higher Score of its last Walk"; the code reads `turn_wins`.
+- **Stalemate** (spec C12) is not in [[rules/rules-v2]]. It ends a Match that can no longer progress, on the Match's summed Walk Scores.
+- **Muted triggers and the budget.** A Muted card's trigger is dropped silently when it comes up, but the pop still counts one against the 50 (the canon says only that every taken trigger counts). After the budget is spent a Muted entry stays silent.
+- **Hand triggers** are public (spec C14); [[rules/rules-v2]] section 8 was amended to say so.
+- **Dross** sits in `cards.json` as a created-only definition (`"created": true`), so the pool file holds 91 entries: 90 cards and Dross. It is never in a Deck.
+- **Void** grants stack per empty draw and end at turn end if no card Scored.
+- **Stale comments.** `statuses.gd` still says some Ongoings that change exit marks come "in milestone B" and `turn_flow.gd` names T-numbers; Wraith is built and read in the exit pass.
 
 ## Where to look in the code
 
 | File | Responsibility |
 |---|---|
-| `godot/engine/match_engine.gd` | Entry point: `create`, `start`, `apply`, `awaited_seat`, `view_for`, previews; rounds, turns, commits, turn and round end |
-| `godot/engine/match_state.gd` | All mutable state; `to_dict()` and `duplicate()` |
-| `godot/engine/match_rules.gd` | Constants: rounds, turns, hand cap, rules version, log format |
-| `godot/engine/score_walk.gd` | The cursor, pulse stages, scoring maths, effective stats and costs, trigger hooks |
-| `godot/engine/effect_resolver.gd` | Applying one card effect, prompts and answers, turn-end returns, clears and energy |
-| `godot/engine/crew_effects.gd` | The eight Crew and the trigger queue |
-| `godot/engine/turn_start.gd` | Turn-start Crew and the pause before commits |
-| `godot/engine/legal_plays.gd` | Budget, slot and legality checks; legal subsets for bots |
-| `godot/engine/choice.gd` | Prompt zones, eligibility, optional and resume flags |
-| `godot/engine/engine_action.gd`, `match_event.gd` | Actions and events, their dictionary forms, redaction |
-| `godot/engine/seat_view.gd` | One seat's redacted view |
+| `godot/engine/match_engine.gd` | Entry point: `create`, `start`, `apply`, `awaited_seat`, `view_for`; validation, sequencing, match end checks and the stalemate |
+| `godot/engine/turn_flow.gd` | Match start, Round start, draws, Budget, Hand size, Commit acceptance, the discard-down, turn end, Round end, the drain hooks D1 to D12 |
+| `godot/engine/score_walk.gd`, `scoring.gd` | The cursor and pulses; walking total maths, effective Power, Bonus and Cost |
+| `godot/engine/trigger_queue.gd`, `trigger_context.gd` | The queue, Batches, the budget, retriggers, prompts inside drains; the context an ability reads |
+| `godot/engine/statuses.gd`, `movement.gd` | The seven statuses and the exit pass; Moves and Placement on a row |
+| `godot/engine/abilities.gd`, `abilities_combo_disruption.gd`, `abilities_graveyard_control.gd`, `crew_abilities.gd` | What each card verb and Crew verb does |
+| `godot/engine/match_state.gd`, `match_rules.gd` | All mutable state with `to_dict()` and `duplicate()`; the constants |
+| `godot/engine/legal_plays.gd`, `choice.gd` | Budget, slot and legality checks; prompt zones, eligibility and the optional and resume flags |
+| `godot/engine/engine_action.gd`, `match_event.gd`, `seat_view.gd` | Actions and events, their dictionary forms and redaction; one seat's view |
 | `godot/engine/action_log.gd`, `match_rng.gd` | The log, replay, the seeded stream |
-| `godot/board/match_driver.gd` | Owns the engine and bots for the board; keeps seat 0's events |
-| `godot/board/board_steps.gd`, `board_step.gd` | Events to animation beats, with timings |
-| `godot/board/effect_player.gd` | Plays pulses and effect motions on the table |
+| `godot/engine/bot/random_bot.gd` | The one bot |
+| `godot/board/match_driver.gd`, `board_steps.gd`, `effect_player.gd` | The board's engine owner, events to beats, pulses on the table |
+| `godot/board/hand_telegraph.gd`, `deck_strip.gd` | The public hand trigger; the Pile strips |
 
 ## Related
 
 - [[systems/systems-moc]]: the other system guides
-- [[systems/cards-crew-decks]]: cards, effects, the eight Crew, deck lists
-- [[systems/bot-training]]: bots, previews, training
+- [[systems/cards-crew-decks]]: the 90 cards, the ten Crew, the six decks
+- [[systems/bot-training]]: the bot
+- [[rules/rules-moc]]: the canon; [[rules/glossary]], [[rules/rules-v2]] and [[rules/resolution]] are the notes this guide mirrors
+- [[planning/cycles]]: the DC-13 and DC-14 rows record how the rules were built and the readings made on the way
 - [[planning/phase-3-game-loop]]: the original rules decisions (R1–R9)
-- [[specs/cycle-1-match-engine/spec]]: the engine, log and replay contract
-- [[specs/cycle-4-card-effects/spec]]: effects, prompts, previews
-- [[specs/cycle-5-walk-cursor/spec]]: the cursor and destroyed cards
-- [[specs/cycle-6-constructed-decks/spec]]: decks, ×/+ scoring, piles
-- [[specs/cycle-8-ramp-bounce-crew/spec]]: memory, Echo, Crew, optional prompts (R45–R55)
+- [[specs/cycle-9-rules-v2/spec]]: the requirements and Ben's clarifications C1–C14
+- [[specs/cycle-5-walk-cursor/spec]]: the cursor rules

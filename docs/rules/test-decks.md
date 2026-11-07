@@ -1,7 +1,7 @@
 ---
 type: reference
 tags: [reference, rules-v2, test-decks]
-status: seedling
+status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[rules/cards-v2]]", "[[rules/crew-v2]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]"]
 created: 2026-11-06
 updated: 2026-11-06
@@ -12,9 +12,9 @@ supersedes:
 
 # Test decks (ruleset v2)
 
-This note is design for ruleset v2, not yet built. It lists six 40-card test decks, one per
-strategy. The decks that run today (Bloom, Ruin, Drift and Echo) are described in
-[[systems/cards-crew-decks]]. The requirements are R63 and R64 of [[specs/ruleset-v2/spec]];
+The rules in this note are built since DC-14 (rules version 7); the DC-13 and DC-14 rows of
+[[planning/cycles]] record how and the readings made on the way. It lists six 40-card test
+decks, one per strategy, as built in [[systems/cards-crew-decks]]. The requirements are R63 and R64 of [[specs/ruleset-v2/spec]];
 the cards are in [[rules/cards-v2]] and the Crew in [[rules/crew-v2]].
 
 ## These are fixtures, not canon

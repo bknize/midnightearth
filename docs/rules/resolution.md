@@ -1,7 +1,7 @@
 ---
 type: reference
 tags: [reference, rules-v2, resolution]
-status: seedling
+status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[systems/game-loop]]", "[[cards/Cards]]", "[[rules/rules-v2]]", "[[rules/crew-v2]]", "[[specs/cycle-5-walk-cursor/spec]]", "[[specs/cycle-8-ramp-bounce-crew/spec]]"]
 created: 2026-11-06
 updated: 2026-11-06
@@ -12,9 +12,10 @@ supersedes:
 
 # Resolution chart (ruleset v2)
 
-This note is design for ruleset v2, not yet built. It says what happens next, step by step,
-from turn start to turn end, and exactly when the trigger queue drains. The game as it runs
-today (rules version 6) is described in [[systems/game-loop]]; the requirements are
+The rules in this note are built since DC-14 (rules version 7); the DC-13 and DC-14 rows of
+[[planning/cycles]] record how and the readings made on the way. It says what happens next,
+step by step, from turn start to turn end, and exactly when the trigger queue drains. The
+game as built is described in [[systems/game-loop]]; the requirements are
 R42 to R52 of [[specs/ruleset-v2/spec]]. Every word for a game concept is defined in
 [[rules/glossary]]. The rules of the Match, Energy, Hand and statuses are in
 [[rules/rules-v2]]; the Crew are in [[rules/crew-v2]]. Loop and retrigger examples come from

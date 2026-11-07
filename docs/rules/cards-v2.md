@@ -1,7 +1,7 @@
 ---
 type: reference
 tags: [reference, rules-v2, cards-v2]
-status: seedling
+status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]", "[[rules/rules-v2]]", "[[rules/resolution]]", "[[rules/crew-v2]]"]
 created: 2026-11-06
 updated: 2026-11-06
@@ -12,9 +12,10 @@ supersedes:
 
 # Cards (ruleset v2)
 
-This note is design for ruleset v2, not yet built. It lists the 90-card pool: ten cards for
-each of six strategies and thirty evergreen cards. The cards that run today (rules version 6)
-are described in [[systems/cards-crew-decks]]. The pool is seeded from the salvage table and
+The rules in this note are built since DC-14 (rules version 7); the DC-13 and DC-14 rows of
+[[planning/cycles]] record how and the readings made on the way. It lists the 90-card pool:
+ten cards for each of six strategies and thirty evergreen cards, as built in
+[[systems/cards-crew-decks]]. The pool is seeded from the salvage table and
 the card ideas in Ben's scratch sheet [[cards/Cards]], under R59 to R62 and R65 of
 [[specs/ruleset-v2/spec]]. Every capitalised word is defined in [[rules/glossary]]; the
 rules a card relies on are in [[rules/rules-v2]], the order things resolve in is

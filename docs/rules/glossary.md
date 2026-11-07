@@ -1,7 +1,7 @@
 ---
 type: reference
 tags: [reference, rules-v2, glossary]
-status: seedling
+status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]"]
 created: 2026-11-06
 updated: 2026-11-06
@@ -12,10 +12,11 @@ supersedes:
 
 # Glossary (ruleset v2)
 
-This note is design for ruleset v2, not yet built. It fixes the one meaning of each word the
-rest of the canon uses. The game as it runs today (rules version 6) is described in
-[[systems/game-loop]] and [[systems/cards-crew-decks]]; "today's name" below always points
-there. The requirements come from [[specs/ruleset-v2/spec]] and the scratch sheet
+The rules in this note are built since DC-14 (rules version 7); the DC-13 and DC-14 rows of
+[[planning/cycles]] record how and the readings made on the way. It fixes the one meaning of
+each word the rest of the canon uses. The game as built is described in
+[[systems/game-loop]] and [[systems/cards-crew-decks]]; "today's name" below is the name
+under rules version 6, which those guides list in their "Changed from v6" tables. The requirements come from [[specs/ruleset-v2/spec]] and the scratch sheet
 [[cards/Cards]]. Every other canon note ([[rules/rules-v2]], [[rules/resolution]],
 [[rules/crew-v2]], [[rules/cards-v2]], [[rules/test-decks]]) is written against this one and
 is read from [[rules/rules-moc]].
