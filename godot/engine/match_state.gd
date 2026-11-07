@@ -50,6 +50,8 @@ var scores: Array[int] = [0, 0]
 ## its last Scoring card once the Walk ends.
 var totals: Array[int] = [0, 0]
 var wins: Array[int] = [0, 0]
+## Each seat's Score summed over every Walk of the Match; the stalemate tie-break (spec C12).
+var match_scores: Array[int] = [0, 0]
 ## Winner of the last resolved Turn in this Round; -1 for a tie or none yet.
 var last_turn_winner: int = -1
 ## Winner of the previous Round (R3): -1 after a tied Round or before any Round ended.
@@ -129,6 +131,7 @@ func to_dict() -> Dictionary:
 		"scores": plain(scores),
 		"totals": plain(totals),
 		"wins": plain(wins),
+		"match_scores": plain(match_scores),
 		"last_turn_winner": last_turn_winner,
 		"last_round_winner": last_round_winner,
 		"result": result.duplicate(true),
@@ -165,6 +168,7 @@ func duplicate() -> MatchState:
 	out.scores.assign(scores)
 	out.totals.assign(totals)
 	out.wins.assign(wins)
+	out.match_scores.assign(match_scores)
 	out.last_turn_winner = last_turn_winner
 	out.last_round_winner = last_round_winner
 	out.result = result.duplicate(true)

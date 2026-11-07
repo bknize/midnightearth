@@ -31,6 +31,7 @@ const SEATS: int = 2
 const REASON_WINS: String = "wins"
 const REASON_ROUNDS: String = "rounds"
 const REASON_SUDDEN_DEATH: String = "sudden_death"
+const REASON_STALEMATE: String = "stalemate"
 const REASON_CONCEDE: String = "concede"
 
 ## The match's definitions by instance id; built by create() only when the pool, the list
@@ -479,7 +480,9 @@ func _turn_over() -> void:
 ## Match end checks after a Round (R1), in this order:
 ## - a won sudden-death Round ends the match, reason sudden_death;
 ## - a seat on 4 wins ends it, reason wins;
-## - after Round 7, the seat with more wins takes it, reason rounds.
+## - after Round 7, the seat with more wins takes it, reason rounds;
+## - a tied sudden-death Round with both Decks and hands empty ends it, reason stalemate:
+##   the higher Match total Score wins, equal totals draw (winner -1, spec C12).
 ## Otherwise the next Round starts; past Round 7 it is a sudden-death Round. A match end
 ## leaves the table as it stands.
 func _after_round(winner: int) -> void:
@@ -487,6 +490,9 @@ func _after_round(winner: int) -> void:
 	if _state.sudden_death:
 		if winner >= 0:
 			_end_match(winner, REASON_SUDDEN_DEATH, played)
+			return
+		if _stalled():
+			_end_match(TurnFlow.leader(_state.match_scores), REASON_STALEMATE, played)
 			return
 	elif winner >= 0 and _state.wins[winner] >= MatchRules.WINS_TO_TAKE:
 		_end_match(winner, REASON_WINS, played)
@@ -497,6 +503,15 @@ func _after_round(winner: int) -> void:
 			_end_match(leader, REASON_ROUNDS, played)
 			return
 	_begin_round()
+
+
+## Stalemate (Ben, spec C12): both Decks and both hands are empty, so no later Round can
+## be won. The higher Match total Score (`match_scores`) takes the Match; equal totals draw.
+func _stalled() -> bool:
+	for held: MatchState.SeatPiles in _state.seats:
+		if not held.deck.is_empty() or not held.hand.is_empty():
+			return false
+	return true
 
 
 ## Concede: the other seat wins at once, whoever was awaited. A concede always falls inside

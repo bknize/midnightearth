@@ -149,6 +149,7 @@ static func finish(state: MatchState, sink: Callable) -> void:
 	state.walk.active = false
 	for seat: int in range(state.totals.size()):
 		state.scores[seat] = Scoring.walk_score(state.totals[seat])
+		state.match_scores[seat] += state.scores[seat]
 	if sink.is_valid():
 		var ended: Dictionary = {
 			"totals": MatchState.plain(state.totals),

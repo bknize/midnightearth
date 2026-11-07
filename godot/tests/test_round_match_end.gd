@@ -415,3 +415,40 @@ func test_the_final_round_end_leaves_the_rows_in_the_piles() -> void:
 		assert_array(view.opponent_pile).is_equal(_seat_list(engine, "pile", 1 - seat))
 	for card: int in played:
 		assert_bool(_seat_list(engine, "pile", 0).has(card)).is_true()
+
+
+## Stalemate (spec C12): random bots on the fixture deck, seeds 1-20, every match ends; a
+## stalemate ending comes after a tied sudden-death Round with both Decks and hands empty,
+## and the winner is the higher Match total Score (-1 when level). At least one seed of the
+## twenty reaches it (seed 5 did before the rule existed).
+func test_a_stalemate_ends_on_the_match_total_score() -> void:
+	var stalemates: int = 0
+	for match_seed: int in range(1, 21):
+		var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
+		assert_bool(engine.start().ok).is_true()
+		var bots: Array[RandomBot] = []
+		for seat: int in range(MatchEngine.SEATS):
+			bots.append(RandomBot.new(BotRegistry.seed_for(match_seed, seat), engine.match_cards()))
+		var actions: int = 0
+		while not engine.is_over() and actions < 2000:
+			var seat: int = engine.awaited_seat()
+			var action: EngineAction = bots[seat].choose(engine.view_for(seat), engine)
+			assert_bool(engine.apply(action).ok).is_true()
+			actions += 1
+		assert_bool(engine.is_over()).is_true()
+		var state: Dictionary = engine.full_state()
+		var result: Dictionary = state["result"]
+		var reason: String = result["reason"]
+		if reason != MatchEngine.REASON_STALEMATE:
+			continue
+		stalemates += 1
+		var sudden: bool = state["sudden_death"]
+		assert_bool(sudden).is_true()
+		for seat: int in range(MatchEngine.SEATS):
+			assert_array(_seat_list(engine, "deck", seat)).is_empty()
+			assert_array(_seat_list(engine, "hand", seat)).is_empty()
+		var totals: Array[int] = _state_ints(engine, "match_scores")
+		var expected: int = TurnFlow.leader(totals)
+		var winner: int = result["winner"]
+		assert_int(winner).is_equal(expected)
+	assert_int(stalemates).is_greater(0)
