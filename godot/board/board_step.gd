@@ -149,8 +149,6 @@ var dross: Array[int] = []
 var count: int = 0
 ## Row slots of the committed cards (commits).
 var slots: Array[int] = []
-## Engine reveal order (PULSE when the card was first revealed).
-var order: int = 0
 ## TURN_START: the viewer's budget for the turn (turn plus carry) and whether its first
 ## card is free.
 var budget: int = 0
@@ -159,16 +157,12 @@ var free_first: bool = false
 var verb: String = ""
 var trigger: String = ""
 var text: String = ""
-## STATS: why the numbers changed.
-var cause: String = ""
 ## STATS: the card's effective cost after the change (-1 when the event carried none), whether
 ## the change is kept as card memory, and whether the card is in the viewer's hand (cycle 8
 ## P16: EffectPlayer.restat_hand).
 var cost: int = -1
 var permanent: bool = false
 var in_hand: bool = false
-## PULSE (first reveal): the card carries a grown bonus (public).
-var grown: bool = false
 ## CREW_FIRE: the Crew's id and the uses it has left (-1 unlimited).
 var crew: String = ""
 var uses_left: int = -1
@@ -187,13 +181,11 @@ var multi: bool = false
 var optional: bool = false
 var step: Variant = ""
 var index: int = -1
-var target: int = -1
 var options: Array[int] = []
 var scores: Array[int] = []
 var wins: Array[int] = []
 var round_number: int = 0
 var turn: int = 0
-var energy: int = 0
 ## Seconds the step plays for, already divided by speed.
 var duration: float = 0.0
 ## Seconds to wait before the step starts, already divided by speed.

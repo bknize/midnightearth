@@ -20,7 +20,7 @@ signal skip_pressed
 ## A Pile count was tapped (R78): the seat whose Pile to show.
 signal pile_pressed(seat: int)
 
-const PIPS_PER_SEAT: int = 4
+const PIPS_PER_SEAT: int = MatchRules.WINS_TO_TAKE
 const PIP_ON: Color = Color(0.95, 0.78, 0.25, 1.0)
 const PIP_OFF: Color = Color(0.2, 0.22, 0.3, 1.0)
 const FLASH_COLOR: Color = Color(1.0, 0.25, 0.25, 1.0)
@@ -161,7 +161,7 @@ func note_deck(seat: int, text: String, seconds: float) -> void:
 		older.kill()
 	var tween: Tween = create_tween()
 	_note_tweens[seat] = tween
-	var wait: IntervalTweener = tween.tween_interval(maxf(seconds, 0.01))
+	var wait: IntervalTweener = tween.tween_interval(maxf(seconds, EffectPlayer.MIN_TWEEN_TIME))
 	var done: CallbackTweener = tween.tween_callback(_clear_deck_note.bind(seat))
 	if wait == null or done == null:
 		_clear_deck_note(seat)
@@ -379,7 +379,7 @@ func show_pause(shown: bool) -> void:
 static func reason_text(reason: String, winner: int, rounds: int) -> String:
 	match reason:
 		"wins":
-			return "First to 4 round wins"
+			return "First to %d round wins" % MatchRules.WINS_TO_TAKE
 		"rounds":
 			return "Most round wins after %d rounds" % rounds
 		"sudden_death":

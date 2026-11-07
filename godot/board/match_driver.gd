@@ -33,6 +33,8 @@ var _bot_name: String = ""
 var _last_events: Array[MatchEvent] = []
 ## The MATCH_ENDED payload, empty until the match is over.
 var _end_payload: Dictionary = {}
+## Seat 0's view, built on first use after each accepted call (the engine changes only there).
+var _view: SeatView = null
 
 
 ## A match on `p_seed` where seat s plays `deck_ids[s]` of `decks` over the pool `cards`
@@ -164,9 +166,16 @@ func last_events() -> Array[MatchEvent]:
 	return _last_events
 
 
-## Seat 0's redacted view.
+## Seat 0's redacted view. Built once per engine change; callers only read it.
 func view() -> SeatView:
-	return _engine.view_for(PLAYER_SEAT)
+	if _view == null:
+		_view = _engine.view_for(PLAYER_SEAT)
+	return _view
+
+
+## Whether seat 0 is the awaited seat (SeatView.is_awaited() without building a view).
+func is_player_awaited() -> bool:
+	return _engine.awaited_seat() == PLAYER_SEAT
 
 
 func is_over() -> bool:
@@ -209,6 +218,7 @@ func result_line() -> String:
 
 ## Keeps seat 0's redacted events of an accepted result and the MATCH_ENDED payload.
 func _take(result: ApplyResult) -> void:
+	_view = null
 	if not result.ok:
 		_last_events = []
 		return

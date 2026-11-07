@@ -255,13 +255,14 @@ func sync_looks() -> void:
 
 ## Redresses every face in the player's hand from the view (turn start, cycle 8 P16).
 func _refresh_hand() -> void:
+	var rows: Array[Dictionary] = _hand_rows()
 	for held: Card3D in player_hand.cards:
 		var card: BoardCard = held as BoardCard
 		var def: CardDef = null
 		if card != null and match_cards != null and card.instance_id >= 0:
 			def = match_cards.def_of(card.instance_id)
 		if def != null:
-			card.show_entry(def, BoardCard.entry_in(_hand_rows(), card.instance_id))
+			card.show_entry(def, BoardCard.entry_in(rows, card.instance_id))
 
 
 func _view() -> SeatView:
@@ -332,16 +333,11 @@ func unreveal(step: BoardStep) -> void:
 	if card == null:
 		push_warning("Board: an unreveal found no card on seat %d's row" % step.seat)
 		return
-	flip_down(card, step.duration)
 	if step.seat == 0:
+		flip_down(card, step.duration)
 		face_down_ids[step.card] = true
 		return
-	card.instance_id = -1
-	var wipe: Tween = card.create_tween()
-	var wait: IntervalTweener = wipe.tween_interval(maxf(step.duration, MIN_TWEEN_TIME))
-	var done: CallbackTweener = wipe.tween_callback(card.clear_def)
-	if wait == null or done == null:
-		card.clear_def()
+	_hide_if_opponent(card, step.seat, step.duration)
 
 
 ## The card flies to its owner's hand: face up for the player, face down for the opponent.
@@ -357,13 +353,7 @@ func return_card(step: BoardStep) -> void:
 		_forget_flags(card.instance_id)
 		return
 	# The opponent's copy is a back again; forget which card it was.
-	card.instance_id = -1
-	flip_down(card, step.duration)
-	var wipe: Tween = card.create_tween()
-	var wait: IntervalTweener = wipe.tween_interval(maxf(step.duration, MIN_TWEEN_TIME))
-	var done: CallbackTweener = wipe.tween_callback(card.clear_def)
-	if wait == null or done == null:
-		card.clear_def()
+	_hide_if_opponent(card, step.seat, step.duration)
 
 
 ## The card leaves the hand off the exit side. The opponent's hand cards are all backs, so
@@ -382,18 +372,8 @@ func discard(step: BoardStep) -> void:
 		card = _player_card(step.card)
 	elif not hand.cards.is_empty():
 		card = hand.cards[hand.cards.size() - 1] as BoardCard
-	if card == null:
-		return
-	var index: int = hand.cards.find(card)
-	if index < 0:
-		return
-	var placed: Transform3D = card.global_transform
-	hand.card_move_tween_duration = maxf(step.duration, MIN_TWEEN_TIME)
-	var removed: Card3D = hand.remove_card(index)
-	loose.add_child(removed)
-	removed.global_transform = placed
-	_forget(card.instance_id)
-	fly_out(removed, step.duration)
+	if card != null:
+		_sweep_off(hand, card, step.duration)
 
 
 ## The opponent's pick glows for the step's time (R53). The card is found by zone and index,
@@ -559,23 +539,25 @@ static func reveal_entry(step: BoardStep) -> Dictionary:
 		"mult": step.mult,
 		"add": step.add,
 		"statuses": step.statuses,
-		"grown": step.grown,
 	}
-	if step.cost >= 0:
-		entry["cost"] = step.cost
 	return entry
 
 
 ## Takes a card off a row, onto the loose layer where it is, and sweeps it off. The row
 ## closes the gap.
 func _sweep_off_row(seat: int, card: BoardCard, duration: float) -> void:
-	var row: CardCollection3D = _row_of(seat)
-	var index: int = row.cards.find(card)
+	_sweep_off(_row_of(seat), card, duration)
+
+
+## Takes `card` out of `collection` (a row or a hand), onto the loose layer where it is, and
+## sweeps it off; nothing when the card is not there.
+func _sweep_off(collection: CardCollection3D, card: BoardCard, duration: float) -> void:
+	var index: int = collection.cards.find(card)
 	if index < 0:
 		return
 	var placed: Transform3D = card.global_transform
-	row.card_move_tween_duration = maxf(duration, MIN_TWEEN_TIME)
-	var removed: Card3D = row.remove_card(index)
+	collection.card_move_tween_duration = maxf(duration, MIN_TWEEN_TIME)
+	var removed: Card3D = collection.remove_card(index)
 	loose.add_child(removed)
 	removed.global_transform = placed
 	_forget(card.instance_id)
