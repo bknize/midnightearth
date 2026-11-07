@@ -429,16 +429,17 @@ Milestone A1 (this branch):
 
 Milestone A2 (`cycle-11b-bot-trainer`):
 
-- [ ] `make trainer-test` green on the Mac and over SSH on the PC (R39).
-- [ ] From the Mac over MCP against the PC: `health`; `sync_code` of the cycle branch;
+- [x] `make trainer-test` green on the Mac and over SSH on the PC (R39).
+- [x] From the Mac over MCP against the PC: `health`; `sync_code` of the cycle branch;
       `start_run` of a bounded run; `run_status` to done; `stop_run` then `resume_run` on a
       second run with the digest equal to the first; `get_report`; `sample_positions`
       readable by Ben; a request without the token answered 401 (R40 to R52, R60).
-- [ ] One sampled position labelled again by the Mac's play-out worker gives the PC's
+- [x] One sampled position labelled again by the Mac's play-out worker gives the PC's
       values (R23, R60).
-- [ ] The runner, shim, grant and start scripts and `SETUP.md` are tracked; the task's file
+- [x] The runner, shim, grant and start scripts and `SETUP.md` are tracked; the task's file
       is the shim, swapped in over SSH with no admin step (C11); after a service restart an
       interrupted run is reported (R53, R54).
 - [ ] `docs/systems/bot-training.md` rewritten (after Ben's working-copy edits are settled),
       `CLAUDE.md` has the `trainer/` row, the cycle rows carry the PC's rollouts per second
-      (R56, R57).
+      (R56, R57). (DC-17: rollouts per second recorded; the guide and the `CLAUDE.md` row went
+      to Backlog with T13, NSC-204, Ben 3b 2026-11-07.)
