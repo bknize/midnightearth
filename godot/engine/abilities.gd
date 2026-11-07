@@ -8,7 +8,8 @@ extends RefCounted
 ## targets through TriggerContext.choose() (Q9: none fizzles, one is chosen at once, two or
 ## more open a prompt that pauses the drain), or leaves it to resolve(); resolve() applies
 ## the effect, reading every amount now (Q5) and waking what it causes through ctx.wake()
-## (Q1). The milestone A verb table (plan P3):
+## (Q1). The milestone A (evergreen, Greed, Ramp) verb table (plan P3); the milestone B
+## verbs live in AbilitiesComboDisruption and AbilitiesGraveyardControl:
 ## - Draws: `draw` (the Controller draws), `opponent_draw`; an empty Deck fires On empty
 ##   draw through TriggerContext.draw() (R18, Q11).
 ## - Discards: `discard_own` (a hand card the Controller chooses), `discard_hand` (every hand

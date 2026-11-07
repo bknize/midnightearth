@@ -407,7 +407,7 @@ class SeatPiles:
 
 
 ## Per-seat Energy, each pair indexed by seat (R6, R7). The Budget is turn + `grants` (plus
-## any Crew bonus, TurnFlow.budget); nothing carries. `next_turn_grants` (milestone B, Tithe)
+## any Crew bonus, TurnFlow.budget); nothing carries. `next_turn_grants` (Tithe)
 ## move into `grants` when a Turn ends; a true `free_first` makes the leftmost card of that
 ## seat's next Commit cost 0 and is consumed by that Commit or the next turn end (Lantern);
 ## `spent` is what the seat's Commit this Turn cost. `free_first_next` (DC-13 T06) is a

@@ -176,9 +176,11 @@ var from_hand: bool = false
 var reason: String = ""
 ## CHOICE_SHOW, PROMPT: the zone chosen from and the pick.
 var zone: String = ""
-## PROMPT: the multi-select's required set size (-1 for any size up to the options), whether
-## it is a multi-select or optional, and the drain point it opened at (P12 `step`, D1..D12).
+## PROMPT: the multi-select's required set size (-1 for any size up to the options), its
+## "up to N" bound (`max`, -1 for none; C15 2a), whether it is a multi-select or optional, and
+## the drain point it opened at (P12 `step`, D1..D12).
 var exact: int = -1
+var max_count: int = Choice.NO_MAX
 var multi: bool = false
 var optional: bool = false
 var step: Variant = ""

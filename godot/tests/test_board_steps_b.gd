@@ -163,3 +163,21 @@ func test_a_return_after_its_exit_to_hand_adds_no_step() -> void:
 	var steps: Array[BoardStep] = BoardSteps.from_events(events, 1.0, 0)
 	assert_int(steps.size()).is_equal(1)
 	assert_int(steps[0].kind).is_equal(BoardStep.Kind.EXIT)
+
+
+## A hidden exit (DC-14 T17): the other seat's redacted EXIT_RESOLVED names the row and the
+## card's slot, so the EXIT step carries them (`from_seat`, `slot`), its `seat` the Owner,
+## and no mark word.
+func test_a_hidden_exit_carries_its_row_and_slot() -> void:
+	var payload: Dictionary = {
+		"card": 30, "mark": "fleeting", "owner": 1, "to": "hand", "seat": 1, "slot": 2
+	}
+	var event: MatchEvent = BoardEvents.make("EXIT_RESOLVED", payload, 1)
+	var step: BoardStep = BoardEvents.one(event.redacted_for(0))
+	assert_int(step.kind).is_equal(BoardStep.Kind.EXIT)
+	assert_int(step.card).is_equal(MatchEvent.HIDDEN_CARD)
+	assert_int(step.seat).is_equal(1)
+	assert_int(step.from_seat).is_equal(1)
+	assert_int(step.slot).is_equal(2)
+	assert_str(step.exit_to).is_equal("hand")
+	assert_str(step.word).is_empty()

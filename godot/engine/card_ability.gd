@@ -9,11 +9,10 @@ extends RefCounted
 ##  "scope": "match", "text": "On score: ..."}
 ## with the optional keys `amount_2`, `scope` (SCOPES), `watch` (WATCHES, default "self"),
 ## `zone` (ZONES, default "row"), `cap` and `uses` (a whole number >= 0, 0 unlimited).
-## Moments and verbs are kept by name: VERBS is the table of the milestone A verbs, each
-## with the moments it may sit on and the inclusive range of each amount it takes (a verb
-## that takes no amount allows only 0, which an absent key is). Milestone B adds its verbs
-## to VERBS with their tasks. The behaviour of a verb is Abilities' (DC-13 T06); a loaded
-## ability is data only.
+## Moments and verbs are kept by name: VERBS is the table of every card verb (milestones A
+## and B), each with the moments it may sit on and the inclusive range of each amount it
+## takes (a verb that takes no amount allows only 0, which an absent key is). The behaviour
+## of a verb is Abilities' (DC-13 T06); a loaded ability is data only.
 
 const KEY_MOMENT: String = "moment"
 const KEY_VERB: String = "verb"
@@ -50,7 +49,8 @@ const ZONES: Array[String] = ["row", "hand"]
 ## The cessation of a change the ability makes (plan P3, canon R29); "" when absent.
 const SCOPES: Array[String] = ["turn", "row", "match"]
 
-## The milestone A verb table (plan P3, "Milestone A verb table"): verb name to
+## The card verb table (plan P3, "Milestone A verb table", and the milestone B verbs of
+## DC-14): verb name to
 ## {moments: the moments it may sit on, and for each amount it takes (`amount`, `amount_2`,
 ## `cap`) an inclusive [low, high] range}. A key without a range must be 0 (or absent).
 ## Amounts are in canon units: Power and Energy whole, a Mult growth step and a cap in

@@ -25,8 +25,9 @@ var _error: String = ""
 ## Created cards by instance id (record_created): their definition and their Owner.
 var _created: Dictionary[int, CardDef] = {}
 var _created_owner: Dictionary[int, int] = {}
-## The verb names some definition of the match carries, as a set, filled once by build()
-## so a hot path can skip work no card can need (has_verb). Empty after a failed build.
+## The verb names some definition of the match carries, as a set, filled by build() and
+## grown by record_created(), so a hot path can skip work no card can need (has_verb). Empty
+## after a failed build.
 var _verbs: Dictionary[String, bool] = {}
 ## Each seat's Crew in slot order, seat 0's MatchRules.CREW_SIZE then seat 1's.
 var _crew: Array[CrewDef] = []
@@ -121,8 +122,19 @@ static func is_created(instance: int) -> bool:
 
 
 ## Records the created card `instance` (CREATED_BASE or above, not yet recorded) with its
-## definition and Owner (plan P6). False, changing nothing, when the id is outside the
-## created range, already recorded, `def` is null or `owner` is not a seat.
+## definition and Owner (plan P6), and adds its verbs to has_verb(). False, changing
+## nothing, when the id is outside the created range, already recorded, `def` is null or
+## `owner` is not a seat.
+##
+## Shared state (DC-14 T17): this writes `_created` and `_verbs` on a MatchCards that every
+## MatchState.duplicate() copy of the match shares. Created ids are allocated only from
+## MatchState.next_created_id (AbilitiesComboDisruption.create), which each copy carries, so
+## a copy replaying the same actions asks for the same id with the same definition and the
+## repeat is refused harmlessly. Two copies that diverge and then both create would hand one
+## id two definitions; the first recorded wins here. The engine never runs diverging copies
+## (no preview since C10, so one live state per match); a test that copies a state must not
+## create cards on both. A verb added here stays in has_verb() for the match, which only
+## makes a hot path do work it could skip.
 func record_created(instance: int, def: CardDef, owner: int) -> bool:
 	if instance < CREATED_BASE or _created.has(instance) or def == null:
 		return false
@@ -144,7 +156,7 @@ func pool_def(card_id: String) -> CardDef:
 
 
 ## Whether any definition of the match carries an ability with the verb `verb`, on either
-## seat's deck. False after a failed build. Fixed at build(): a deck never changes.
+## seat's deck or a created card's (record_created). False after a failed build.
 func has_verb(verb: String) -> bool:
 	return _verbs.has(verb)
 

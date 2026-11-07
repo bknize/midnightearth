@@ -270,7 +270,7 @@ static func spent(state: MatchState) -> int:
 
 
 ## Records that `source`'s retrigger applies to `seat`'s other On reveals this Turn (Q6;
-## Encore in milestone B, `stub_retrigger` in the tests). Stacks by one per call.
+## Encore, `stub_retrigger` in the tests). Stacks by one per call.
 static func add_retrigger(state: MatchState, for_seat: int, source: int) -> void:
 	var sources: Array = state.walk.retrigger_on_reveal[for_seat]
 	sources.append(source)

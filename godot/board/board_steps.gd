@@ -347,7 +347,7 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 		"STATUS_SET", "STATUS_ENDED", "EXIT_MARKED":
 			_append_status(out, event)
 		"EXIT_RESOLVED":
-			var exit_step: BoardStep = _card_step(BoardStep.Kind.EXIT, event)
+			var exit_step: BoardStep = _row_exit_step(BoardStep.Kind.EXIT, event)
 			exit_step.exit_to = payload.get("to", "")
 			var mark: String = payload.get("mark", "")
 			exit_step.word = status_word(mark)
@@ -365,8 +365,7 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 		"CARD_UNREVEALED":
 			out.append(_unreveal(event))
 		"CARD_RETURNED":
-			var returned: BoardStep = _card_step(BoardStep.Kind.RETURN, event)
-			returned.slot = payload.get("slot", -1)
+			var returned: BoardStep = _row_exit_step(BoardStep.Kind.RETURN, event)
 			returned.duration = RETURN_TIME
 			out.append(returned)
 		"CARD_DISCARDED":
@@ -505,7 +504,7 @@ static func _append_status(out: Array[BoardStep], event: MatchEvent) -> void:
 
 
 ## PROMPT_OPENED: the prompt of P12 {seat, card, crew, verb, zone, options, multi, exact, min,
-## optional, resume, step} plus `text`.
+## optional, resume, step} (+ `max` for an "up to N" prompt) plus `text`.
 static func _prompt(event: MatchEvent) -> BoardStep:
 	var payload: Dictionary = event.payload
 	var step: BoardStep = _make(BoardStep.Kind.PROMPT, event)
@@ -518,6 +517,7 @@ static func _prompt(event: MatchEvent) -> BoardStep:
 	step.multi = payload.get("multi", false)
 	step.optional = payload.get("optional", false)
 	step.exact = payload.get("exact", -1)
+	step.max_count = payload.get("max", Choice.NO_MAX)
 	step.step = payload.get("step", "")
 	var raw_options: Array = payload.get("options", [])
 	step.options.assign(raw_options)
@@ -563,6 +563,21 @@ static func _make(kind: int, event: MatchEvent) -> BoardStep:
 static func _seat_of(payload: Dictionary) -> int:
 	var seat: int = payload.get("seat", payload.get("owner", -1))
 	return seat
+
+
+## EXIT_RESOLVED {card, mark, owner, to, seat, slot} and CARD_RETURNED {owner, card, seat,
+## slot}: `seat` is the Owner (whose hand a Fleeting card goes to), `from_seat` and `slot`
+## the row the card left and its index there (DC-14 T17), so a hidden card is found by slot.
+static func _row_exit_step(kind: int, event: MatchEvent) -> BoardStep:
+	var step: BoardStep = _make(kind, event)
+	var payload: Dictionary = event.payload
+	var owner_seat: int = payload.get("owner", -1)
+	var row_seat: int = payload.get("seat", owner_seat)
+	step.seat = owner_seat if owner_seat >= 0 else row_seat
+	step.from_seat = row_seat
+	step.card = payload.get("card", -1)
+	step.slot = payload.get("slot", -1)
+	return step
 
 
 ## A step for an event with a seat and a card; either may be missing (-1).

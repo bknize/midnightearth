@@ -90,11 +90,12 @@ var awaited_seat: int = -1
 var first_seat: int = 0
 var sudden_death: bool = false
 ## The open prompt (plan P12). Empty when none is open. For the prompted seat: {open: true,
-## seat, card, crew, verb, text, zone, options, multi, exact, min, optional, resume, step},
-## `zone` a Choice.ZONE_NAMES name (Choice.zone_of reads it) and `options` the positions in
-## it, ready for EngineAction.choose(seat, zone, options[i]) or, when `multi`,
+## seat, card, crew, verb, text, zone, options, multi, exact, min, max, optional, resume,
+## step}, `zone` a Choice.ZONE_NAMES name (Choice.zone_of reads it) and `options` the
+## positions in it, ready for EngineAction.choose(seat, zone, options[i]) or, when `multi`,
 ## EngineAction.choose_set(seat, zone, a set of `exact` of them, or any size at least `min`
-## when `exact` is -1). For the other seat only {open: true, seat}.
+## and at most `max` (-1: no bound but the options) when `exact` is -1). For the other seat
+## only {open: true, seat}.
 var prompt: Dictionary = {}
 ## Both seats' Crew ids in slot order, indexed by seat: public. Empty per seat for a view
 ## built without definitions.
@@ -190,6 +191,7 @@ static func _prompt(state: MatchState, p_seat: int, cards: MatchCards) -> Dictio
 		"multi": Choice.is_multi_prompt(state.prompt),
 		"exact": Choice.exact_of(state.prompt),
 		"min": Choice.min_of(state.prompt),
+		"max": Choice.max_of(state.prompt),  # Choice.NO_MAX unless "up to N" (C15 2a).
 		"optional": Choice.is_optional_prompt(state.prompt),
 		"resume": Choice.resume_of(state.prompt),
 		"step": Choice.step_of(state.prompt),

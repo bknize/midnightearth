@@ -20,9 +20,10 @@ extends RefCounted
 ##   its right (Movement.place, Placement, so it is reached this Walk), CARD_PLACED {seat,
 ##   card, from: "pile", slot}; then Revive Condemns itself.
 ## - `exhume` (Exhume): up to `amount` cards of either Pile, each shuffled into its Owner's
-##   Deck at a random position. Asked as `amount` optional single choices over both Piles
-##   in turn (each always prompts, Q9), each pick shuffled in at once, so a decline keeps
-##   the picks before it. PILE_SHUFFLED_IN {seat, count: 1, pile_cards: [card]}.
+##   Deck at a random position. Asked once (C15 2a): an optional multi-select over both
+##   Piles with `min` 0 and `max` `amount` ("choose up to two"), so it always prompts and
+##   a decline or an empty set chooses none. Each chosen card, in position order,
+##   PILE_SHUFFLED_IN {seat, count: 1, pile_cards: [card]}.
 ## - `immolate` (Immolator): an optional-count multi-select over its other cards; each
 ##   chosen one is Condemned, then as many random opposing cards (distinct).
 ## - `reset_piles` (Reset): both Piles into their Decks (first seat's first, each Deck
@@ -105,9 +106,7 @@ const KEY_REASON: String = "reason"
 const FROM_PILE: String = "pile"
 ## PILE_SHUFFLED_IN key listing the Pile cards an Exhume shuffled in (public: Pile cards).
 const KEY_PILE_CARDS: String = "pile_cards"
-## ctx.data keys: the cards an Exhume shuffled in so far; the seat Cull asked last; the
-## cards each seat kept from a Cull.
-const DATA_TAKEN: String = "taken"
+## ctx.data keys: the seat Cull asked last; the cards each seat kept from a Cull.
 const DATA_ASKED: String = "asked"
 const DATA_KEPT: Array[String] = ["kept_0", "kept_1"]
 
@@ -139,7 +138,7 @@ static func prepare(ctx: TriggerContext) -> void:
 			if ctx.choose(Choice.Zone.OWN_PILE, _positions(pile.size())):
 				pass  # One card in the Pile: chosen at once.
 		VERB_EXHUME:
-			_ask_exhume(ctx)
+			_prepare_exhume(ctx)
 		VERB_PIN:
 			var both: int = Choice.zone_cards(ctx.state, ctx.seat, Choice.Zone.BOTH_BOARDS).size()
 			if ctx.choose(Choice.Zone.BOTH_BOARDS, _positions(both)):
@@ -236,7 +235,9 @@ static func level_power(
 
 ## Fence (an "instead" effect, read when a stepwise move is made): `movers` of `seat`'s row
 ## less every one that would step `dir` over the edge of the ring of free slots, which is
-## Condemned instead (EXIT_MARKED) and does not move. `movers` unchanged with no Fence read.
+## Condemned instead (EXIT_MARKED) and does not move. `movers` unchanged with no Fence read,
+## and on a row with no ring (fewer than two non-Anchored slots, C15 3a): there a step
+## changes nothing, so Fence Condemns nothing.
 static func fence_movers(
 	state: MatchState,
 	cards: MatchCards,
@@ -249,6 +250,8 @@ static func fence_movers(
 		return movers
 	var row: Array[int] = state.seats[seat].board
 	var free: Array[int] = Movement.free_slots(state, cards, seat)
+	if free.size() < 2:
+		return movers  # No ring to step off (C15 3a).
 	var out: Array[int] = []
 	for index: int in range(free.size()):
 		var card: int = row[free[index]]
@@ -383,11 +386,23 @@ static func _prepare_shepherd(ctx: TriggerContext) -> void:
 	_choose_own(ctx, options, false)
 
 
-## Exhume's next pick: an optional single choice over both Piles (none left fizzles).
-static func _ask_exhume(ctx: TriggerContext) -> void:
+## Exhume: one optional "up to `amount`" multi-select over both Piles (C15 2a), `min` 0
+## so it always prompts; both Piles empty fizzles.
+static func _prepare_exhume(ctx: TriggerContext) -> void:
 	var count: int = Choice.zone_cards(ctx.state, ctx.seat, Choice.Zone.BOTH_PILES).size()
-	if ctx.choose(Choice.Zone.BOTH_PILES, _positions(count), false, 1, 1, true):
-		pass  # Optional: never chosen at once.
+	var most: int = maxi(ctx.ability.amount, 0)
+	if ctx.choose(
+		Choice.Zone.BOTH_PILES,
+		_positions(count),
+		true,
+		Choice.ANY_SIZE,
+		0,
+		true,
+		-1,
+		"",
+		most
+	):
+		pass  # An optional count: never chosen at once.
 
 
 ## Cull: the first seat (Controller, then opponent) whose row is over the kept count chooses;
@@ -488,16 +503,14 @@ static func _revive(ctx: TriggerContext) -> void:
 	_condemn(ctx, ctx.card)
 
 
-## Exhume: the chosen card goes into its Owner's Deck at a random position now; the next
-## pick is asked while picks and Pile cards remain.
+## Exhume: each chosen card (all read before any moves, since a shuffle-in shifts the Pile
+## positions after it) goes into its Owner's Deck at a random position, in position order.
 static func _exhume(ctx: TriggerContext) -> void:
-	_shuffle_in(ctx, ctx.chosen_card())
-	var taken: int = ctx.data.get(DATA_TAKEN, 0)
-	taken += 1
-	ctx.data[DATA_TAKEN] = taken
-	var left: int = Choice.zone_cards(ctx.state, ctx.seat, Choice.Zone.BOTH_PILES).size()
-	if taken < ctx.ability.amount and left > 0:
-		_ask_exhume(ctx)
+	var chosen: Array[int] = []
+	for at: int in range(ctx.indices.size()):
+		chosen.append(ctx.chosen_card(at))
+	for card: int in chosen:
+		_shuffle_in(ctx, card)
 
 
 ## Puts `card` from its Pile into its Owner's Deck at a random position drawn from the

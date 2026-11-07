@@ -243,6 +243,23 @@ func test_a_prompt_without_exact_accepts_any_size_up_to_the_options() -> void:
 	assert_bool(PromptRules.confirm_enabled(prompt, 0)).is_false()
 
 
+## An "up to N" prompt (Exhume, C15 2a): Confirm is on for 0 to `max` selected, and the
+## banner reads "Choose up to N".
+func test_an_up_to_n_prompt_confirms_zero_to_max_and_says_so() -> void:
+	var prompt: Dictionary = _multi_prompt([0, 1, 2, 3])
+	prompt["verb"] = "exhume"
+	prompt["zone"] = "both_piles"
+	prompt["optional"] = true
+	prompt["max"] = 2
+	assert_bool(PromptRules.confirm_enabled(prompt, 0)).is_true()
+	assert_bool(PromptRules.confirm_enabled(prompt, 1)).is_true()
+	assert_bool(PromptRules.confirm_enabled(prompt, 2)).is_true()
+	assert_bool(PromptRules.confirm_enabled(prompt, 3)).is_false()
+	assert_str(PromptRules.banner_for(prompt, "ignored", "")).is_equal(
+		"Choose up to 2"
+	)
+
+
 func test_the_discard_down_banner_and_button_read_discard_n() -> void:
 	var prompt: Dictionary = _discard_down(2)
 	assert_bool(PromptRules.is_discard_down(prompt)).is_true()

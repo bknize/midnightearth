@@ -85,8 +85,9 @@ func fizzle(reason: String) -> void:
 ## when -1), per Q9: none fizzles `no_target` (false); one is chosen at once, `answered`
 ## with that position (true), unless `optional` or the watcher is a Crew; two or more open a
 ## prompt (false). A multi-select (`multi`) takes a set of `exact` positions (Choice.ANY_SIZE
-## for any size of at least `min_count`); an optional count (`min_count` 0) always prompts.
-## `text` overrides the prompt's banner (the source's rules text when empty). Call it from
+## for any size of at least `min_count` and, when `max_count` is 0 or more, at most
+## `max_count`: "up to N", C15 2a); an optional count (`min_count` 0) always prompts. `text`
+## overrides the prompt's banner (the source's rules text when empty). Call it from
 ## prepare(); after an answer `indices` holds the choice.
 func choose(
 	p_zone: int,
@@ -96,7 +97,8 @@ func choose(
 	min_count: int = 1,
 	optional: bool = false,
 	by_seat: int = -1,
-	text: String = ""
+	text: String = "",
+	max_count: int = Choice.NO_MAX
 ) -> bool:
 	if options.is_empty():
 		fizzle(Abilities.REASON_NO_TARGET)
@@ -124,6 +126,8 @@ func choose(
 		Choice.KEY_MIN: min_count if multi else 1,
 		Choice.KEY_OPTIONAL: optional or is_crew(),
 	}
+	if multi and max_count >= 0:
+		prompt[Choice.KEY_MAX] = max_count  # "Up to N" (C15 2a): absent means no bound.
 	if text != "":
 		prompt[KEY_TEXT] = text
 	return false

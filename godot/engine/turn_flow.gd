@@ -34,7 +34,8 @@ extends RefCounted
 ##   TURN_ENDED.
 ## - end_round(): every card on both rows to its Owner's Pile as a Discard, first seat's row
 ##   first, in slot order (R2, R20), On discard once (D12), then the Round is awarded to the
-##   higher Score of its last Walk (R1, today's rule), ROUND_ENDED.
+##   seat that won more of its Turns (`turn_wins`; equal Turn wins award none, C13),
+##   ROUND_ENDED.
 ##
 ## Drain points (DC-13 T05, TriggerQueue): on_empty_draw() (D1), on_start() (D2),
 ## on_commit() (D3, D5), on_discard() (D4, D6, D10, D12) and at_turn_end() (D9, D11) wake

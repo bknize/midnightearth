@@ -277,6 +277,23 @@ func test_fence_condemns_a_card_that_would_wrap_and_wakes_no_on_moved() -> void:
 	assert_bool(_at(quiet, FIRED, eddy, "on_moved") >= 0).is_true()
 
 
+## Fence on a row with no ring (C15 3a): a lone Nudge on the opposing row has no other
+## non-Anchored slot to step to, so Fence Condemns nothing and nothing moves.
+func test_fence_does_nothing_on_a_ringless_row() -> void:
+	var cards: MatchCards = _cards()
+	var fence: int = 0
+	var nudge: int = OTHER + StubAbilities.NUDGE
+	_put(cards, _typed([fence]), "ct05")
+	var state: MatchState = StubAbilities.table(_typed([fence]), true)
+	StubAbilities.put_row(state, 1, _typed([nudge]), false)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	_walk(state, cards, rec)
+	assert_str(Statuses.exit_mark_of(state, nudge)).is_empty()
+	assert_array(state.seats[1].board).is_equal(_typed([nudge]))
+	assert_array(rec.of_kind(MOVED)).is_empty()
+	assert_array(rec.of_kind(MatchEvent.Kind.EXIT_MARKED)).is_empty()
+
+
 ## Fence leaves a move that does not wrap alone: Nudge at slot 0 moves right.
 func test_fence_lets_an_inner_move_happen() -> void:
 	var cards: MatchCards = _cards()

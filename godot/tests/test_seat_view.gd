@@ -258,6 +258,7 @@ func test_the_prompt_is_full_for_the_prompted_seat_only() -> void:
 			"multi": true,
 			"exact": 1,
 			"min": 1,
+			"max": Choice.NO_MAX,
 			"optional": false,
 			"resume": Choice.RESUME_COMMIT,
 			"step": TurnFlow.STEP_FIRST_DISCARD,

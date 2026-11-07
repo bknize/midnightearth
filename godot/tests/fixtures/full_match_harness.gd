@@ -402,9 +402,10 @@ func _check_step(
 ## no id that was hidden from it before or after the step, less a card named while it was
 ## public within the step, in event order (_public_windows: face up on a row or in a Pile at
 ## the step's start, from its CARD_REVEALED, its public exit to a Pile, its CARD_DISCARDED or
-## its public hand trigger (C14) on, until a Pile shuffle puts it back into a Deck or it
-## flips face down). An event naming a card before the card became public is a leak, even
-## when the card is public by the step's end (DC-13 T10 review, Ben 2a).
+## its public hand trigger (C14) on, until a Pile shuffle puts it back into a Deck or, after
+## its CARD_UNREVEALED, it lies face down). An event naming a card before the card became
+## public is a leak, even when the card is public by the step's end (DC-13 T10 review, Ben
+## 2a).
 func _scan_leaks(
 	run: FullMatchRun, before: Dictionary, after: Dictionary, result: ApplyResult
 ) -> void:
@@ -462,9 +463,10 @@ func _scan_leaks(
 ## card face up on a row or in a Pile in `before`; otherwise from the event that made it
 ## public: its CARD_REVEALED, its EXIT_RESOLVED to a Pile, its CARD_DISCARDED, or a
 ## TRIGGER_FIRED / TRIGGER_FIZZLED of it firing from its hand (`from_hand`, C14); until the
-## PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`). A
-## CARD_UNREVEALED does not close it within the step: the card flips face down in place, so
-## its id was just seen there (Shade, Fade; DC-14 T14); `hidden_now` covers later steps.
+## PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`), or
+## the event after its CARD_UNREVEALED: the un-reveal may name the card it flips (Shade,
+## Fade; DC-14 T14), but a later event of the step may not unless another window opens
+## (DC-14 T17).
 func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult) -> PublicWindows:
 	var out: PublicWindows = PublicWindows.new()
 	for seat: int in range(MatchEngine.SEATS):
@@ -476,6 +478,12 @@ func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult)
 		if _opens_window(event):
 			for card: int in FullMatchRun.event_card_ids(event):
 				out.open(card, at)
+		elif event.kind == MatchEvent.Kind.CARD_UNREVEALED:
+			# The un-reveal itself names the card it flips (its id was just seen face up);
+			# from the next event on it is a face-down card again (DC-14 T17).
+			var flipped: int = event.payload.get(MatchEvent.KEY_CARD, MatchEvent.HIDDEN_CARD)
+			if flipped >= 0:
+				out.close(flipped, at + 1)
 		elif event.kind == MatchEvent.Kind.PILE_SHUFFLED_IN:
 			var seat: int = event.payload.get("seat", -1)
 			if seat < 0 or seat >= MatchEngine.SEATS:

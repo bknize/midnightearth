@@ -9,7 +9,7 @@ extends GdUnitTestSuite
 ## Piles by four; Wraith, read once, turns its row's Condemned into Fade even when itself
 ## Condemned (a Fleeting card, Veil's outcome, is left alone); Glutton Condemns another card
 ## and gains its Power; Revive places a Pile card ahead of the cursor (reached this Walk,
-## CARD_PLACED) and chains; Exhume always prompts, one pick at a time, and may stop; Immolator
+## CARD_PLACED) and chains; Exhume always prompts once for up to two and may choose none; Immolator
 ## Condemns as many random opposing cards as it chose; Reset refills both Decks before it
 ## reaches its own Pile. Each case puts the shipped card's definition on a stub deck
 ## instance (StubAbilities, MatchCards.replace_def); seat 1's instances add DECK_SIZE.
@@ -457,39 +457,67 @@ func test_revive_chains_through_a_revived_revive() -> void:
 # --- Exhume ---------------------------------------------------------------------------
 
 
-## Exhume always prompts (an optional count, Q9): over both Piles (both_piles, optional);
-## the opposing Pile's card is shuffled into its Owner's Deck at once (PILE_SHUFFLED_IN seat
-## 1, count 1); the second pick prompts though one card is left, and its decline keeps the
-## first pick and leaves the own Pile as it was.
-func test_exhume_prompts_each_pick_and_may_stop() -> void:
+## Exhume asks once (C15 2a): an optional "up to two" multi-select over both Piles
+## (both_piles, min 0, max 2), so a set of three is refused and an empty one accepted; the
+## chosen own and opposing Pile cards are each shuffled into their Owner's Deck
+## (PILE_SHUFFLED_IN per card) and no second prompt opens.
+func test_exhume_asks_once_for_up_to_two() -> void:
 	var cards: MatchCards = _cards()
 	var exhume: int = 0
 	_put(cards, _typed([exhume]), "gy08")
 	var state: MatchState = StubAbilities.table(_typed([exhume]), false)
 	state.seats[0].pile.assign(_typed([8]))
-	state.seats[1].pile.assign(_typed([OTHER + 8]))
+	state.seats[1].pile.assign(_typed([OTHER + 8, OTHER + 7]))
 	state.seats[1].deck.assign(_typed([OTHER + 9]))
 	var rng: MatchRng = MatchRng.new(SEED)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
 	assert_bool(ScoreWalk.step(state, cards, rng, rec.record)).is_true()
+	var zone: int = Choice.Zone.BOTH_PILES
 	assert_str(Choice.zone_name(Choice.zone_of(state.prompt))).is_equal("both_piles")
 	assert_bool(Choice.is_optional_prompt(state.prompt)).is_true()
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0, 1]))
-	var zone: int = Choice.Zone.BOTH_PILES
-	var none: Array[int] = []
-	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, _typed([1]), false)).is_true()
-	assert_array(state.seats[1].pile).is_empty()
+	assert_bool(Choice.is_multi_prompt(state.prompt)).is_true()
+	assert_int(Choice.exact_of(state.prompt)).is_equal(Choice.ANY_SIZE)
+	assert_int(Choice.min_of(state.prompt)).is_equal(0)
+	assert_int(Choice.max_of(state.prompt)).is_equal(2)
+	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0, 1, 2]))
+	assert_bool(Choice.is_valid_set(state.prompt, zone, _typed([0, 1, 2]))).is_false()
+	assert_bool(Choice.is_valid_set(state.prompt, zone, _typed([]))).is_true()
+	assert_bool(Choice.is_valid_set(state.prompt, zone, _typed([0, 2]))).is_true()
+	assert_int(rec.of_kind(PROMPTED).size()).is_equal(1)
+	var both: Array[int] = _typed([0, 1])
+	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, both, false)).is_false()
+	assert_bool(state.prompt.is_empty()).is_true()
+	assert_int(rec.of_kind(PROMPTED).size()).is_equal(1)
+	assert_array(state.seats[0].pile).is_empty()
+	assert_array(state.seats[0].deck).is_equal(_typed([8]))
+	assert_array(state.seats[1].pile).is_equal(_typed([OTHER + 7]))
 	assert_int(state.seats[1].deck.size()).is_equal(2)
 	assert_bool(state.seats[1].deck.has(OTHER + 8)).is_true()
-	assert_bool(Choice.is_optional_prompt(state.prompt)).is_true()
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0]))
-	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, none, true)).is_false()
-	assert_array(state.seats[0].pile).is_equal(_typed([8]))
 	var shuffled: Array[MatchEvent] = rec.of_kind(SHUFFLED)
-	assert_int(shuffled.size()).is_equal(1)
-	assert_int(_int_of(shuffled[0], "seat")).is_equal(1)
-	assert_int(_int_of(shuffled[0], "count")).is_equal(1)
+	assert_int(shuffled.size()).is_equal(2)
+	assert_int(_int_of(shuffled[0], "seat")).is_equal(0)
+	assert_int(_int_of(shuffled[1], "seat")).is_equal(1)
+	assert_int(_int_of(shuffled[1], "count")).is_equal(1)
+
+
+## Exhume with an empty set chooses none: no Pile or Deck changes, no second prompt.
+func test_exhume_empty_set_changes_nothing() -> void:
+	var cards: MatchCards = _cards()
+	var exhume: int = 0
+	_put(cards, _typed([exhume]), "gy08")
+	var state: MatchState = StubAbilities.table(_typed([exhume]), false)
+	state.seats[0].pile.assign(_typed([8]))
+	var rng: MatchRng = MatchRng.new(SEED)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	ScoreWalk.begin(state)
+	assert_bool(ScoreWalk.step(state, cards, rng, rec.record)).is_true()
+	var none: Array[int] = []
+	var zone: int = Choice.Zone.BOTH_PILES
+	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, none, false)).is_false()
+	assert_array(state.seats[0].pile).is_equal(_typed([8]))
+	assert_array(state.seats[0].deck).is_empty()
+	assert_array(rec.of_kind(SHUFFLED)).is_empty()
 
 
 ## Exhume may choose none: declining the first pick changes no Pile or Deck.
