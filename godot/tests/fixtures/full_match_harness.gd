@@ -353,7 +353,11 @@ func _check_step(
 
 ## For both seats: the view names no id hidden from it now, and its redacted events name
 ## no id that was hidden from it before or after the step, less the cards this step
-## revealed in public and the cards in a Pile after it (a Pile entry is public, R19).
+## revealed in public and the cards in a Pile after it (a Pile entry is public, R19), and
+## less a card named while it was public within the step (_public_windows: face up on a
+## row or in a Pile at the step's start, or Discarded during it, until a Pile shuffle puts
+## it back into a Deck; DC-13 T06/T07, Dredger can shuffle a card in after it Scored or
+## was Discarded in the same step).
 func _scan_leaks(
 	run: FullMatchRun, before: Dictionary, after: Dictionary, result: ApplyResult
 ) -> void:
@@ -372,6 +376,7 @@ func _scan_leaks(
 	for pile_seat: int in range(MatchEngine.SEATS):
 		for card: int in _state_list(after, "pile", pile_seat):
 			public[card] = true
+	var windows: PublicWindows = _public_windows(before, after, result)
 	for seat: int in range(MatchEngine.SEATS):
 		var opp: int = 1 - seat
 		var where: String = "after action %d, seat %d" % [run.actions, seat]
@@ -392,19 +397,62 @@ func _scan_leaks(
 			hidden_during.erase(card)
 		var own_known: Dictionary = run.sets_before.own[seat].duplicate()
 		own_known.merge(run.sets_after.own[seat])
-		for event: MatchEvent in result.events_for(seat):
+		var seen: Array[MatchEvent] = result.events_for(seat)
+		for at: int in range(seen.size()):
+			var event: MatchEvent = seen[at]
 			if event.is_private() and event.owner_seat == opp:
 				run.redacted_seen += 1
 				if FullMatchRun.is_memory_kind(event.kind):
 					run.memory_hidden_seen += 1
 					run.check_neutral_stats(event, where)
 			for card: int in FullMatchRun.event_card_ids(event):
+				if _public_at(windows, card, at):
+					continue
 				if hidden_during.has(card) and not own_known.has(card):
 					run.leaks.append(
 						where + ": event %s names hidden card %d" % [
 							MatchEvent.kind_name(event.kind), card
 						]
 					)
+
+
+## When each card was public during the step of `result` (event positions): from -1 for a
+## card face up on a row or in a Pile in `before`, from its CARD_DISCARDED otherwise; until
+## the PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`)
+## or its CARD_UNREVEALED.
+func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult) -> PublicWindows:
+	var out: PublicWindows = PublicWindows.new()
+	for seat: int in range(MatchEngine.SEATS):
+		for key: String in ["revealed", "pile"]:
+			for card: int in _state_list(before, key, seat):
+				out.since[card] = -1
+	for at: int in range(result.events.size()):
+		var event: MatchEvent = result.events[at]
+		if event.kind == MatchEvent.Kind.CARD_DISCARDED:
+			for card: int in FullMatchRun.event_card_ids(event):
+				if not out.since.has(card) or out.until.has(card):
+					out.since[card] = at
+					if out.until.erase(card):
+						pass  # Public again from this Discard.
+		elif event.kind == MatchEvent.Kind.CARD_UNREVEALED:
+			for card: int in FullMatchRun.event_card_ids(event):
+				if out.since.has(card) and not out.until.has(card):
+					out.until[card] = at
+		elif event.kind == MatchEvent.Kind.PILE_SHUFFLED_IN:
+			var seat: int = event.payload.get("seat", -1)
+			if seat < 0 or seat >= MatchEngine.SEATS:
+				continue
+			for card: int in _state_list(after, "deck", seat):
+				if out.since.has(card) and not out.until.has(card):
+					out.until[card] = at
+	return out
+
+
+## Whether `card` was public at event position `at` of the step (_public_windows).
+func _public_at(windows: PublicWindows, card: int, at: int) -> bool:
+	if not windows.since.has(card) or windows.since[card] > at:
+		return false
+	return not windows.until.has(card) or at < windows.until[card]
 
 
 ## An open prompt as `view`'s seat sees it: a prompt for the other seat shows only {open,
@@ -572,3 +620,11 @@ func _assert_run(run: FullMatchRun) -> void:
 func _assert_none(found: Array[String], what: String) -> void:
 	var message: String = "%s: %s" % [what, found]
 	assert_array(found).override_failure_message(message).is_empty()
+
+
+## The positions of a step's events between which each card was public (_public_windows).
+class PublicWindows:
+	extends RefCounted
+
+	var since: Dictionary[int, int] = {}
+	var until: Dictionary[int, int] = {}

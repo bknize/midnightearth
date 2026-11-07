@@ -52,6 +52,7 @@ const REASONS: Array[String] = [
 	MatchEngine.REASON_WINS,
 	MatchEngine.REASON_ROUNDS,
 	MatchEngine.REASON_SUDDEN_DEATH,
+	MatchEngine.REASON_STALEMATE,
 	MatchEngine.REASON_CONCEDE,
 ]
 
@@ -69,7 +70,10 @@ func test_seed_1_plays_to_the_end_and_replays() -> void:
 	var winner: int = summary["winner"]
 	var reason: String = summary["reason"]
 	var rounds: int = summary["rounds"]
-	assert_bool(winner == 0 or winner == 1).override_failure_message("winner %d" % winner).is_true()
+	# A stalemate (spec C12) may end in a draw (winner -1); every other end has a winner.
+	var drawn: bool = winner == -1 and reason == MatchEngine.REASON_STALEMATE
+	var won: bool = winner == 0 or winner == 1
+	assert_bool(won or drawn).override_failure_message("winner %d" % winner).is_true()
 	assert_bool(REASONS.has(reason)).override_failure_message(reason).is_true()
 	# Bots never concede, and a match needs at least WINS_TO_TAKE rounds otherwise.
 	assert_str(reason).is_not_equal(MatchEngine.REASON_CONCEDE)
