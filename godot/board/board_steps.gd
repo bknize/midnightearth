@@ -50,6 +50,9 @@ const CREW_TIME: float = 0.25
 const DECLINE_TIME: float = 0.15
 const HAND_PULSE_TIME: float = 0.5
 const TELEGRAPH_TIME: float = 1.2
+const CREATE_TIME: float = 0.3
+const PLACE_TIME: float = 0.4
+const CONTROL_TIME: float = 0.4
 
 
 ## The MatchEvent.Kind name of an event ("CARD_SCORED"): the match below reads kinds by name.
@@ -238,6 +241,15 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			deal.duration = DEAL_TIME
 			deal.delay = DEAL_STAGGER if after_deal else 0.0
 			out.append(deal)
+		"CARD_CREATED":
+			out.append(_created(event))
+		"CARD_PLACED":
+			var placed: BoardStep = _card_step(BoardStep.Kind.PLACE, event)
+			placed.slot = payload.get("slot", -1)
+			placed.duration = PLACE_TIME
+			out.append(placed)
+		"CONTROL_CHANGED":
+			out.append(_control(event))
 		"CARD_DRAWN":
 			var draw: BoardStep = _card_step(BoardStep.Kind.DRAW, event)
 			draw.duration = DRAW_TIME
@@ -371,6 +383,37 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			# CONCEDED has no beat of its own: MATCH_ENDED follows it and carries the reason.
 			pass
 	return out
+
+
+## CARD_CREATED {seat, card, def, owner, to: hand|row, slot}: into a hand it is a DRAW (the
+## viewer's face, or a back in the opponent's fan) flagged `created`; onto a row a CREATE.
+static func _created(event: MatchEvent) -> BoardStep:
+	var payload: Dictionary = event.payload
+	var to_row: bool = payload.get("to", "hand") == "row"
+	var kind: int = BoardStep.Kind.CREATE if to_row else BoardStep.Kind.DRAW
+	var step: BoardStep = _card_step(kind, event)
+	step.created = true
+	step.slot = payload.get("slot", -1)
+	step.owner = payload.get("owner", step.seat)
+	var raw: Variant = payload.get("def", "")
+	if raw is String:
+		var named: String = raw
+		step.def_id = named
+	step.duration = CREATE_TIME if to_row else DRAW_TIME
+	return step
+
+
+## CONTROL_CHANGED {card, owner, controller, from_seat, slot}: the card changes rows.
+static func _control(event: MatchEvent) -> BoardStep:
+	var payload: Dictionary = event.payload
+	var step: BoardStep = _make(BoardStep.Kind.CONTROL, event)
+	step.card = payload.get("card", -1)
+	step.seat = payload.get("controller", -1)
+	step.owner = payload.get("owner", -1)
+	step.from_seat = payload.get("from_seat", -1)
+	step.slot = payload.get("slot", -1)
+	step.duration = CONTROL_TIME
+	return step
 
 
 ## TRIGGER_FIRED {seat, card, crew, moment, verb, resolution} and TRIGGER_FIZZLED {seat, card,

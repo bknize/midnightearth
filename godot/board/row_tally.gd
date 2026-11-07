@@ -54,6 +54,21 @@ func show_values(tally: Array[int]) -> void:
 		_labels[seat].visible = true
 
 
+## The text of a tally the Walk end multiplied (Dross, held in hand: ×0.75 each, before
+## rounding): "4.38 → 3.28". The plain total when nothing changed it.
+static func multiplied_text(before: int, after: int) -> String:
+	if before == after:
+		return tally_text(after)
+	return "%s → %s" % [tally_text(before), tally_text(after)]
+
+
+## Shows each seat's tally as its walking total before the Walk end and after it, for a seat
+## whose total the Walk end changed.
+func show_multiplied(before: Array[int], after: Array[int]) -> void:
+	for seat: int in range(_labels.size()):
+		_labels[seat].text = multiplied_text(before[seat], after[seat])
+
+
 ## R77: flies each tally to its seat's HUD score, then the HUD counts from the total on show
 ## to `scores`. `speed` divides both durations (R36). The plane is that of the tallies.
 func fly_in(scores: Array[int], hud: BoardHud, camera: Camera3D, speed: float) -> void:

@@ -18,6 +18,8 @@ const ACTION_LABELS: Dictionary[String, String] = {
 	"copy_stats": "Copy",
 	"look_at_opposing": "Look",
 	"delve": "Take",
+	"revive": "Revive",
+	"exhume": "Exhume",
 }
 ## The verb of the discard-down prompt (TurnFlow.VERB_DISCARD_DOWN).
 const VERB_DISCARD_DOWN: String = "discard_down"
@@ -210,7 +212,7 @@ static func option_at(hit: CardSpot, prompt: Dictionary, own_size: int) -> int:
 ## The action button's text for a prompt verb (R41, R49); empty for an unknown verb. A multi
 ## prompt's button names the toggle instead: "Select", or "Deselect" once the card is in.
 static func action_label(verb: String, multi: bool = false, selected: bool = false) -> String:
-	if multi and ACTION_LABELS.has(verb):
+	if multi:
 		return DESELECT_LABEL if selected else SELECT_LABEL
 	var label: String = ACTION_LABELS.get(verb, "")
 	return label
