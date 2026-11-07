@@ -8,6 +8,7 @@ extends RefCounted
 ##   {"id", "kind": "play", "seed", "decks": [a, b] | [], "generator"}
 ##   {"id", "kind": "label", "seed", "decks", "actions": [prefix], "seat",
 ##    "k" | "candidates": [action dicts], "determinizations", "rollout", "label_seed"}
+##   {"id", "kind": "inspect", "seed", "decks", "actions": [prefix], "seat"}
 ##   {"kind": "quit"}
 ## `seed` and `label_seed` are whole numbers or decimal strings (a 64-bit seed does not
 ## survive a JSON float, so the trainer may send it as text). `id` is a number or a string,
@@ -24,6 +25,7 @@ extends RefCounted
 
 const KIND_PLAY: String = "play"
 const KIND_LABEL: String = "label"
+const KIND_INSPECT: String = "inspect"
 const KIND_QUIT: String = "quit"
 ## The fields a digest ignores: the time spent and the Godot version of the reply's worker.
 const TIMING_FIELDS: Array[String] = ["us", "godot"]
@@ -55,6 +57,8 @@ static func parse_request(line: String) -> Dictionary:
 		return _parse_play(d, request_id)
 	if kind == KIND_LABEL:
 		return _parse_label(d, request_id)
+	if kind == KIND_INSPECT:
+		return _parse_inspect(d, request_id)
 	return _bad(request_id, "unknown kind: %s" % kind)
 
 
@@ -77,6 +81,34 @@ static func _parse_play(d: Dictionary, request_id: Variant) -> Dictionary:
 		"seed": seed_out[0],
 		"decks": decks,
 		"generator": generator,
+	}
+
+
+## An inspect request: the position a label request names (seed, decks, prefix, seat), with
+## no labelling fields. It reports what the seat sees there (round, turn, hand).
+static func _parse_inspect(d: Dictionary, request_id: Variant) -> Dictionary:
+	var seed_out: Array[int] = []
+	if not _read_seed(d.get("seed", null), seed_out):
+		return _bad(request_id, "seed is missing or not a whole number")
+	var decks: Array[String] = []
+	if not _read_decks(d.get("decks", null), decks):
+		return _bad(request_id, "decks must be a list of two deck ids or an empty list")
+	var seat_raw: Variant = d.get("seat", null)
+	if not EngineAction.is_whole_number(seat_raw):
+		return _bad(request_id, "seat is missing or not a whole number")
+	var seat: int = EngineAction.as_int(seat_raw)
+	if seat < 0 or seat >= MatchEngine.SEATS:
+		return _bad(request_id, "seat must be 0 or 1")
+	var prefix: Array[EngineAction] = []
+	if not _read_actions(d.get("actions", null), prefix):
+		return _bad(request_id, "actions is missing or holds a malformed action")
+	return {
+		"id": request_id,
+		"kind": KIND_INSPECT,
+		"seed": seed_out[0],
+		"decks": decks,
+		"actions": prefix,
+		"seat": seat,
 	}
 
 
@@ -230,6 +262,19 @@ static func label_reply(
 		"candidates": candidates,
 		"values": values,
 		"rollouts": rollouts,
+		"us": us,
+	}
+
+
+static func inspect_reply(
+	request_id: Variant, stamp: String, round_number: int, turn: int, hand: Array, us: int
+) -> Dictionary:
+	return {
+		"id": request_id,
+		"stamp": stamp,
+		"round": round_number,
+		"turn": turn,
+		"hand": hand,
 		"us": us,
 	}
 

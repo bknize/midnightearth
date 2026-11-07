@@ -66,8 +66,12 @@ def label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int,
         "seat": seat, "k": cfg.k, "determinizations": cfg.determinizations,
         "rollout": cfg.rollout, "label_seed": wire(label_seed(cfg.run_seed, index))}),
         stamp, what + " label")
+    seen = _checked(farm.request({
+        "kind": "inspect", "seed": wire(seed), "decks": decks, "actions": actions,
+        "seat": seat}), stamp, what + " inspect")
+    info = {"round": seen.get("round"), "turn": seen.get("turn"), "hand": seen.get("hand", [])}
     position = {"index": index, "seed": seed, "decks": decks, "prefix_len": prefix_len,
-                "seat": seat}
+                "seat": seat, "info": info}
     labels = []
     for c, (action, value) in enumerate(zip(lab["candidates"], lab["values"])):
         labels.append({
@@ -88,7 +92,8 @@ def execute(store: Store, run_id: str, farm: Farm,
         raise KeyError(run_id)
     cfg = RunConfig.from_dict(run["config"])
     stamp = str(run["stamp"])
-    store.set_state(run_id, "running", "")
+    if run["state"] != "stopping":  # a stop that landed while queued stays visible
+        store.set_state(run_id, "running", "")
     pairings = ordered_pairings(deck_ids())
     seen_restarts = farm.restarts
     try:

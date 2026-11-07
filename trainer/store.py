@@ -27,10 +27,12 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY, state TEXT NOT NULL, config TEXT NOT NULL, run_seed INTEGER NOT NULL,
   stamp TEXT NOT NULL, "commit" TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
-  last_error TEXT NOT NULL DEFAULT '', restarts INTEGER NOT NULL DEFAULT 0);
+  last_error TEXT NOT NULL DEFAULT '', restarts INTEGER NOT NULL DEFAULT 0,
+  checkpoint REAL NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS positions (
   run_id TEXT NOT NULL, "index" INTEGER NOT NULL, seed INTEGER NOT NULL, decks TEXT NOT NULL,
   prefix_len INTEGER NOT NULL, seat INTEGER NOT NULL, batch INTEGER NOT NULL,
+  info TEXT NOT NULL DEFAULT '{}',
   PRIMARY KEY (run_id, "index"));
 CREATE TABLE IF NOT EXISTS labels (
   run_id TEXT NOT NULL, position_index INTEGER NOT NULL, candidate_index INTEGER NOT NULL,
@@ -64,9 +66,19 @@ class Store:
         self.db = sqlite3.connect(str(self.data_dir / DB_NAME), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(_SCHEMA)
+        self._migrate()
         self.db.commit()
         if recover_on_open:
             self.recover()
+
+    def _migrate(self) -> None:
+        """Add the columns older databases lack (CREATE IF NOT EXISTS keeps old tables)."""
+        for table, column, ddl in (
+                ("runs", "checkpoint", "REAL NOT NULL DEFAULT 0"),
+                ("positions", "info", "TEXT NOT NULL DEFAULT '{}'")):
+            have = {r["name"] for r in self.db.execute("PRAGMA table_info(%s)" % table)}
+            if column not in have:
+                self.db.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, ddl))
 
     def close(self) -> None:
         self.db.close()
@@ -122,17 +134,29 @@ class Store:
             raise KeyError(run_id)
         self.db.commit()
 
+    def request_stop(self, run_id: str) -> bool:
+        """Atomically move a queued or running run to stopping; False when it is in any
+        other state (finished, stopped or already stopping), so a stop never overwrites a
+        final state the run thread has just written."""
+        cur = self.db.execute(
+            "UPDATE runs SET state = 'stopping', updated = ? WHERE id = ?"
+            " AND state IN ('queued', 'running')", (time.time(), run_id))
+        self.db.commit()
+        return cur.rowcount > 0
+
     def add_restarts(self, run_id: str, count: int = 1) -> None:
         self.db.execute("UPDATE runs SET restarts = restarts + ?, updated = ? WHERE id = ?",
                         (count, time.time(), run_id))
         self.db.commit()
 
     def mark_interrupted(self) -> List[str]:
-        """R37: every running or stopping run becomes interrupted. Returns their ids."""
+        """R37: every queued, running or stopping run becomes interrupted (a queued run's
+        workers were still starting when the service died). Returns their ids."""
+        live = "('queued', 'running', 'stopping')"
         ids = [r["id"] for r in self.db.execute(
-            "SELECT id FROM runs WHERE state IN ('running', 'stopping') ORDER BY id")]
+            "SELECT id FROM runs WHERE state IN %s ORDER BY id" % live)]
         self.db.execute("UPDATE runs SET state = 'interrupted', updated = ? "
-                        "WHERE state IN ('running', 'stopping')", (time.time(),))
+                        "WHERE state IN %s" % live, (time.time(),))
         self.db.commit()
         return ids
 
@@ -142,7 +166,8 @@ class Store:
                      labels: List[Dict[str, Any]]) -> Path:
         """Write the shard and the DB rows so that both or neither survive a crash.
 
-        positions: dicts with index, seed, decks (JSON-able), prefix_len, seat.
+        positions: dicts with index, seed, decks (JSON-able), prefix_len, seat, and optionally
+        info (JSON-able: round, turn, hand; kept in the shard when non-empty).
         labels: dicts with position_index, candidate_index, action, mean, spread, n, wins,
         draws, losses, capped, and optionally us (timing: kept in the shard, not digested).
         """
@@ -156,11 +181,14 @@ class Store:
         for pos in positions:
             cands = sorted(by_pos.get(int(pos["index"]), []),
                            key=lambda c: int(c["candidate_index"]))
-            lines.append(json.dumps({
+            line: Dict[str, Any] = {
                 "run": run_id, "position": int(pos["index"]), "seed": str(int(pos["seed"])),
                 "decks": pos["decks"], "prefix_len": int(pos["prefix_len"]),
                 "seat": int(pos["seat"]), "stamp": run["stamp"], "commit": run["commit"],
-                "candidates": cands}, sort_keys=True))
+                "candidates": cands}
+            if pos.get("info"):
+                line["info"] = pos["info"]
+            lines.append(json.dumps(line, sort_keys=True))
         directory = self.run_dir(run_id)
         directory.mkdir(parents=True, exist_ok=True)
         final = directory / shard_name(batch_index)
@@ -175,9 +203,10 @@ class Store:
             with self.db:
                 self.db.executemany(
                     'INSERT INTO positions (run_id, "index", seed, decks, prefix_len, seat,'
-                    " batch) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    " batch, info) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     [(run_id, int(p["index"]), int(p["seed"]), json.dumps(p["decks"]),
-                      int(p["prefix_len"]), int(p["seat"]), batch_index) for p in positions])
+                      int(p["prefix_len"]), int(p["seat"]), batch_index,
+                      json.dumps(p.get("info") or {}, sort_keys=True)) for p in positions])
                 self.db.executemany(
                     "INSERT INTO labels (run_id, position_index, candidate_index, action,"
                     " mean, spread, n, wins, draws, losses, capped)"
@@ -186,8 +215,9 @@ class Store:
                       json.dumps(lab["action"], sort_keys=True), float(lab["mean"]),
                       float(lab["spread"]), int(lab["n"]), int(lab["wins"]), int(lab["draws"]),
                       int(lab["losses"]), int(bool(lab["capped"]))) for lab in labels])
-                self.db.execute("UPDATE runs SET updated = ? WHERE id = ?",
-                                (time.time(), run_id))
+                now = time.time()
+                self.db.execute("UPDATE runs SET updated = ?, checkpoint = ? WHERE id = ?",
+                                (now, now, run_id))
         except Exception:
             if batch_index not in self.committed_batches(run_id):
                 final.unlink(missing_ok=True)
