@@ -2,7 +2,7 @@
 type: planning
 tags: [planning, bot, training, llm, architecture]
 status: growing
-related: ["[[planning/planning-moc]]", "[[systems/bot-training]]", "[[planning/bot-ladder]]", "[[systems/game-loop]]", "[[specs/cycle-7-bot-players/spec]]"]
+related: ["[[planning/planning-moc]]", "[[planning/bot-trainer-spike]]", "[[systems/bot-training]]", "[[planning/bot-ladder]]", "[[systems/game-loop]]", "[[specs/cycle-7-bot-players/spec]]"]
 created: 2026-11-06
 updated: 2026-11-06
 uid: 1260ecea-5fcf-425a-bf1f-6951276f5c24
@@ -235,7 +235,7 @@ ledger row in [[planning/bot-ladder]].
 
 | Step | What | Proves | Rough size |
 |---|---|---|---|
-| Spike (1 day, before `/spec`) | On native Windows: Python, the Windows Godot console build running `make sweep`'s equivalent, a 50-seed match-horizon rollout timing, llama.cpp CUDA measured in tok/s on 2–3 models, a Windows Firewall rule, one MCP `health` call from the Mac | Real throughput numbers to replace the estimates above; `scripts/bot/` runs on Windows | Orchestrator plus Ben at the PC |
+| Spike (1 day, before `/spec`; checklist: [[planning/bot-trainer-spike]]) | On native Windows: Python, the Windows Godot console build running `make sweep`'s equivalent, a 50-seed match-horizon rollout timing, llama.cpp CUDA measured in tok/s on 2–3 models, a Windows Firewall rule, one MCP `health` call from the Mac | Real throughput numbers to replace the estimates above; `scripts/bot/` runs on Windows | Orchestrator plus Ben at the PC |
 | Cycle A | Play-out worker, engine rollout entry, run store, MCP skeleton (`health`, `sync_code` with bundles, `start_run`, `run_status`, `get_report`), Windows-safe `scripts/bot/` | Labeled datasets with greedy candidates, no LLM | 1 cycle, engine-critical |
 | Cycle B | Learner, `linear` export, PC gates, artifact fetch, Mac promotion path | The first policy built from play-outs, which is valuable even without the LLM | 1 cycle |
 | Cycle C | Plan language, plan-aware rollout policy, LLM plan proposer, prompt cache, `linear+plans` export and its bot support | Long-term plans scored and shipped | 1 cycle, engine-critical |
@@ -291,4 +291,5 @@ The options as they were put to Ben:
 - [[systems/bot-training]]: the current genetic loop, the SPRT and the gates this reuses
 - [[planning/bot-ladder]]: where promoted policies get their ledger rows
 - [[systems/game-loop]]: rounds, turns and the commit structure the play-outs replay
+- [[planning/bot-trainer-spike]]: the one-day PC checklist that measures this design
 - [[specs/cycle-7-bot-players/spec]]: the bot contract (pure, seeded, redacted view, 10 ms)

@@ -22,4 +22,5 @@ Dev cycles are logged in [[planning/cycles]] once the first one runs.
 Every bot the game ships or measures against, and how to rerun the bot checks after an
 engine change, is in [[planning/bot-ladder]].
 The proposed LLM-assisted training program on the Windows PC is in
-[[planning/bot-trainer-architecture]].
+[[planning/bot-trainer-architecture]], and its one-day PC spike in
+[[planning/bot-trainer-spike]].
