@@ -8,6 +8,10 @@ extends RefCounted
 
 ## The action cap of a generated match (the match worker's MAX_ACTIONS).
 const MAX_ACTIONS: int = 2000
+## The seed tag of the large-hand candidate draw ("lhc").
+const LARGE_HAND_TAG: int = 0x6C6863
+## Draws allowed per wanted candidate before a large hand's sample stops short.
+const LARGE_HAND_TRIES: int = 8
 
 var _cards: CardDb = null
 var _decks: DeckList = null
@@ -197,11 +201,12 @@ func _label(request: Dictionary, began: int) -> Dictionary:
 	given.assign(_as_array(request["candidates"]))
 	var label_seed: int = request["label_seed"]
 	if given.is_empty():
-		if not enumerable:
-			return PlayoutProtocol.error_reply(request_id, "the hand is too large to enumerate")
 		var k: int = request["k"]
-		for index: int in Rollout.sample_indices(listed.size(), k, label_seed):
-			chosen.append(listed[index])
+		if enumerable:
+			for index: int in Rollout.sample_indices(listed.size(), k, label_seed):
+				chosen.append(listed[index])
+		else:
+			chosen = _large_hand_candidates(view, engine.match_cards(), k, label_seed)
 	else:
 		chosen = given
 	var determinizations: int = request["determinizations"]
@@ -219,6 +224,31 @@ func _label(request: Dictionary, began: int) -> Dictionary:
 	return PlayoutProtocol.label_reply(
 		request_id, _stamp, legal, dicts, value_list, chosen.size() * determinizations, us
 	)
+
+
+## Up to `k` distinct legal commits of a hand too large to enumerate (more than
+## LegalPlays.ENUMERATE_MAX cards): uniform draws by RandomBot.large_hand_commit from one
+## MatchRng seeded MatchRng.derive_seed(label_seed, [LARGE_HAND_TAG]), duplicates dropped,
+## in draw order, after at most k * LARGE_HAND_TRIES draws.
+static func _large_hand_candidates(
+	view: SeatView, cards: MatchCards, k: int, label_seed: int
+) -> Array[EngineAction]:
+	var out: Array[EngineAction] = []
+	if k < 1:
+		return out
+	var parts: Array[int] = [LARGE_HAND_TAG]
+	var rng: MatchRng = MatchRng.new(MatchRng.derive_seed(label_seed, parts))
+	var seen: Dictionary = {}
+	for _draw: int in range(k * LARGE_HAND_TRIES):
+		if out.size() >= k:
+			break
+		var action: EngineAction = RandomBot.large_hand_commit(view, cards, rng)
+		var key: String = JSON.stringify(action.to_dict())
+		if seen.has(key):
+			continue
+		seen[key] = true
+		out.append(action)
+	return out
 
 
 ## A created, not yet started engine for `ids` (empty = the seeded pick).
