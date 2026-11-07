@@ -39,8 +39,8 @@ extends RefCounted
 ## on_commit() (D3, D5), on_discard() (D4, D6, D10, D12) and at_turn_end() (D9, D11) wake
 ## their Batch and drain it; each returns true when the drain paused on a prompt, and the
 ## engine resumes the step after it once the answer has finished the drain
-## (continue_turn_start(), open_discard_down(), continue_end_turn(), award_round()). Hook
-## left: crew_budget_bonus() (T07, Engineer). exit_pass() and end_statuses() are T04's.
+## (continue_turn_start(), open_discard_down(), continue_end_turn(), award_round()).
+## crew_budget_bonus() is Engineer's (CrewAbilities, T07). exit_pass() and end_statuses() are T04's.
 
 const SEATS: int = 2
 ## The verb of the discard-down prompt.
@@ -435,6 +435,7 @@ static func continue_end_turn(
 static func settle_turn(state: MatchState, sink: Callable) -> void:
 	end_statuses(state, sink)
 	state.walk.clear_turn_effects()
+	CrewAbilities.end_turn(state)  # Void grants no card used end (T07).
 	for seat: int in range(SEATS):
 		state.energy.grants[seat] = state.energy.next_turn_grants[seat]
 		state.energy.next_turn_grants[seat] = 0
@@ -588,9 +589,9 @@ static func end_statuses(state: MatchState, sink: Callable) -> void:
 	Statuses.on_turn_end(state, sink)
 
 
-## Hook (T07, Engineer): the Energy a seat's Crew add to its Budget this Turn; 0 until then.
-static func crew_budget_bonus(_state: MatchState, _cards: MatchCards, _seat: int) -> int:
-	return 0
+## The Energy a seat's Crew add to its Budget this Turn (Engineer, CrewAbilities, T07).
+static func crew_budget_bonus(state: MatchState, cards: MatchCards, seat: int) -> int:
+	return CrewAbilities.budget_bonus(state, cards, seat)
 
 
 ## Takes the top card of `seat`'s Deck into its hand; -1 when the Deck is empty.

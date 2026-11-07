@@ -435,8 +435,10 @@ func test_energy_equals_turn_and_unspent_energy_is_lost() -> void:
 		var started: Array[MatchEvent] = _of_kind(result.events, MatchEvent.Kind.TURN_STARTED)
 		assert_int(started.size()).is_equal(1)
 		assert_int(_payload_int(started[0], "turn")).is_equal(turn + 1)
-		# Passing never banks Energy: the next Turn's Budget is just its number.
-		var budgets: Array[int] = [turn + 1, turn + 1]
+		# Passing never banks Energy: the next Turn's Budget is just its number, plus the
+		# fixture's Engineer from Turn 3 (DC-13 T07).
+		var engineer: int = 1 if turn + 1 >= 3 else 0
+		var budgets: Array[int] = [turn + 1 + engineer, turn + 1 + engineer]
 		assert_array(_payload_ints(started[0], "budgets")).is_equal(budgets)
 
 
@@ -921,28 +923,29 @@ func test_choose_without_a_prompt_is_rejected() -> void:
 
 
 ## R6, R7 (cycle 9 plan P14): the Budget on Turn N is N plus the Energy granted for that
-## Turn, and nothing carries. Turn 5's Budget is 5 for both seats (TURN_STARTED, views);
-## a grant of 1 to one seat makes its Budget 6 and lets it commit a card costing 6; the
-## grant is gone at turn end and unspent Energy is lost, so Turn 6's Budget is 6 for both.
+## Turn, and nothing carries; the fixture's Engineer adds 1 from Turn 3 (DC-13 T07). Turn
+## 5's Budget is 5 + 1 for both seats (TURN_STARTED, views); a grant of 1 to one seat makes
+## its Budget 7 and lets it commit a card costing 7; the grant is gone at turn end and
+## unspent Energy is lost, so Turn 6's Budget is 6 + 1 for both.
 func test_budget_on_turn_5_is_5_with_a_grant_6_and_nothing_carries() -> void:
 	var engine: MatchEngine = _started(SEED)
 	assert_int(engine.budget_for(2)).is_equal(0)
 	_pass_until_turn(engine, 5)
 	for seat: int in range(2):
-		assert_int(engine.budget_for(seat)).is_equal(5)
-		assert_int(engine.view_for(seat).budgets[seat]).is_equal(5)
-		assert_int(engine.view_for(seat).budgets[1 - seat]).is_equal(5)
-		assert_int(engine.view_for(seat).energy).is_equal(5)
+		assert_int(engine.budget_for(seat)).is_equal(6)
+		assert_int(engine.view_for(seat).budgets[seat]).is_equal(6)
+		assert_int(engine.view_for(seat).budgets[1 - seat]).is_equal(6)
+		assert_int(engine.view_for(seat).energy).is_equal(6)
 	var energy_state: Dictionary = engine.full_state()["energy"]
 	assert_bool(energy_state.has("carry")).is_false()
 	var first: int = engine.awaited_seat()
 	engine._state.energy.grants[first] = 1
-	assert_int(engine.budget_for(first)).is_equal(6)
-	assert_int(engine.budget_for(1 - first)).is_equal(5)
-	assert_int(engine.view_for(first).energy).is_equal(6)
-	# A cost-6 card enters the first seat's hand (fixture f17 of its own deck).
-	var dear: int = first * MatchRules.DECK_SIZE + 16
-	assert_int(LegalPlays.cost_of(dear, _defs())).is_equal(6)
+	assert_int(engine.budget_for(first)).is_equal(7)
+	assert_int(engine.budget_for(1 - first)).is_equal(6)
+	assert_int(engine.view_for(first).energy).is_equal(7)
+	# A cost-7 card enters the first seat's hand (fixture f19 of its own deck).
+	var dear: int = first * MatchRules.DECK_SIZE + 18
+	assert_int(LegalPlays.cost_of(dear, _defs())).is_equal(7)
 	var piles: MatchState.SeatPiles = engine._state.seats[first]
 	piles.deck.erase(dear)
 	piles.pile.erase(dear)
@@ -952,14 +955,14 @@ func test_budget_on_turn_5_is_5_with_a_grant_6_and_nothing_carries() -> void:
 	var result: ApplyResult = _then_discard(engine, engine.apply(EngineAction.commit(first, cards)))
 	assert_bool(result.ok).is_true()
 	var committed: MatchEvent = _of_kind(result.events, MatchEvent.Kind.COMMITTED)[0]
-	assert_int(_payload_int(committed, "cost")).is_equal(6)
+	assert_int(_payload_int(committed, "cost")).is_equal(7)
 	var spent: Array = _energy_list(engine, "spent")
 	var first_spent: int = spent[first]
-	assert_int(first_spent).is_equal(6)
+	assert_int(first_spent).is_equal(7)
 	var ended: ApplyResult = _pass(engine)
 	var started: MatchEvent = _of_kind(ended.events, MatchEvent.Kind.TURN_STARTED)[0]
 	assert_int(_payload_int(started, "turn")).is_equal(6)
-	assert_array(_payload_ints(started, "budgets")).is_equal(_typed([6, 6]))
+	assert_array(_payload_ints(started, "budgets")).is_equal(_typed([7, 7]))
 	var grants: Array = _energy_list(engine, "grants")
 	assert_array(grants).is_equal([0, 0])
 

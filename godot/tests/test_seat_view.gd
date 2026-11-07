@@ -193,8 +193,9 @@ func test_totals_are_in_ten_thousandths_with_scores_budgets_and_hand_sizes() -> 
 		var view: SeatView = _view(state, seat)
 		assert_array(view.totals).is_equal(_typed([43750, -15000]))
 		assert_array(view.scores).is_equal(_typed([4, -1]))
-		assert_array(view.budgets).is_equal(_typed([3, 4]))
-		assert_int(view.energy).is_equal(3 + seat)
+		# Turn 3 + grants, + 1 from the Greed deck's Engineer (DC-13 T07).
+		assert_array(view.budgets).is_equal(_typed([4, 5]))
+		assert_int(view.energy).is_equal(4 + seat)
 		assert_array(view.hand_sizes).is_equal(
 			_typed([MatchRules.HAND_SIZE, MatchRules.HAND_SIZE])
 		)

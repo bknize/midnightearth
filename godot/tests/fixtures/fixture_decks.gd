@@ -7,7 +7,9 @@ extends RefCounted
 ## f01 is DECK_SIZE. f01..f20 carry the DC-05 fixture's costs and flats as Cost and Power
 ## (c01..c20, its ×-bonuses as Mults; a +-bonus has no v2 form and is dropped), f21..f40
 ## repeat them, so a cost search behaves as it did. Its Crew are the shipped pool's
-## (CREW); no Crew fires before DC-13 T07. Not a suite: builders only, nothing cached.
+## (CREW), live since DC-13 T07: Engineer adds 1 to the Budget from Turn 3, Tallyman doubles
+## a seat's 5th Score of a Walk, Void grants on an empty draw. Not a suite: builders only,
+## nothing cached.
 
 const DECK_ID: String = "fixture"
 ## The fixture deck's three Crew, from the shipped Crew pool.
