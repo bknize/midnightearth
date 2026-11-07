@@ -28,7 +28,11 @@ const LINE_UNPINNED: String = ""
 ## is left); re-pinned at DC-13 T11 (rules 7, the random bot): "Board: match ended seed=1
 ## decks=greed/greed bot=random winner=0 wins=3-1 rounds=7 end=rounds actions=121".
 ## Unpinned at DC-14 T14 (six decks change seed 1's seeded pairing); re-pinned at DC-14 T18.
-const EXPECTED_LINE: String = LINE_UNPINNED
+## Re-pinned at DC-14 T18 (six decks, 90 cards, ten Crew).
+const EXPECTED_LINE: String = (
+	"Board: match ended seed=1 decks=combo/graveyard bot=random winner=1 wins=3-4 rounds=7"
+	+ " end=wins actions=265"
+)
 ## The bot the helpers build: the random bot, the only one (cycle 9 R70).
 const BOT: String = "random"
 const LINE_SKIP_NOTE: String = (

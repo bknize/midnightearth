@@ -45,7 +45,10 @@ extends FullMatchHarness
 # decks=greed/greed bot=random winner=0 wins=3-1 rounds=7 end=rounds actions=121".
 # Emptied at DC-14 T14: six decks change seed 1's seeded pairing (and Crew B fire); the
 # orchestrator re-pins it at DC-14 T18 from the Golden print.
-const GOLDEN: String = ""
+# Re-pinned at DC-14 T18 (six decks, 90 cards, ten Crew, C15).
+const GOLDEN: String = (
+	"seed=1 decks=combo/graveyard bot=random winner=1 wins=3-4 rounds=7 end=wins actions=265"
+)
 # END GOLDEN
 
 const SEED: int = 1
