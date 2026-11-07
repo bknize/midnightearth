@@ -123,6 +123,8 @@ var slots_to: Array[int] = []
 var exit_to: String = ""
 var from_row: bool = false
 var pile_index: int = -1
+## PLACE: whether the placed card came out of its seat's Pile (Revive).
+var from_pile: bool = false
 ## STATUS: the badge word and whether it was set (true) or ended (false).
 var word: String = ""
 var status_on: bool = true

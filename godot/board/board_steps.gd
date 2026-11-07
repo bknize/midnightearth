@@ -266,6 +266,7 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 		"CARD_PLACED":
 			var placed: BoardStep = _card_step(BoardStep.Kind.PLACE, event)
 			placed.slot = payload.get("slot", -1)
+			placed.from_pile = payload.get("from", "") == "pile"
 			placed.duration = PLACE_TIME
 			out.append(placed)
 		"CONTROL_CHANGED":

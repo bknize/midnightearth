@@ -28,7 +28,8 @@ var _engine: MatchEngine = null
 ## One entry per seat; null for a seat a human drives.
 var _bots: Array[BotPlayer] = []
 var _bot_name: String = ""
-## Seat 0's redacted events of the last accepted call (start, submit_player or play_bot).
+## Seat 0's redacted events of the last call (start, submit_player or play_bot); empty
+## after a rejected one.
 var _last_events: Array[MatchEvent] = []
 ## The MATCH_ENDED payload, empty until the match is over.
 var _end_payload: Dictionary = {}
@@ -158,7 +159,7 @@ func play_bot() -> ApplyResult:
 	return result
 
 
-## Seat 0's redacted events of the last accepted action (or of start()).
+## Seat 0's redacted events of the last action (or of start()); empty when it was rejected.
 func last_events() -> Array[MatchEvent]:
 	return _last_events
 

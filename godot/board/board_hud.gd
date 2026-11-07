@@ -43,6 +43,8 @@ var _pip_rows: Array[HBoxContainer] = []
 ## The number each score label is heading for (what it shows once any count ends).
 var _shown: Array[int] = [0, 0]
 var _count_tweens: Array[Tween] = [null, null]
+## Each seat's pending deck-note clear, so a newer note replaces the older one's timer.
+var _note_tweens: Array[Tween] = [null, null]
 
 @onready var _score_label_0: Label = %ScoreLabel0
 @onready var _score_label_1: Label = %ScoreLabel1
@@ -154,7 +156,11 @@ func note_deck(seat: int, text: String, seconds: float) -> void:
 	var label: Label = _pile_labels[seat]
 	var base: String = label.text.split(" - ")[0]
 	label.text = "%s - %s" % [base, text]
+	var older: Tween = _note_tweens[seat]
+	if older != null and older.is_valid():
+		older.kill()
 	var tween: Tween = create_tween()
+	_note_tweens[seat] = tween
 	var wait: IntervalTweener = tween.tween_interval(maxf(seconds, 0.01))
 	var done: CallbackTweener = tween.tween_callback(_clear_deck_note.bind(seat))
 	if wait == null or done == null:

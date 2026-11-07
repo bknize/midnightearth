@@ -942,4 +942,6 @@ func _on_concede_pressed() -> void:
 
 func _on_rematch_pressed() -> void:
 	hud.hide_result()
+	if driver == null:
+		return  # The last match never started (its bot could not be built).
 	start_match(BoardSeeds.rematch(_seed_fixed, driver.match_seed), _deck_ids)
