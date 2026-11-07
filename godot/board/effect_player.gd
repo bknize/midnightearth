@@ -183,17 +183,19 @@ func exit_card(step: BoardStep) -> void:
 				_hide_if_opponent(card, 1, step.duration)
 
 
-## An exit the viewer may not name (a face-down card of the other seat, redacted to card -1;
-## the event's owner seat is the row's): a Fade leaves it face down as it is, a Fleeting card
-## goes back to its Owner's fan as a back. Which of the face-down cards it was is not told, so
-## it is the first one on the row.
+## An exit the viewer may not name (a face-down card of the other seat, redacted to card -1):
+## a Fade leaves it face down as it is, a Fleeting card goes back to its Owner's fan as a
+## back. The event names the row (`from_seat`) and the card's slot before it left (DC-14
+## T17); an event with no row falls back to the event's owner seat.
 func _exit_hidden(step: BoardStep) -> void:
-	if step.exit_to != "hand" or step.source == null:
+	if step.exit_to != "hand":
 		return
-	var row_seat: int = step.source.owner_seat
+	var row_seat: int = step.from_seat
+	if row_seat < 0 and step.source != null:
+		row_seat = step.source.owner_seat
 	if row_seat != 1:
 		return
-	var card: BoardCard = _opponent_card_at(-1)
+	var card: BoardCard = _opponent_card_at(step.slot)  # The slot, else the first back.
 	if card == null:
 		push_warning("Board: a hidden exit found no face-down card on the opponent's row")
 		return
@@ -344,12 +346,13 @@ func unreveal(step: BoardStep) -> void:
 
 ## The card flies to its owner's hand: face up for the player, face down for the opponent.
 func return_card(step: BoardStep) -> void:
-	var card: BoardCard = _find_in_row(step.seat, step.card, step.slot)
+	var row_seat: int = step.from_seat if step.from_seat >= 0 else step.seat
+	var card: BoardCard = _find_in_row(row_seat, step.card, step.slot)
 	if card == null:
-		push_warning("Board: a return found no card on seat %d's row" % step.seat)
+		push_warning("Board: a return found no card on seat %d's row" % row_seat)
 		return
 	var hand: CardCollection3D = _hand_of(step.seat)
-	move_card(card, _row_of(step.seat), hand, step.duration)
+	move_card(card, _row_of(row_seat), hand, step.duration)
 	if step.seat == 0:
 		_forget_flags(card.instance_id)
 		return

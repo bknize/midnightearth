@@ -18,7 +18,8 @@ extends RefCounted
 ## by ZONE_NAMES (KEY_ZONE, a String, P12); EngineAction.choose and choose_set carry the
 ## Zone value, and zone_of() reads either form. Every prompt carries `multi`, `exact` (the
 ## set size a multi-select requires, -1 for any size), `min`, `optional`, `resume` and
-## `step`; is_valid_set() checks a set answer against them.
+## `step`, and an "up to N" multi-select also `max` (DC-14 T17, C15 2a: Exhume); is_valid_set()
+## checks a set answer against them.
 
 enum Zone {
 	OWN_HAND,
@@ -52,6 +53,9 @@ const KEY_MULTI: String = "multi"
 const KEY_EXACT: String = "exact"
 ## The fewest cards a multi-select set may name (0 for "any number" or "up to N").
 const KEY_MIN: String = "min"
+## The most cards a multi-select set may name ("up to N", C15 2a); absent or -1 for no bound
+## but the options.
+const KEY_MAX: String = "max"
 ## Whether a prompt may be declined (EngineAction.DECLINE).
 const KEY_OPTIONAL: String = "optional"
 ## What an answered prompt resumes: one of the RESUME_* names.
@@ -72,6 +76,8 @@ const RESUMES: Array[String] = [
 const NO_ZONE: int = -1
 ## `exact` of a multi-select that takes a set of any size.
 const ANY_SIZE: int = -1
+## `max` of a multi-select bounded only by its options.
+const NO_MAX: int = -1
 
 
 ## The name of a zone, or "" when out of range.
@@ -134,6 +140,11 @@ static func min_of(prompt: Dictionary) -> int:
 	return _int(prompt, KEY_MIN, 0)
 
 
+## The most cards a set answer to `prompt` may name (its `max`), NO_MAX when absent.
+static func max_of(prompt: Dictionary) -> int:
+	return _int(prompt, KEY_MAX, NO_MAX)
+
+
 ## What answering `prompt` resumes (its `resume`), RESUME_WALK when absent or unknown.
 static func resume_of(prompt: Dictionary) -> String:
 	var raw: Variant = prompt.get(KEY_RESUME, RESUME_WALK)
@@ -163,8 +174,9 @@ static func crew_of(prompt: Dictionary) -> String:
 
 ## Whether `indices` is a valid answer to the multi-select `prompt` in `zone` (R14): the
 ## zone is the prompt's, every index is one of its options, none repeats, and the set's
-## size is the prompt's `exact` (when it has one) and at least its `min`
-## (LegalPlays.set_size_ok). The caller has checked the prompt is a multi-select.
+## size is the prompt's `exact` (when it has one), at least its `min` and at most its `max`
+## (when it has one; LegalPlays.set_size_ok). The caller has checked the prompt is a
+## multi-select.
 static func is_valid_set(prompt: Dictionary, zone: int, indices: Array[int]) -> bool:
 	if zone != zone_of(prompt):
 		return false
@@ -174,7 +186,7 @@ static func is_valid_set(prompt: Dictionary, zone: int, indices: Array[int]) -> 
 		if seen.has(index) or not options.has(index):
 			return false
 		seen[index] = true
-	return LegalPlays.set_size_ok(indices.size(), exact_of(prompt), min_of(prompt))
+	return LegalPlays.set_size_ok(indices.size(), exact_of(prompt), min_of(prompt), max_of(prompt))
 
 
 ## The card at `index` of `zone` for `seat`, or -1 when the index or zone is out of range.

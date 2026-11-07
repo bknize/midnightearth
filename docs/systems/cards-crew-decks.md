@@ -100,7 +100,7 @@ The moment says *when* and the verb says *what*. The ten moments (and Ongoing):
 
 Two brackets refine this. A **watcher bracket** (`watch`: `self`, `other_own`, `opposing`, `any`) says whose event the ability watches: "On reveal (another card of yours)". A **zone bracket** (`zone`: `row`, `hand`) says where the card must be for the ability to act: "(while in your hand)". The exact order in which triggers resolve is in [[systems/game-loop]] and [[rules/resolution]].
 
-**Choices.** Some verbs need a target. With no eligible target the ability fizzles ("no target"). With exactly one, the engine picks it. With two or more, play pauses on a prompt. Immolator and Exhume have optional counts: they always prompt and may choose none.
+**Choices.** Some verbs need a target. With no eligible target the ability fizzles ("no target"). With exactly one, the engine picks it. With two or more, play pauses on a prompt. Immolator and Exhume always prompt and may choose none. Immolator's prompt is a multi-select with a minimum of 0, not an optional prompt: an empty set is its "none". Exhume asks once for "up to two" cards over both Piles (a prompt with a maximum, spec C15): an empty set or a Skip chooses none.
 
 **Loader checks.** The loader (`CardDb`, `card_db.gd`) refuses a bad pool outright: format 5; unique ids; a known tag; Cost 1 to 7 (more only with the `cost_on_turn` verb); Power in range; a Bonus from the legal lists; each ability checked by `CardAbility.problem_of` (a known moment and verb, the verb allowed on that moment, amounts in the verb's range, a known scope, watcher and zone, whole uses, its own text); and a card `text` when it has abilities.
 
@@ -328,7 +328,7 @@ Every content change is a data change, and many also need engine work. Content c
 
 ### Add a card
 
-1. **Write the entry** in `cards.json`, keeping `"version": 5`. Give it a new unique id, a name, a tag, a Cost from 1 to 7, a Power, a Bonus (`null`, `{"mult": 125|150|200}` or `{"add": 25|50|100}`) and its abilities, each with a moment, a verb, amounts and its text. A card with abilities needs its own `text`.
+1. **Write the entry** in `cards.json`, keeping `"version": 5`. Give it a new unique id, a name, a tag, a Cost from 1 to 7, a Power, a Bonus (`null`, `{"mult": 125|150|200|75}` or `{"add": 25|50|100}`; 75, ×0.75, is the named below-×1 exception, `MatchRules.MULT_BELOW_ONE`, which Saboteur prints and Dross's ×0.75 per card mirrors at Walk end) and its abilities, each with a moment, a verb, amounts and its text. A card with abilities needs its own `text`.
 2. **Reuse a verb if you can.** If an existing moment and verb do the job, the data entry is the only change. The loader rejects a verb on a moment it does not allow and amounts out of range.
 3. **For a new verb**, the engine needs work. Add it to `CardAbility.VERBS` with its moments and ranges, implement it in the family file and route it from `Abilities.prepare()` and `resolve()`. If it chooses a target, give it a zone in `choice.gd`. The board also needs to play its events. That work belongs to the engine implementer. Past cycles raised `MatchRules.RULES_VERSION` when behaviour changed, so old logs fail cleanly instead of replaying wrongly.
 4. **Put it in a deck.** A deck is exactly 40 cards with at most four copies of one, so adding a card means taking one out.
@@ -370,7 +370,8 @@ There is no bot stamp any more: the shipped bot is the `random` bot, and the wei
 - **Rounding.** The canon rounds only the final Score; the build rounds each multiply to a ten-thousandth ([[systems/game-loop]]).
 - **Void's scope** is `turn` in the data: its grants end when the card has Scored or the Turn ends.
 - **Navigator and Captain** carry scope `match` for the Power they give, which is Memory.
-- **Stale comments.** A few headers in the engine still name T-numbers or say a feature comes "in milestone B"; the code is current.
+- **Readings where the canon is silent** (spec C15, accepted as built): Tithe's cap of +3 applies per Tithe; in Cull the Controller chooses first and in Quorum the first committer, and the second chooser sees the first's public picks; Fence's "wrap" is stepping off the ring of non-Anchored slots, and on a row with no ring (fewer than two non-Anchored slots) Fence does nothing; Skip's random slot is among the non-Anchored slots of the row; Fuse Condemns itself and a random opposing card each time it fires at Power 5 or more; Exhume asks once, "choose up to two", rather than once per card.
+- **Stale comments.** A few headers in the engine still name T-numbers; the code is current.
 
 ## Where to look in the code
 

@@ -450,6 +450,48 @@ func test_fade_flips_face_down_keeping_memory() -> void:
 	assert_str(_payload_str(resolved, "to")).is_equal(Statuses.TO_FACE_DOWN)
 
 
+## A face-down card's exit (DC-14 T17): EXIT_RESOLVED and CARD_RETURNED carry the row's
+## `seat` and the card's `slot` before it left; the other seat's copy keeps both and hides
+## `card`, and a hidden Fade's copy blanks `mark` and `instead_of`, so it names neither.
+func test_a_hidden_exit_carries_its_slot_and_hides_its_mark() -> void:
+	var faded: int = StubAbilities.PEBBLE
+	var fleeting: int = StubAbilities.WISP
+	var state: MatchState = StubAbilities.table(
+		_typed([StubAbilities.MOTE, faded, fleeting]), false
+	)
+	StubAbilities.stub_fade(state, _defs(), faded, Callable())
+	StubAbilities.stub_fleeting(state, _defs(), fleeting, Callable())
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	assert_array(Statuses.exit_pass(state, _defs(), rec.record)).is_empty()
+	var resolved: Array[MatchEvent] = rec.of_kind(MatchEvent.Kind.EXIT_RESOLVED)
+	assert_int(resolved.size()).is_equal(2)
+	var fade_event: MatchEvent = resolved[0]
+	assert_int(fade_event.owner_seat).is_equal(0)
+	assert_int(_payload_int(fade_event, "seat")).is_equal(0)
+	assert_int(_payload_int(fade_event, "slot")).is_equal(1)
+	assert_str(_payload_str(fade_event, "mark")).is_equal(Statuses.FADE)
+	var seen: MatchEvent = fade_event.redacted_for(1)
+	assert_int(_payload_int(seen, "card")).is_equal(MatchEvent.HIDDEN_CARD)
+	assert_int(_payload_int(seen, "seat")).is_equal(0)
+	assert_int(_payload_int(seen, "slot")).is_equal(1)
+	assert_str(_payload_str(seen, "mark")).is_empty()
+	assert_str(_payload_str(seen, "instead_of")).is_empty()
+	assert_str(_payload_str(seen, "to")).is_equal(Statuses.TO_FACE_DOWN)
+	var own: MatchEvent = fade_event.redacted_for(0)
+	assert_str(_payload_str(own, "mark")).is_equal(Statuses.FADE)
+	var gone: MatchEvent = resolved[1].redacted_for(1)
+	assert_int(_payload_int(gone, "slot")).is_equal(2)
+	assert_str(_payload_str(gone, "mark")).is_empty()
+	assert_str(_payload_str(gone, "to")).is_equal(Statuses.TO_HAND)
+	var returned: MatchEvent = rec.of_kind(MatchEvent.Kind.CARD_RETURNED)[0]
+	var returned_seen: MatchEvent = returned.redacted_for(1)
+	assert_int(_payload_int(returned_seen, "card")).is_equal(MatchEvent.HIDDEN_CARD)
+	assert_int(_payload_int(returned_seen, "seat")).is_equal(0)
+	assert_int(_payload_int(returned_seen, "slot")).is_equal(2)
+	assert_int(_payload_int(returned_seen, "owner")).is_equal(0)
+	assert_int(returned_seen.owner_seat).is_equal(0)
+
+
 ## A card seat 0 controls but seat 1 owns: Fleeting returns it to seat 1's hand, Condemned
 ## sends it to seat 1's Pile.
 func test_a_card_the_other_seat_controls_returns_to_its_owner() -> void:

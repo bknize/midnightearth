@@ -180,7 +180,7 @@ Every ability has exactly one trigger moment: On reveal, On score, On commit, On
 - **Budget (Q4).** Each pulse has a budget of **50 resolutions** (`MatchRules.TRIGGER_BUDGET`), counted across D7 and D8 together; outside the Walk each drain has its own 50. Every pop counts one, whether it acts or fizzles for "no target", and so does each retrigger. When 50 are spent, every entry still queued fizzles with the reason `exhausted` (a public `TRIGGER_FIZZLED`) and the Walk goes on.
 - **Retriggers (Q6).** Encore adds one extra resolution straight after each of the seat's other On reveal resolutions this Turn, never to an extra one; choices and amounts are read again.
 - **Amounts are read at resolution (Q5).**
-- **Prompts (Q9).** No eligible target fizzles; one is chosen automatically; two or more open a prompt for the choosing seat wherever the queue is draining. Crew prompts are optional and open even for one target. Optional-count abilities (Immolator, Exhume) always prompt and may choose none.
+- **Prompts (Q9).** No eligible target fizzles; one is chosen automatically; two or more open a prompt for the choosing seat wherever the queue is draining. Crew prompts are optional and open even for one target. Two card prompts always open and may choose none: Immolator's is a multi-select with `min` 0 (an empty set chooses none; it is not optional), and Exhume's is one optional "up to two" multi-select over both Piles (`max` 2; an empty set or a decline chooses none).
 
 The twelve drain points, with what resumes after a prompt answered there (`TriggerQueue.RESUME_OF_STEP`):
 
@@ -207,7 +207,7 @@ Everything a seat does is one `EngineAction`, accepted only from the seat `await
 |---|---|---|
 | `commit` | `{"k":"commit","s":0,"c":[3,7],"p":[0,2]}` | Phase `AWAIT_FIRST` from the first seat, or `AWAIT_SECOND` from the other seat, within the Budget. Never while a prompt is open. |
 | `choose` | `{"k":"choose","s":1,"z":1,"i":0}` | A single-target prompt is open for this seat, and zone + index is one of its options. |
-| `choose_set` | `{"k":"choose_set","s":0,"z":0,"i":[0,2]}` | A **multi-select** prompt is open: the discard-down (exactly the excess) and Immolator's any-size set. |
+| `choose_set` | `{"k":"choose_set","s":0,"z":0,"i":[0,2]}` | A **multi-select** prompt is open: the discard-down (exactly the excess), Cull's and Quorum's kept cards (exactly their count), Immolator's any-size set and Exhume's set of up to two. |
 | `decline` | `{"k":"decline","s":0}` | An **optional** prompt is open for this seat (the **Skip** button). |
 | `concede` | `{"k":"concede","s":1}` | Always, from either seat. |
 
@@ -217,8 +217,8 @@ Each accepted call runs the match to the **next decision point** and reports eve
 
 A prompt is `MatchState.prompt` (`PROMPT_OPENED` announces it). Options are **positions** in a zone (own hand, either row, a Pile, the top of your Deck), never card ids, so a face-down card can be picked without being named. Every prompt carries:
 
-- **`optional`**: Crew prompts, always; a card prompt with an optional count (Immolator, Exhume). The discard-down is not optional.
-- **`multi`, `exact`, `min`**: a multi-select and its size rules. The discard-down has `exact` equal to the excess.
+- **`optional`**: Crew prompts, always, and Exhume's. Immolator's is not optional: it is a multi-select with `min` 0, so an empty set is its "none". The discard-down is not optional.
+- **`multi`, `exact`, `min`, `max`**: a multi-select and its size rules. The discard-down has `exact` equal to the excess. An "up to N" prompt (Exhume, spec C15) has `exact` -1, `min` 0 and `max` N; `Choice.is_valid_set` rejects a larger set. The view always carries `max`, -1 when there is no bound but the options. The board enables Confirm for 0 to N selected and its banner reads "Choose up to N".
 - **`resume` and `step`**: what to continue once the prompt is answered and the drain point it opened at (the table above). `"walk"` resumes the paused pulse at the exact stage it stopped; `"commit"` resumes the Commit; `"turn_start"`, `"turn_end"` and `"round_end"` resume those steps.
 
 ## Events: what happened, and who may know
@@ -229,6 +229,7 @@ A `MatchEvent` has a `kind`, a `payload` and an `owner_seat`. Public events have
 - For the other seat, every card id under `card` or `cards` becomes `-1`. The seat, slot and count stay visible.
 - A private `CHOICE_MADE` hides only the `target`.
 - A private `STATS_CHANGED` also shows neutral stats (Power 0, no Bonus, Cost 0), because a hidden card's stats would name it through the public deck lists.
+- A private `EXIT_RESOLVED` (a face-down card's exit) also blanks `mark` and `instead_of`, so a Fade does not name its card; the other seat sees only that the face-down card at `seat` and `slot` had an exit, and where it went (`to`). `EXIT_RESOLVED` and the Fleeting event that follows it carry the row's `seat` and the card's `slot` before it left, and the board uses that slot to move the right card back.
 
 | Event | When it fires | Who sees the card |
 |---|---|---|
@@ -247,7 +248,7 @@ A `MatchEvent` has a `kind`, a `payload` and an `owner_seat`. Public events have
 | `CARD_MOVED`, `CARD_UNREVEALED` | Moves; Un-reveals | Public, except a face-down card's move |
 | The Fleeting event | A card sent to its Owner's hand in the exit pass (the event keeps a v6 name; see [[#Changed from v6]]) | Public when the card's identity already was |
 | `CARD_LOOKED` | Delve, Lookout | The looking seat only |
-| `CARD_CREATED`, `CARD_PLACED`, `CONTROL_CHANGED` | Litter's Dross, Twin's copy; Revive and Exhume putting a Pile card on a row; Saboteur changing row | Public |
+| `CARD_CREATED`, `CARD_PLACED`, `CONTROL_CHANGED` | Litter's Dross, Twin's copy; Revive putting a Pile card on a row (`CARD_PLACED` is Revive's only); Saboteur changing row | Public |
 | `CREW_FIRED` | A Crew ability fires | Public |
 | `TURN_ENDED`, `ROUND_ENDED`, `CONCEDED`, `MATCH_ENDED` | The ends; `ROUND_ENDED` carries `turn_wins` | Public |
 
@@ -333,13 +334,20 @@ Notice: the bot learned only "one card, slot 2" from your Commit. The Condemn di
 These are places where the code reads the canon in a particular way. The code is right for now; Ben can overrule any.
 
 - **Rounding.** [[rules/rules-v2]] says nothing is rounded between Scores. The build is integer, so it rounds to the nearest ten-thousandth after each multiply (spec C3), and Bonus values to the hundredth. Only the final Score is rounded to a whole number.
-- **Rounds and Turn wins.** The glossary and spec C13 say a Round goes to more Turn wins. `TurnFlow.end_round()`'s header comment still says "higher Score of its last Walk"; the code reads `turn_wins`.
+- **Rounds and Turn wins.** The glossary and spec C13 say a Round goes to more Turn wins; the code reads `turn_wins`.
 - **Stalemate** (spec C12) is not in [[rules/rules-v2]]. It ends a Match that can no longer progress, on the Match's summed Walk Scores.
 - **Muted triggers and the budget.** A Muted card's trigger is dropped silently when it comes up, but the pop still counts one against the 50 (the canon says only that every taken trigger counts). After the budget is spent a Muted entry stays silent.
 - **Hand triggers** are public (spec C14); [[rules/rules-v2]] section 8 was amended to say so.
 - **Dross** sits in `cards.json` as a created-only definition (`"created": true`), so the pool file holds 91 entries: 90 cards and Dross. It is never in a Deck.
 - **Void** grants stack per empty draw and end at turn end if no card Scored.
-- **Stale comments.** `statuses.gd` still says some Ongoings that change exit marks come "in milestone B" and `turn_flow.gd` names T-numbers; Wraith is built and read in the exit pass.
+- **Readings where the canon is silent** (spec C15, accepted as built):
+  - **Tithe's cap** of +3 applies per Tithe, per turn end.
+  - **Chooser order.** In Cull the Controller chooses first, in Quorum the first committer; the second chooser sees the first's public picks.
+  - **Fence's "wrap"** is stepping off the ring of non-Anchored slots. On a row with no ring (fewer than two non-Anchored slots) a step changes nothing, so Fence does nothing.
+  - **Skip** moves the card to a random other slot among the non-Anchored slots of its row.
+  - **Fuse** Condemns itself and a random opposing card each time it fires at Power 5 or more, so a Fuse that keeps growing Condemns again.
+  - **Exhume** asks once, "choose up to two" over both Piles (an "up to N" prompt), not once per card.
+- **Stale comments.** `turn_flow.gd` still names T-numbers in places; the code is current.
 
 ## Where to look in the code
 

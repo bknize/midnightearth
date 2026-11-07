@@ -98,21 +98,29 @@ static func is_discard_down(prompt: Dictionary) -> bool:
 
 
 ## Whether Confirm is on with `count` cards selected (R80): the count equals `exact` when the
-## prompt has one; otherwise it is at least `min` and at most the options.
+## prompt has one; otherwise it is at least `min` and at most the options and, for an "up to
+## N" prompt (C15 2a), at most its `max`.
 static func confirm_enabled(prompt: Dictionary, count: int) -> bool:
 	var exact: int = exact_of(prompt)
 	if exact >= 0:
 		return count == exact
 	var raw: Array = prompt.get("options", [])
 	var least: int = Choice.min_of(prompt)
+	var most: int = Choice.max_of(prompt)
+	if most > Choice.NO_MAX and count > most:
+		return false
 	return count >= least and count <= raw.size()
 
 
-## The banner for an open prompt: "Discard N" for the discard-down (R80), else the prompt's
-## own text with a Crew's name in front (banner_text).
+## The banner for an open prompt: "Discard N" for the discard-down (R80), "Choose up to N"
+## for an "up to N" multi-select (Exhume, C15 2a), else the prompt's own text; a Crew's name
+## goes in front (banner_text).
 static func banner_for(prompt: Dictionary, text: String, crew_name: String) -> String:
 	if is_discard_down(prompt):
 		return "Discard %d" % maxi(exact_of(prompt), 0)
+	var most: int = Choice.max_of(prompt)
+	if Choice.is_multi_prompt(prompt) and most >= 0:
+		return banner_text("Choose up to %d" % most, crew_name)
 	return banner_text(text, crew_name)
 
 

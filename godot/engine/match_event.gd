@@ -14,13 +14,16 @@ extends RefCounted
 ## redacted_for() gives each seat its copy (R29): a private CHOICE_MADE hides only its
 ## `target`; every other private event hides its `card` and `cards`, and a private
 ## STATS_CHANGED also shows neutral stats (STATS_HIDDEN), since a hidden card's effective
-## Power, Bonus and Cost would name it through the public deck lists.
+## Power, Bonus and Cost would name it through the public deck lists, and a private
+## EXIT_RESOLVED also blanks `mark` and `instead_of` (EXIT_HIDDEN): the other seat learns
+## only that the face-down card at `seat`/`slot` had an exit, and where it went (`to`).
 ##
 ## Payloads (plan event table; a few kinds carry extra keys, named below, that today's board
 ## still reads):
 ## - MATCH_STARTED {decks, crew}; ROUND_STARTED {round, sudden_death}
 ## - CARD_DEALT, CARD_DRAWN {seat, card}; DRAW_EMPTY {seat}; PILE_SHUFFLED_IN {seat, count}
 ## - TURN_STARTED {round, turn, first_seat, budgets}; ENERGY_GRANTED {seat, amount, source}
+##   (+ `next_turn: true` for a grant that lands next Turn, Tithe)
 ## - COMMITTED {seat, cards, slots, cost, pass} (+ `count`, the card count)
 ## - PROMPT_OPENED the prompt (MatchState.prompt) plus `text`; CHOICE_MADE {seat, card,
 ##   zone, index, target} (+ `indices` for a set answer); CHOICE_DECLINED {seat, card, crew}
@@ -28,15 +31,18 @@ extends RefCounted
 ##   round_end, pile_index}
 ## - WALK_STARTED {first_seat}; CARD_REVEALED {seat, card, slot, power, mult, add,
 ##   statuses}; CARD_SCORED {seat, card, slot, power, bonus_value, total, pass};
-##   WALK_ENDED {totals, scores}
+##   WALK_ENDED {totals, scores, dross} (`dross` the Dross counted in each seat's hand)
 ## - TRIGGER_FIRED {seat, card, crew, moment, verb, resolution}; TRIGGER_FIZZLED {seat,
 ##   card, crew, verb, reason: no_target|exhausted|spent}; both add `from_hand: true` for a
 ##   card firing from its hand
 ## - STATS_CHANGED {card, power, mult, add, cost, permanent, cause}; STATUS_SET {card,
 ##   status, cessation, cause}; STATUS_ENDED {card, status, cause}; EXIT_MARKED {card, mark,
-##   replaced}; EXIT_RESOLVED {card, mark, owner, to: pile|hand|face_down}
+##   replaced}; EXIT_RESOLVED {card, mark, owner, to: pile|hand|face_down, seat, slot}
+##   (+ `instead_of`, the mark an "instead" replaced, Wraith); `seat` is the row's and
+##   `slot` the card's index there before it left
 ## - CARD_MOVED {card, seat, from, to, cause}; CARD_UNREVEALED {seat, card, slot};
-##   CARD_RETURNED {owner, card}; CARD_LOOKED {seat, card, slot, from_seat}
+##   CARD_RETURNED {owner, card, seat, slot} (the row it left, as on its EXIT_RESOLVED);
+##   CARD_LOOKED {seat, card, slot, from_seat}
 ## - CREW_FIRED {seat, crew, slot, moment}
 ## - TURN_ENDED {scores, winner, wins} (+ `round`, `turn`); ROUND_ENDED {winner, wins}
 ##   (+ `round`, `scores`, `turn_wins`); CONCEDED {seat}; MATCH_ENDED {winner, reason, wins,
@@ -44,7 +50,7 @@ extends RefCounted
 ## - Milestone B (DC-14, pinned by the orchestrator before wave 1; all public):
 ##   CARD_CREATED {seat, card, def, owner, to: hand|row, slot} (Litter's Dross into the
 ##   opponent's hand, Twin's copy; `seat` holds it, `slot` -1 for a hand);
-##   CARD_PLACED {seat, card, from: pile, slot} (Revive, Exhume: a Pile card put on a row);
+##   CARD_PLACED {seat, card, from: pile, slot} (Revive: a Pile card put on a row);
 ##   CONTROL_CHANGED {card, owner, controller, from_seat, slot} (Saboteur: the card moves to
 ##   the controller's row at `slot`; the Owner is kept)
 
@@ -102,6 +108,9 @@ const KEY_FROM_HAND: String = "from_hand"
 const STATS_HIDDEN: Dictionary = {
 	"power": 0, "mult": MatchRules.BONUS_ONE, "add": 0, "cost": 0, "permanent": false
 }
+## What the other seat's copy of a private EXIT_RESOLVED (a face-down card's exit) shows in
+## place of its mark (DC-14 T17): a Fade or Fleeting mark would tell what the card was.
+const EXIT_HIDDEN: Dictionary = {"mark": "", "instead_of": ""}
 
 var kind: int = Kind.MATCH_STARTED
 var payload: Dictionary = {}
@@ -137,9 +146,10 @@ func to_dict() -> Dictionary:
 ## The copy of this event that `seat` may see (R29). Public events and the owner's own
 ## private events come back unchanged; for anyone else a private event keeps its kind,
 ## owner and `seat`, and every card id under `card` or `cards` becomes HIDDEN_CARD (the
-## COMMITTED `count` stays); a private STATS_CHANGED also takes STATS_HIDDEN's values for
-## its stats; a private CHOICE_MADE keeps `card` and hides `target`. Always a new object
-## with a deep-copied payload.
+## COMMITTED `count` stays, and so do `seat` and `slot`); a private STATS_CHANGED also takes
+## STATS_HIDDEN's values for its stats and a private EXIT_RESOLVED EXIT_HIDDEN's for its
+## mark; a private CHOICE_MADE keeps `card` and hides `target`. Always a new object with a
+## deep-copied payload.
 func redacted_for(seat: int) -> MatchEvent:
 	var copied: Dictionary = payload.duplicate(true)
 	if is_private() and seat != owner_seat and kind == Kind.CHOICE_MADE:
@@ -157,4 +167,7 @@ func redacted_for(seat: int) -> MatchEvent:
 		if kind == Kind.STATS_CHANGED:
 			# The stats of a hidden card would name it (R58): neutral values.
 			copied.merge(STATS_HIDDEN, true)
+		elif kind == Kind.EXIT_RESOLVED:
+			# A hidden card's mark would name it (a Fade, DC-14 T17): blank; seat, slot stay.
+			copied.merge(EXIT_HIDDEN, true)
 	return MatchEvent.new(kind, copied, owner_seat)

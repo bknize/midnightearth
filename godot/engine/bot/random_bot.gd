@@ -14,12 +14,20 @@ extends BotPlayer
 ## budget, so every set the discount makes affordable has a candidate and none costs more
 ## than the engine accepts.
 ##
+## A hand of more than LegalPlays.ENUMERATE_MAX cards (DC-14 T17: 20 cards with Dross) is not
+## enumerated (2^n masks): large_hand_commit() counts its legal sets over the view's
+## effective costs and the free first card (LegalPlays.set_counts, O(n * budget)), draws one
+## uniformly by rank, commits it costliest first under the free first card (else in hand
+## order) and draws its slots uniformly among every valid placement. Hands of 12 or fewer keep
+## the enumeration above, unchanged.
+##
 ## Prompts (cycle 9 R70, P16), every v2 shape: a multi-select prompt with an `exact` size
 ## (the discard-down, DC-13 T03) gets a uniform set of exactly that many options; an
 ## any-size one keeps each option on a coin flip, redrawn while the set falls short of its
 ## `min` (at most SET_TRIES draws), so each of its subsets of at least `min` is equally
 ## likely; a single-target prompt picks one of its options by pick_index, or the decline as
-## one more equally likely answer when the prompt is optional. Both draw from
+## one more equally likely answer when the prompt is optional. An "up to N" set (a `max`,
+## Exhume, C15 2a) is uniform over every subset of `min` to `max` options. Both draw from
 ## decision_rng(view, PROMPT_TAG, [the prompt's source card]).
 ##
 ## R2: the bot reads only its own SeatView and its seed; it never asks the engine anything.
@@ -33,6 +41,9 @@ const PROMPT_TAG: int = 0x726E61
 ## The coin-flip draws an any-size set gets to reach its `min` before it is topped up from
 ## the front (a `min` above half the options rarely needs more than a few).
 const SET_TRIES: int = 64
+## The largest count one pick_index draw covers (the generator draws 32-bit values); a larger
+## count is drawn from two such draws (draw_below).
+const DRAW_CHUNK: int = 1 << 30
 
 
 func _init(bot_seed: int, cards: MatchCards) -> void:
@@ -51,6 +62,8 @@ func choose(view: SeatView, _engine: MatchEngine) -> EngineAction:
 	var asked: int = view.prompt.get("seat", -1)
 	if open and asked == view.seat:
 		return _answer(view)
+	if view.own_hand.size() > LegalPlays.ENUMERATE_MAX:
+		return large_hand_commit(view, _cards, decision_rng(view, COMMIT_TAG))
 	var listed: Array[EngineAction] = candidates_for(view, _cards)
 	if listed.is_empty():
 		var none: Array[int] = []
@@ -90,6 +103,60 @@ static func candidates_for(view: SeatView, cards: MatchCards) -> Array[EngineAct
 	return out
 
 
+## A uniform legal commit for a hand too large to enumerate (see the class comment): one
+## rank below LegalPlays.count_sets() drawn from `rng`, unranked to a set, then a uniform set
+## of `count` distinct slots in 0 .. row size + count - 1 (ascending, so the set's first card
+## takes the leftmost). Bounded by the hand size times the budget.
+static func large_hand_commit(view: SeatView, cards: MatchCards, rng: MatchRng) -> EngineAction:
+	var costs: Array[int] = hand_costs(view, cards)
+	var order: Array[int] = LegalPlays.lead_order(costs)
+	var budget: int = mini(view.energy, LegalPlays.priced_total(costs))
+	var table: Array[int] = LegalPlays.set_counts(costs, order, budget)
+	var count: int = LegalPlays.count_sets(order, table, budget, view.free_first)
+	var rank: int = draw_below(rng, count)
+	var at_hand: Array[int] = LegalPlays.unrank_set(
+		costs, order, table, budget, view.free_first, rank
+	)
+	var picked: Array[int] = []
+	var none: Array[int] = []
+	if at_hand.is_empty():
+		return EngineAction.commit(view.seat, picked, none)
+	var rest: Array[int] = []
+	rest.assign(at_hand)
+	if view.free_first:
+		picked.append(view.own_hand[rest[0]])
+		rest.remove_at(0)
+	rest.sort()
+	for index: int in rest:
+		picked.append(view.own_hand[index])
+	var slots: Array[int] = uniform_slots(view.own_board.size(), picked.size(), rng)
+	return EngineAction.commit(view.seat, picked, slots)
+
+
+## `count` distinct slots of 0 .. row_size + count - 1, uniform over every such set (a
+## partial Fisher-Yates), ascending.
+static func uniform_slots(row_size: int, count: int, rng: MatchRng) -> Array[int]:
+	var pool: Array[int] = LegalPlays.append_slots(0, row_size + count)
+	var out: Array[int] = []
+	for _pick: int in range(mini(count, pool.size())):
+		var at: int = rng.pick_index(pool.size())
+		out.append(pool[at])
+		pool.remove_at(at)
+	out.sort()
+	return out
+
+
+## A value in 0 .. count - 1 from `rng` (0 when count < 1): uniform from one pick_index up
+## to DRAW_CHUNK; above it (a hand of more than 30 priced cards) two draws combined and
+## reduced modulo `count`, near enough uniform.
+static func draw_below(rng: MatchRng, count: int) -> int:
+	if count <= DRAW_CHUNK:
+		return rng.pick_index(count)
+	var high: int = rng.pick_index(DRAW_CHUNK)
+	var low: int = rng.pick_index(DRAW_CHUNK)
+	return (high * DRAW_CHUNK + low) % count
+
+
 ## The costs of `view.own_hand`, parallel to it: the view's effective `own_hand_costs` when
 ## it carries one per hand card, else each card's definition cost over `cards`. With no
 ## usable `cards` every card is unpriced (-1), so the only candidate is the empty set.
@@ -110,11 +177,16 @@ static func hand_costs(view: SeatView, cards: MatchCards) -> Array[int]:
 ## more, a uniform set of exactly that many (a partial Fisher-Yates over a copy, each draw
 ## one pick_index); with Choice.ANY_SIZE, each option kept on a coin flip, redrawn until
 ## the set holds at least `min_count` (rejection, so every such subset is equally likely);
-## after SET_TRIES short draws the last one is topped up from the front to `min_count`.
+## after SET_TRIES short draws the last one is topped up from the front to `min_count`. With
+## a `max_count` of 0 or more ("up to N", C15 2a) and no `exact`, a size from `min_count` to
+## `max_count` is drawn weighted by how many sets have it, then a uniform set of that size, so
+## every such set is equally likely (bounded_set()).
 static func set_answer(
-	options: Array[int], exact: int, min_count: int, rng: MatchRng
+	options: Array[int], exact: int, min_count: int, rng: MatchRng, max_count: int = Choice.NO_MAX
 ) -> Array[int]:
 	var kept: Array[int] = []
+	if exact < 0 and max_count >= 0:
+		return bounded_set(options, min_count, max_count, rng)
 	if exact >= 0:
 		var pool: Array[int] = []
 		pool.assign(options)
@@ -137,6 +209,43 @@ static func set_answer(
 			break
 		if not kept.has(option):
 			kept.append(option)
+	kept.sort()
+	return kept
+
+
+## A uniform set of `options` of `min_count` to `max_count` cards (clamped to the options),
+## ascending: the size k drawn with weight C(n, k), then k options by partial Fisher-Yates.
+static func bounded_set(
+	options: Array[int], min_count: int, max_count: int, rng: MatchRng
+) -> Array[int]:
+	var n: int = options.size()
+	var low: int = clampi(min_count, 0, n)
+	var high: int = clampi(max_count, low, n)
+	var weights: Array[int] = []
+	var total: int = 0
+	var ways: int = 1
+	for size: int in range(high + 1):
+		if size > 0:
+			@warning_ignore("integer_division")
+			var grown: int = ways * (n - size + 1) / size
+			ways = grown
+		if size >= low:
+			weights.append(ways)
+			total += ways
+	var roll: int = draw_below(rng, total)
+	var size_drawn: int = low
+	for weight: int in weights:
+		if roll < weight:
+			break
+		roll -= weight
+		size_drawn += 1
+	var pool: Array[int] = []
+	pool.assign(options)
+	var kept: Array[int] = []
+	for _pick: int in range(mini(size_drawn, pool.size())):
+		var at: int = rng.pick_index(pool.size())
+		kept.append(pool[at])
+		pool.remove_at(at)
 	kept.sort()
 	return kept
 
@@ -178,7 +287,8 @@ static func _add_ends(
 
 ## A uniform answer to the prompt open for `view.seat`: for a multi-select, a uniform set of
 ## exactly its `exact` options (the discard-down's excess, R70) or, with no `exact`, a
-## uniform subset of at least its `min` (ascending position, set_answer()); else one
+## uniform subset of at least its `min` and at most its `max` when it has one (ascending
+## position, set_answer()); else one
 ## uniform option, the decline counted as one more when the prompt is optional (-1 with
 ## nothing offered and no decline).
 func _answer(view: SeatView) -> EngineAction:
@@ -189,7 +299,11 @@ func _answer(view: SeatView) -> EngineAction:
 	var rng: MatchRng = decision_rng(view, PROMPT_TAG, extra)
 	if Choice.is_multi_prompt(view.prompt):
 		var kept: Array[int] = set_answer(
-			options, Choice.exact_of(view.prompt), Choice.min_of(view.prompt), rng
+			options,
+			Choice.exact_of(view.prompt),
+			Choice.min_of(view.prompt),
+			rng,
+			Choice.max_of(view.prompt)
 		)
 		return EngineAction.choose_set(view.seat, zone, kept)
 	var answers: int = options.size()
