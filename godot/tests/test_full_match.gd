@@ -41,16 +41,20 @@ extends FullMatchHarness
 # bot=tuned winner=0 wins=4-0 rounds=4 end=wins actions=74".
 # Emptied at DC-13 T01 (cycle 9 R70: only the random bot is left); while empty the golden
 # case is skipped and the orchestrator re-pins it from its print.
-# Re-pinned at DC-13 T11 (rules 7, greed/ramp, the random bot, C12 to C14).
+# Re-pinned at DC-13 T11 (rules 7, greed/ramp, the random bot, C12 to C14): "seed=1
+# decks=greed/greed bot=random winner=0 wins=3-1 rounds=7 end=rounds actions=121".
+# Emptied at DC-14 T14: six decks change seed 1's seeded pairing (and Crew B fire); the
+# orchestrator re-pins it at DC-14 T18 from the Golden print.
+# Re-pinned at DC-14 T18 (six decks, 90 cards, ten Crew, C15).
 const GOLDEN: String = (
-	"seed=1 decks=greed/greed bot=random winner=0 wins=3-1 rounds=7 end=rounds actions=121"
+	"seed=1 decks=combo/graveyard bot=random winner=1 wins=3-4 rounds=7 end=wins actions=265"
 )
 # END GOLDEN
 
 const SEED: int = 1
 ## The seeds 1..TEN_SEEDS of the gate's multi-seed case (DC-13 T03).
 const TEN_SEEDS: int = 10
-const GOLDEN_SKIP_NOTE: String = "GOLDEN is empty (DC-13 T01): pin it from the Golden print"
+const GOLDEN_SKIP_NOTE: String = "GOLDEN is empty (DC-14 T14): pin it from the Golden print"
 const REASONS: Array[String] = [
 	MatchEngine.REASON_WINS,
 	MatchEngine.REASON_ROUNDS,

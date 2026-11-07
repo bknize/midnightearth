@@ -1,7 +1,7 @@
 ---
 type: reference
 tags: [reference, rules-v2, crew-v2]
-status: seedling
+status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]"]
 created: 2026-11-06
 updated: 2026-11-06
@@ -12,10 +12,10 @@ supersedes:
 
 # Crew (ruleset v2)
 
-This note is design for ruleset v2, not yet built. It lists the ten Crew. The eight Crew
-that run today (rules version 6) are described in [[systems/cards-crew-decks]]; the nine
-Crew Ben sketched for v2 are in the "Crew" section of [[cards/Cards]], and this note adds a
-tenth. The requirements are R55 to R58 of [[specs/ruleset-v2/spec]]. Every word below is
+The rules in this note are built since DC-14 (rules version 7); the DC-13 and DC-14 rows of
+[[planning/cycles]] record how and the readings made on the way. It lists the ten Crew, as
+built in [[systems/cards-crew-decks]]. The nine Crew Ben sketched for v2 are in the "Crew"
+section of [[cards/Cards]], and this note added a tenth. The requirements are R55 to R58 of [[specs/ruleset-v2/spec]]. Every word below is
 defined in [[rules/glossary]]; the rules a Crew relies on (Hand size, Budget, the Pile, the
 exit marks) are in [[rules/rules-v2]], and the order Crew fire in is in
 [[rules/resolution]].

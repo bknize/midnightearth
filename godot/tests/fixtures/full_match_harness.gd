@@ -12,14 +12,33 @@ extends GdUnitTestSuite
 ## card with no id, stats or Memory, and name a looked-at card only in its own seat's
 ## `looked`. Hands are bounded by the Hand size plus the Turn's draw (the discard-down).
 
-## The shipped decks (cycle 9 R61, milestone A); the sweep's pairings are every "a/b" of them.
-const DECKS: Array[String] = ["greed", "ramp"]
+## The shipped decks (cycle 9 R61; milestone B's four since DC-14 T14), in file order; the
+## sweep's pairings are "a/b" of them.
+const DECKS: Array[String] = ["greed", "ramp", "combo", "disruption", "graveyard", "control"]
 const MAX_ACTIONS: int = 2000
-## The largest hand a seat can hold under rules 7 with the milestone A decks: its Hand size
-## (no Pantry in Greed or Ramp) after the discard-down, plus the Turn's draw, plus the
-## effect draws of one Walk (DC-13 T06): up to four of its own Couriers on its row and four
-## of the opponent's Bounties on theirs, each Scoring once a Walk.
-const HAND_BOUND: int = MatchRules.HAND_SIZE + 1 + 2 * MatchRules.MAX_COPIES
+## Quartermaster's Hand size (rules/crew-v2), the largest any shipped deck sets: no deck
+## lists Pantry, so no "+N" adds to it.
+const SET_HAND_SIZE: int = 7
+## Dross one Litter creates in the opposing hand (rules/cards-v2, DC-14 T12).
+const LITTER_DROSS: int = 3
+## The largest hand a seat can hold under rules 7 with the six decks, between two of its
+## discard-downs (DC-14 T14 raised it: Litter puts Dross into the opposing hand, Twin
+## copies itself into its own, Fleeting returns cards from the row, and Reprise makes every
+## card Score twice): its Hand size after the discard-down (Quartermaster's 7), plus the
+## Turn's draw, plus one Walk's effect draws with every card Scoring twice (four Couriers
+## or Wicks of its own and four of the opponent's Bounties: 2 × 2 × MAX_COPIES), the Dross
+## of four opposing Litters, four Twins' copies with Encore's retrigger (2 × MAX_COPIES) and
+## the returns of a Fleeting row at turn end (Reverb, Reprieve, Veil: 2 × MAX_COPIES).
+## Salvager's Discard-then-draw adds nothing. A sanity bound against a runaway, not a tight
+## one.
+const HAND_BOUND: int = (
+	SET_HAND_SIZE
+	+ 1
+	+ 4 * MatchRules.MAX_COPIES
+	+ LITTER_DROSS * MatchRules.MAX_COPIES
+	+ 2 * MatchRules.MAX_COPIES
+	+ 2 * MatchRules.MAX_COPIES
+)
 
 var _cached_db: CardDb = null
 var _cached_decks: DeckList = null
@@ -27,7 +46,7 @@ var _cached_decks: DeckList = null
 # --- Helpers --------------------------------------------------------------------------
 
 
-## The shipped pool (the 30 evergreen, 10 Greed and 10 Ramp cards).
+## The shipped pool (the 90 Deck cards and the created-only Dross).
 func _db() -> CardDb:
 	if _cached_db == null:
 		_cached_db = CardDb.load_default()
@@ -50,6 +69,12 @@ func _seeded() -> Array[String]:
 ## A match on `match_seed` under its seeded pairing (not started).
 func _new_engine(match_seed: int) -> MatchEngine:
 	return MatchEngine.create(match_seed, _db(), _decks(), _seeded(), CrewPool.load_default())
+
+
+## A match on `match_seed` with the named shipped decks `deck_ids`, seat 0's first (not
+## started): the sweep's fixed pairings (DC-14 T14).
+func _named_engine(match_seed: int, deck_ids: Array[String]) -> MatchEngine:
+	return MatchEngine.create(match_seed, _db(), _decks(), deck_ids, CrewPool.load_default())
 
 
 ## The pairing of a match as "a/b" (seat 0's deck, then seat 1's).
@@ -87,14 +112,7 @@ func _state_int(state: Dictionary, key: String) -> int:
 ## Turn that ability names, plus its Memory's `cost_delta` (the full state's "memory"),
 ## never below MatchRules.MIN_COST. An unknown id costs more than any Budget.
 func _card_cost(deck_ids: Array[String], card: int, state: Dictionary) -> int:
-	var origin: int = card / MatchRules.DECK_SIZE
-	if card < 0 or origin >= deck_ids.size():
-		return MAX_ACTIONS
-	var listed: Array[String] = _decks().card_ids(deck_ids[origin])
-	var index: int = card % MatchRules.DECK_SIZE
-	if index >= listed.size():
-		return MAX_ACTIONS
-	var def: CardDef = _db().card_by_id(listed[index])
+	var def: CardDef = _def_of(deck_ids, card, state)
 	if def == null:
 		return MAX_ACTIONS
 	var cost: int = def.cost
@@ -106,6 +124,25 @@ func _card_cost(deck_ids: Array[String], card: int, state: Dictionary) -> int:
 	var kept: Dictionary = memory.get(card, {})
 	var delta: int = kept.get("cost_delta", 0)
 	return maxi(cost + delta, MatchRules.MIN_COST)
+
+
+## The definition of one card instance of a match on `deck_ids`: a Deck card's from the
+## pool and the list (id = Owner * DECK_SIZE + index), a created card's (DC-14 T12) from the
+## full state's `created` {def, owner}; null when unknown.
+func _def_of(deck_ids: Array[String], card: int, state: Dictionary) -> CardDef:
+	if card >= MatchCards.CREATED_BASE:
+		var created: Dictionary = state.get("created", {})
+		var made: Dictionary = created.get(card, {})
+		var def_id: String = made.get("def", "")
+		return _db().card_by_id(def_id)
+	var origin: int = card / MatchRules.DECK_SIZE
+	if card < 0 or origin >= deck_ids.size():
+		return null
+	var listed: Array[String] = _decks().card_ids(deck_ids[origin])
+	var index: int = card % MatchRules.DECK_SIZE
+	if index >= listed.size():
+		return null
+	return _db().card_by_id(listed[index])
 
 
 ## The summed Cost of a Commit whose cards are in slot order, less the leftmost card's when
@@ -226,10 +263,17 @@ func _new_bots(match_seed: int, engine: MatchEngine) -> Array[BotPlayer]:
 
 ## Plays `match_seed` bot against bot to the end or the cap, checking every invariant at
 ## every step. `scan_every_step` false leak-scans only the start and turn-ending steps.
-func _play(match_seed: int, scan_every_step: bool) -> FullMatchRun:
+## `deck_ids` names both seats' decks; empty plays the seed's own pairing (_new_engine()).
+func _play(
+	match_seed: int, scan_every_step: bool, deck_ids: Array[String] = []
+) -> FullMatchRun:
 	var run: FullMatchRun = FullMatchRun.new()
 	run.match_seed = match_seed
-	var engine: MatchEngine = _new_engine(match_seed)
+	var engine: MatchEngine = null
+	if deck_ids.is_empty():
+		engine = _new_engine(match_seed)
+	else:
+		engine = _named_engine(match_seed, deck_ids)
 	run.engine = engine
 	run.pairing = _pairing(engine)
 	var before: Dictionary = engine.full_state()
@@ -358,9 +402,10 @@ func _check_step(
 ## no id that was hidden from it before or after the step, less a card named while it was
 ## public within the step, in event order (_public_windows: face up on a row or in a Pile at
 ## the step's start, from its CARD_REVEALED, its public exit to a Pile, its CARD_DISCARDED or
-## its public hand trigger (C14) on, until a Pile shuffle puts it back into a Deck or it
-## flips face down). An event naming a card before the card became public is a leak, even
-## when the card is public by the step's end (DC-13 T10 review, Ben 2a).
+## its public hand trigger (C14) on, until a Pile shuffle puts it back into a Deck or, after
+## its CARD_UNREVEALED, it lies face down). An event naming a card before the card became
+## public is a leak, even when the card is public by the step's end (DC-13 T10 review, Ben
+## 2a).
 func _scan_leaks(
 	run: FullMatchRun, before: Dictionary, after: Dictionary, result: ApplyResult
 ) -> void:
@@ -418,8 +463,10 @@ func _scan_leaks(
 ## card face up on a row or in a Pile in `before`; otherwise from the event that made it
 ## public: its CARD_REVEALED, its EXIT_RESOLVED to a Pile, its CARD_DISCARDED, or a
 ## TRIGGER_FIRED / TRIGGER_FIZZLED of it firing from its hand (`from_hand`, C14); until the
-## PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`) or
-## its CARD_UNREVEALED.
+## PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`), or
+## the event after its CARD_UNREVEALED: the un-reveal may name the card it flips (Shade,
+## Fade; DC-14 T14), but a later event of the step may not unless another window opens
+## (DC-14 T17).
 func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult) -> PublicWindows:
 	var out: PublicWindows = PublicWindows.new()
 	for seat: int in range(MatchEngine.SEATS):
@@ -432,8 +479,11 @@ func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult)
 			for card: int in FullMatchRun.event_card_ids(event):
 				out.open(card, at)
 		elif event.kind == MatchEvent.Kind.CARD_UNREVEALED:
-			for card: int in FullMatchRun.event_card_ids(event):
-				out.close(card, at)
+			# The un-reveal itself names the card it flips (its id was just seen face up);
+			# from the next event on it is a face-down card again (DC-14 T17).
+			var flipped: int = event.payload.get(MatchEvent.KEY_CARD, MatchEvent.HIDDEN_CARD)
+			if flipped >= 0:
+				out.close(flipped, at + 1)
 		elif event.kind == MatchEvent.Kind.PILE_SHUFFLED_IN:
 			var seat: int = event.payload.get("seat", -1)
 			if seat < 0 or seat >= MatchEngine.SEATS:
@@ -447,6 +497,10 @@ func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult)
 func _opens_window(event: MatchEvent) -> bool:
 	match event.kind:
 		MatchEvent.Kind.CARD_REVEALED, MatchEvent.Kind.CARD_DISCARDED:
+			return not event.is_private()
+		MatchEvent.Kind.CARD_CREATED:
+			# A creation is public (DC-14 T12): the new card is named once, then it is the
+			# holding seat's hidden hand card like any other.
 			return not event.is_private()
 		MatchEvent.Kind.EXIT_RESOLVED:
 			var to: String = event.payload.get("to", "")

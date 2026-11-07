@@ -9,11 +9,10 @@ extends RefCounted
 ##  "scope": "match", "text": "On score: ..."}
 ## with the optional keys `amount_2`, `scope` (SCOPES), `watch` (WATCHES, default "self"),
 ## `zone` (ZONES, default "row"), `cap` and `uses` (a whole number >= 0, 0 unlimited).
-## Moments and verbs are kept by name: VERBS is the table of the milestone A verbs, each
-## with the moments it may sit on and the inclusive range of each amount it takes (a verb
-## that takes no amount allows only 0, which an absent key is). Milestone B adds its verbs
-## to VERBS with their tasks. The behaviour of a verb is Abilities' (DC-13 T06); a loaded
-## ability is data only.
+## Moments and verbs are kept by name: VERBS is the table of every card verb (milestones A
+## and B), each with the moments it may sit on and the inclusive range of each amount it
+## takes (a verb that takes no amount allows only 0, which an absent key is). The behaviour
+## of a verb is Abilities' (DC-13 T06); a loaded ability is data only.
 
 const KEY_MOMENT: String = "moment"
 const KEY_VERB: String = "verb"
@@ -50,7 +49,8 @@ const ZONES: Array[String] = ["row", "hand"]
 ## The cessation of a change the ability makes (plan P3, canon R29); "" when absent.
 const SCOPES: Array[String] = ["turn", "row", "match"]
 
-## The milestone A verb table (plan P3, "Milestone A verb table"): verb name to
+## The card verb table (plan P3, "Milestone A verb table", and the milestone B verbs of
+## DC-14): verb name to
 ## {moments: the moments it may sit on, and for each amount it takes (`amount`, `amount_2`,
 ## `cap`) an inclusive [low, high] range}. A key without a range must be 0 (or absent).
 ## Amounts are in canon units: Power and Energy whole, a Mult growth step and a cap in
@@ -84,6 +84,49 @@ const VERBS: Dictionary[String, Dictionary] = {
 	"cost_on_turn": {"moments": ["ongoing"], KEY_AMOUNT: [0, 7], KEY_AMOUNT_2: [1, 7]},
 	"pass_power_add": {"moments": ["on_commit"], KEY_AMOUNT: [1, 5], KEY_AMOUNT_2: [25, 100]},
 	"free_first_next_turn": {"moments": ["on_reveal"]},
+	# Milestone B, Combo and Disruption (DC-14 T12, AbilitiesComboDisruption).
+	"wick": {"moments": ["on_score"], KEY_AMOUNT: [1, 3]},
+	"fade_other_own": {"moments": ["on_reveal"]},
+	"fleeting_chosen": {"moments": ["on_reveal"]},
+	"scrap": {"moments": ["on_reveal"], KEY_AMOUNT: [25, 100], KEY_CAP: [25, 300]},
+	"copy_self_to_hand": {"moments": ["on_reveal"]},
+	"scores_twice": {"moments": ["on_commit"]},
+	"retrigger_reveals": {"moments": ["on_reveal"]},
+	"reverb": {"moments": ["on_reveal"], KEY_AMOUNT: [1, 5]},
+	"finale": {"moments": ["on_reveal"], KEY_AMOUNT: [1, 5]},
+	"mute_opposing": {"moments": ["on_reveal"]},
+	"squelch_opposing": {"moments": ["on_reveal"]},
+	"create_dross": {"moments": ["on_reveal"], KEY_AMOUNT: [1, 5]},
+	"move_to_opposing": {"moments": ["on_reveal"]},
+	"hex_choose": {"moments": ["on_reveal"]},
+	"mute_chosen": {"moments": ["on_start"]},
+	"mute_random_opposing": {"moments": ["on_score"]},
+	"stasis": {"moments": ["ongoing"]},
+	"gag": {"moments": ["on_commit"]},
+	"quorum": {"moments": ["on_start"], KEY_AMOUNT: [1, 5]},
+	"silence_opposing": {"moments": ["on_reveal"]},
+	"dross_walk_end": {"moments": ["ongoing"], KEY_AMOUNT: [1, 99]},
+	# Graveyard and Control (DC-14 T13, AbilitiesGraveyardControl).
+	"fuse": {"moments": ["on_score"], KEY_AMOUNT: [1, 3], KEY_AMOUNT_2: [1, 10]},
+	"tithe_energy": {"moments": ["on_discard"], KEY_AMOUNT: [1, 3], KEY_CAP: [1, 5]},
+	"reliquary_mult": {"moments": ["on_discard"], KEY_AMOUNT: [101, 200], KEY_CAP: [125, 300]},
+	"pile_power": {"moments": ["ongoing"], KEY_AMOUNT: [1, 3], KEY_AMOUNT_2: [1, 10]},
+	"wraith_fade": {"moments": ["ongoing"]},
+	"condemn_other_gain": {"moments": ["on_reveal"]},
+	"revive": {"moments": ["on_reveal"]},
+	"exhume": {"moments": ["on_reveal"], KEY_AMOUNT: [1, 3]},
+	"immolate": {"moments": ["on_reveal"]},
+	"reset_piles": {"moments": ["on_reveal"]},
+	"moved_add": {"moments": ["on_moved"], KEY_AMOUNT: [25, 100]},
+	"pin": {"moments": ["on_reveal"]},
+	"swap_self": {"moments": ["on_reveal"]},
+	"skip_next": {"moments": ["on_reveal"]},
+	"fence": {"moments": ["ongoing"]},
+	"rightmost_mult": {"moments": ["ongoing"], KEY_AMOUNT: [125, 200]},
+	"level_power": {"moments": ["ongoing"]},
+	"shake": {"moments": ["on_reveal"]},
+	"reverse_opposing": {"moments": ["on_reveal"]},
+	"cull": {"moments": ["on_reveal"], KEY_AMOUNT: [1, 7]},
 }
 ## The verb whose card may carry a printed Cost above MatchRules.MAX_PRINTED_COST (R12).
 const COST_EXCEPTION_VERB: String = "cost_on_turn"

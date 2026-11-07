@@ -25,7 +25,8 @@ extends RefCounted
 ## (score_stage(): twice under Scores twice, then the D8 drain). Each pulse starts a new
 ## trigger budget (`walk.resolutions`, Q4); a drain paused on a prompt returns true from
 ## step() and the engine resumes it (TriggerQueue.answer, then resume_pulse() after a D7).
-## Integer only, so every platform agrees.
+## Integer only, so every platform agrees. reveal() records each reveal in
+## `walk.revealed_this_turn` (Finale, DC-14 T12).
 ##
 ## Events go to `sink` as sink.call(kind, payload) for the Walk's own public events and
 ## sink.call(kind, payload, owner) for an ability's events. A Walk with no valid sink emits
@@ -52,6 +53,9 @@ static func begin(state: MatchState) -> void:
 	walk.scored.clear()
 	walk.scored_count[0] = 0
 	walk.scored_count[1] = 0
+	walk.hook_pending = 0
+	walk.hook_card = -1
+	walk.hook_moves = 0
 
 
 ## The next slot to pulse as (seat, slot), or (-1, -1) when the Walk is over or neither
@@ -85,7 +89,7 @@ static func step(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Call
 	var walk: MatchState.WalkState = state.walk
 	var at: Vector2i = next_slot(state)
 	if at.x < 0:
-		finish(state, sink)
+		finish(state, sink, cards)
 		return false
 	var seat: int = at.x
 	# The slot is passed before anything the pulse fires resolves.
@@ -122,16 +126,20 @@ static func score_slot(
 			return true
 	if scores_now(state, seat, card):
 		return score_stage(state, cards, rng, sink, seat, card)
+	if not state.queue.is_empty():
+		# A reveal-stage hook's On moved Batch still drains in D8 (Skip, DC-14 T13).
+		return TriggerQueue.drain(state, cards, rng, sink, STEP_SCORE)
 	return false
 
 
-## Resumes the pulse whose D7 drain paused on a prompt, once that drain has finished: its
-## score stage (score_slot() on `walk.pulse_seat`, `walk.pulse_slot`). True when it paused
-## again.
+## Resumes the pulse whose D7 drain paused on a prompt, once that drain has finished: the
+## reveal-stage hook (Skip, AbilitiesGraveyardControl.skip_hook), then its score stage
+## (score_slot() on `walk.pulse_seat`, `walk.pulse_slot`). True when it paused again.
 static func resume_pulse(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable
 ) -> bool:
 	var walk: MatchState.WalkState = state.walk
+	AbilitiesGraveyardControl.skip_hook(state, cards, rng, sink)
 	return score_slot(state, cards, rng, sink, walk.pulse_seat, walk.pulse_slot)
 
 
@@ -143,17 +151,23 @@ static func run(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Calla
 	return false
 
 
-## Ends the Walk (R27): each seat's Score is its walking total rounded once, then
-## WALK_ENDED {totals, scores}.
-static func finish(state: MatchState, sink: Callable) -> void:
+## Ends the Walk (R27): at Walk end, before rounding, each seat's walking total takes its
+## hand's Dross multiplies (AbilitiesComboDisruption.walk_end_total, DC-14 T12; none without
+## `cards`), then each seat's Score is its walking total rounded once, then WALK_ENDED
+## {totals, scores, dross} (`dross` the Dross counted per seat).
+static func finish(state: MatchState, sink: Callable, cards: MatchCards = null) -> void:
 	state.walk.active = false
+	var dross: Array[int] = [0, 0]
 	for seat: int in range(state.totals.size()):
+		dross[seat] = AbilitiesComboDisruption.dross_in_hand(state, cards, seat)
+		state.totals[seat] = AbilitiesComboDisruption.walk_end_total(state, cards, seat)
 		state.scores[seat] = Scoring.walk_score(state.totals[seat])
 		state.match_scores[seat] += state.scores[seat]
 	if sink.is_valid():
 		var ended: Dictionary = {
 			"totals": MatchState.plain(state.totals),
 			"scores": MatchState.plain(state.scores),
+			"dross": MatchState.plain(dross),
 		}
 		sink.call(MatchEvent.Kind.WALK_ENDED, ended)
 
@@ -166,6 +180,7 @@ static func reveal(
 ) -> void:
 	var piles: MatchState.SeatPiles = state.seats[seat]
 	piles.revealed[card] = true
+	state.walk.revealed_this_turn[card] = true
 	for watcher: MatchState.SeatPiles in state.seats:
 		if watcher.looked.erase(card):
 			pass  # A revealed card is public: no seat needs to remember it.
@@ -186,14 +201,19 @@ static func reveal(
 
 ## The reveal stage's abilities (DC-13 T05): `card`'s On reveal wakes a Batch
 ## (TriggerQueue.wake) and the queue drains (D7) on the pulse's budget; true when the drain
-## paused on a prompt.
+## paused on a prompt. DC-14 T13: a waiting Skip arms on `card` as it is revealed and its
+## move runs once D7 has drained (the reveal-stage hook; resume_pulse() after a pause).
 static func reveal_stage(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, _seat: int, card: int
 ) -> bool:
+	AbilitiesGraveyardControl.arm_skip(state, card)
 	var subjects: Array[int] = [card]
 	if TriggerQueue.wake(state, cards, MOMENT_REVEAL, subjects).is_empty():
 		pass  # Nothing watches this reveal: the drain is empty.
-	return TriggerQueue.drain(state, cards, rng, sink, STEP_REVEAL)
+	if TriggerQueue.drain(state, cards, rng, sink, STEP_REVEAL):
+		return true
+	AbilitiesGraveyardControl.skip_hook(state, cards, rng, sink)
+	return false
 
 
 ## Whether `card` on `seat`'s row Scores this pulse (R33): it is revealed and not Squelched

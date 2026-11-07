@@ -87,6 +87,15 @@ var queue: TriggerQueue = TriggerQueue.new()
 ## Per seat, the Void grants its next Scoring card will take (DC-13 T07, plan P13): a count
 ## that stacks, spent when that card Scores and cleared at turn end (CrewAbilities). Public.
 var void_grants: Array[int] = [0, 0]
+## Created cards (DC-14 T12, plan P6): instance id to {def: its pool id, owner: its Owner's
+## seat}; MatchCards.record_created holds the same, so def_of() and origin_of() answer.
+var created: Dictionary[int, Dictionary] = {}
+## The id the next created card takes: MatchCards.CREATED_BASE first, then up by one.
+var next_created_id: int = MatchCards.CREATED_BASE
+## Chosen cards kept by the card that chose them (Hex, DC-14 T12; glossary "chosen card"):
+## source to chosen card. An entry ends when either card leaves its row or is Un-revealed
+## (clear_card_state()).
+var chosen: Dictionary[int, int] = {}
 
 
 func _init(p_match_seed: int = 0) -> void:
@@ -147,6 +156,9 @@ func to_dict() -> Dictionary:
 		"seat_protections": _seat_protections_list(),
 		"queue": queue.to_dict(),
 		"void_grants": plain(void_grants),
+		"created": _created_dict(),
+		"next_created_id": next_created_id,
+		"chosen": _chosen_dict(),
 	}
 
 
@@ -189,6 +201,11 @@ func duplicate() -> MatchState:
 	out.seat_protections.assign(_seat_protections_list())
 	out.queue = queue.copy()
 	out.void_grants.assign(void_grants)
+	for card: int in created:
+		var made: Dictionary = created[card]
+		out.created[card] = made.duplicate(true)
+	out.next_created_id = next_created_id
+	out.chosen.assign(chosen)
 	return out
 
 
@@ -235,8 +252,15 @@ func reset_crew_uses(cards: MatchCards) -> void:
 		crew_uses[seat] = out
 
 
-## Drops `card`'s Board changes: call whenever the card leaves its row. True when it had any.
+## Drops `card`'s Board changes: call whenever the card leaves its row (or is Un-revealed).
+## Every kept choice it made or was the target of ends with them (`chosen`). True when it
+## had Board changes.
 func clear_card_state(card: int) -> bool:
+	if chosen.erase(card):
+		pass  # Its own choice ends (Hex leaves its row).
+	for source: int in chosen.keys():
+		if chosen[source] == card and chosen.erase(source):
+			pass  # The chosen card left its row: the choice ends.
 	return card_states.erase(card)
 
 
@@ -275,6 +299,23 @@ func _card_states_dict() -> Dictionary:
 	for card: int in card_states:
 		var changes: CardState = card_states[card]
 		out[card] = changes.to_dict()
+	return out
+
+
+## The kept choices as a plain dictionary, source to chosen card.
+func _chosen_dict() -> Dictionary:
+	var out: Dictionary = {}
+	for source: int in chosen:
+		out[source] = chosen[source]
+	return out
+
+
+## The created cards as plain data, keyed by instance id.
+func _created_dict() -> Dictionary:
+	var out: Dictionary = {}
+	for card: int in created:
+		var made: Dictionary = created[card]
+		out[card] = made.duplicate(true)
 	return out
 
 
@@ -366,7 +407,7 @@ class SeatPiles:
 
 
 ## Per-seat Energy, each pair indexed by seat (R6, R7). The Budget is turn + `grants` (plus
-## any Crew bonus, TurnFlow.budget); nothing carries. `next_turn_grants` (milestone B, Tithe)
+## any Crew bonus, TurnFlow.budget); nothing carries. `next_turn_grants` (Tithe)
 ## move into `grants` when a Turn ends; a true `free_first` makes the leftmost card of that
 ## seat's next Commit cost 0 and is consumed by that Commit or the next turn end (Lantern);
 ## `spent` is what the seat's Commit this Turn cost. `free_first_next` (DC-13 T06) is a
@@ -415,7 +456,10 @@ class EnergyState:
 ## its score stage); `scores_twice` (Q7) runs the score stage of every later pulse twice
 ## (`pulse_twice` is its value when the pulse in progress started), and
 ## `retrigger_on_reveal[seat]` lists the cards whose retrigger applies to that seat's other
-## On reveals (Q6); both last the Turn (TurnFlow clears them at turn end).
+## On reveals (Q6); both last the Turn (TurnFlow clears them at turn end). DC-14 T13, the
+## reveal-stage hook (Skip): `hook_pending` counts the Skips waiting for the next reveal;
+## that reveal arms `hook_card` with `hook_moves` moves, made after its D7
+## (AbilitiesGraveyardControl.arm_skip, skip_hook); ScoreWalk.begin clears all three.
 class WalkState:
 	extends RefCounted
 
@@ -430,6 +474,12 @@ class WalkState:
 	var scores_twice: bool = false
 	var pulse_twice: bool = false
 	var retrigger_on_reveal: Array[Array] = [[], []]
+	## The cards revealed this Turn (Finale reads them, DC-14 T12), by instance id.
+	var revealed_this_turn: Dictionary[int, bool] = {}
+	var hook_pending: int = 0
+	## -1 when no reveal is armed.
+	var hook_card: int = -1
+	var hook_moves: int = 0
 
 	## The ids of the cards Scored this Walk, ascending.
 	func scored_ids() -> Array[int]:
@@ -451,6 +501,10 @@ class WalkState:
 		out.scores_twice = scores_twice
 		out.pulse_twice = pulse_twice
 		out.retrigger_on_reveal.assign(_retriggers())
+		out.revealed_this_turn.assign(revealed_this_turn)
+		out.hook_pending = hook_pending
+		out.hook_card = hook_card
+		out.hook_moves = hook_moves
 		return out
 
 	func to_dict() -> Dictionary:
@@ -466,13 +520,27 @@ class WalkState:
 			"scores_twice": scores_twice,
 			"pulse_twice": pulse_twice,
 			"retrigger_on_reveal": _retriggers(),
+			"revealed_this_turn": _revealed_ids(),
+			"hook_pending": hook_pending,
+			"hook_card": hook_card,
+			"hook_moves": hook_moves,
 		}
 
-	## Clears the Turn's retriggers and Scores twice (turn end).
+	## Clears the Turn's retriggers, Scores twice and reveals (turn end).
 	func clear_turn_effects() -> void:
 		scores_twice = false
 		for sources: Array in retrigger_on_reveal:
 			sources.clear()
+		revealed_this_turn.clear()
+
+	## The ids revealed this Turn, ascending, as a plain list.
+	func _revealed_ids() -> Array:
+		var ids: Array[int] = []
+		ids.assign(revealed_this_turn.keys())
+		ids.sort()
+		var out: Array = []
+		out.assign(ids)
+		return out
 
 	## The retrigger sources per seat as plain, copied lists.
 	func _retriggers() -> Array:

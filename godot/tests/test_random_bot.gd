@@ -207,6 +207,120 @@ func test_set_answer_sizes() -> void:
 		assert_array(all).is_equal(options)
 
 
+## An "up to N" set (a `max`, Exhume, C15 2a): every answer holds at most `max` distinct
+## offered options, the same seed gives the same set, and over 48 seeds more than one size is
+## drawn.
+func test_set_answer_respects_an_up_to_n_max() -> void:
+	var options: Array[int] = [0, 1, 2, 3, 4]
+	var sizes: Dictionary[int, bool] = {}
+	for bot_seed: int in range(1, 49):
+		var kept: Array[int] = RandomBot.set_answer(
+			options, Choice.ANY_SIZE, 0, MatchRng.new(bot_seed), 2
+		)
+		assert_int(kept.size()).is_less_equal(2)
+		var seen: Dictionary[int, bool] = {}
+		for option: int in kept:
+			assert_bool(options.has(option)).is_true()
+			assert_bool(seen.has(option)).is_false()
+			seen[option] = true
+		var again: Array[int] = RandomBot.set_answer(
+			options, Choice.ANY_SIZE, 0, MatchRng.new(bot_seed), 2
+		)
+		assert_array(again).is_equal(kept)
+		sizes[kept.size()] = true
+	assert_int(sizes.size()).is_greater(1)
+
+
+## DC-14 T17: counting and unranking agree with the mask enumeration on a 10-card hand, with
+## and without the free first card: count_sets() is the number of legal masks (under the free
+## first card, those whose cost less their costliest card fits), and every rank unranks to a
+## different legal set.
+func test_counted_sets_match_the_enumeration() -> void:
+	var costs: Array[int] = [3, 1, 0, 2, 4, 1, 2, 5, 3, 1]
+	var hand: Array[int] = []
+	for index: int in range(costs.size()):
+		hand.append(index)
+	var order: Array[int] = LegalPlays.lead_order(costs)
+	for energy: int in [0, 2, 5]:
+		for free_first: bool in [false, true]:
+			var table: Array[int] = LegalPlays.set_counts(costs, order, energy)
+			var count: int = LegalPlays.count_sets(order, table, energy, free_first)
+			var legal: Dictionary[int, bool] = {}
+			for mask: int in range(1 << hand.size()):
+				if _mask_fits(costs, mask, energy, free_first):
+					legal[mask] = true
+			assert_int(count).is_equal(legal.size())
+			var drawn: Dictionary[int, bool] = {}
+			for rank: int in range(count):
+				var picked: Array[int] = LegalPlays.unrank_set(
+					costs, order, table, energy, free_first, rank
+				)
+				var mask: int = 0
+				for index: int in picked:
+					mask |= 1 << index
+				assert_bool(legal.has(mask)).is_true()
+				assert_bool(drawn.has(mask)).is_false()
+				drawn[mask] = true
+
+
+## Whether the cards of `mask` fit `energy` (less the costliest card's cost under
+## `free_first`).
+func _mask_fits(costs: Array[int], mask: int, energy: int, free_first: bool) -> bool:
+	var total: int = 0
+	var highest: int = 0
+	for index: int in range(costs.size()):
+		if (mask & (1 << index)) != 0:
+			total += costs[index]
+			highest = maxi(highest, costs[index])
+	if free_first:
+		total -= highest
+	return total <= energy
+
+
+## DC-14 T17: a 20-card hand (Dross-sized) is not enumerated: the bot's commit is legal for
+## the engine's checks (LegalPlays.validate_with over the view's costs, Budget and free first
+## card), its counting table holds (hand + 1) * (budget + 1) entries (O(n * budget), no 2^n
+## walk), the same seed and view give the same commit, and two seeds differ somewhere.
+func test_a_twenty_card_hand_commits_a_legal_set_by_counting() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(1, _db())
+	assert_bool(engine.start().ok).is_true()
+	var seat: int = engine.awaited_seat()
+	var costs: Array[int] = [2, 1, 3, 0, 4, 1, 2, 2, 5, 1, 3, 0, 0, 0, 1, 2, 6, 1, 3, 2]
+	var drawn: Dictionary[String, bool] = {}
+	for free_first: bool in [false, true]:
+		var view: SeatView = engine.view_for(seat)
+		view.prompt = {}
+		view.own_hand.clear()
+		for index: int in range(costs.size()):
+			view.own_hand.append(100 + index)
+		view.own_hand_costs.assign(costs)
+		view.own_board.assign([7, 8])
+		view.energy = 5
+		view.free_first = free_first
+		var order: Array[int] = LegalPlays.lead_order(costs)
+		var table: Array[int] = LegalPlays.set_counts(costs, order, view.energy)
+		assert_int(table.size()).is_equal((costs.size() + 1) * (view.energy + 1))
+		for bot_seed: int in range(1, 9):
+			var bot: RandomBot = RandomBot.new(bot_seed, engine.match_cards())
+			var action: EngineAction = bot.choose(view, null)
+			assert_int(action.kind).is_equal(EngineAction.Kind.COMMIT)
+			assert_int(action.seat).is_equal(seat)
+			var code: int = LegalPlays.validate_with(
+				action.cards,
+				action.slots,
+				view.own_hand,
+				costs,
+				view.own_board.size(),
+				view.energy,
+				free_first
+			)
+			assert_int(code).is_equal(EngineError.Code.NONE)
+			var twin: RandomBot = RandomBot.new(bot_seed, engine.match_cards())
+			assert_dict(twin.choose(view, null).to_dict()).is_equal(action.to_dict())
+			drawn[str(action.to_dict())] = true
+	assert_int(drawn.size()).is_greater(1)
+
+
 ## R3 on a multi-select prompt: every answer is a set of offered options, none repeated;
 ## over 16 seeds more than one set is drawn. No T02 ability opens a prompt, so the prompt
 ## is set on a real view by hand (the bot reads only its view).

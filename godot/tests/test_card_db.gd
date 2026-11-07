@@ -2,8 +2,9 @@
 class_name TestCardDb
 extends GdUnitTestSuite
 ## CardDb, CardDef and CardAbility, pool format 5 (DC-13 T02; cycle 9 plan P2, P3, spec R22,
-## R60, R64). The shipped file loads the canon's 50 cards (30 evergreen, 10 Greed, 10 Ramp)
-## with the numbers and texts of rules/cards-v2; each loader check fails by its name: a
+## R60, R64). The shipped file loads the canon's 50 milestone A cards (30 evergreen, 10
+## Greed, 10 Ramp), the 20 Combo and Disruption cards of DC-14 T12 and the created-only
+## Dross, with the numbers and texts of rules/cards-v2; each loader check fails by its name: a
 ## Bonus off the legal values, a Cost over 7 without `cost_on_turn`, an unknown moment or
 ## verb, a verb on a moment it may not sit on, an amount out of its range, a missing rules
 ## text, a duplicate id, an unknown tag and an old version. Loading never prints.
@@ -61,6 +62,50 @@ const CANON: Array = [
 	["ra08", "Graft", "ramp", 4, 3, "", 0, "grow_right_mult_times"],
 	["ra09", "Layaway", "ramp", 5, 6, "", 0, "cost_down_self"],
 	["ra10", "Colossus", "ramp", 12, 12, "", 0, "cost_on_turn"],
+	["gy01", "Fuse", "graveyard", 2, 1, "", 0, "fuse"],
+	["gy02", "Tithe", "graveyard", 2, 2, "", 0, "tithe_energy"],
+	["gy03", "Reliquary", "graveyard", 3, 2, "mult", 125, "reliquary_mult"],
+	["gy04", "Boneyard", "graveyard", 3, 2, "", 0, "pile_power"],
+	["gy05", "Wraith", "graveyard", 3, 3, "", 0, "wraith_fade"],
+	["gy06", "Glutton", "graveyard", 4, 2, "", 0, "condemn_other_gain"],
+	["gy07", "Revive", "graveyard", 4, 3, "", 0, "revive"],
+	["gy08", "Exhume", "graveyard", 4, 4, "", 0, "exhume"],
+	["gy09", "Immolator", "graveyard", 5, 4, "", 0, "immolate"],
+	["gy10", "Reset", "graveyard", 6, 5, "", 0, "reset_piles"],
+	["ct01", "Eddy", "control", 2, 1, "add", 25, "moved_add"],
+	["ct02", "Pin", "control", 2, 2, "", 0, "pin"],
+	["ct03", "Shepherd", "control", 3, 3, "", 0, "swap_self"],
+	["ct04", "Skip", "control", 3, 3, "", 0, "skip_next"],
+	["ct05", "Fence", "control", 3, 3, "", 0, "fence"],
+	["ct06", "Herald", "control", 4, 3, "", 0, "rightmost_mult"],
+	["ct07", "Level", "control", 4, 4, "", 0, "level_power"],
+	["ct08", "Shake", "control", 5, 5, "", 0, "shake"],
+	["ct09", "Tempest", "control", 6, 5, "", 0, "reverse_opposing"],
+	["ct10", "Cull", "control", 7, 7, "", 0, "cull"],
+]
+## The Combo and Disruption rows (DC-14 T12), as CANON but the last column the verbs of
+## their abilities in printed order (Hex has two).
+const CANON_B: Array = [
+	["cb01", "Wick", "combo", 1, 2, "", 0, ["wick"]],
+	["cb02", "Refrain", "combo", 2, 1, "", 0, ["grow_self_power"]],
+	["cb03", "Swell", "combo", 2, 2, "", 0, ["fade_other_own"]],
+	["cb04", "Reprieve", "combo", 3, 3, "", 0, ["fleeting_chosen"]],
+	["cb05", "Scrap", "combo", 3, 2, "", 0, ["scrap"]],
+	["cb06", "Twin", "combo", 3, 1, "", 0, ["copy_self_to_hand"]],
+	["cb07", "Reprise", "combo", 4, 3, "", 0, ["scores_twice"]],
+	["cb08", "Encore", "combo", 5, 4, "", 0, ["retrigger_reveals"]],
+	["cb09", "Reverb", "combo", 6, 5, "", 0, ["reverb"]],
+	["cb10", "Finale", "combo", 7, 4, "", 0, ["finale"]],
+	["di01", "Hush", "disruption", 1, 1, "", 0, ["mute_opposing"]],
+	["di02", "Muzzle", "disruption", 2, 2, "", 0, ["squelch_opposing"]],
+	["di03", "Litter", "disruption", 3, 2, "", 0, ["create_dross"]],
+	["di04", "Saboteur", "disruption", 4, -3, "mult", 75, ["move_to_opposing"]],
+	["di05", "Hex", "disruption", 3, 3, "", 0, ["hex_choose", "mute_chosen"]],
+	["di06", "Jam", "disruption", 4, 3, "", 0, ["mute_random_opposing"]],
+	["di07", "Stasis", "disruption", 4, 3, "", 0, ["stasis"]],
+	["di08", "Gag", "disruption", 4, 2, "", 0, ["gag"]],
+	["di09", "Quorum", "disruption", 5, 4, "", 0, ["quorum"]],
+	["di10", "Eclipse", "disruption", 6, 5, "", 0, ["silence_opposing"]],
 ]
 ## Rules texts checked word for word against rules/cards-v2 (a sample over the moments).
 const TEXTS: Dictionary[String, String] = {
@@ -81,6 +126,19 @@ const TEXTS: Dictionary[String, String] = {
 	),
 	"ra09": "On commit (while in your hand): this card costs 1 less for the match.",
 	"ra10": "Ongoing (while in your hand): on Turn 7 this card's Cost is 7.",
+	"gy02":
+	(
+		"On discard (a Condemned card of yours Discarded at turn end): you have +1 Energy"
+		+ " next Turn for each such card, at most +3 per turn end."
+	),
+	"gy05": "Ongoing: your Condemned cards have Fade instead of Condemned when exit marks resolve.",
+	"ct01": "On moved: this card's Add gets +0.25 until end of turn.",
+	"ct06": "Ongoing: while this card is in the rightmost slot of your row, its Mult is ×1.5.",
+	"ct10":
+	(
+		"On reveal: each seat chooses five cards on its row; Condemn every card on both rows"
+		+ " that was not chosen."
+	),
 }
 
 # --- Helpers --------------------------------------------------------------------------
@@ -127,13 +185,32 @@ func _assert_valid(db: CardDb) -> void:
 # --- The shipped file -----------------------------------------------------------------
 
 
-func test_the_shipped_file_loads_50_cards_30_evergreen_10_greed_10_ramp() -> void:
+## Milestone A's 50 plus DC-14 T12's and T13's 40 Deck cards (90) and Dross (created only,
+## tag count; canon cards-v2 section 1).
+func test_the_shipped_file_loads_90_deck_cards_and_dross() -> void:
 	var db: CardDb = CardDb.load_default()
 	_assert_valid(db)
-	assert_int(db.size()).is_equal(50)
+	assert_int(db.size()).is_equal(91)
 	assert_int(db.cards_tagged("evergreen").size()).is_equal(30)
 	assert_int(db.cards_tagged("greed").size()).is_equal(10)
 	assert_int(db.cards_tagged("ramp").size()).is_equal(10)
+	assert_int(db.cards_tagged("combo").size()).is_equal(10)
+	assert_int(db.cards_tagged("disruption").size()).is_equal(10)
+	assert_int(db.cards_tagged("graveyard").size()).is_equal(10)
+	assert_int(db.cards_tagged("control").size()).is_equal(10)
+	assert_int(db.created_cards().size()).is_equal(1)
+	var dross: CardDef = db.card_by_id("dross")
+	assert_object(dross).is_not_null()
+	if dross == null:
+		return
+	assert_bool(dross.created).is_true()
+	assert_int(dross.cost).is_equal(1)
+	assert_int(dross.power).is_equal(0)
+	assert_int(dross.bonus_kind).is_equal(CardDef.BonusKind.NONE)
+	var ability: CardAbility = dross.abilities[0]
+	assert_str(ability.moment).is_equal("ongoing")
+	assert_str(ability.zone).is_equal("hand")
+	assert_int(ability.amount).is_equal(75)
 
 
 ## Every row of the canon: name, tag, Cost, Power, Bonus and the ability's verb; a plain
@@ -141,7 +218,7 @@ func test_the_shipped_file_loads_50_cards_30_evergreen_10_greed_10_ramp() -> voi
 func test_every_shipped_card_matches_the_canon() -> void:
 	var db: CardDb = CardDb.load_default()
 	_assert_valid(db)
-	assert_int(db.size()).is_equal(CANON.size())
+	assert_int(db.size()).is_equal(CANON.size() + CANON_B.size() + db.created_cards().size())
 	for raw: Variant in CANON:
 		var row: Array = raw
 		var card_id: String = row[0]
@@ -159,6 +236,83 @@ func test_every_shipped_card_matches_the_canon() -> void:
 		assert_int(def.power).override_failure_message(card_id).is_equal(power)
 		_assert_bonus(def, row)
 		_assert_ability(def, row)
+
+
+## Every Combo and Disruption row: name, tag, Cost, Power, Bonus and its abilities' verbs in
+## order, each allowed on its moment; the card text is the abilities' texts joined.
+func test_every_combo_and_disruption_card_matches_the_canon() -> void:
+	var db: CardDb = CardDb.load_default()
+	_assert_valid(db)
+	for raw: Variant in CANON_B:
+		var row: Array = raw
+		var card_id: String = row[0]
+		var def: CardDef = db.card_by_id(card_id)
+		assert_object(def).override_failure_message(card_id).is_not_null()
+		if def == null:
+			continue
+		var card_name: String = row[1]
+		var tag: String = row[2]
+		var cost: int = row[3]
+		var power: int = row[4]
+		assert_str(def.name).override_failure_message(card_id).is_equal(card_name)
+		assert_str(def.tag).override_failure_message(card_id).is_equal(tag)
+		assert_int(def.cost).override_failure_message(card_id).is_equal(cost)
+		assert_int(def.power).override_failure_message(card_id).is_equal(power)
+		_assert_bonus(def, row)
+		var verbs: Array = row[7]
+		assert_int(def.abilities.size()).override_failure_message(card_id).is_equal(verbs.size())
+		var texts: PackedStringArray = []
+		for at: int in range(mini(verbs.size(), def.abilities.size())):
+			var ability: CardAbility = def.abilities[at]
+			var verb: String = verbs[at]
+			assert_str(ability.verb).override_failure_message(card_id).is_equal(verb)
+			assert_bool(CardAbility.is_allowed_pair(ability.moment, verb)).is_true()
+			texts.append(ability.text)
+		assert_str(def.text).override_failure_message(card_id).is_equal(" ".join(texts))
+
+
+## Texts and amounts of the B cards whose wording carries a rule (cards-v2 2.2, 2.3).
+func test_combo_and_disruption_texts_and_brackets() -> void:
+	var db: CardDb = CardDb.load_default()
+	_assert_valid(db)
+	var refrain: CardAbility = db.card_by_id("cb02").abilities[0]
+	assert_str(refrain.watch).is_equal("other_own")
+	assert_str(refrain.scope).is_equal("row")
+	var scrap: CardAbility = db.card_by_id("cb05").abilities[0]
+	assert_int(scrap.amount).is_equal(25)
+	assert_int(scrap.cap).is_equal(100)
+	assert_str(db.card_by_id("cb07").abilities[0].moment).is_equal("on_commit")
+	assert_str(db.card_by_id("di08").abilities[0].moment).is_equal("on_commit")
+	assert_int(db.card_by_id("di03").abilities[0].amount).is_equal(3)
+	assert_int(db.card_by_id("di09").abilities[0].amount).is_equal(2)
+	assert_str(db.card_by_id("di05").text).is_equal(
+		"On reveal: choose a card on either row. On start: Mute the chosen card until end of turn."
+	)
+	assert_str(db.card_by_id("di04").text).is_equal(
+		"On reveal: move this card to the rightmost slot of your opponent's row."
+	)
+
+
+## Saboteur's ×0.75 is the one printed Mult below ×1 (MatchRules.MULT_BELOW_ONE); a
+## `created` flag must be a bool, keeps the card out of the tag lists and round-trips.
+func test_mult_below_one_and_the_created_flag() -> void:
+	var entry: Dictionary = _plain()
+	entry["bonus"] = {"mult": 75}
+	var db: CardDb = _pool_of([entry])
+	_assert_valid(db)
+	assert_int(db.card_at(0).printed_mult()).is_equal(75)
+	entry["bonus"] = {"mult": 50}
+	_assert_invalid(_pool_of([entry]), CardDb.ERR_BONUS)
+	var made: Dictionary = _plain()
+	made["created"] = true
+	var flagged: CardDb = _pool_of([made])
+	_assert_valid(flagged)
+	assert_bool(flagged.card_at(0).created).is_true()
+	assert_array(flagged.cards_tagged("evergreen")).is_empty()
+	var round_trip: Dictionary = flagged.card_at(0).to_dict()
+	assert_bool(round_trip.get("created", false)).is_true()
+	made["created"] = "yes"
+	_assert_invalid(_pool_of([made]), CardDb.ERR_SHAPE)
 
 
 func _assert_bonus(def: CardDef, row: Array) -> void:

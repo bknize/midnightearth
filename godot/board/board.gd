@@ -18,19 +18,10 @@ signal prompt_resolved
 ## Emitted when a pause or result "Decks" button is pressed; main frees the board.
 signal decks_requested
 
-## The drop-zone glow looks (R12-R14).
-enum GlowLook { IDLE, HOVER, REFUSE }
-
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
 const NORMAL_SPEED: float = 1.0
 const AUTOPLAY_ARG: String = "--autoplay"
-const GLOW_GOLD: Color = Color(1.0, 0.85, 0.45)
-const GLOW_RED: Color = Color(0.95, 0.25, 0.2)
-const GLOW_IDLE_ALPHA: float = 0.18
-const GLOW_HOVER_ALPHA: float = 0.35
-## Seconds at 1x for a player commit to slide onto the row when it is not already there.
-const PLAYER_COMMIT_TIME: float = 0.25
 ## Where a row's tally rests: past the right end of the row, and toward the camera.
 const TALLY_OFFSET: Vector3 = Vector3(14.5, 0.0, 1.0)
 ## Seconds at 1x for an unstaged card to slide back to the hand.
@@ -80,6 +71,8 @@ var _player_cards: Dictionary[int, BoardCard] = {}
 var _tracker: ScoreTracker = ScoreTracker.new()
 ## Plays the pulse, the effect steps and the shared card motions.
 var _fx: EffectPlayer = EffectPlayer.new()
+## Cards arriving on the table: deals, commits, created and placed cards (DC-14 T15).
+var _arrivals: CardArrivals = CardArrivals.new()
 ## The prompt on the table (R55-R57): banner, glows, dim and tap routing.
 var _prompt: PromptHost = PromptHost.new()
 ## Each side's three Crew beside its hand (cycle 8 R59-R62).
@@ -193,6 +186,9 @@ func _setup_effects() -> void:
 	_fx.player_cards = _player_cards
 	_fx.committed_ids = _committed_ids
 	_fx.face_down_ids = _face_down_ids
+	_arrivals.fx = _fx
+	_arrivals.entry_marker = _entry
+	_arrivals.spawn = _spawn_card
 	_prompt.wire(_collections(), card_lift, hud, _row_glow.material_override)
 	_prompt.strip_parent = self
 	_prompt.spawn = _spawn_card
@@ -389,7 +385,7 @@ func _apply(step: BoardStep) -> void:
 		BoardStep.Kind.CLEAR_TABLE:
 			_clear_table(step)
 		BoardStep.Kind.DEAL, BoardStep.Kind.DRAW:
-			_deal(step)
+			_arrivals.deal(step)
 		BoardStep.Kind.TURN_START:
 			hud.set_round_turn(step.round_number, step.turn, step.round_number > MatchRules.ROUNDS)
 			hud.set_energy(step.budget, step.budget, step.free_first)
@@ -400,13 +396,14 @@ func _apply(step: BoardStep) -> void:
 			_refresh_tally(true)
 		BoardStep.Kind.WALK_END:
 			_refresh_tally(false)
+			_tally.show_multiplied(_tracker.dross_before(step.dross), _tracker.tally)
 			_tally.fly_in(step.scores, hud, $Camera3D as Camera3D, speed)
 		BoardStep.Kind.TURN_END:
 			_refresh_scores()
 		BoardStep.Kind.OPPONENT_COMMIT:
-			_opponent_commit(step)
+			_arrivals.opponent_commit(step)
 		BoardStep.Kind.PLAYER_COMMIT:
-			_player_commit(step)
+			_arrivals.player_commit(step, speed)
 		BoardStep.Kind.PULSE:
 			_fx.pulse(step)
 			_pulse_chips(step)
@@ -440,13 +437,21 @@ func _apply_effect(step: BoardStep) -> void:
 		BoardStep.Kind.EMPTY_DRAW:
 			hud.note_deck(step.seat, "Deck empty", step.duration)
 		BoardStep.Kind.SHUFFLE_IN:
+			_arrivals.shuffle_in(step)
 			hud.note_deck(step.seat, "Pile shuffled in", step.duration)
 		BoardStep.Kind.ENERGY_GRANT:
-			if step.seat == MatchDriver.PLAYER_SEAT:
+			# Tithe's grant lands next Turn: this Turn's Energy stays as it is.
+			if step.seat == MatchDriver.PLAYER_SEAT and not step.next_turn:
 				_turn_energy += step.amount
 				_unstage_all()
 		BoardStep.Kind.UNREVEAL:
 			_fx.unreveal(step)
+		BoardStep.Kind.CREATE:
+			_arrivals.create_on_row(step)
+		BoardStep.Kind.PLACE:
+			_arrivals.place(step)
+		BoardStep.Kind.CONTROL:
+			_fx.control(step)
 		BoardStep.Kind.PILE_SHOW:
 			_on_pile_pressed(step.seat)
 		BoardStep.Kind.PILE_HIDE:
@@ -482,51 +487,6 @@ func _pulse_chips(step: BoardStep) -> void:
 	var card: BoardCard = _fx.card_for(step)
 	if card != null:
 		_chips.spawn(card, step, speed)
-
-
-func _deal(step: BoardStep) -> void:
-	var hand: CardCollection3D = player_hand if step.seat == 0 else opponent_hand
-	var card: BoardCard = _spawn_card()
-	hand.card_move_tween_duration = maxf(step.duration, EffectPlayer.MIN_TWEEN_TIME)
-	hand.append_card(card)
-	card.global_position = _entry.global_position
-	if step.seat == 0:
-		_fx.show(card, step)
-		_player_cards[step.card] = card
-	else:
-		card.face_down = true
-
-
-func _opponent_commit(step: BoardStep) -> void:
-	var each: float = step.duration / float(maxi(step.count, 1))
-	# Slot order, so each card lands at its final row index (R47).
-	for k: int in RowSlots.order_by_slot(step.slots, step.count):
-		if opponent_hand.cards.is_empty():
-			push_warning("Board: the opponent committed more cards than its fan holds")
-			return
-		var card: Card3D = opponent_hand.cards[opponent_hand.cards.size() - 1]
-		var at: int = step.slots[k] if k < step.slots.size() else -1
-		_fx.move_card(card, opponent_hand, opponent_row, each, at)
-
-
-## Autoplay: the committed cards are still in the hand and slide to their slots. Player mode:
-## they were staged on the row already. Either way every one flips face down in place (R46)
-## and is remembered, so the walk's flip pulse turns it up again.
-func _player_commit(step: BoardStep) -> void:
-	var raw: Array = step.source.payload["cards"]
-	var ids: Array[int] = []
-	ids.assign(raw)
-	for k: int in RowSlots.order_by_slot(step.slots, ids.size()):
-		var id: int = ids[k]
-		_committed_ids[id] = true
-		var card: BoardCard = _player_card(id)
-		if card == null:
-			continue
-		if not player_row.cards.has(card):
-			var at: int = step.slots[k] if k < step.slots.size() else -1
-			_fx.move_card(card, player_hand, player_row, PLAYER_COMMIT_TIME / speed, at)
-		_face_down_ids[id] = true
-		_fx.flip_down(card, step.duration)
 
 
 func _clear_table(step: BoardStep) -> void:
@@ -819,8 +779,8 @@ func _on_drag_started(card: Card3D) -> void:
 	if _drag_from_hand and may_act() and not _card_affordable(card):
 		player_row.enable_drop_zone()
 	if _drag_card != null and may_act():
-		_set_glow(_hand_glow, GlowLook.IDLE)
-		_set_glow(_row_glow, _row_look(false))
+		BoardGlow.show(_hand_glow, BoardGlow.Look.IDLE)
+		BoardGlow.show(_row_glow, _row_look(false))
 
 
 ## After every drag, refused or cancelled or not: flash on a refused drop (R14) and make
@@ -847,44 +807,30 @@ func _on_drag_stopped(card: Card3D) -> void:
 func _on_row_zone_entered() -> void:
 	_over_row = true
 	if _row_glow.visible:
-		_set_glow(_row_glow, _row_look(true))
+		BoardGlow.show(_row_glow, _row_look(true))
 
 
 func _on_row_zone_exited() -> void:
 	_over_row = false
 	if _row_glow.visible:
-		_set_glow(_row_glow, _row_look(false))
+		BoardGlow.show(_row_glow, _row_look(false))
 
 
 func _on_hand_zone_entered() -> void:
 	if _hand_glow.visible:
-		_set_glow(_hand_glow, GlowLook.HOVER)
+		BoardGlow.show(_hand_glow, BoardGlow.Look.HOVER)
 
 
 func _on_hand_zone_exited() -> void:
 	if _hand_glow.visible:
-		_set_glow(_hand_glow, GlowLook.IDLE)
+		BoardGlow.show(_hand_glow, BoardGlow.Look.IDLE)
 
 
 ## The row panel's look: red when it would refuse the dragged card (R14), else idle/hover.
-func _row_look(hovered: bool) -> GlowLook:
+func _row_look(hovered: bool) -> BoardGlow.Look:
 	if _drag_from_hand and _drag_card != null and not _card_affordable(_drag_card):
-		return GlowLook.REFUSE
-	return GlowLook.HOVER if hovered else GlowLook.IDLE
-
-
-## Shows a drop-zone panel in the given look (R12, R13).
-func _set_glow(glow: MeshInstance3D, look: GlowLook) -> void:
-	var mat: StandardMaterial3D = glow.material_override as StandardMaterial3D
-	var colour: Color = GLOW_GOLD
-	var alpha: float = GLOW_IDLE_ALPHA
-	if look == GlowLook.HOVER:
-		alpha = GLOW_HOVER_ALPHA
-	elif look == GlowLook.REFUSE:
-		colour = GLOW_RED
-		alpha = GLOW_HOVER_ALPHA
-	mat.albedo_color = Color(colour, alpha)
-	glow.visible = true
+		return BoardGlow.Look.REFUSE
+	return BoardGlow.Look.HOVER if hovered else BoardGlow.Look.IDLE
 
 
 func _hide_glows() -> void:

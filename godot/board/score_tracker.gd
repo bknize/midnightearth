@@ -9,6 +9,9 @@ extends RefCounted
 
 ## The walk's walking total per seat (ten-thousandths).
 var tally: Array[int] = [0, 0]
+## The walking total each seat held just before the Walk end settled it (ten-thousandths): the
+## Walk-end multiply (Dross) shows as the step from this to `tally`.
+var pre_end: Array[int] = [0, 0]
 ## Cards in each seat's Pile: grows at each Discard (its `pile_index` + 1) and empties at a
 ## shuffle-in. A Pile lasts the whole Match, so a table clear leaves it.
 var piles: Array[int] = [0, 0]
@@ -18,6 +21,7 @@ var held: Array[int] = [0, 0]
 
 func reset() -> void:
 	tally.assign([0, 0])
+	pre_end.assign([0, 0])
 	held.assign([0, 0])
 	piles.assign([0, 0])
 
@@ -27,10 +31,12 @@ func apply(step: BoardStep) -> void:
 	match step.kind:
 		BoardStep.Kind.WALK_START:
 			tally.assign([0, 0])
+			pre_end.assign([0, 0])
 		BoardStep.Kind.PULSE:
 			_apply_pulse(step)
 		BoardStep.Kind.WALK_END:
 			held.assign(step.scores)
+			pre_end.assign(tally)
 			if step.totals.size() == tally.size():
 				tally.assign(step.totals)
 		BoardStep.Kind.TURN_END:
@@ -64,3 +70,14 @@ func _apply_pulse(step: BoardStep) -> void:
 	# holds until a score arrives (R35).
 	if step.scored:
 		tally[step.seat] = step.total
+
+
+## The walking totals before the Walk end for the seats that held Dross (the engine's `dross`
+## count per seat), else the settled tally: only a seat the Walk end multiplied shows a step.
+func dross_before(dross: Array[int]) -> Array[int]:
+	var out: Array[int] = []
+	out.assign(tally)
+	for seat: int in range(mini(dross.size(), out.size())):
+		if dross[seat] > 0:
+			out[seat] = pre_end[seat]
+	return out

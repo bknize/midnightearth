@@ -27,11 +27,14 @@ extends RefCounted
 ## - Exit marks (mark_exit()): at most one per card, a newer replaces an older (R38),
 ##   EXIT_MARKED {card, mark, replaced}. A marked card still Scores and fires (R39).
 ## - exit_pass() (resolution step 12, R41): the first seat's row first, each in slot order;
-##   the Ongoings that change exit marks are read once at its start (none in milestone A);
-##   Condemned to its Owner's Pile as a Discard (reason condemned), Fleeting to its Owner's
-##   hand (CARD_RETURNED), Fade flips face down in place (CARD_UNREVEALED), each announced by
-##   EXIT_RESOLVED {card, mark, owner, to}. Returns the Discarded cards, in pass order, for
-##   the D10 On discard Batches.
+##   the Ongoings that change exit marks are read once at its start (Wraith); Condemned to
+##   its Owner's Pile as a Discard (reason condemned), Fleeting to its Owner's hand
+##   (CARD_RETURNED {owner, card, seat, slot}), Fade flips face down in place
+##   (CARD_UNREVEALED), each announced by EXIT_RESOLVED {card, mark, owner, to, seat, slot}
+##   (+ `instead_of`, the mark an "instead" replaced). `seat` is the row's and `slot` the
+##   card's index before it leaves, so the other seat can find a hidden card's exit by slot
+##   (its redacted copy hides `card`, `mark` and `instead_of`, MatchEvent.redacted_for).
+##   Returns the Discarded cards, in pass order, for the D10 On discard Batches.
 ##
 ## STATUS_SET {card, status, cessation, cause} carries the half's word (`status`) and the
 ## cessation's kind; STATUS_ENDED {card, status, cause}. An event about a face-down card is
@@ -63,8 +66,8 @@ const CEASE_CONDITION: String = "condition"
 const KEY_KIND: String = "kind"
 const KEY_CONDITION: String = "condition"
 const KEY_SOURCE: String = "source"
-## The one named condition before milestone B: the status lasts while its source card stays
-## face up on its row (Stasis-like).
+## The one named condition: the status lasts while its source card stays face up on its row
+## (Pin, Stasis).
 const CONDITION_SOURCE_ON_ROW: String = "source_on_row"
 ## STATUS_ENDED causes the rules give.
 const CAUSE_TURN_END: String = "turn_end"
@@ -79,8 +82,8 @@ const TO_FACE_DOWN: String = "face_down"
 const PROTECTING_VERBS: Dictionary[String, String] = {"cannot_condemn_self": CONDEMNED}
 ## The Ongoing verb that makes its own card Anchored while read (Brace).
 const ANCHOR_VERB: String = "anchored_self"
-## Ongoing verbs that change exit marks (Wraith, milestone B): read once per exit pass.
-const EXIT_CHANGING_VERBS: Array[String] = []
+## Ongoing verbs that change exit marks (Wraith): read once per exit pass.
+const EXIT_CHANGING_VERBS: Array[String] = [AbilitiesGraveyardControl.VERB_WRAITH]
 const MOMENT_ONGOING: String = "ongoing"
 
 # --- Reading ----------------------------------------------------------------------------
@@ -338,21 +341,29 @@ static func unreveal(state: MatchState, seat: int, card: int, sink: Callable) ->
 ## The exit pass (resolution step 12, R41). Returns the cards sent to a Pile as Discards,
 ## in pass order.
 static func exit_pass(state: MatchState, cards: MatchCards, sink: Callable) -> Array[int]:
-	var read: Array[CardAbility] = _exit_ongoings(state, cards)
+	var read: Array[Array] = _exit_ongoings(state, cards)
 	var discarded: Array[int] = []
 	for seat: int in [state.first_seat, 1 - state.first_seat]:
 		var row: Array[int] = []
 		row.assign(state.seats[seat].board)
 		for card: int in row:
-			var mark: String = _mark_under(exit_mark_of(state, card), read)
-			if mark != "" and _resolve_exit(state, cards, sink, seat, card, mark):
+			var held: String = exit_mark_of(state, card)
+			var mark: String = _mark_under(held, read[seat])
+			if mark != "" and _resolve_exit(state, cards, sink, seat, card, mark, held):
 				discarded.append(card)
 	return discarded
 
 
-## Resolves `mark` on `card` of `seat`'s row; true when it was Discarded.
+## Resolves `mark` on `card` of `seat`'s row; true when it was Discarded. `held` is the
+## mark the card held when an "instead" changed it (EXIT_RESOLVED `instead_of`, Wraith).
 static func _resolve_exit(
-	state: MatchState, cards: MatchCards, sink: Callable, seat: int, card: int, mark: String
+	state: MatchState,
+	cards: MatchCards,
+	sink: Callable,
+	seat: int,
+	card: int,
+	mark: String,
+	held: String = ""
 ) -> bool:
 	var owner: int = cards.origin_of(card) if cards != null else -1
 	if owner < 0:
@@ -365,8 +376,15 @@ static func _resolve_exit(
 	elif mark == FLEETING:
 		to = TO_HAND
 	state.card_state_for(card).exit_mark = ""
-	var resolved: Dictionary = {"card": card, "mark": mark, "owner": owner, "to": to}
-	var privately: int = seat if hidden and to == TO_HAND else MatchEvent.PUBLIC
+	var slot: int = piles.board.find(card)  # Before it leaves: the other seat finds it by slot.
+	var resolved: Dictionary = {
+		"card": card, "mark": mark, "owner": owner, "to": to, "seat": seat, "slot": slot
+	}
+	if held != "" and held != mark:
+		resolved["instead_of"] = held
+	# A face-down card that stays hidden (to its hand, or a Fade that leaves it face down)
+	# is private to its seat; one going to a Pile is public there (DC-14 T14 leak scan).
+	var privately: int = seat if hidden and to != TO_PILE else MatchEvent.PUBLIC
 	_emit_to(sink, MatchEvent.Kind.EXIT_RESOLVED, resolved, privately)
 	if to == TO_FACE_DOWN:
 		if unreveal(state, seat, card, sink):
@@ -378,24 +396,32 @@ static func _resolve_exit(
 		TurnFlow.to_pile(state, cards, sink, card, TurnFlow.FROM_ROW, TurnFlow.REASON_CONDEMNED)
 		return true
 	state.seats[owner].hand.append(card)
-	var returned: Dictionary = {"owner": owner, "card": card}
+	var returned: Dictionary = {"owner": owner, "card": card, "seat": seat, "slot": slot}
 	_emit_to(sink, MatchEvent.Kind.CARD_RETURNED, returned, owner if hidden else MatchEvent.PUBLIC)
 	return false
 
 
-## The Ongoings that change exit marks, read once at the start of the pass (Wraith, B): the
-## abilities with an EXIT_CHANGING_VERBS verb on both rows' revealed, read cards.
-static func _exit_ongoings(state: MatchState, cards: MatchCards) -> Array[CardAbility]:
-	var out: Array[CardAbility] = []
-	for verb: String in EXIT_CHANGING_VERBS:
-		for seat: int in range(state.seats.size()):
-			out.append_array(Scoring.ongoing_on_row(state, cards, seat, verb))
+## The Ongoings that change exit marks, read once at the start of the pass (Wraith, DC-14
+## T13): per seat, the EXIT_CHANGING_VERBS read on that seat's row (revealed, not
+## Squelched), so a Wraith Condemned in this pass still applies to every card of its row.
+static func _exit_ongoings(state: MatchState, cards: MatchCards) -> Array[Array]:
+	var out: Array[Array] = []
+	for seat: int in range(state.seats.size()):
+		var verbs: Array = []
+		for verb: String in EXIT_CHANGING_VERBS:
+			if not Scoring.ongoing_on_row(state, cards, seat, verb).is_empty():
+				verbs.append(verb)
+		out.append(verbs)
 	return out
 
 
-## The mark that resolves for `mark` under the exit-changing Ongoings read (none change one
-## in milestone A).
-static func _mark_under(mark: String, _read: Array[CardAbility]) -> String:
+## The mark that resolves for `mark` on a card of a row whose exit-changing Ongoings are
+## `read`: Wraith ("your Condemned cards have Fade instead") turns Condemned into Fade.
+## Veil (CrewAbilities, At turn end before the pass, D9) has already turned its card
+## Fleeting, which Wraith leaves alone, so Veil wins (cards-v2 section 4).
+static func _mark_under(mark: String, read: Array) -> String:
+	if mark == CONDEMNED and read.has(AbilitiesGraveyardControl.VERB_WRAITH):
+		return FADE
 	return mark
 
 

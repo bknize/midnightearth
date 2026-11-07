@@ -12,6 +12,8 @@ extends RefCounted
 ## (a known moment and verb, the verb allowed on the moment, amounts in range, known scope,
 ## watch and zone, whole uses, its own text); a non-empty card `text` when it has
 ## abilities. A pool has no card count: decks are checked by DeckList.validate().
+## An optional `"created": true` marks a card made only by an ability, never dealt from a
+## Deck (Dross, DC-14 T12): cards_tagged() leaves it out and created_cards() lists it.
 ##
 ## Loading never prints, asserts or pushes an error: every failure is reported through
 ## load_error(), and a failed database holds no cards, so the engine refuses to start.
@@ -51,6 +53,7 @@ const KEY_POWER: String = "power"
 const KEY_BONUS: String = "bonus"
 const KEY_ABILITIES: String = "abilities"
 const KEY_TEXT: String = "text"
+const KEY_CREATED: String = "created"
 
 var _cards: Array[CardDef] = []
 var _index_by_id: Dictionary[String, int] = {}
@@ -153,11 +156,20 @@ func cards() -> Array[CardDef]:
 	return out
 
 
-## The definitions with tag `tag`, in file order.
+## The Deck cards with tag `tag`, in file order (a created-only card is left out).
 func cards_tagged(tag: String) -> Array[CardDef]:
 	var out: Array[CardDef] = []
 	for def: CardDef in _cards:
-		if def.tag == tag:
+		if def.tag == tag and not def.created:
+			out.append(def)
+	return out
+
+
+## The created-only definitions (`"created": true`: Dross), in file order.
+func created_cards() -> Array[CardDef]:
+	var out: Array[CardDef] = []
+	for def: CardDef in _cards:
+		if def.created:
 			out.append(def)
 	return out
 
@@ -224,6 +236,8 @@ static func _has_card_fields(d: Dictionary) -> bool:
 	if not CardAbility.is_whole_number(d.get(KEY_POWER)):
 		return false
 	if d.has(KEY_ABILITIES) and not d[KEY_ABILITIES] is Array:
+		return false
+	if d.has(KEY_CREATED) and not d[KEY_CREATED] is bool:
 		return false
 	return not d.has(KEY_TEXT) or d[KEY_TEXT] is String
 
@@ -311,6 +325,7 @@ static func _allowed_bonuses(kind: CardDef.BonusKind) -> Array[int]:
 	var out: Array[int] = []
 	if kind == CardDef.BonusKind.MULT:
 		out.assign(MatchRules.MULT_VALUES)
+		out.append_array(MatchRules.MULT_BELOW_ONE)
 	elif kind == CardDef.BonusKind.ADD:
 		out.assign(MatchRules.ADD_VALUES)
 	return out
@@ -335,7 +350,7 @@ static func _build_entry(entry: Variant) -> CardDef:
 		var bonus_dict: Dictionary = raw_bonus
 		kind = _bonus_kind_of(bonus_dict)
 		amount = _bonus_amount_of(bonus_dict, kind)
-	return CardDef.new(
+	var def: CardDef = CardDef.new(
 		card_id,
 		card_name,
 		tag,
@@ -346,3 +361,6 @@ static func _build_entry(entry: Variant) -> CardDef:
 		abilities,
 		text
 	)
+	var created: bool = d.get(KEY_CREATED, false)
+	def.created = created
+	return def

@@ -50,6 +50,9 @@ const CREW_TIME: float = 0.25
 const DECLINE_TIME: float = 0.15
 const HAND_PULSE_TIME: float = 0.5
 const TELEGRAPH_TIME: float = 1.2
+const CREATE_TIME: float = 0.3
+const PLACE_TIME: float = 0.4
+const CONTROL_TIME: float = 0.4
 
 
 ## The MatchEvent.Kind name of an event ("CARD_SCORED"): the match below reads kinds by name.
@@ -67,10 +70,15 @@ static func from_events(
 	var previous_kind: int = -1
 	# Indices of CARD_SCORED events folded into the PULSE of their card's reveal.
 	var folded: Dictionary = {}
+	# EXIT_RESOLVED to a hand not yet followed by its CARD_RETURNED, by card id (-1 when
+	# hidden): the exit step already moves the card, so the return adds no step.
+	var returning: Dictionary = {}
 	for at: int in range(events.size()):
 		if folded.has(at):
 			continue
 		var event: MatchEvent = events[at]
+		if _is_shadowed_return(event, returning):
+			continue
 		var after_deal: bool = previous_kind == BoardStep.Kind.DEAL
 		var made: Array[BoardStep] = []
 		match kind_name(event):
@@ -95,6 +103,21 @@ static func from_events(
 		if not made.is_empty():
 			previous_kind = made[made.size() - 1].kind
 	return steps
+
+
+## Whether `event` is the CARD_RETURNED that follows an EXIT_RESOLVED to the hand (the exit
+## step already took the card there); keeps `returning` up to date as events go by.
+static func _is_shadowed_return(event: MatchEvent, returning: Dictionary) -> bool:
+	var named: int = event.payload.get("card", -1)
+	var name_of: String = kind_name(event)
+	if name_of == "EXIT_RESOLVED" and event.payload.get("to", "") == "hand":
+		var pending: int = returning.get(named, 0)
+		returning[named] = pending + 1
+	elif name_of == "CARD_RETURNED" and returning.get(named, 0) > 0:
+		var left: int = returning[named]
+		returning[named] = left - 1
+		return true
+	return false
 
 
 ## The badge word of an engine status or exit mark: "muted" reads "Muted" (R79).
@@ -238,6 +261,15 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			deal.duration = DEAL_TIME
 			deal.delay = DEAL_STAGGER if after_deal else 0.0
 			out.append(deal)
+		"CARD_CREATED":
+			out.append(_created(event))
+		"CARD_PLACED":
+			var placed: BoardStep = _card_step(BoardStep.Kind.PLACE, event)
+			placed.slot = payload.get("slot", -1)
+			placed.duration = PLACE_TIME
+			out.append(placed)
+		"CONTROL_CHANGED":
+			out.append(_control(event))
 		"CARD_DRAWN":
 			var draw: BoardStep = _card_step(BoardStep.Kind.DRAW, event)
 			draw.duration = DRAW_TIME
@@ -251,6 +283,8 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			var shuffled: BoardStep = _make(BoardStep.Kind.SHUFFLE_IN, event)
 			shuffled.seat = _seat_of(payload)
 			shuffled.count = payload.get("count", 0)
+			var pile_cards: Array = payload.get("pile_cards", [])
+			shuffled.cards.assign(pile_cards)
 			shuffled.duration = SHUFFLE_TIME
 			out.append(shuffled)
 		"TURN_STARTED":
@@ -259,6 +293,7 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			var granted: BoardStep = _make(BoardStep.Kind.ENERGY_GRANT, event)
 			granted.seat = _seat_of(payload)
 			granted.amount = payload.get("amount", 0)
+			granted.next_turn = payload.get("next_turn", false)
 			granted.duration = ENERGY_TIME
 			out.append(granted)
 		"COMMITTED":
@@ -271,6 +306,8 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			var walk_scores: Array = payload.get("scores", [])
 			walk_end.totals.assign(totals)
 			walk_end.scores.assign(walk_scores)
+			var held_dross: Array = payload.get("dross", [])
+			walk_end.dross.assign(held_dross)
 			walk_end.duration = WALK_END_TIME
 			out.append(walk_end)
 		"TRIGGER_FIRED", "TRIGGER_FIZZLED":
@@ -286,6 +323,8 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			var shown: BoardStep = _card_step(BoardStep.Kind.CHOICE_SHOW, event)
 			shown.zone = payload.get("zone", "")
 			shown.index = payload.get("index", -1)
+			var picked: Array = payload.get("indices", [])
+			shown.options.assign(picked)
 			shown.target = payload.get("target", -1)
 			shown.duration = CHOICE_SHOW_TIME
 			out.append(shown)
@@ -308,10 +347,12 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 		"STATUS_SET", "STATUS_ENDED", "EXIT_MARKED":
 			_append_status(out, event)
 		"EXIT_RESOLVED":
-			var exit_step: BoardStep = _card_step(BoardStep.Kind.EXIT, event)
+			var exit_step: BoardStep = _row_exit_step(BoardStep.Kind.EXIT, event)
 			exit_step.exit_to = payload.get("to", "")
 			var mark: String = payload.get("mark", "")
 			exit_step.word = status_word(mark)
+			var instead: String = payload.get("instead_of", "")
+			exit_step.old_word = status_word(instead) if instead != "" else ""
 			exit_step.duration = EXIT_TIME
 			out.append(exit_step)
 		"CREW_FIRED":
@@ -324,8 +365,7 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 		"CARD_UNREVEALED":
 			out.append(_unreveal(event))
 		"CARD_RETURNED":
-			var returned: BoardStep = _card_step(BoardStep.Kind.RETURN, event)
-			returned.slot = payload.get("slot", -1)
+			var returned: BoardStep = _row_exit_step(BoardStep.Kind.RETURN, event)
 			returned.duration = RETURN_TIME
 			out.append(returned)
 		"CARD_DISCARDED":
@@ -371,6 +411,37 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			# CONCEDED has no beat of its own: MATCH_ENDED follows it and carries the reason.
 			pass
 	return out
+
+
+## CARD_CREATED {seat, card, def, owner, to: hand|row, slot}: into a hand it is a DRAW (the
+## viewer's face, or a back in the opponent's fan) flagged `created`; onto a row a CREATE.
+static func _created(event: MatchEvent) -> BoardStep:
+	var payload: Dictionary = event.payload
+	var to_row: bool = payload.get("to", "hand") == "row"
+	var kind: int = BoardStep.Kind.CREATE if to_row else BoardStep.Kind.DRAW
+	var step: BoardStep = _card_step(kind, event)
+	step.created = true
+	step.slot = payload.get("slot", -1)
+	step.owner = payload.get("owner", step.seat)
+	var raw: Variant = payload.get("def", "")
+	if raw is String:
+		var named: String = raw
+		step.def_id = named
+	step.duration = CREATE_TIME if to_row else DRAW_TIME
+	return step
+
+
+## CONTROL_CHANGED {card, owner, controller, from_seat, slot}: the card changes rows.
+static func _control(event: MatchEvent) -> BoardStep:
+	var payload: Dictionary = event.payload
+	var step: BoardStep = _make(BoardStep.Kind.CONTROL, event)
+	step.card = payload.get("card", -1)
+	step.seat = payload.get("controller", -1)
+	step.owner = payload.get("owner", -1)
+	step.from_seat = payload.get("from_seat", -1)
+	step.slot = payload.get("slot", -1)
+	step.duration = CONTROL_TIME
+	return step
 
 
 ## TRIGGER_FIRED {seat, card, crew, moment, verb, resolution} and TRIGGER_FIZZLED {seat, card,
@@ -433,7 +504,7 @@ static func _append_status(out: Array[BoardStep], event: MatchEvent) -> void:
 
 
 ## PROMPT_OPENED: the prompt of P12 {seat, card, crew, verb, zone, options, multi, exact, min,
-## optional, resume, step} plus `text`.
+## optional, resume, step} (+ `max` for an "up to N" prompt) plus `text`.
 static func _prompt(event: MatchEvent) -> BoardStep:
 	var payload: Dictionary = event.payload
 	var step: BoardStep = _make(BoardStep.Kind.PROMPT, event)
@@ -446,6 +517,7 @@ static func _prompt(event: MatchEvent) -> BoardStep:
 	step.multi = payload.get("multi", false)
 	step.optional = payload.get("optional", false)
 	step.exact = payload.get("exact", -1)
+	step.max_count = payload.get("max", Choice.NO_MAX)
 	step.step = payload.get("step", "")
 	var raw_options: Array = payload.get("options", [])
 	step.options.assign(raw_options)
@@ -491,6 +563,21 @@ static func _make(kind: int, event: MatchEvent) -> BoardStep:
 static func _seat_of(payload: Dictionary) -> int:
 	var seat: int = payload.get("seat", payload.get("owner", -1))
 	return seat
+
+
+## EXIT_RESOLVED {card, mark, owner, to, seat, slot} and CARD_RETURNED {owner, card, seat,
+## slot}: `seat` is the Owner (whose hand a Fleeting card goes to), `from_seat` and `slot`
+## the row the card left and its index there (DC-14 T17), so a hidden card is found by slot.
+static func _row_exit_step(kind: int, event: MatchEvent) -> BoardStep:
+	var step: BoardStep = _make(kind, event)
+	var payload: Dictionary = event.payload
+	var owner_seat: int = payload.get("owner", -1)
+	var row_seat: int = payload.get("seat", owner_seat)
+	step.seat = owner_seat if owner_seat >= 0 else row_seat
+	step.from_seat = row_seat
+	step.card = payload.get("card", -1)
+	step.slot = payload.get("slot", -1)
+	return step
 
 
 ## A step for an event with a seat and a card; either may be missing (-1).

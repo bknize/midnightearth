@@ -9,8 +9,8 @@ extends RefCounted
 ## definition whichever seat controls it. Both seats may name the same deck. Cards created
 ## in a match (milestone B: Dross, Twin's copies) take ids from CREATED_BASE up, never
 ## colliding with a Deck card; record_created() gives one its definition and Owner, and
-## def_of() and origin_of() answer for it as for a Deck card. A failed build holds no
-## definitions and reports why through build_error().
+## def_of() and origin_of() answer for it as for a Deck card (its verbs join has_verb()). A
+## failed build holds no definitions and reports why through build_error().
 ##
 ## It also holds each seat's three Crew, resolved from its deck's `crew` list through the
 ## Crew pool: crew_for(seat) in deck order (slot 0..2). Crew are not cards: they have no
@@ -25,14 +25,18 @@ var _error: String = ""
 ## Created cards by instance id (record_created): their definition and their Owner.
 var _created: Dictionary[int, CardDef] = {}
 var _created_owner: Dictionary[int, int] = {}
-## The verb names some definition of the match carries, as a set, filled once by build()
-## so a hot path can skip work no card can need (has_verb). Empty after a failed build.
+## The verb names some definition of the match carries, as a set, filled by build() and
+## grown by record_created(), so a hot path can skip work no card can need (has_verb). Empty
+## after a failed build.
 var _verbs: Dictionary[String, bool] = {}
 ## Each seat's Crew in slot order, seat 0's MatchRules.CREW_SIZE then seat 1's.
 var _crew: Array[CrewDef] = []
 ## Extra verbs the trigger queue asks before Abilities (DC-13 T05): none in a shipped match;
 ## the test fixtures set one for their stub verbs (set_verb_handler).
 var _verb_handler: VerbHandler = null
+## The pool the match was built from (DC-14 T12): created cards take their definition from
+## it by id (pool_def: Dross). Null after a failed build.
+var _pool: CardDb = null
 
 
 ## Resolves the definitions of a match where seat s plays the deck `deck_ids[s]` of
@@ -63,6 +67,7 @@ static func build(cards: CardDb, decks: DeckList, ids: Array[String], crew: Crew
 			seat_crew.append(crew.crew_of(crew_id))
 	out._defs = defs
 	out._crew = seat_crew
+	out._pool = cards
 	out._deck_ids.assign(ids)
 	for def: CardDef in defs:
 		if def == null:
@@ -117,8 +122,19 @@ static func is_created(instance: int) -> bool:
 
 
 ## Records the created card `instance` (CREATED_BASE or above, not yet recorded) with its
-## definition and Owner (plan P6). False, changing nothing, when the id is outside the
-## created range, already recorded, `def` is null or `owner` is not a seat.
+## definition and Owner (plan P6), and adds its verbs to has_verb(). False, changing
+## nothing, when the id is outside the created range, already recorded, `def` is null or
+## `owner` is not a seat.
+##
+## Shared state (DC-14 T17): this writes `_created` and `_verbs` on a MatchCards that every
+## MatchState.duplicate() copy of the match shares. Created ids are allocated only from
+## MatchState.next_created_id (AbilitiesComboDisruption.create), which each copy carries, so
+## a copy replaying the same actions asks for the same id with the same definition and the
+## repeat is refused harmlessly. Two copies that diverge and then both create would hand one
+## id two definitions; the first recorded wins here. The engine never runs diverging copies
+## (no preview since C10, so one live state per match); a test that copies a state must not
+## create cards on both. A verb added here stays in has_verb() for the match, which only
+## makes a hot path do work it could skip.
 func record_created(instance: int, def: CardDef, owner: int) -> bool:
 	if instance < CREATED_BASE or _created.has(instance) or def == null:
 		return false
@@ -126,11 +142,21 @@ func record_created(instance: int, def: CardDef, owner: int) -> bool:
 		return false
 	_created[instance] = def
 	_created_owner[instance] = owner
+	for ability: CardAbility in def.abilities:
+		_verbs[ability.verb] = true
 	return true
 
 
+## The pool's definition with the id `card_id` (a created-only card such as Dross, or any
+## other), or null when unknown or after a failed build.
+func pool_def(card_id: String) -> CardDef:
+	if _pool == null:
+		return null
+	return _pool.card_by_id(card_id)
+
+
 ## Whether any definition of the match carries an ability with the verb `verb`, on either
-## seat's deck. False after a failed build. Fixed at build(): a deck never changes.
+## seat's deck or a created card's (record_created). False after a failed build.
 func has_verb(verb: String) -> bool:
 	return _verbs.has(verb)
 

@@ -76,6 +76,14 @@ enum Kind {
 	## the opponent's hand, holds and goes back; the fan does not change. `verb`, `trigger`,
 	## `reason` (a fizzle's, "" when it fired).
 	TELEGRAPH,
+	## CARD_CREATED onto a row (Twin's copy): a new face-up card appears at `slot` of `seat`'s
+	## row. A created card going to a hand is a DRAW with `created` set.
+	CREATE,
+	## CARD_PLACED (Revive): a Pile card lands face down at `slot` of `seat`'s row.
+	PLACE,
+	## CONTROL_CHANGED (Saboteur): `card` moves from `from_seat`'s row to `seat`'s (the new
+	## Controller) at `slot`. The Owner is kept (`owner`).
+	CONTROL,
 }
 
 var kind: int = Kind.CLEAR_TABLE
@@ -106,6 +114,7 @@ var statuses: Array[String] = []
 ## reveal, so "×M" and "+N" rise once the card is face up; 0 for a revealed card (R31).
 var chip_delay: float = 0.0
 ## MOVE: every moved card (instance id, -1 when hidden) with its row index before and after.
+## SHUFFLE_IN: the Pile cards that went into the Deck (Exhume's `pile_cards`; none for a Reset).
 var cards: Array[int] = []
 var from_slots: Array[int] = []
 var slots_to: Array[int] = []
@@ -119,12 +128,21 @@ var word: String = ""
 var status_on: bool = true
 ## STATUS (EXIT_MARKED): the mark the new one replaced ("" when none).
 var old_word: String = ""
-## ENERGY_GRANT: the Budget added.
+## ENERGY_GRANT: the Budget added, and whether it lands next Turn (Tithe), so this Turn's
+## Energy stays as it is.
 var amount: int = 0
-## LOOK: the seat whose row was looked at.
+var next_turn: bool = false
+## DRAW, CREATE (CARD_CREATED): the definition id and the Owner of a created card. CONTROL: the
+## Owner, which a change of Controller keeps.
+var created: bool = false
+var def_id: String = ""
+var owner: int = -1
+## LOOK, CONTROL: the seat whose row was looked at, or the card left.
 var from_seat: int = -1
-## WALK_END: both seats' walking totals (ten-thousandths).
+## WALK_END: both seats' walking totals (ten-thousandths) and the Dross each seat held in hand
+## (the engine's own count: a seat with none shows no multiply).
 var totals: Array[int] = []
+var dross: Array[int] = []
 ## Cards committed (opponent and player commits).
 var count: int = 0
 ## Row slots of the committed cards (commits).
@@ -158,9 +176,11 @@ var from_hand: bool = false
 var reason: String = ""
 ## CHOICE_SHOW, PROMPT: the zone chosen from and the pick.
 var zone: String = ""
-## PROMPT: the multi-select's required set size (-1 for any size up to the options), whether
-## it is a multi-select or optional, and the drain point it opened at (P12 `step`, D1..D12).
+## PROMPT: the multi-select's required set size (-1 for any size up to the options), its
+## "up to N" bound (`max`, -1 for none; C15 2a), whether it is a multi-select or optional, and
+## the drain point it opened at (P12 `step`, D1..D12).
 var exact: int = -1
+var max_count: int = Choice.NO_MAX
 var multi: bool = false
 var optional: bool = false
 var step: Variant = ""

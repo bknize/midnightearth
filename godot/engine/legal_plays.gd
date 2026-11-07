@@ -21,14 +21,24 @@ extends RefCounted
 ## order, where bit i stands for hand[i], and each subset keeps the hand's order. So the
 ## empty set (mask 0) always comes first, then {hand[0]}, {hand[1]}, {hand[0], hand[1]},
 ## {hand[2]}, and so on. Under rules 7 (DC-13 T03) a hand at its Commit holds its Hand size
-## plus the Turn's draws, so a few cards (the discard-down brings it back after each Commit).
+## plus the Turn's draws and any created cards (Dross), so it can pass 12 cards; the
+## discard-down brings it back after each Commit, and a hand above ENUMERATE_MAX is counted
+## rather than enumerated (below).
 ##
 ## The discard-down (cycle 9 R13, R14, plan P12): excess() is the number of cards a hand
 ## must Discard after its Commit, and set_size_ok() checks a set answer's size against a
-## prompt's `exact` and `min` (Choice.is_valid_set).
+## prompt's `exact`, `min` and `max` (Choice.is_valid_set).
+##
+## Above ENUMERATE_MAX cards, enumeration is replaced by counting and unranking
+## (set_counts(), DC-14 T17).
 ##
 ## Nothing here prints, asserts or pushes an error; failures are EngineError codes. Static
 ## and pure.
+
+
+## The most hand cards enumerate_masks_with() is asked to walk (2^n masks): a larger hand is
+## counted and unranked instead (lead_order() .. unrank_set(), DC-14 T17).
+const ENUMERATE_MAX: int = 12
 
 
 ## The cost of one card instance, or -1 when the id maps to no definition.
@@ -85,6 +95,125 @@ static func enumerate_masks_with(hand: Array[int], costs: Array[int], energy: in
 			total += costs[i]
 		if priced and total <= energy:
 			out.append(mask)
+	return out
+
+
+## Counting and unranking (DC-14 T17): a hand of more than ENUMERATE_MAX cards is not walked
+## mask by mask (2^n, seconds for a 16-card hand). lead_order() lists its priced cards by
+## cost, highest first (ties by hand position); set_counts() tabulates, from each position of
+## that order on, how many subsets fit each budget 0 .. `budget`; count_sets() and
+## unrank_set() read the table, so the random bot draws one legal set uniformly in
+## O(n * budget). Under the free first card a set is legal when its cost less its costliest
+## card fits (that card is committed first), so each non-empty set is counted once under its
+## lead, its first card in lead_order(), with the rest drawn from after the lead.
+static func lead_order(costs: Array[int]) -> Array[int]:
+	var out: Array[int] = []
+	for index: int in range(costs.size()):
+		if costs[index] < 0:
+			continue
+		var at: int = out.size()
+		while at > 0 and costs[out[at - 1]] < costs[index]:
+			at -= 1
+		if out.insert(at, index) != OK:
+			out.append(index)
+	return out
+
+
+## The summed cost of the priced cards of `costs` (unpriced ones, below 0, left out).
+static func priced_total(costs: Array[int]) -> int:
+	var total: int = 0
+	for cost: int in costs:
+		if cost > 0:
+			total += cost
+	return total
+
+
+## How many subsets of the cards order[k ..] (costs by hand position in `costs`) have a
+## summed cost of at most b, for k in 0 .. order.size() and b in 0 .. `budget`: one flat
+## list, entry k * (budget + 1) + b (count_at()). The last row is all ones (the empty set).
+## Empty when `budget` is negative.
+static func set_counts(costs: Array[int], order: Array[int], budget: int) -> Array[int]:
+	var width: int = budget + 1
+	var rows: int = order.size() + 1
+	var out: Array[int] = []
+	if width <= 0:
+		return out
+	out.assign(range(rows * width))
+	for b: int in range(width):
+		out[order.size() * width + b] = 1
+	for k: int in range(order.size() - 1, -1, -1):
+		var cost: int = costs[order[k]]
+		for b: int in range(width):
+			var count: int = out[(k + 1) * width + b]
+			if cost <= b:
+				count += out[(k + 1) * width + b - cost]
+			out[k * width + b] = count
+	return out
+
+
+## The entry of set_counts() for row `k` and budget `b` (its table built for `budget`).
+static func count_at(table: Array[int], budget: int, k: int, b: int) -> int:
+	return table[k * (budget + 1) + b]
+
+
+## How many legal sets (the empty one included) `table` (set_counts over `order`, `budget`)
+## holds: every subset within the budget, or under `free_first` the empty set plus, per lead,
+## the subsets of the cards after it within the budget. 1 when `budget` is negative.
+static func count_sets(
+	order: Array[int], table: Array[int], budget: int, free_first: bool
+) -> int:
+	if budget < 0 or table.is_empty():
+		return 1
+	if not free_first:
+		return count_at(table, budget, 0, budget)
+	var total: int = 1
+	for lead: int in range(order.size()):
+		total += count_at(table, budget, lead + 1, budget)
+	return total
+
+
+## The legal set of rank `rank` (0 .. count_sets() - 1) as hand positions: under
+## `free_first` its lead first, then the rest in lead_order(); rank 0 under `free_first`, or
+## any rank with a negative budget, is the empty set. Each rank gives a different set, so a
+## uniform rank is a uniform set.
+static func unrank_set(
+	costs: Array[int],
+	order: Array[int],
+	table: Array[int],
+	budget: int,
+	free_first: bool,
+	rank: int
+) -> Array[int]:
+	var out: Array[int] = []
+	if budget < 0 or table.is_empty():
+		return out
+	var left_rank: int = rank
+	var start: int = 0
+	if free_first:
+		if left_rank <= 0:
+			return out
+		left_rank -= 1
+		var lead: int = -1
+		for at: int in range(order.size()):
+			var under: int = count_at(table, budget, at + 1, budget)
+			if left_rank < under:
+				lead = at
+				break
+			left_rank -= under
+		if lead < 0:
+			return out
+		out.append(order[lead])
+		start = lead + 1
+	var room: int = budget
+	for k: int in range(start, order.size()):
+		var skip: int = count_at(table, budget, k + 1, room)
+		if left_rank < skip:
+			continue
+		left_rank -= skip
+		out.append(order[k])
+		room -= costs[order[k]]
+		if room < 0:
+			break
 	return out
 
 
@@ -226,10 +355,13 @@ static func excess(hand_count: int, hand_size: int) -> int:
 	return maxi(hand_count - hand_size, 0)
 
 
-## Whether a set of `count` cards answers a multi-select whose `exact` and `min` are given
-## (plan P12): exactly `exact` when it is 0 or more (Choice.ANY_SIZE is -1), and at least
-## `min_count`.
-static func set_size_ok(count: int, exact: int, min_count: int) -> bool:
+## Whether a set of `count` cards answers a multi-select whose `exact`, `min` and `max` are
+## given (plan P12): exactly `exact` when it is 0 or more (Choice.ANY_SIZE is -1), at least
+## `min_count`, and at most `max_count` when it is 0 or more (Choice.NO_MAX is -1; "up to N",
+## C15 2a).
+static func set_size_ok(count: int, exact: int, min_count: int, max_count: int = -1) -> bool:
 	if exact >= 0 and count != exact:
+		return false
+	if max_count >= 0 and count > max_count:
 		return false
 	return count >= min_count

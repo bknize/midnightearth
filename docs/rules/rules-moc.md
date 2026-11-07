@@ -1,7 +1,7 @@
 ---
 type: moc
 tags: [moc, rules-v2]
-status: seedling
+status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[home]]", "[[cards/Cards]]", "[[systems/systems-moc]]"]
 created: 2026-11-06
 updated: 2026-11-06
@@ -13,9 +13,10 @@ supersedes:
 # Rules (ruleset v2)
 
 This folder is the canon for ruleset v2: one vocabulary, one resolution chart and a new card
-set, written as design, not yet built. It follows the spec [[specs/ruleset-v2/spec]]. The
-guides in [[systems/systems-moc]] describe the game as it runs today and stay true until the
-engine is changed to match this canon. Ben's scratch sheet is [[cards/Cards]]; the cards and
+set. The rules are built since DC-14 (rules version 7); the DC-13 and DC-14 rows of
+[[planning/cycles]] record how and the readings made on the way. It follows the spec
+[[specs/ruleset-v2/spec]]. The guides in [[systems/systems-moc]] are the as-built
+counterparts, and each says where the build reads this canon differently. Ben's scratch sheet is [[cards/Cards]]; the cards and
 Crew were drawn from it, and it is not canon.
 
 ## Reading order

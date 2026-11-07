@@ -19,7 +19,8 @@ extends RefCounted
 ##   On empty draw hook (on_empty_draw(), D1, no re-check of the Deck, C29), then the resumed
 ##   draw of Q11 once if the Deck is no longer empty (resumed_draw()).
 ## - budget(): turn + the Energy granted this Turn (+ the Crew hook), nothing carried (R6).
-## - hand_size(): MatchRules.HAND_SIZE plus every read "Hand size +N" (Pantry, R11).
+## - hand_size(): Quartermaster's set or MatchRules.HAND_SIZE, plus every read "Hand size +N"
+##   (Pantry, R11).
 ## - accept_commit(): the cards leave the hand, the cost is spent (effective costs, the free
 ##   first card), `committed_count` records the Commit (0 for a Pass), COMMITTED; the first
 ##   Commit waits face down in `pending`, the second merges both into their rows face down.
@@ -33,7 +34,8 @@ extends RefCounted
 ##   TURN_ENDED.
 ## - end_round(): every card on both rows to its Owner's Pile as a Discard, first seat's row
 ##   first, in slot order (R2, R20), On discard once (D12), then the Round is awarded to the
-##   higher Score of its last Walk (R1, today's rule), ROUND_ENDED.
+##   seat that won more of its Turns (`turn_wins`; equal Turn wins award none, C13),
+##   ROUND_ENDED.
 ##
 ## Drain points (DC-13 T05, TriggerQueue): on_empty_draw() (D1), on_start() (D2),
 ## on_commit() (D3, D5), on_discard() (D4, D6, D10, D12) and at_turn_end() (D9, D11) wake
@@ -211,11 +213,14 @@ static func budget(state: MatchState, cards: MatchCards, seat: int) -> int:
 	return state.turn + state.energy.grants[seat] + crew_budget_bonus(state, cards, seat)
 
 
-## `seat`'s Hand size (R11): the base MatchRules.HAND_SIZE, plus the amount of every "your
-## Hand size is +N" Ongoing its revealed row cards make apply (Pantry). Milestone B's
-## Quartermaster adds the "is N" set, which applies first.
+## `seat`'s Hand size (R11): the "your Hand size is N" its Crew set (Quartermaster,
+## CrewAbilities.hand_size_set(), DC-14 T14) or else the base MatchRules.HAND_SIZE, plus the
+## amount of every "your Hand size is +N" Ongoing its revealed row cards make apply (Pantry):
+## Quartermaster with one Pantry is 7 + 2 = 9.
 static func hand_size(state: MatchState, cards: MatchCards, seat: int) -> int:
-	var size: int = MatchRules.HAND_SIZE
+	var size: int = CrewAbilities.hand_size_set(cards, seat)
+	if size <= 0:
+		size = MatchRules.HAND_SIZE
 	for ability: CardAbility in Scoring.ongoing_on_row(state, cards, seat, Scoring.HAND_SIZE_ADD_VERB):
 		size += ability.amount
 	return size
@@ -544,7 +549,9 @@ static func on_commit(
 
 ## Each card of `discarded`, in order, wakes its On discard Batch (at Round end, D12, the
 ## cleared rows wake one Batch), and the queue drains at `step` (D4, D6, D10 or D12) for
-## `seat` (the discarding seat, -1 for none).
+## `seat` (the discarding seat, -1 for none). Each Batch carries the context {from, reason}
+## of its Discards (DC-14 T13: Tithe watches the exit pass's Condemned, Reliquary the hand);
+## an ability's own Discard from a hand wakes with none, which reads as from the hand.
 static func on_discard(
 	state: MatchState,
 	cards: MatchCards,
@@ -554,13 +561,17 @@ static func on_discard(
 	step: String,
 	seat: int = -1
 ) -> bool:
+	var context: Dictionary = {"from": FROM_HAND, "reason": REASON_DISCARD_DOWN}
+	if step == STEP_EXIT_PASS:
+		context = {"from": FROM_ROW, "reason": REASON_CONDEMNED}
 	if step == STEP_ROUND_END:
-		if TriggerQueue.wake(state, cards, MOMENT_DISCARD, discarded).is_empty():
+		context = {"from": FROM_ROW, "reason": REASON_ROUND_END}
+		if TriggerQueue.wake(state, cards, MOMENT_DISCARD, discarded, -1, context).is_empty():
 			pass  # Nothing watches the Round-end clear.
 	else:
 		for card: int in discarded:
 			var subjects: Array[int] = [card]
-			if TriggerQueue.wake(state, cards, MOMENT_DISCARD, subjects).is_empty():
+			if TriggerQueue.wake(state, cards, MOMENT_DISCARD, subjects, -1, context).is_empty():
 				pass  # Nothing watches this Discard.
 	return TriggerQueue.drain(state, cards, rng, sink, step, seat)
 

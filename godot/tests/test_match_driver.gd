@@ -25,10 +25,13 @@ const LINE_UNPINNED: String = ""
 ## DC-08 T07 (R5) added `bot=<name>` after the decks; the DC-09 T07 pin under the greedy
 ## bot was "Board: match ended seed=1 decks=bloom/ruin bot=greedy winner=0 wins=4-0
 ## rounds=4 end=wins actions=72". Emptied at DC-13 T01 (cycle 9 R70: only the random bot
-## is left); re-pinned at DC-13 T11 (rules 7, the random bot).
+## is left); re-pinned at DC-13 T11 (rules 7, the random bot): "Board: match ended seed=1
+## decks=greed/greed bot=random winner=0 wins=3-1 rounds=7 end=rounds actions=121".
+## Unpinned at DC-14 T14 (six decks change seed 1's seeded pairing); re-pinned at DC-14 T18.
+## Re-pinned at DC-14 T18 (six decks, 90 cards, ten Crew).
 const EXPECTED_LINE: String = (
-	"Board: match ended seed=1 decks=greed/greed bot=random winner=0 wins=3-1 rounds=7"
-	+ " end=rounds actions=121"
+	"Board: match ended seed=1 decks=combo/graveyard bot=random winner=1 wins=3-4 rounds=7"
+	+ " end=wins actions=265"
 )
 ## The bot the helpers build: the random bot, the only one (cycle 9 R70).
 const BOT: String = "random"

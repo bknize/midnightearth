@@ -1,3 +1,4 @@
+# gdlint: ignore=max-public-methods
 class_name EffectPlayer
 extends RefCounted
 ## Plays the walk and the effects on the table (R51, R53, plan P17, P18): the pulse lift,
@@ -69,6 +70,7 @@ func pulse(step: BoardStep) -> void:
 		push_warning("Board: a reveal found no face-down card on the opponent's row")
 		return
 	card.instance_id = step.card
+	card.set_look_mark(false)
 	show(card, step, reveal_entry(step))
 	_lift_and_settle(card, step.duration)
 	_flip_up(card, flip_time)
@@ -152,6 +154,9 @@ func status(step: BoardStep) -> void:
 ## Owner's fan it returns, and a Fade card flips face down in its slot. The card is found by
 ## id on either row, since a card on a row it does not own exits too.
 func exit_card(step: BoardStep) -> void:
+	if step.card < 0:
+		_exit_hidden(step)
+		return
 	var row_seat: int = _row_seat_of(step.card)
 	if row_seat < 0:
 		push_warning("Board: an exit found no card %d on either row" % step.card)
@@ -165,13 +170,37 @@ func exit_card(step: BoardStep) -> void:
 			move_card(card, _row_of(row_seat), hand, step.duration)
 			_hide_if_opponent(card, step.seat, step.duration)
 			if step.seat == 0:
+				# Home again: a card the opponent held on its row is the player's once more.
 				_forget_flags(step.card)
+				player_cards[step.card] = card
+			else:
+				_forget(step.card)
 		"face_down":
 			flip_down(card, step.duration)
 			if row_seat == 0:
 				face_down_ids[step.card] = true
 			else:
 				_hide_if_opponent(card, 1, step.duration)
+
+
+## An exit the viewer may not name (a face-down card of the other seat, redacted to card -1):
+## a Fade leaves it face down as it is, a Fleeting card goes back to its Owner's fan as a
+## back. The event names the row (`from_seat`) and the card's slot before it left (DC-14
+## T17); an event with no row falls back to the event's owner seat.
+func _exit_hidden(step: BoardStep) -> void:
+	if step.exit_to != "hand":
+		return
+	var row_seat: int = step.from_seat
+	if row_seat < 0 and step.source != null:
+		row_seat = step.source.owner_seat
+	if row_seat != 1:
+		return
+	var card: BoardCard = _opponent_card_at(step.slot)  # The slot, else the first back.
+	if card == null:
+		push_warning("Board: a hidden exit found no face-down card on the opponent's row")
+		return
+	move_card(card, opponent_row, _hand_of(step.seat), step.duration)
+	_hide_if_opponent(card, 1, step.duration)
 
 
 ## A note on the looked-at card (CARD_LOOKED): it glows and says "looked".
@@ -185,6 +214,43 @@ func look(step: BoardStep) -> void:
 	if glow_material != null:
 		card.pulse_glow(glow_material, step.duration)
 	card.flash_note("looked", step.duration)
+	card.set_look_mark(card.face_down)
+
+
+## A card changes Controller (CONTROL_CHANGED): it moves to its new Controller's row at the
+## step's slot, the Owner unchanged. The viewer's own row cards are the played ones, so a card
+## gained is remembered as committed and one lost is forgotten.
+func control(step: BoardStep) -> void:
+	var card: BoardCard = _find_in_row(step.from_seat, step.card, -1)
+	if card == null or step.seat == step.from_seat:
+		push_warning("Board: a control change found no card %d to move" % step.card)
+		return
+	move_card(card, _row_of(step.from_seat), _row_of(step.seat), step.duration, step.slot)
+	if step.seat == 0:
+		player_cards[step.card] = card
+		committed_ids[step.card] = true
+	else:
+		_forget(step.card)
+
+
+## The view's entry for card `id` on `seat`'s row (its Power, Mult, Add, statuses), or {}.
+func row_entry(seat: int, id: int) -> Dictionary:
+	var view: SeatView = _view()
+	if view == null:
+		return {}
+	return BoardCard.entry_in(view.own_row if seat == 0 else view.opponent_row, id)
+
+
+## Marks the opponent's face-down cards the viewer has looked at (SeatView.looked: row slot to
+## card id) and clears the mark from the others.
+func sync_looks() -> void:
+	var view: SeatView = _view()
+	if view == null:
+		return
+	for slot: int in range(opponent_row.cards.size()):
+		var card: BoardCard = opponent_row.cards[slot] as BoardCard
+		if card != null:
+			card.set_look_mark(view.looked.has(slot) and card.face_down)
 
 
 ## Redresses every face in the player's hand from the view (turn start, cycle 8 P16).
@@ -217,6 +283,7 @@ func _hand_rows() -> Array[Dictionary]:
 func note_step(step: BoardStep) -> void:
 	if step.kind == BoardStep.Kind.TURN_START:
 		_refresh_hand()
+		sync_looks()
 
 
 ## The row slides to its new order in one re-layout: every card of the step goes from its row
@@ -279,12 +346,13 @@ func unreveal(step: BoardStep) -> void:
 
 ## The card flies to its owner's hand: face up for the player, face down for the opponent.
 func return_card(step: BoardStep) -> void:
-	var card: BoardCard = _find_in_row(step.seat, step.card, step.slot)
+	var row_seat: int = step.from_seat if step.from_seat >= 0 else step.seat
+	var card: BoardCard = _find_in_row(row_seat, step.card, step.slot)
 	if card == null:
-		push_warning("Board: a return found no card on seat %d's row" % step.seat)
+		push_warning("Board: a return found no card on seat %d's row" % row_seat)
 		return
 	var hand: CardCollection3D = _hand_of(step.seat)
-	move_card(card, _row_of(step.seat), hand, step.duration)
+	move_card(card, _row_of(row_seat), hand, step.duration)
 	if step.seat == 0:
 		_forget_flags(card.instance_id)
 		return
@@ -331,8 +399,17 @@ func discard(step: BoardStep) -> void:
 ## The opponent's pick glows for the step's time (R53). The card is found by zone and index,
 ## since a private pick arrives without its id.
 func choice_show(step: BoardStep) -> void:
+	if step.index < 0:
+		# A set answer (Quorum, Cull, Immolate): every kept or chosen position glows.
+		for picked: int in step.options:
+			_glow_choice(step, picked)
+		return
+	_glow_choice(step, step.index)
+
+
+func _glow_choice(step: BoardStep, index: int) -> void:
 	var own_size: int = _row_of(step.seat).cards.size()
-	var spot: CardSpot = RowTargets.resolve(step.zone, step.seat, step.index, own_size)
+	var spot: CardSpot = RowTargets.resolve(step.zone, step.seat, index, own_size)
 	if not spot.is_valid() or glow_material == null:
 		return
 	var collection: CardCollection3D = _hand_of(spot.seat) if spot.in_hand else _row_of(spot.seat)

@@ -10,6 +10,14 @@ const GLOW_SIZE: Vector2 = Vector2(2.9, 3.9)
 const GLOW_PEAK_ALPHA: float = 0.6
 ## Drawn after the prompt's dimmer (render priority 1), so a glowing card stays lit.
 const GLOW_PRIORITY: int = 2
+## The face text of a glowing card draws after its glow (NSC-164), so the glow never tints it.
+const TEXT_PRIORITY: int = GLOW_PRIORITY + 1
+## A selected card (multi-select) glows this colour instead of the board's gold.
+const SELECTED_TINT: Color = Color(0.35, 0.95, 0.55)
+## The LOOK mark on the back of a looked-at opposing card.
+const LOOK_POSITION: Vector3 = Vector3(0.0, -1.3, -0.01)
+const LOOK_FONT_SIZE: int = 56
+const LOOK_COLOR: Color = Color(0.95, 0.8, 0.25, 1.0)
 ## The glow and the note sit this far in front of the face.
 const GLOW_Z: float = 0.05
 const NOTE_Z: float = 0.1
@@ -42,6 +50,9 @@ var _glow: MeshInstance3D = null
 var _selected: bool = false
 ## The stacked badge words under the name (R79), built on first use.
 var _badges: Label3D = null
+var _look_mark: Label3D = null
+## The glow's own colour before any selection tint.
+var _glow_base: Color = Color.WHITE
 
 @onready var _name_label: Label3D = $CardMesh/NameLabel
 @onready var _cost_label: Label3D = $CardMesh/CostLabel
@@ -229,8 +240,11 @@ func set_glow(source: Material, alpha: float) -> void:
 			return
 		material.render_priority = GLOW_PRIORITY
 		_glow.material_override = material
-	material.albedo_color = Color(material.albedo_color, alpha)
+		_glow_base = material.albedo_color
+	var tint: Color = SELECTED_TINT if _selected else _glow_base
+	material.albedo_color = Color(tint, alpha)
 	_glow.visible = alpha > 0.0
+	_raise_text(alpha > 0.0)
 
 
 ## Raises the card to show it is in the prompt's selection, or sets it back (R48).
@@ -248,6 +262,42 @@ func is_selected() -> bool:
 func clear_glow() -> void:
 	if _glow != null:
 		_glow.visible = false
+	_raise_text(false)
+
+
+## Draws the face text after the glow while it shows, and back at the default otherwise.
+func _raise_text(on: bool) -> void:
+	var priority: int = TEXT_PRIORITY if on else 0
+	for label: Label3D in [
+		_name_label, _cost_label, _flat_label, _bonus_label, _text_label, _grown_mark,
+		_badges, badge
+	]:
+		if label != null:
+			label.render_priority = priority
+
+
+## Shows or hides the LOOK mark on the card's back (CARD_LOOKED): a looked-at opposing card.
+func set_look_mark(on: bool) -> void:
+	if _look_mark == null:
+		if not on:
+			return
+		_look_mark = Label3D.new()
+		_look_mark.name = "LookMark"
+		_look_mark.text = "LOOK"
+		_look_mark.pixel_size = 0.01
+		_look_mark.double_sided = false
+		_look_mark.outline_size = 0
+		_look_mark.font_size = LOOK_FONT_SIZE
+		_look_mark.modulate = LOOK_COLOR
+		_look_mark.position = LOOK_POSITION
+		_look_mark.rotation.y = PI
+		var mesh: Node3D = $CardMesh as Node3D
+		mesh.add_child(_look_mark)
+	_look_mark.visible = on
+
+
+func has_look_mark() -> bool:
+	return _look_mark != null and _look_mark.visible
 
 
 ## Glows and fades out over `seconds` (the opponent's pick, R53). The tween belongs to the
@@ -288,6 +338,7 @@ func flash_note(text: String, seconds: float) -> void:
 
 func clear_def() -> void:
 	set_badges([])
+	set_look_mark(false)
 	_name_label.text = ""
 	_cost_label.text = ""
 	_flat_label.text = ""

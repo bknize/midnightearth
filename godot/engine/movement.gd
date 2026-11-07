@@ -18,6 +18,7 @@ extends RefCounted
 ##   displaced takes the slot left by the last mover of the run that pushed it, so a single
 ##   shift trades places with its next free neighbour and "every other card shifts left" is
 ##   a rotation of the free slots (canon scenario 8: A B C with B Anchored reads C B A).
+## - move_to() moves one card to a given free slot, the others keeping their order (Skip).
 ## - place() is Placement (R43): the card is inserted at a slot, other cards' slot numbers
 ##   change, nothing is moved and no Anchor is broken.
 ## - The cursor (cycle 5 rules, R44): a Move keeps the row's length, so `walk.cursor` (the
@@ -44,7 +45,9 @@ static func shift(
 
 
 ## Moves each card of `movers` on `seat`'s row one slot in `dir` at once (see the class
-## comment). Anchored cards and cards not on the row are left out.
+## comment). Anchored cards and cards not on the row are left out. While a Fence is read
+## (DC-14 T13), a mover that would wrap the ring is Condemned instead and stays
+## (AbilitiesGraveyardControl.fence_movers).
 static func step_set(
 	state: MatchState,
 	cards: MatchCards,
@@ -54,6 +57,9 @@ static func step_set(
 	cause: String,
 	sink: Callable
 ) -> Array[int]:
+	var going: Array[int] = AbilitiesGraveyardControl.fence_movers(
+		state, cards, seat, movers, dir, sink
+	)
 	var row: Array[int] = []
 	row.assign(state.seats[seat].board)
 	var free: Array[int] = free_slots(state, cards, seat)
@@ -62,7 +68,7 @@ static func step_set(
 	var moving: Array[bool] = []
 	var placed: Array[int] = []
 	for index: int in range(count):
-		moving.append(movers.has(row[free[index]]))
+		moving.append(going.has(row[free[index]]))
 		placed.append(-1)
 	for index: int in range(count):
 		if moving[index]:
@@ -95,6 +101,34 @@ static func step_left_set(
 	sink: Callable
 ) -> Array[int]:
 	return step_set(state, cards, seat, movers, LEFT, cause, sink)
+
+
+## Moves `card` to position `target` among the free (not Anchored) slots of its row, the
+## other free cards keeping their order around it (Skip, DC-14 T13). Empty when it is
+## Anchored, on no row, already there or `target` is out of range.
+static func move_to(
+	state: MatchState, cards: MatchCards, card: int, target: int, cause: String, sink: Callable
+) -> Array[int]:
+	var out: Array[int] = []
+	var seat: int = Statuses.row_seat(state, card)
+	if seat < 0 or Statuses.is_anchored(state, cards, card):
+		return out
+	var row: Array[int] = state.seats[seat].board
+	var free: Array[int] = free_slots(state, cards, seat)
+	var order: Array[int] = []
+	for slot: int in free:
+		order.append(row[slot])
+	var from: int = order.find(card)
+	if target < 0 or target >= order.size() or target == from:
+		return out
+	order.remove_at(from)
+	if order.insert(target, card) != OK:
+		return out
+	var next: Array[int] = []
+	next.assign(row)
+	for index: int in range(free.size()):
+		next[free[index]] = order[index]
+	return _commit(state, seat, next, cause, sink)
 
 
 ## Trades the slots of `a` and `b` on one row. Fizzles (empty) when either is Anchored, they
