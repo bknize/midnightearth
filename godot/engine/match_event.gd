@@ -41,6 +41,12 @@ extends RefCounted
 ## - TURN_ENDED {scores, winner, wins} (+ `round`, `turn`); ROUND_ENDED {winner, wins}
 ##   (+ `round`, `scores`, `turn_wins`); CONCEDED {seat}; MATCH_ENDED {winner, reason, wins,
 ##   rounds_played}
+## - Milestone B (DC-14, pinned by the orchestrator before wave 1; all public):
+##   CARD_CREATED {seat, card, def, owner, to: hand|row, slot} (Litter's Dross into the
+##   opponent's hand, Twin's copy; `seat` holds it, `slot` -1 for a hand);
+##   CARD_PLACED {seat, card, from: pile, slot} (Revive, Exhume: a Pile card put on a row);
+##   CONTROL_CHANGED {card, owner, controller, from_seat, slot} (Saboteur: the card moves to
+##   the controller's row at `slot`; the Owner is kept)
 
 enum Kind {
 	MATCH_STARTED,
@@ -76,6 +82,9 @@ enum Kind {
 	ROUND_ENDED,
 	CONCEDED,
 	MATCH_ENDED,
+	CARD_CREATED,
+	CARD_PLACED,
+	CONTROL_CHANGED,
 }
 
 ## owner_seat of an event every seat may see in full.
