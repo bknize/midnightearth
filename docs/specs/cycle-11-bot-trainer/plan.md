@@ -28,7 +28,7 @@ point at it.
 | Trainer (trainer/) | yes (A2) | A Python package: `store.py` (sqlite3 + JSONL shards), `farm.py` (worker pool over subprocess pipes), `run.py` (generator and labeller loop, checkpoints), `server.py` (`mcp` 2.x `MCPServer`, streamable HTTP, bearer check), `sync.py` (bundles), `__main__.py` (`serve`, `run`, `selftest`), `tests/` (unittest), `windows/` (PowerShell and cmd scripts, `SETUP.md`). |
 | Vault/docs | yes | Ladder note rewrite of its rules (R3 to R6), guide rewrite (R56, A2), specs MOC row, cycle rows; P5 frontmatter; `obsidian-cli` audit. |
 | Secrets | yes | `.env.example` gains `BOT_TRAINER_URL` and `BOT_TRAINER_TOKEN`; `.mcp.json` gains the `bot-trainer` http entry with `${VAR}` placeholders; the PC's token lives in `C:\Users\trainer\.trainer\token`. |
-| Linear | yes | Project per spec, milestones DC-15 (A1) and DC-16 (A2, numbers assigned at `/cycle plan`), labels `area/engine`, `area/tooling`, `area/trainer`, `spec/cycle-11-bot-trainer` (filled by `/exercise`). |
+| Linear | yes | Project per spec, milestones DC-16 (A1) and DC-17 (A2; DC-15 went to cycle 10, Ben 1a at `/cycle plan` 2026-11-07), labels `area/engine`, `area/tooling`, `area/trainer`, `spec/cycle-11-bot-trainer` (filled by `/exercise`). |
 
 ## Decisions (the HOW choices)
 

@@ -68,7 +68,7 @@ A2: (1) T08; (2) T09, T11; (3) T10; (4) T12; (5) T13 (when unblocked), T14.
 - Project: [P-NSC-13 Cycle 11 — bot trainer, cycle A](https://linear.app/night-science-llc/project/cycle-11-bot-trainer-cycle-a-play-outs-ladder-from-random-trainer-11ab3927f350), state Planned
 - Label `spec/cycle-11-bot-trainer`; every issue in Todo with its Depends column as `blockedBy`
   (T08 is blocked by T07: A2 starts after A1 merges)
-- Milestones: DC-15 (A1, T01–T07) and DC-16 (A2, T08–T14), created and numbered at `/cycle plan`
+- Milestones: DC-16 bot-trainer-a1 (A1, T01–T07; created at `/cycle plan` 2026-11-07) and DC-17 (A2, T08–T14, created at its `/cycle plan`). DC-15 went to cycle 10 (review-tools), so A1 is DC-16 (Ben 1a, 2026-11-07)
 
 | Task | Issue |
 |---|---|
