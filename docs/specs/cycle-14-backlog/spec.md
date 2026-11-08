@@ -84,15 +84,18 @@ the stale documents.
 - R8. The engine shall give every created card an Owner at the moment it is created (the
   seat whose hand or row it is created in), and shall never file a card in a Pile by a
   fallback seat (NSC-175, C6).
-- R9. The card format shall let a created card carry a lifetime of either `until_piled`
-  (the default when absent) or `match`; the format version shall not change and the shipped
-  card pool file shall not be edited (C9).
-- R10. When a created card with lifetime `until_piled` would be sent to a Pile, the engine
-  shall remove it from the Match instead (it enters no Pile, no Deck and no hand again) and
-  shall emit one public event naming the Owner, the card, where it came from and the reason
-  (C9: Ben, "most of them will disappear when they're sent to the pile").
-- R11. When a created card with lifetime `match` would be sent to a Pile, the engine shall
-  file it in its Owner's Pile like any card.
+- R9. The card format shall let a Dross card (every created card is Dross, Twin's copies
+  included) carry a lifetime of either `round` (the default when absent) or `match`; the
+  format version shall not change and the shipped card pool file shall not be edited (C9,
+  C13).
+- R10. When a Round ends (after its award, before the next Round's draws), the engine shall
+  remove every Dross card with lifetime `round` from the Match wherever it is (hand, row,
+  Pile or Deck) and shall emit one public `DROSS_EXPIRED` per card naming the Owner, the
+  card, the zone it left and the reason (C13: Ben, "dross cards disappear at the end of a
+  round"). Within the Round a Dross card moves like any card: a discarded Dross is filed in
+  its Owner's Pile (so Reliquary can grow from it) and may be shuffled back by a Pile
+  shuffle.
+- R11. A Dross card with lifetime `match` is never removed by R10 and is filed like any card.
 - R12. The engine shall set `RULES_VERSION` to 9, so the stamp becomes `r9-857b165d5a5d755e`
   and a rules-8 action log is refused at replay rather than replayed under the new rules
   (C9, reversing C8).
@@ -248,6 +251,7 @@ The interview:
 | C10 | R3 Q2: which trainer items are in DC-20? | 2a: NSC-245 whole (pair weighting included), NSC-233's code items, NSC-209, NSC-231, NSC-213 in the rules wave; NSC-233's protocol and schema items stay for the training milestone (R18, R34–R39) |
 | C11 | R3 Q3: when does night 2 start, and where does the trainer wave sit? | 3a: night 2 once the rules wave has merged and been deployed to the PC; the trainer wave after night 2, before night 3 (R40, R50) |
 | C12 | R3 Q4: all the cleanup, or local items only? | 4a: all of it, the structural items as their own tasks (NSC-185, NSC-189, NSC-190) |
+| C13 | After the T03 merge (Ben, 2026-11-08): "'Dross' is the term we will use for 'created cards'. Twin's copies are Dross cards. Let's make the default rule 'dross cards disappear at the end of a round' to make Reliquary useful." Then 1a 2a 3c | 1a: at Round end every `round` Dross leaves every zone (hand, rows, Pile, Deck), after the award and before the next draws, one `DROSS_EXPIRED` each; 2a: lifetimes `round` (default) and `match`, `until_piled` dropped; 3c: full rename in code (`created` → Dross: `record_created`, `CardDef.created`, `CARD_EXPIRED` → `DROSS_EXPIRED`) as well as the canon. Supersedes C9's `until_piled` default (R9–R11) |
 
 Facts corrected during the interview: the PC's PVP server already ran stamp
 `r8-857b165d5a5d755e` (redeployed at `master` cc2b695, 80 gate suites green), so the only
