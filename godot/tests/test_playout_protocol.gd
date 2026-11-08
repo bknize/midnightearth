@@ -33,6 +33,11 @@ func _label_line(extra: Dictionary = {}) -> String:
 	return JSON.stringify(d)
 
 
+func _label_reply(legal: int, us: int) -> Dictionary:
+	var features: Array = [[1, 2, 3], [4, 5, 6]]
+	return PlayoutProtocol.label_reply(1, "s", "f1", 2, 3, [], legal, [{}, {}], features, [], 0, us)
+
+
 func _without(line: String, key: String) -> String:
 	var parsed: Variant = JSON.parse_string(line)
 	var d: Dictionary = parsed
@@ -74,6 +79,82 @@ func test_play_field_errors() -> void:
 	for extra: Dictionary in wrong:
 		var request: Dictionary = PlayoutProtocol.parse_request(_play_line(extra))
 		assert_bool(request.has("error")).is_true()
+
+
+func test_inspect_is_removed() -> void:
+	var line: String = JSON.stringify(
+		{"id": 4, "kind": "inspect", "seed": 5, "decks": [], "actions": [], "seat": 0}
+	)
+	var request: Dictionary = PlayoutProtocol.parse_request(line)
+	assert_bool(request.has("error")).is_true()
+	assert_int(request["id"]).is_equal(4)
+	var handler: PlayoutHandler = PlayoutHandler.load_default()
+	assert_object(handler).is_not_null()
+	if handler == null:
+		return
+	assert_array(handler.handle_line(line).keys()).is_equal(["id", "error"])
+
+
+func test_label_reply_carries_the_features_in_order() -> void:
+	var reply: Dictionary = _label_reply(2, 1)
+	var features: Array = reply["features"]
+	assert_array(features).is_equal([[1, 2, 3], [4, 5, 6]])
+	var line: String = PlayoutProtocol.encode(reply)
+	assert_bool(line.contains('"features":[[1,2,3],[4,5,6]]')).is_true()
+
+
+func test_weights_paths_are_optional_strings() -> void:
+	var play: Dictionary = PlayoutProtocol.parse_request(_play_line())
+	assert_str(play["generator_weights"]).is_equal("")
+	play = PlayoutProtocol.parse_request(_play_line({"generator_weights": "/w.json"}))
+	assert_str(play["generator_weights"]).is_equal("/w.json")
+	(
+		assert_bool(
+			PlayoutProtocol.parse_request(_play_line({"generator_weights": 3})).has("error")
+		)
+		. is_true()
+	)
+	var label: Dictionary = PlayoutProtocol.parse_request(_label_line())
+	assert_str(label["rollout_weights"]).is_equal("")
+	label = PlayoutProtocol.parse_request(_label_line({"rollout_weights": "/r.json"}))
+	assert_str(label["rollout_weights"]).is_equal("/r.json")
+	(
+		assert_bool(
+			PlayoutProtocol.parse_request(_label_line({"rollout_weights": []})).has("error")
+		)
+		. is_true()
+	)
+
+
+func test_a_numeric_seed_of_2_pow_53_or_more_is_refused() -> void:
+	var line: String = '{"id": 1, "kind": "play", "seed": 9007199254740993, "decks": [], '
+	line += '"generator": "random"}'
+	var request: Dictionary = PlayoutProtocol.parse_request(line)
+	assert_bool(request.has("error")).is_true()
+	assert_str(request["error"]).contains("string")
+	assert_int(request["id"]).is_equal(1)
+	var label: Dictionary = PlayoutProtocol.parse_request(
+		_label_line({"label_seed": 18014398509481984.0})
+	)
+	assert_str(label["error"]).contains("string")
+	# The same value as text is exact, and a numeric seed below the limit still passes.
+	var text: Dictionary = PlayoutProtocol.parse_request(_play_line({"seed": "9007199254740993"}))
+	assert_int(text["seed"]).is_equal(9007199254740993)
+	(
+		assert_bool(
+			PlayoutProtocol.parse_request(_play_line({"seed": 9007199254740991})).has("error")
+		)
+		. is_false()
+	)
+
+
+func test_an_over_long_request_line_is_an_error() -> void:
+	var padding: String = "x".repeat(PlayoutProtocol.MAX_REQUEST_BYTES)
+	var request: Dictionary = PlayoutProtocol.parse_request(_play_line({"note": padding}))
+	assert_bool(request.has("error")).is_true()
+	assert_str(request["error"]).contains("limit")
+	assert_bool(PlayoutProtocol.is_over_long(PlayoutProtocol.MAX_REQUEST_BYTES - 2)).is_false()
+	assert_bool(PlayoutProtocol.is_over_long(PlayoutProtocol.MAX_REQUEST_BYTES - 1)).is_true()
 
 
 func test_unparseable_lines_and_kinds_are_errors() -> void:
@@ -144,13 +225,31 @@ func test_label_with_neither_k_nor_candidates_is_an_error() -> void:
 
 
 func test_reply_field_order() -> void:
-	var hello: Dictionary = PlayoutProtocol.hello_reply("r7-x", 7, 5, "4.6")
-	assert_array(hello.keys()).is_equal(["hello", "stamp", "rules", "format", "godot"])
+	var hello: Dictionary = PlayoutProtocol.hello_reply("r7-x", "f1", 7, 5, "4.6")
+	assert_array(hello.keys()).is_equal(
+		["hello", "stamp", "feature_set", "rules", "format", "godot"]
+	)
 	var played: Dictionary = PlayoutProtocol.play_reply(1, "s", {}, {}, [[], []], 3)
 	assert_array(played.keys()).is_equal(["id", "stamp", "log", "result", "commits", "us"])
-	var labelled: Dictionary = PlayoutProtocol.label_reply(1, "s", 4, [], [], 0, 3)
-	assert_array(labelled.keys()).is_equal(
-		["id", "stamp", "legal", "candidates", "values", "rollouts", "us"]
+	var labelled: Dictionary = _label_reply(4, 3)
+	(
+		assert_array(labelled.keys())
+		. is_equal(
+			[
+				"id",
+				"stamp",
+				"feature_set",
+				"round",
+				"turn",
+				"hand",
+				"legal",
+				"candidates",
+				"features",
+				"values",
+				"rollouts",
+				"us",
+			]
+		)
 	)
 	var result: Dictionary = PlayoutProtocol.result_object(0, [2, 1], 3, "wins")
 	assert_array(result.keys()).is_equal(["winner", "wins", "rounds", "reason"])
@@ -161,23 +260,21 @@ func test_reply_field_order() -> void:
 
 func test_digest_drops_us_and_godot() -> void:
 	var first: Array[String] = [
-		PlayoutProtocol.encode(PlayoutProtocol.hello_reply("s", 7, 5, "4.6.3")),
-		PlayoutProtocol.encode(PlayoutProtocol.label_reply(1, "s", 4, [], [], 0, 111)),
+		PlayoutProtocol.encode(PlayoutProtocol.hello_reply("s", "f1", 7, 5, "4.6.3")),
+		PlayoutProtocol.encode(_label_reply(4, 111)),
 	]
 	var second: Array[String] = [
-		PlayoutProtocol.encode(PlayoutProtocol.hello_reply("s", 7, 5, "9.9")),
-		PlayoutProtocol.encode(PlayoutProtocol.label_reply(1, "s", 4, [], [], 0, 999)),
+		PlayoutProtocol.encode(PlayoutProtocol.hello_reply("s", "f1", 7, 5, "9.9")),
+		PlayoutProtocol.encode(_label_reply(4, 999)),
 	]
 	var other: Array[String] = [
-		PlayoutProtocol.encode(PlayoutProtocol.hello_reply("s", 7, 5, "4.6.3")),
-		PlayoutProtocol.encode(PlayoutProtocol.label_reply(1, "s", 5, [], [], 0, 111)),
+		PlayoutProtocol.encode(PlayoutProtocol.hello_reply("s", "f1", 7, 5, "4.6.3")),
+		PlayoutProtocol.encode(_label_reply(5, 111)),
 	]
 	assert_str(PlayoutProtocol.digest(first)).is_equal(PlayoutProtocol.digest(second))
 	assert_str(PlayoutProtocol.digest(first)).is_not_equal(PlayoutProtocol.digest(other))
 	assert_int(PlayoutProtocol.digest(first).length()).is_equal(64)
-	var stripped: Dictionary = PlayoutProtocol.strip_timing(
-		PlayoutProtocol.label_reply(1, "s", 4, [], [], 0, 5)
-	)
+	var stripped: Dictionary = PlayoutProtocol.strip_timing(_label_reply(4, 5))
 	assert_bool(stripped.has("us")).is_false()
 	assert_bool(stripped.has("legal")).is_true()
 
@@ -225,6 +322,10 @@ func test_play_then_label_a_logged_position() -> void:
 	assert_int(first["rollouts"]).is_equal(_size(first["candidates"]) * 2)
 	assert_int(_size(first["values"])).is_equal(_size(first["candidates"]))
 	assert_str(first["stamp"]).is_equal(played["stamp"])
+	assert_str(first["feature_set"]).is_equal(BotFeatures.SET_VERSION)
+	assert_int(_size(first["features"])).is_equal(_size(first["candidates"]))
+	assert_int(first["round"]).is_greater(0)
+	assert_int(_size(first["hand"])).is_greater(0)
 	assert_str(PlayoutProtocol.digest([PlayoutProtocol.encode(first)])).is_equal(
 		PlayoutProtocol.digest([PlayoutProtocol.encode(again)])
 	)

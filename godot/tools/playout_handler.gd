@@ -49,7 +49,7 @@ func hello() -> Dictionary:
 	var version: Dictionary = Engine.get_version_info()
 	var godot: String = str(version.get("string", ""))
 	return PlayoutProtocol.hello_reply(
-		_stamp, MatchRules.RULES_VERSION, MatchRules.LOG_FORMAT, godot
+		_stamp, BotFeatures.SET_VERSION, MatchRules.RULES_VERSION, MatchRules.LOG_FORMAT, godot
 	)
 
 
@@ -66,8 +66,6 @@ func handle_line(line: String) -> Dictionary:
 	var reply: Dictionary = {}
 	if kind == PlayoutProtocol.KIND_PLAY:
 		reply = _play(request, began)
-	elif kind == PlayoutProtocol.KIND_INSPECT:
-		reply = _inspect(request, began)
 	else:
 		reply = _label(request, began)
 	return reply
@@ -86,6 +84,7 @@ func _play(request: Dictionary, began: int) -> Dictionary:
 	var request_id: Variant = request["id"]
 	var match_seed: int = request["seed"]
 	var generator: String = request["generator"]
+	var generator_weights: String = request["generator_weights"]
 	var play_decks: Array[String] = []
 	play_decks.assign(_as_array(request["decks"]))
 	var engine: MatchEngine = _new_engine(match_seed, play_decks)
@@ -95,7 +94,9 @@ func _play(request: Dictionary, began: int) -> Dictionary:
 	var bots: Array[BotPlayer] = []
 	for seat: int in range(MatchEngine.SEATS):
 		var bot_seed: int = BotRegistry.seed_for(match_seed, seat)
-		bots.append(BotRegistry.make(generator, bot_seed, engine.match_cards()))
+		bots.append(
+			BotRegistry.make_with(generator, bot_seed, engine.match_cards(), generator_weights)
+		)
 	var actions: int = 0
 	while not engine.is_over():
 		var awaited: int = engine.awaited_seat()
@@ -128,29 +129,6 @@ func _play(request: Dictionary, began: int) -> Dictionary:
 	var log: Dictionary = PlayoutProtocol.log_object(engine.action_log())
 	var us: int = Time.get_ticks_usec() - began
 	return PlayoutProtocol.play_reply(request_id, _stamp, log, result, commits, us)
-
-
-# --- inspect --------------------------------------------------------------------------
-
-
-## What `seat` sees after the prefix: Round, Turn and its hand as card ids and names.
-func _inspect(request: Dictionary, began: int) -> Dictionary:
-	var request_id: Variant = request["id"]
-	var seat: int = request["seat"]
-	var replayed: Dictionary = _replayed(request_id, request)
-	if replayed.has("error"):
-		return replayed["error"]
-	var engine: MatchEngine = replayed["engine"]
-	var view: SeatView = engine.view_for(seat)
-	var match_cards: MatchCards = engine.match_cards()
-	var hand: Array = []
-	for instance: int in view.own_hand:
-		var def: CardDef = match_cards.def_of(instance)
-		if def == null:
-			continue
-		hand.append({"instance": instance, "card": def.id, "name": def.name})
-	var us: int = Time.get_ticks_usec() - began
-	return PlayoutProtocol.inspect_reply(request_id, _stamp, view.round_number, view.turn, hand, us)
 
 
 # --- label ----------------------------------------------------------------------------
@@ -189,19 +167,49 @@ func _label(request: Dictionary, began: int) -> Dictionary:
 		chosen = given
 	var determinizations: int = request["determinizations"]
 	var rollout: String = request["rollout"]
+	var rollout_weights: String = request["rollout_weights"]
 	var values: Array[Dictionary] = Rollout.label(
-		engine, seat, chosen, determinizations, rollout, label_seed
+		engine, seat, chosen, determinizations, rollout, label_seed, rollout_weights
 	)
 	var dicts: Array = []
+	var features: Array = []
 	for action: EngineAction in chosen:
 		dicts.append(action.to_dict())
+		var vector: PackedInt64Array = BotFeatures.of(view, action, engine.match_cards())
+		var listed_features: Array = []
+		for entry: int in vector:
+			listed_features.append(entry)
+		features.append(listed_features)
+	var hand: Array = _hand_of(view, engine.match_cards())
 	var value_list: Array = []
 	for value: Dictionary in values:
 		value_list.append(value)
 	var us: int = Time.get_ticks_usec() - began
 	return PlayoutProtocol.label_reply(
-		request_id, _stamp, legal, dicts, value_list, chosen.size() * determinizations, us
+		request_id,
+		_stamp,
+		BotFeatures.SET_VERSION,
+		view.round_number,
+		view.turn,
+		hand,
+		legal,
+		dicts,
+		features,
+		value_list,
+		chosen.size() * determinizations,
+		us
 	)
+
+
+## The seat's hand as [{instance, card, name}] in hand order (what `inspect` reported).
+static func _hand_of(view: SeatView, cards: MatchCards) -> Array:
+	var hand: Array = []
+	for instance: int in view.own_hand:
+		var def: CardDef = cards.def_of(instance)
+		if def == null:
+			continue
+		hand.append({"instance": instance, "card": def.id, "name": def.name})
+	return hand
 
 
 ## Up to `k` distinct legal commits of a hand too large to enumerate (more than
@@ -240,9 +248,8 @@ func _replayed(request_id: Variant, request: Dictionary) -> Dictionary:
 	var started: ApplyResult = engine.start()
 	if not started.ok:
 		return {
-			"error": PlayoutProtocol.error_reply(
-				request_id, "match failed to start: %d" % started.error
-			)
+			"error":
+			PlayoutProtocol.error_reply(request_id, "match failed to start: %d" % started.error)
 		}
 	var prefix: Array[EngineAction] = []
 	prefix.assign(_as_array(request["actions"]))
@@ -250,7 +257,8 @@ func _replayed(request_id: Variant, request: Dictionary) -> Dictionary:
 		var applied: ApplyResult = engine.apply(prefix[index])
 		if not applied.ok:
 			return {
-				"error": PlayoutProtocol.error_reply(
+				"error":
+				PlayoutProtocol.error_reply(
 					request_id, "prefix action %d rejected: %d" % [index, applied.error]
 				)
 			}

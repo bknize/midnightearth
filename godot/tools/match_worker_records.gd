@@ -56,12 +56,18 @@ const END_FIELDS: Array[String] = [
 	"p95_us",
 	"slowest_us",
 	"stamp",
+	"weights_stamp",
 ]
+## The end record's `weights_stamp` values (cycle 13 R15, plan P6): every weights file used
+## carries the current stamp, one does not, or no side has a weights file.
+const WEIGHTS_MATCH: String = "match"
+const WEIGHTS_MISMATCH: String = "MISMATCH"
+const WEIGHTS_NONE: String = "none"
 
 
 ## One `choose` call. `action` is EngineAction.to_dict(); `legal` is the candidate count or
-## UNKNOWN; level, previewed, best, second, chosen and push are always UNKNOWN (the random
-## bot exposes none).
+## UNKNOWN (also when the worker runs without --legal, NSC-212); level, previewed, best,
+## second, chosen and push are always UNKNOWN (the random bot exposes none).
 static func decision(
 	match_seed: int,
 	game_index: int,
@@ -137,7 +143,8 @@ static func end(
 	replay_mismatches: int,
 	p95_us: int,
 	slowest_us: int,
-	stamp: String
+	stamp: String,
+	weights_stamp: String
 ) -> Dictionary:
 	return {
 		"t": KIND_END,
@@ -150,6 +157,7 @@ static func end(
 		"p95_us": p95_us,
 		"slowest_us": slowest_us,
 		"stamp": stamp,
+		"weights_stamp": weights_stamp,
 	}
 
 

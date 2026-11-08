@@ -8,12 +8,13 @@ extends FullMatchHarness
 ## shipped decks (DC-14 T14) give fifteen distinct pairings: the first FIXED_SEEDS seeds play
 ## each of them once in each seat order (_fixed_decks()), and every later seed plays its
 ## seeded pairing (DeckList.seeded_pick, DC-07 P14), mirrors included as the pick gives them.
-## The sweep prints (cycle 9 R85, DC-13 T08; no weights or stamp line):
+## The sweep prints (cycle 9 R85, DC-13 T08; cycle 13 P6 adds `stamp=`; SWEEP_WEIGHTS names
+## the weights file a `linear` sweep plays):
 ## "Sweep: longest=.. seed=.. longest_walk=.. walk_seed=.. slowest_us=.. prompts=..
 ## discard_downs=.. empty_draws=.. pile_shuffles=.. looked=.. stalemates=.. draws=..
 ## pile_seen=.. sets=.. crew_prompts=.. declines=.. memory_hidden=.. bot=.. p95_us=..
-## p99_us=.." and per pairing played "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=..
-## slowest_us=.. seed=..".
+## p99_us=.. stamp=none|match|MISMATCH" and per pairing played "Sweep pairing <a>/<b>:
+## seeds=.. longest=.. seed=.. slowest_us=.. seed=..".
 ## Every match checks what test_full_match.gd's seed 1 does (FullMatchHarness._assert_run):
 ## it ends (a stalemate may draw, spec C12), no hand exceeds the harness's HAND_BOUND, no
 ## commit exceeds the Budget, nothing hidden leaks (the P15 scan: Piles public; hands, Decks,
@@ -34,6 +35,9 @@ const EVERY_STEP_SCAN_LAST: int = 50
 const DECISION_BUDGET_US: int = 10000
 ## The environment variable naming the bot to sweep instead of the default (NSC-133).
 const BOT_ENV: String = "SWEEP_BOT"
+## The environment variable naming the weights file a `linear` sweep plays (cycle 13 P6);
+## unset or empty is the committed file.
+const WEIGHTS_ENV: String = "SWEEP_WEIGHTS"
 ## The sweep's counters, in the summary line's order (face_down_seen and redacted_seen are
 ## asserted but not printed).
 const COUNTER_KEYS: Array[String] = [
@@ -76,6 +80,8 @@ static var p95_us: int = 0
 static var p99_us: int = 0
 ## The bot the sweep played (R19).
 static var sweep_bot: String = ""
+## The weights file the sweep played ("" none given).
+static var sweep_weights: String = ""
 static var sweep_prompts: int = 0
 ## The longest single walk of the sweep in pulses, and its seed (DC-06 T03, R25, NSC-74).
 static var longest_walk: int = 0
@@ -130,6 +136,21 @@ func _bot_name() -> String:
 	return BotRegistry.default_name()
 
 
+## The sweep's weights file: SWEEP_WEIGHTS when set, else "" (the committed file).
+func _weights_path() -> String:
+	return OS.get_environment(WEIGHTS_ENV)
+
+
+## "none" with no SWEEP_WEIGHTS, "match" when that file carries the current stamp, else
+## "MISMATCH" (the summary line's `stamp=`).
+static func _stamp_state(weights_path: String) -> String:
+	if weights_path == "":
+		return MatchWorkerRecords.WEIGHTS_NONE
+	if BotWeights.cached(weights_path).stamp_matches():
+		return MatchWorkerRecords.WEIGHTS_MATCH
+	return MatchWorkerRecords.WEIGHTS_MISMATCH
+
+
 # --- 50-seed sweep --------------------------------------------------------------------
 
 
@@ -141,6 +162,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	p95_us = 0
 	p99_us = 0
 	sweep_bot = _bot_name()
+	sweep_weights = _weights_path()
 	sweep_prompts = 0
 	longest_walk = 0
 	longest_walk_seed = 0
@@ -248,7 +270,12 @@ func _summary_line(counts: Dictionary) -> String:
 			continue
 		var value: int = counts.get(key, 0)
 		parts.append("%s=%d" % [key, value])
-	parts.append("bot=%s p95_us=%d p99_us=%d" % [sweep_bot, p95_us, p99_us])
+	parts.append(
+		(
+			"bot=%s p95_us=%d p99_us=%d stamp=%s"
+			% [sweep_bot, p95_us, p99_us, _stamp_state(sweep_weights)]
+		)
+	)
 	return " ".join(parts)
 
 
