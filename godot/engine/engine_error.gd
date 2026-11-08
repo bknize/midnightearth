@@ -35,3 +35,13 @@ enum Code {
 	## (cycle 8 R53, plan P10).
 	NOT_OPTIONAL,
 }
+
+
+## The name of `code` (the Code key, e.g. "WRONG_SEAT"), for the server's `rejected`
+## message (cycle 12 plan P3); "" for a code out of range.
+static func name_of(code: int) -> String:
+	var names: Array = Code.keys()
+	if code < 0 or code >= names.size():
+		return ""
+	var found: String = names[code]
+	return found

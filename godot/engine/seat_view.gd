@@ -18,6 +18,10 @@ extends RefCounted
 ##
 ## Every array is a copy: mutating a view never touches the engine's state.
 
+## The bound from_dict() puts on a count, a round or a turn: the largest whole number a
+## JSON float holds exactly (EngineAction.MAX_SAFE_FLOAT).
+const MAX_COUNT: int = 9007199254740992
+
 var seat: int = 0
 var opponent: int = 1
 ## The deck id each seat plays, indexed by seat; public, like the picker.
@@ -394,3 +398,199 @@ func to_dict() -> Dictionary:
 		"crew": crew.duplicate(true),
 		"crew_uses": crew_uses.duplicate(true),
 	}
+
+
+## The view that to_dict() (or its JSON form) describes, typed arrays rebuilt (cycle 12 plan
+## P3): whole floats read as ints, `looked` keys may be whole-number text (JSON object
+## keys), and `pile_entries` is keyed again by each entry's `card`. Null on a bad shape:
+## any key missing or of the wrong type, a seat other than 0 or 1, `opponent` not the other
+## seat, `phase` not a MatchState.Phase, `awaited_seat` not -1, 0 or 1, a negative count,
+## round or turn, a seat-indexed pair (`deck_ids`, `deck_counts`, `scores`, `totals`,
+## `wins`, `budgets`, `hand_sizes`, `crew`, `crew_uses`) not of two entries, a row, hand or
+## Pile entry without a whole `card`, or two Pile entries for one card. Never errors.
+static func from_dict(d: Dictionary) -> SeatView:
+	var reader: Reader = Reader.new(d)
+	var view: SeatView = SeatView.new()
+	view.seat = reader.ranged("seat", 0, 1)
+	view.opponent = reader.ranged("opponent", 0, 1)
+	view.deck_ids = reader.strings("deck_ids", 2)
+	view.own_hand = reader.ints("own_hand")
+	view.own_hand_row = reader.entries("own_hand_row")
+	view.own_hand_costs = reader.ints("own_hand_costs")
+	view.own_pending = reader.ints("own_pending")
+	view.own_board = reader.ints("own_board")
+	view.opponent_board = reader.ints("opponent_board")
+	view.own_row = reader.entries("own_row")
+	view.opponent_row = reader.entries("opponent_row")
+	view.own_pile = reader.ints("own_pile")
+	view.opponent_pile = reader.ints("opponent_pile")
+	view.pile_entries = reader.keyed_entries("pile_entries")
+	view.opponent_hand_count = reader.ranged("opponent_hand_count", 0, MAX_COUNT)
+	view.opponent_pending_count = reader.ranged("opponent_pending_count", 0, MAX_COUNT)
+	view.opponent_pending_slots = reader.ints("opponent_pending_slots")
+	view.deck_counts = reader.ints("deck_counts", 2)
+	view.scores = reader.ints("scores", 2)
+	view.totals = reader.ints("totals", 2)
+	view.wins = reader.ints("wins", 2)
+	view.round_number = reader.ranged("round", 0, MAX_COUNT)
+	view.turn = reader.ranged("turn", 0, MAX_COUNT)
+	view.energy = reader.whole("energy")
+	view.budgets = reader.ints("budgets", 2)
+	view.hand_sizes = reader.ints("hand_sizes", 2)
+	view.free_first = reader.flag("free_first")
+	view.looked = reader.slots("looked")
+	view.deck_top = reader.ints("deck_top")
+	view.phase = reader.ranged("phase", 0, MatchState.Phase.size() - 1)
+	view.awaited_seat = reader.ranged("awaited_seat", -1, 1)
+	view.first_seat = reader.ranged("first_seat", 0, 1)
+	view.sudden_death = reader.flag("sudden_death")
+	view.prompt = reader.dict("prompt")
+	view.crew = reader.pair_lists("crew", true)
+	view.crew_uses = reader.pair_lists("crew_uses", false)
+	if not reader.ok or view.opponent != 1 - view.seat:
+		return null
+	return view
+
+
+## Reads typed fields out of to_dict()'s form for from_dict(), JSON floats included. A
+## missing or mistyped field reads as an empty or zero value and clears `ok`; it never errors.
+class Reader:
+	extends RefCounted
+
+	var ok: bool = true
+	var _d: Dictionary = {}
+
+	func _init(p_d: Dictionary) -> void:
+		_d = p_d
+
+	## A whole number (int, or a float with no fraction within EngineAction.MAX_SAFE_FLOAT).
+	func whole(key: String) -> int:
+		return _whole_of(_d.get(key))
+
+	## A whole number from `lo` to `hi`.
+	func ranged(key: String, lo: int, hi: int) -> int:
+		var number: int = whole(key)
+		if number < lo or number > hi:
+			ok = false
+		return number
+
+	func flag(key: String) -> bool:
+		var value: Variant = _d.get(key)
+		if not value is bool:
+			ok = false
+			return false
+		var found: bool = value
+		return found
+
+	## A Dictionary, deep-copied with whole floats as ints.
+	func dict(key: String) -> Dictionary:
+		var value: Variant = _d.get(key)
+		if not value is Dictionary:
+			ok = false
+			return {}
+		var copied: Dictionary = MatchEvent.whole_numbers(value)
+		return copied
+
+	## A list of whole numbers; of exactly `size` entries unless `size` is -1.
+	func ints(key: String, size: int = -1) -> Array[int]:
+		return _ints_of(_d.get(key), size)
+
+	## A list of `size` Strings.
+	func strings(key: String, size: int) -> Array[String]:
+		var out: Array[String] = []
+		var items: Array = _list_of(_d.get(key), size)
+		for item: Variant in items:
+			if not item is String:
+				ok = false
+				return out
+			var text: String = item
+			out.append(text)
+		return out
+
+	## Card entries (a row's, a hand's, a Pile's): Dictionaries with a whole `card`.
+	func entries(key: String) -> Array[Dictionary]:
+		var out: Array[Dictionary] = []
+		var items: Array = _list_of(_d.get(key), -1)
+		for item: Variant in items:
+			if not item is Dictionary:
+				ok = false
+				return out
+			var entry: Dictionary = MatchEvent.whole_numbers(item)
+			if not entry.get("card") is int:
+				ok = false
+				return out
+			out.append(entry)
+		return out
+
+	## Card entries keyed by their `card`, each card once.
+	func keyed_entries(key: String) -> Dictionary[int, Dictionary]:
+		var out: Dictionary[int, Dictionary] = {}
+		for entry: Dictionary in entries(key):
+			var card: int = entry["card"]
+			if out.has(card):
+				ok = false
+			out[card] = entry
+		return out
+
+	## A slot-to-card map; keys may be whole numbers or their text (JSON object keys).
+	func slots(key: String) -> Dictionary[int, int]:
+		var out: Dictionary[int, int] = {}
+		var value: Variant = _d.get(key)
+		if not value is Dictionary:
+			ok = false
+			return out
+		var raw: Dictionary = value
+		for slot_raw: Variant in raw:
+			var slot: int = 0
+			if slot_raw is String:
+				var text: String = slot_raw
+				if not text.is_valid_int():
+					ok = false
+					return out
+				slot = text.to_int()
+			else:
+				slot = _whole_of(slot_raw)
+			out[slot] = _whole_of(raw[slot_raw])
+		return out
+
+	## Two untyped lists, one per seat: of Strings when `texts`, else of whole numbers.
+	func pair_lists(key: String, texts: bool) -> Array[Array]:
+		var out: Array[Array] = [[], []]
+		var items: Array = _list_of(_d.get(key), 2)
+		if items.size() != 2:
+			return out
+		for index: int in range(2):
+			var plain: Array = []
+			if texts:
+				var seat_items: Array = _list_of(items[index], -1)
+				for item: Variant in seat_items:
+					if not item is String:
+						ok = false
+					plain.append(item)
+			else:
+				plain.assign(_ints_of(items[index], -1))
+			out[index] = plain
+		return out
+
+	func _whole_of(value: Variant) -> int:
+		if not EngineAction.is_whole_number(value):
+			ok = false
+			return 0
+		return EngineAction.as_int(value)
+
+	func _list_of(value: Variant, size: int) -> Array:
+		if not value is Array:
+			ok = false
+			return []
+		var items: Array = value
+		if size >= 0 and items.size() != size:
+			ok = false
+			return []
+		return items
+
+	func _ints_of(value: Variant, size: int) -> Array[int]:
+		var out: Array[int] = []
+		var items: Array = _list_of(value, size)
+		for item: Variant in items:
+			out.append(_whole_of(item))
+		return out
