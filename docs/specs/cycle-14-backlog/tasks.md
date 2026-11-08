@@ -88,7 +88,7 @@ and creates new issues only for tasks 1, 8, 9 and 20 and the budget half of 18 i
 judged too narrow. Issues outside DC-20 (NSC-243, NSC-244, NSC-248, NSC-250, and NSC-233's
 protocol and schema items as a split-off issue) stay under the training milestone.
 
-- Issue mapping: filled by `/exercise <slug>`.
+- Issue mapping: see "Linear (exercised 2026-11-08)" below.
 
 ## Commit plan
 
@@ -102,3 +102,41 @@ outcome, each message ending with the Co-Authored-By line the session provides. 
 When task 20 passes, `/cycle test` runs `/code-review medium` then `/simplify` on the diff,
 merges the branch into `master` with `git merge --no-ff`, and sweeps the worktree with the
 fixed `scripts/worktree-sweep.sh`. Nothing is committed directly on `master`.
+
+## Linear (exercised 2026-11-08)
+
+Project: [Cycle 14 — backlog sweep](https://linear.app/night-science-llc/project/cycle-14-backlog-sweep-1f4a4af95173)
+(P-NSC-16), state Planned, label `spec/cycle-14-backlog`. Existing issues keep their titles
+and gain a `## Spec (cycle-14-backlog)` section naming their task; new issues are titled
+`Tnn`. Every DC-20 issue is in Todo; the `DC-20 backlog-sweep` milestone is set at
+`/cycle plan`.
+
+| # | Issues | Blocked by |
+|---|---|---|
+| 1 | NSC-253 (new) | – |
+| 2 | NSC-178, NSC-177 | – |
+| 3 | NSC-175, NSC-183, NSC-181, NSC-186 (engine half) | – |
+| 4 | NSC-182, NSC-184, NSC-249, NSC-187 (engine half) | task 2, task 3 issues |
+| 5 | NSC-213 | – |
+| 6 | NSC-180 | task 4 issues |
+| 7 | NSC-185 | NSC-180 |
+| 8 | NSC-254 (new) | NSC-185 |
+| 9 | NSC-255 (new) | NSC-254 |
+| 10 | NSC-188, NSC-58, board halves of NSC-186 and NSC-187, board sub-item of NSC-246 | NSC-255 |
+| 11 | NSC-246 | NSC-255 |
+| 12 | NSC-189 | NSC-188, NSC-58 |
+| 13 | NSC-190 | NSC-189 |
+| 14 | NSC-75, NSC-57 | – |
+| 15 | NSC-209, NSC-231, NSC-245 (Python half) | NSC-255, NSC-243 (night 2) |
+| 16 | NSC-245 (Godot half) | NSC-255, NSC-243 (night 2) |
+| 17 | NSC-233 (code items) | NSC-209, NSC-231, NSC-245 |
+| 18 | NSC-191, NSC-251 | NSC-185, NSC-246, NSC-190, NSC-245 |
+| 19 | NSC-204, NSC-252 | NSC-233 |
+| 20 | NSC-256 (new) | NSC-191, NSC-251, NSC-204, NSC-252 |
+
+Issues shared by two tasks (NSC-186, NSC-187, NSC-245, NSC-246) are Done when both halves
+are merged; their blockers come from the earlier task.
+
+Milestone `Training nights and router` (outside DC-20): NSC-243 (blocked by NSC-255),
+NSC-244, NSC-248, NSC-250, and NSC-257, the protocol and schema items split from NSC-233.
+NSC-176 is Canceled (C7). NSC-179 was already Done; its remainder is in task 3.
