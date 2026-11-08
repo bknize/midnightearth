@@ -22,7 +22,7 @@ const STEP_BUDGET: int = 60000
 ## Frames yielded in a row with no message before a wait gives up (a broken suite fails fast).
 const STALL_FRAMES: int = 30
 const SEED: int = 7
-const ALMOST_UNLIMITED: float = 1000000.0
+const ALMOST_UNLIMITED: int = 1000000
 const ABANDON_WINDOW_MS: int = 5000
 const JUMP_MS: int = 2000
 const JUMPS: int = 10
@@ -50,8 +50,7 @@ func before_test() -> void:
 	_server.build = "test-build"
 	_server.logs_dir = TEMP_DIR
 	_server.engine_factory = _maker.make
-	_server.rate_per_s = ALMOST_UNLIMITED
-	_server.burst = ALMOST_UNLIMITED
+	_server.max_per_s = ALMOST_UNLIMITED  # The fake clock barely moves between messages.
 	_now = T0_MS
 	_players.clear()
 	_code = ""

@@ -143,6 +143,25 @@ func test_join_after_ten_minutes_is_refused_room_expired() -> void:
 	assert_str(out[0].message[NetProtocol.KEY_REASON]).is_equal(NetProtocol.REASON_ROOM_EXPIRED)
 
 
+## Two clients on one device share its install id; a join from the host's own id is refused,
+## since a rejoin could not tell the two seats apart (NSC-226 S7). The room keeps waiting
+## and a joiner from another device still starts it.
+func test_join_from_the_hosts_install_id_is_refused_same_install() -> void:
+	var table: PvpTable = PvpTable.create(SEED)
+	table.host()
+	var twin: Dictionary = {"name": "Ana 2", "install_id": "install-ana", "kind": "human"}
+	var out: Array[PvpTable.Sent] = table.take(
+		table.room.join(LATE_CONN, twin, "ramp", table.now_ms)
+	)
+	assert_array(_kinds(out)).is_equal([NetProtocol.T_REFUSED])
+	assert_int(out[0].conn).is_equal(LATE_CONN)
+	assert_str(out[0].message[NetProtocol.KEY_REASON]).is_equal(NetProtocol.REASON_SAME_INSTALL)
+	assert_int(table.room.phase()).is_equal(MatchRoom.Phase.WAITING)
+	assert_int(table.room.seat_of(LATE_CONN)).is_equal(-1)
+	var joined: Array[PvpTable.Sent] = table.join()
+	assert_array(_kinds(joined)).is_equal([NetProtocol.T_STARTED, NetProtocol.T_STARTED])
+
+
 # --- Playing --------------------------------------------------------------------------
 
 

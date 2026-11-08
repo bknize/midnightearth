@@ -101,7 +101,8 @@ func host(conn: int, identity: Dictionary, deck: String, now_ms: int) -> Array[O
 
 ## Seats `conn` as the joiner (seat 1) and starts the match (R17): `started` to both seats.
 ## Refused `room_expired` past the expiry or once closed, `room_full` once both seats are
-## taken, `unknown_room` while nobody hosts it, `bad_message` on a deck not allowed.
+## taken, `unknown_room` while nobody hosts it, `same_install` from the host's own install id,
+## `bad_message` on a deck not allowed.
 func join(conn: int, identity: Dictionary, deck: String, now_ms: int) -> Array[Outbound]:
 	var out: Array[Outbound] = []
 	var expired: bool = _phase == Phase.WAITING and now_ms - _created_ms >= expiry_ms
@@ -113,6 +114,11 @@ func join(conn: int, identity: Dictionary, deck: String, now_ms: int) -> Array[O
 		return out
 	if not _seats[HOST_SEAT].taken:
 		out.append(_refused(conn, NetProtocol.REASON_UNKNOWN_ROOM, code))
+		return out
+	# Two seats under one install id could not be told apart on a rejoin (_rejoin_seat).
+	var joiner_id: String = _text_of(identity, NetProtocol.KEY_INSTALL_ID)
+	if joiner_id != "" and joiner_id == _seats[HOST_SEAT].install_id:
+		out.append(_refused(conn, NetProtocol.REASON_SAME_INSTALL, code))
 		return out
 	if not _deck_allowed(deck):
 		out.append(_refused(conn, NetProtocol.REASON_BAD_MESSAGE, "unknown deck " + deck))

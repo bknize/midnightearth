@@ -76,6 +76,10 @@ const REASON_TOO_MANY_MESSAGES: String = "too_many_messages"
 const REASON_HANDSHAKE_TIMEOUT: String = "handshake_timeout"
 const REASON_WRONG_INSTALL_ID: String = "wrong_install_id"
 const REASON_SERVER_ERROR: String = "server_error"
+## A join from the host's own install id (two clients sharing one device's identity, S7).
+const REASON_SAME_INSTALL: String = "same_install"
+## A welcomed connection in no room past MatchServer.idle_ms.
+const REASON_IDLE_TIMEOUT: String = "idle_timeout"
 
 const REASONS: Array[String] = [
 	REASON_PROTOCOL_MISMATCH,
@@ -90,6 +94,8 @@ const REASONS: Array[String] = [
 	REASON_HANDSHAKE_TIMEOUT,
 	REASON_WRONG_INSTALL_ID,
 	REASON_SERVER_ERROR,
+	REASON_SAME_INSTALL,
+	REASON_IDLE_TIMEOUT,
 ]
 
 # --- Keys and values --------------------------------------------------------------------

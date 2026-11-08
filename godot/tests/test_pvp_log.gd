@@ -304,5 +304,57 @@ func test_orphan_marked_interrupted() -> void:
 	assert_int(PvpLog.scan_orphans(TEMP_DIR)).is_equal(0)
 
 
+## A crash between the old file's removal and the rename leaves only `<file>.json.tmp`: the
+## scan promotes it and marks it interrupted (NSC-226 S3).
+func test_a_lone_tmp_is_promoted_and_marked_interrupted() -> void:
+	var engine: MatchEngine = _new_engine(SEED)
+	assert_bool(engine.start().ok).is_true()
+	var running: Dictionary = _record_for(engine, _start_s())
+	assert_int(PvpLog.write(TEMP_DIR, running)).is_equal(OK)
+	var path: String = ProjectSettings.globalize_path(PvpLog.path_of(TEMP_DIR, running))
+	var tmp: String = path + PvpLog.TMP_SUFFIX
+	assert_int(DirAccess.rename_absolute(path, tmp)).is_equal(OK)
+	assert_bool(FileAccess.file_exists(path)).is_false()
+	assert_int(PvpLog.scan_orphans(TEMP_DIR)).is_equal(1)
+	assert_bool(FileAccess.file_exists(tmp)).is_false()
+	var marked: Dictionary = PvpLog.read(path)
+	assert_str(_end_of(marked)["reason"]).is_equal("interrupted")
+	assert_bool(marked["complete"]).is_false()
+
+
+## A failed write is not counted as written: the server retries it on the next poll, and a
+## closed room is kept until its record is on disk (NSC-226 S3).
+func test_a_failed_log_write_is_retried_on_the_next_flush() -> void:
+	var table: PvpTable = PvpTable.create(SEED)
+	table.start()
+	var server: MatchServer = auto_free(MatchServer.new())
+	server.quiet = true
+	server.registry = RoomRegistry.create(RandomNumberGenerator.new(), Callable())
+	# A plain file where the log folder should be: every write fails.
+	var blocked: String = TEMP_DIR + "/blocked"
+	var made: int = DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(TEMP_DIR))
+	assert_int(made).is_equal(OK)
+	var blocker: FileAccess = FileAccess.open(blocked, FileAccess.WRITE)
+	assert_object(blocker).is_not_null()
+	if blocker != null:
+		blocker.store_string("not a folder")
+		blocker.close()
+	server.logs_dir = blocked
+	var tracked: MatchServer.TrackedRoom = MatchServer.TrackedRoom.new()
+	tracked.room = table.room
+	server._rooms.append(tracked)
+	server._flush_rooms()
+	assert_int(tracked.revision).is_equal(-1)
+	table.room.fail(table.now_ms)
+	server._flush_rooms()
+	assert_int(server._rooms.size()).is_equal(1)
+	server.logs_dir = TEMP_DIR
+	server._flush_rooms()
+	assert_int(tracked.revision).is_equal(table.room.revision())
+	assert_int(server._rooms.size()).is_equal(0)
+	var written: Dictionary = PvpLog.read(PvpLog.path_of(TEMP_DIR, table.room.log_record()))
+	assert_str(_end_of(written)["reason"]).is_equal(PvpLog.REASON_SERVER_ERROR)
+
+
 func test_scan_of_a_missing_folder_marks_nothing() -> void:
 	assert_int(PvpLog.scan_orphans(TEMP_DIR + "/absent")).is_equal(0)

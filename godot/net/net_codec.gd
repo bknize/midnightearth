@@ -14,6 +14,20 @@ extends RefCounted
 
 enum Field { TEXT, COUNT, SEAT, PLAYER, STATE, ERROR, ACTION, VIEW, EVENTS, DECKS, OPPONENT }
 
+## The name rule (spec R3, Identity.normalize_name), applied again by the server.
+const MAX_NAME_LENGTH: int = 16
+const DEFAULT_NAME: String = "Player"
+## How much of a raw name or code is looked at before trimming (a message may be 16 KiB).
+const MAX_NAME_SCAN: int = 256
+const MAX_CODE_SCAN: int = 16
+## An install id: Identity's UUID text, or any short id of these characters.
+const MAX_INSTALL_ID_LENGTH: int = 64
+const INSTALL_ID_CHARS: String = (
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+)
+## The most characters of client text a stdout line carries.
+const MAX_PRINTED: int = 64
+
 
 ## The message as JSON text; "" when it is malformed or past its size bound.
 static func encode(message: Dictionary) -> String:
@@ -89,6 +103,56 @@ static func error_of(message: Dictionary) -> int:
 		return -1
 	var error_name: String = raw
 	return _error_code(error_name)
+
+
+# --- Untrusted text (NSC-226 S4) --------------------------------------------------------
+
+
+## A player name as the server keeps and prints it: control characters dropped, then the
+## title screen's rule (R3): surrounding whitespace dropped, at most MAX_NAME_LENGTH
+## characters, empty reads DEFAULT_NAME.
+static func clean_name(raw: String) -> String:
+	var kept: String = ""
+	var scan: String = raw.substr(0, MAX_NAME_SCAN)
+	for at: int in range(scan.length()):
+		var code: int = scan.unicode_at(at)
+		if code >= 32 and code != 127 and (code < 128 or code > 159):
+			kept += scan[at]
+	var trimmed: String = kept.strip_edges()
+	if trimmed.length() > MAX_NAME_LENGTH:
+		trimmed = trimmed.substr(0, MAX_NAME_LENGTH).strip_edges()
+	return DEFAULT_NAME if trimmed == "" else trimmed
+
+
+## True for 1 to MAX_INSTALL_ID_LENGTH characters of INSTALL_ID_CHARS (Identity's UUIDs,
+## a test's "install-ana").
+static func is_install_id(raw: String) -> bool:
+	if raw.is_empty() or raw.length() > MAX_INSTALL_ID_LENGTH:
+		return false
+	for at: int in range(raw.length()):
+		if not INSTALL_ID_CHARS.contains(raw[at]):
+			return false
+	return true
+
+
+## A typed room code as the server keys it (RoomCodes.normalized), or "" when it is not
+## RoomCodes.LENGTH characters of RoomCodes.ALPHABET, so a bad code is never echoed.
+static func room_code(raw: String) -> String:
+	if raw.length() > MAX_CODE_SCAN:
+		return ""
+	var code: String = RoomCodes.normalized(raw)
+	return code if RoomCodes.is_valid(code) else ""
+
+
+## `raw` safe for one stdout line: control characters replaced by `?`, at most `limit`
+## characters, a cut marked with `...`.
+static func printable(raw: String, limit: int = MAX_PRINTED) -> String:
+	var out: String = ""
+	var scan: String = raw.substr(0, limit)
+	for at: int in range(scan.length()):
+		var code: int = scan.unicode_at(at)
+		out += "?" if code < 32 or code == 127 else scan[at]
+	return out + "..." if raw.length() > limit else out
 
 
 # --- Checks -----------------------------------------------------------------------------

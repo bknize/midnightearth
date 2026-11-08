@@ -37,6 +37,9 @@ var strip: DeckStrip = DeckStrip.new()
 var lifted_option: int = -1
 
 var _prompt: Dictionary = {}
+## The open prompt with its seat rotated to a table seat (0 = the player), for the spots and
+## taps on the table; its options are the engine's own, unchanged.
+var _table_prompt: Dictionary = {}
 var _lit: Array[BoardCard] = []
 ## The option each lit card stands for, parallel to _lit.
 var _lit_options: Array[int] = []
@@ -72,18 +75,19 @@ func current() -> Dictionary:
 func open(prompt: Dictionary, text: String, view: SeatView) -> void:
 	close()
 	_prompt = prompt.duplicate(true)
+	_table_prompt = table_prompt(_prompt, viewer)
 	selected.clear()
 	hud.show_prompt(PromptRules.banner_for(_prompt, text, _crew_name()))
 	card_lift.set_rest_alpha(DIM_ALPHA)
 	var own_size: int = view.own_board.size()
-	for spot: CardSpot in PromptRules.spots(_prompt, own_size):
+	for spot: CardSpot in PromptRules.spots(_table_prompt, own_size):
 		var card: BoardCard = card_at(spot)
 		if card == null:
 			push_warning("PromptHost: no card at seat %d slot %d" % [spot.seat, spot.slot])
 			continue
 		card.set_glow(glow_material, GLOW_ALPHA)
 		_lit.append(card)
-		_lit_options.append(PromptRules.option_at(spot, _prompt, own_size))
+		_lit_options.append(PromptRules.option_at(spot, _table_prompt, own_size))
 	var zone_label: String = PromptRules.zone_name_of(_prompt)
 	if PromptRules.is_pile_zone(zone_label) or PromptRules.is_deck_top_zone(zone_label):
 		_open_strip(view)
@@ -93,6 +97,18 @@ func open(prompt: Dictionary, text: String, view: SeatView) -> void:
 		)
 	if PromptRules.wants_skip(_prompt):
 		hud.show_skip(is_multi())
+
+
+## `prompt` (an engine prompt, its seat an engine seat) with the seat rotated to a table seat
+## for the player in engine seat `seat_held` (0 = the player). The options stay the engine's
+## own values, so an answer goes back unchanged (R20).
+static func table_prompt(prompt: Dictionary, seat_held: int) -> Dictionary:
+	var out: Dictionary = prompt.duplicate(true)
+	if prompt.is_empty():
+		return out
+	var seat: int = prompt.get("seat", 0)
+	out["seat"] = BoardSteps.table_seat(seat, seat_held)
+	return out
 
 
 func is_multi() -> bool:
@@ -117,6 +133,7 @@ func hide_strip(seconds: float) -> void:
 ## Forgets the prompt without touching any node, for the board leaving the tree.
 func drop() -> void:
 	_prompt = {}
+	_table_prompt = {}
 	lifted_option = -1
 	selected.clear()
 	_lit.clear()
@@ -129,6 +146,7 @@ func drop() -> void:
 ## clears it.
 func close(keep_strip: bool = false) -> void:
 	_prompt = {}
+	_table_prompt = {}
 	lifted_option = -1
 	selected.clear()
 	if hud != null:
@@ -173,11 +191,11 @@ func spot_of(card: BoardCard) -> CardSpot:
 func tap(card: BoardCard, own_size: int) -> PromptTap:
 	if card == null:
 		var table: CardSpot = CardSpot.new()
-		return PromptRules.on_tap(table, false, _prompt, own_size, lifted_option)
+		return PromptRules.on_tap(table, false, _table_prompt, own_size, lifted_option)
 	if strip.has_card(card):
 		return PromptRules.route(true, strip.option_of(card), not card.face_down, lifted_option)
 	var spot: CardSpot = spot_of(card)
-	return PromptRules.on_tap(spot, not card.face_down, _prompt, own_size, lifted_option)
+	return PromptRules.on_tap(spot, not card.face_down, _table_prompt, own_size, lifted_option)
 
 
 ## One tap while the prompt is open (R40-R44): lift, swap the lift, or put it down.

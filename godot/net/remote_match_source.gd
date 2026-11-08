@@ -109,6 +109,18 @@ func join(code: String) -> void:
 	_connect()
 
 
+## Asks to retake this install id's seat in the running room `code` (a restarted client,
+## R46): the server's `resync` comes out as `catch_up` (no `match_started`), a refusal as
+## `refused`. A drop before the resync retries like a reconnect (R45).
+func rejoin(code: String) -> void:
+	_code = code.strip_edges().to_upper()
+	_request = {NetProtocol.KEY_T: NetProtocol.T_REJOIN, NetProtocol.KEY_CODE: _code}
+	_rejoining = true
+	_dropped_at = _now
+	_next_retry = _now
+	_connect()
+
+
 ## Tells the server this seat leaves (closing a waiting room, R19, or a finished match,
 ## R27) and closes the connection. No signal follows.
 func leave() -> void:

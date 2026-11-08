@@ -3,7 +3,8 @@ extends FullMatchHarness
 ## The headless bot client (cycle 12 plan P12; spec R30; T09) against the scripted fake
 ## server of T06 (FakeNetClient, FakeMatchServer): no sockets. Covered: the flags, joining
 ## and hosting a whole match to its `PVP client:` line and exit code 0, the hello it sends
-## (kind bot, name bot:random), a refusal and an abandonment ending with 1.
+## (kind bot, name bot:random), a refusal and an abandonment ending with 1, and a client
+## restarted with the same `--install-id` rejoining its seat (NSC-226).
 
 const SEED: int = 1
 const CODE: String = "K7QX"
@@ -192,6 +193,80 @@ func test_host_prints_the_code_then_plays_to_the_end() -> void:
 	assert_str(kinds[0]).is_equal(NetProtocol.T_HELLO)
 	assert_str(kinds[1]).is_equal(NetProtocol.T_HOST)
 	assert_str(kinds[kinds.size() - 1]).is_equal(NetProtocol.T_LEAVE)
+
+
+# --- A restarted client (--install-id) --------------------------------------------------
+
+
+func test_the_install_id_flag_is_used_and_checked() -> void:
+	var named: BotClient = _new_bot()
+	var args: PackedStringArray = PackedStringArray(["--join=K7QX", "--install-id=bot-seat-1"])
+	assert_str(named.configure(args, _decks())).is_empty()
+	assert_str(named.install_id).is_equal("bot-seat-1")
+	for bad: String in ["--install-id=has space", "--install-id=" + "a".repeat(65)]:
+		var refused: BotClient = _new_bot()
+		var bad_args: PackedStringArray = PackedStringArray(["--join=K7QX", bad])
+		assert_str(refused.configure(bad_args, _decks())).contains("--install-id")
+
+
+## A client restarted mid-match with the same --install-id and --join: its join is refused
+## room_full, it sends rejoin with the same install id, and plays on from the resync to the
+## end (T14's reconnect check).
+func test_a_restarted_client_rejoins_its_seat_with_the_same_install_id() -> void:
+	var rig: Rig = _rig(["--join=K7QX", "--server=" + SERVER, "--install-id=bot-seat-1"], 1)
+	rig.client.accept()
+	assert_str(rig.client.last_sent()[NetProtocol.KEY_INSTALL_ID]).is_equal("bot-seat-1")
+	rig.server.welcome()
+	assert_str(rig.client.last_kind()).is_equal(NetProtocol.T_JOIN)
+	(
+		rig
+		. server
+		. send(
+			{
+				NetProtocol.KEY_T: NetProtocol.T_REFUSED,
+				NetProtocol.KEY_REASON: NetProtocol.REASON_ROOM_FULL,
+				NetProtocol.KEY_DETAIL: CODE,
+			}
+		)
+	)
+	assert_bool(rig.bot.is_done()).is_false()
+	assert_int(rig.client.opened.size()).is_equal(2)
+	rig.client.accept()
+	var hello: Dictionary = rig.client.last_sent()
+	assert_str(hello[NetProtocol.KEY_T]).is_equal(NetProtocol.T_HELLO)
+	assert_str(hello[NetProtocol.KEY_INSTALL_ID]).is_equal("bot-seat-1")
+	rig.server.welcome()
+	var rejoin: Dictionary = rig.client.last_sent()
+	assert_str(rejoin[NetProtocol.KEY_T]).is_equal(NetProtocol.T_REJOIN)
+	assert_str(rejoin[NetProtocol.KEY_CODE]).is_equal(CODE)
+	# The match runs on the server; the rejoined seat hears only its resync.
+	rig.server.start()
+	rig.server.resync()
+	var played: int = _play_wire(rig)
+	assert_int(played).is_greater(0)
+	assert_bool(rig.server.wire_ok).is_true()
+	assert_str(JSON.stringify(rig.exits)).is_equal(JSON.stringify([0]))
+	assert_bool(_matches(rig.bot.last_line(), 1)).is_true()
+
+
+## Without --install-id a room_full join is still a refusal.
+func test_room_full_without_an_install_id_is_a_refusal() -> void:
+	var rig: Rig = _rig(["--join=K7QX"], 1)
+	rig.client.accept()
+	rig.server.welcome()
+	(
+		rig
+		. server
+		. send(
+			{
+				NetProtocol.KEY_T: NetProtocol.T_REFUSED,
+				NetProtocol.KEY_REASON: NetProtocol.REASON_ROOM_FULL,
+				NetProtocol.KEY_DETAIL: CODE,
+			}
+		)
+	)
+	assert_str(rig.bot.last_line()).is_equal("PVP client: refused room_full")
+	assert_str(JSON.stringify(rig.exits)).is_equal(JSON.stringify([1]))
 
 
 # --- Failures ----------------------------------------------------------------------------

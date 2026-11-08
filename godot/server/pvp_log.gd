@@ -250,8 +250,9 @@ static func read(path: String) -> Dictionary:
 ## The orphan scan at server start (R58): every `.json` file in every dated folder under
 ## `logs_dir` with no end gets `end: {reason: "interrupted", winner: -1}` and `complete:
 ## false`, rewritten atomically; `ended_at` is left as it was (the interruption's time is
-## unknown). A file that does not parse is skipped with a warning. Returns how many files
-## were marked.
+## unknown). A lone `<file>.json.tmp` (a crash between the old file's removal and the
+## rename) is promoted to `<file>.json` first, then marked the same way. A file that does
+## not parse is skipped with a warning. Returns how many files were marked.
 static func scan_orphans(logs_dir: String) -> int:
 	var root: String = ProjectSettings.globalize_path(logs_dir)
 	if not DirAccess.dir_exists_absolute(root):
@@ -261,26 +262,45 @@ static func scan_orphans(logs_dir: String) -> int:
 	folders.sort()
 	for folder: String in folders:
 		var dated: String = root.path_join(folder)
+		_promote_lone_tmps(dated)
 		var names: PackedStringArray = DirAccess.get_files_at(dated)
 		names.sort()
 		for file_name: String in names:
-			if not file_name.ends_with(FILE_SUFFIX):
-				continue
-			var path: String = dated.path_join(file_name)
-			var record: Dictionary = read(path)
-			if record.is_empty():
-				push_warning("PvpLog: skipped unreadable log %s" % path)
-				continue
-			if has_end(record):
-				continue
-			record[KEY_END] = server_end(REASON_INTERRUPTED)
-			record[KEY_COMPLETE] = false
-			var err: int = write_to(path, record)
-			if err != OK:
-				push_warning("PvpLog: cannot mark %s interrupted (error %d)" % [path, err])
-				continue
-			marked += 1
+			if file_name.ends_with(FILE_SUFFIX) and _mark_interrupted(dated.path_join(file_name)):
+				marked += 1
 	return marked
+
+
+## Renames every `<file>.json.tmp` in `dated` with no `<file>.json` beside it to that
+## `.json` (NSC-226 S3). A tmp beside its `.json` is left: the next write replaces it.
+static func _promote_lone_tmps(dated: String) -> void:
+	for file_name: String in DirAccess.get_files_at(dated):
+		if not file_name.ends_with(FILE_SUFFIX + TMP_SUFFIX):
+			continue
+		var tmp: String = dated.path_join(file_name)
+		var target: String = tmp.trim_suffix(TMP_SUFFIX)
+		if FileAccess.file_exists(target):
+			continue
+		var err: int = DirAccess.rename_absolute(tmp, target)
+		if err != OK:
+			push_warning("PvpLog: cannot promote %s (error %d)" % [tmp, err])
+
+
+## Marks the log at `path` interrupted when it has no end; whether it was marked.
+static func _mark_interrupted(path: String) -> bool:
+	var record: Dictionary = read(path)
+	if record.is_empty():
+		push_warning("PvpLog: skipped unreadable log %s" % path)
+		return false
+	if has_end(record):
+		return false
+	record[KEY_END] = server_end(REASON_INTERRUPTED)
+	record[KEY_COMPLETE] = false
+	var err: int = write_to(path, record)
+	if err != OK:
+		push_warning("PvpLog: cannot mark %s interrupted (error %d)" % [path, err])
+		return false
+	return true
 
 
 # --- Helpers ----------------------------------------------------------------------------
