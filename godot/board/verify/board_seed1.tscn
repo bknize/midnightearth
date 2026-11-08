@@ -1,8 +1,11 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="PackedScene" path="res://board/board.tscn" id="1_board"]
+[ext_resource type="Script" path="res://board/verify/verify_start.gd" id="2_start"]
 
 [node name="BoardSeed1" instance=ExtResource("1_board")]
-fixed_seed = 1
 autoplay = false
-auto_start = true
+
+[node name="Start" type="Node" parent="."]
+script = ExtResource("2_start")
+match_seed = 1

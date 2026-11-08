@@ -1,13 +1,16 @@
+# gdlint: disable=max-file-lines
 class_name Board
 extends Node3D
 ## The table (R3-R8, R31-R39, R44): a fixed camera on four card collections, a HUD, and the
-## step queue that plays a MatchDriver's events one beat at a time, and the player's side of
+## step queue that plays a MatchSource's events one beat at a time, and the player's side of
 ## the table: drag staging against the energy (R11-R20), Commit, pause, concede and rematch
-## (R40-R43). Everything reaches the engine through the driver.
+## (R40-R43). Everything reaches the match through the source: a local source (engine and bots
+## in this process) or a remote one (cycle 12 P5). The board's seats are table seats: 0 is the
+## player's side, whichever engine seat the source says the player holds (P6).
 ##
-## Seeds: `fixed_seed` if non-zero, else `--seed=N`, else a clock seed. The clock is read
-## here and nowhere else, and only to make a seed. `--autoplay` or `autoplay` makes seat 0
-## a bot too and plays at 4x; the player cannot drag then.
+## Main (or a verify scene's starter) builds the source and hands it to start_source().
+## `--autoplay` or `autoplay` makes seat 0 a bot too and plays at 4x; the player cannot drag
+## then.
 
 ## Emitted when the queue is empty and the human's commit is awaited. Input is unlocked.
 signal player_turn_started
@@ -17,6 +20,11 @@ signal wait_finished
 signal prompt_resolved
 ## Emitted when a pause or result "Decks" button is pressed; main frees the board.
 signal decks_requested
+## Emitted when Leave is pressed (a PVP pause menu or result panel); a running match has been
+## conceded first. Main closes the room and returns to the title screen.
+signal leave_requested
+## Emitted when the result panel's Rematch is pressed; main starts a fresh local source.
+signal rematch_requested
 
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
@@ -26,16 +34,18 @@ const AUTOPLAY_ARG: String = "--autoplay"
 const TALLY_OFFSET: Vector3 = Vector3(14.5, 0.0, 1.0)
 ## Seconds at 1x for an unstaged card to slide back to the hand.
 const UNSTAGE_TIME: float = 0.2
+## Playback speed while a reconnect's history is replayed (cycle 12 P8).
+const CATCH_UP_SPEED: float = 8.0
+## Seconds a "<name> is back" note stays on the connection overlay.
+const CONNECTION_NOTE_TIME: float = 4.0
 
-## 0 means "ask the command line, then the clock".
-@export var fixed_seed: int = 0
 @export var autoplay: bool = false
-## True for stand-alone verify scenes: start the seeded pairing in _ready. Main starts it.
-@export var auto_start: bool = false
-var bot: String = BotRegistry.default_name()
 
-## The current match, for T08 and tests.
-var driver: MatchDriver = null
+## What the board plays against: set by start_source. The board never learns which kind it is.
+var source: MatchSource = null
+
+## True while a reconnect's history is replayed: fast, with no prompt waits (cycle 12 P8).
+var catching_up: bool = false
 
 ## True while any step is queued or running (R39).
 var input_locked: bool:
@@ -49,17 +59,14 @@ var speed: float = NORMAL_SPEED
 var staging: Staging = Staging.new()
 
 var _cards: CardDb = null
-var _decks: DeckList = DeckList.load_default()
 var _crew: CrewPool = CrewPool.load_default()  # Each deck's three Crew (cycle 8 R42).
-## The ids of the running match ("" = the seeded pick); a rematch keeps them.
-var _deck_ids: Array[String] = ["", ""]
 var _autoplay: bool = false
 var _input_locked: bool = true
 ## Whether seat 0 is awaited; refreshed once per step in _advance(), false while steps run.
 var _awaited: bool = false
 var _running: bool = false
 var _halted: bool = false
-## Bumped by start_match so a runner from an earlier match stops touching the table.
+## Bumped by start_source so a runner from an earlier match stops touching the table.
 var _serial: int = 0
 ## The node-owned wait behind _wait(): counted down in _process, so it always resumes.
 var _wait_left: float = 0.0
@@ -77,8 +84,6 @@ var _arrivals: CardArrivals = CardArrivals.new()
 var _prompt: PromptHost = PromptHost.new()
 ## Each side's three Crew beside its hand (cycle 8 R59-R62).
 var _crew_line: CrewLine = CrewLine.new()
-## True when the first seed was fixed (`fixed_seed` or --seed=), so a rematch uses seed + 1.
-var _seed_fixed: bool = false
 var _paused: bool = false
 var _turn_energy: int = 0
 var _free_first: bool = false
@@ -93,6 +98,23 @@ var _drag_from_hand: bool = false
 var _over_row: bool = false
 var _drag_cancelled: bool = false
 var _last_error: int = EngineError.Code.NONE
+## True from an action being sent until the source answers it (events or a rejection), so a
+## remote answer in flight keeps input locked.
+var _in_flight: bool = false
+## Holds the runner back while _submit() still has setup to do after the source answered.
+var _deferring_run: bool = false
+## Set by the rejection handler; read by the call that submitted.
+var _rejected: bool = false
+## Set by the events handler; _answer() reads it to tell a local answer (already here) from a
+## remote one (still to come).
+var _answered_events: bool = false
+## A prompt answer that flew a card out of the Pile strip: the strip leaves after its events.
+var _pile_hide_pending: bool = false
+## True until the first events of a match arrive; they build the Crew line and bind the cards.
+var _crew_pending: bool = false
+## The room was closed under the player (abandonment); nothing more is sent.
+var _closed: bool = false
+var _connection_left: float = 0.0
 
 @onready var hud: BoardHud = $BoardHud
 @onready var player_hand: CardCollection3D = $DragController/PlayerHand
@@ -124,6 +146,7 @@ func _ready() -> void:
 	var down_err: int = card_lift.put_down_finished.connect(_on_card_put_down)
 	var action_err: int = hud.action_pressed.connect(_on_action_pressed)
 	var decks_err: int = hud.decks_pressed.connect(decks_requested.emit)
+	decks_err += hud.leave_pressed.connect(_on_leave_pressed)
 	if lifted_err != OK or down_err != OK or action_err != OK or decks_err != OK:
 		push_warning("Board: could not connect the card lift or action signals")
 	var prompt_err: int = hud.confirm_pressed.connect(_on_confirm_pressed)
@@ -139,12 +162,13 @@ func _ready() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	_autoplay = autoplay or args.has(AUTOPLAY_ARG)
 	speed = AUTOPLAY_SPEED if _autoplay else NORMAL_SPEED
-	var first_seed: int = _resolve_seed(args)
-	if auto_start:
-		start_match(first_seed, _deck_ids)
 
 
 func _process(delta: float) -> void:
+	if _connection_left > 0.0:
+		_connection_left -= delta
+		if _connection_left <= 0.0:
+			hud.show_connection("", "")
 	if not _waiting:
 		return
 	_wait_left -= delta
@@ -195,87 +219,229 @@ func _setup_effects() -> void:
 	_prompt.crew_pool = _crew
 
 
-## Starts a fresh match (new driver, empty table, opening steps); a "" deck id = seeded pick.
-func start_match(new_seed: int, deck_ids: Array[String]) -> void:
+## Starts a fresh match against any source (a remote one for PVP): empty table, then the
+## source's own start; its opening events arrive through `events_ready`.
+func start_source(new_source: MatchSource) -> void:
+	_reset_for_match()
+	_begin_source(new_source)
+
+
+## Clears the runner, the queue and the table state for a new match.
+func _reset_for_match() -> void:
 	_serial += 1
 	_end_wait()
 	card_lift.drop_now()
 	_running = false
 	_halted = false
+	_closed = false
 	_input_locked = true
 	_awaited = false
 	_paused = false
+	_in_flight = false
+	_deferring_run = false
+	_pile_hide_pending = false
+	catching_up = false
+	speed = AUTOPLAY_SPEED if _autoplay else NORMAL_SPEED
 	_queue.clear()
 	_close_prompt()
-	driver = MatchDriver.create(new_seed, _cards, _decks, deck_ids, _autoplay, bot, _crew)
-	if driver == null:
-		push_error("Board: cannot build bot '%s'" % bot)
-		return
-	_deck_ids = driver.deck_ids()
-	_fx.match_cards = driver.match_cards()
-	_fx.view_source = driver.view
-	_prompt.driver = driver
+
+
+## Connects to `new_source`, shows its names and starts it.
+func _begin_source(new_source: MatchSource) -> void:
+	_release_source()
+	source = new_source
+	var events_err: int = source.events_ready.connect(_on_events_ready)
+	events_err += source.action_rejected.connect(_on_action_rejected)
+	events_err += source.connection_changed.connect(_on_connection_changed)
+	events_err += source.match_closed.connect(_on_match_closed)
+	if source.has_signal("catch_up"):
+		events_err += source.connect("catch_up", _on_catch_up)
+	if events_err != OK:
+		push_warning("Board: could not connect the match source's signals")
+	_fx.view_source = source.view
+	_fx.viewer = source.player_seat
+	_prompt.source = source
+	_prompt.viewer = source.player_seat
+	_bind_cards()
 	_clear_table_now()
-	hud.show_pause(false)
+	hud.show_pause(false, _pvp())
+	hud.set_opponent_name(source.opponent_name())
+	hud.set_waiting("")
+	hud.show_connection("", "")
 	_refresh_staging_ui()
-	var events: Array[MatchEvent] = driver.start()
-	if events.is_empty():
-		push_error("Board: the match did not start (seed %d)" % new_seed)
-		_halted = true
+	_crew_pending = true
+	source.start()
+
+
+func _release_source() -> void:
+	if source == null:
 		return
-	_crew_line.build(self, driver.view(), _crew)
-	_enqueue(events)
-	_run()
+	if source.events_ready.is_connected(_on_events_ready):
+		source.events_ready.disconnect(_on_events_ready)
+	if source.action_rejected.is_connected(_on_action_rejected):
+		source.action_rejected.disconnect(_on_action_rejected)
+	if source.connection_changed.is_connected(_on_connection_changed):
+		source.connection_changed.disconnect(_on_connection_changed)
+	if source.match_closed.is_connected(_on_match_closed):
+		source.match_closed.disconnect(_on_match_closed)
+	if source.has_signal("catch_up") and source.is_connected("catch_up", _on_catch_up):
+		source.disconnect("catch_up", _on_catch_up)
 
 
-## Applies the player's action through the driver and queues its steps. False, changing
-## nothing, while input is locked or the engine rejects it (its code is in `_last_error`).
+## Takes the deck ids and the card definitions from the source once it holds them.
+func _bind_cards() -> void:
+	var defs: MatchCards = source.match_cards()
+	if defs != null:
+		_fx.match_cards = defs
+
+
+## True for a match served remotely: no rematch, no Decks, a Leave button, waiting text.
+func _pvp() -> bool:
+	return source != null and not source.allows_rematch()
+
+
+## Sends the player's action through the source and queues its steps when they come. False,
+## changing nothing, while input is locked or the source refuses it (its code is in
+## `_last_error`).
 func submit_player(action: EngineAction) -> bool:
-	if _input_locked or driver == null or driver.is_over() or _halted:
+	if _input_locked or source == null or source.is_over() or _halted or _closed:
 		return false
 	return _submit(action)
 
 
 ## True while the player may drag and commit (R18): no step queued or running, not under
-## autoplay, the match not over, the pause menu closed, and seat 0 awaited.
+## autoplay, the match not over, the pause menu closed, and the player awaited.
 func may_act() -> bool:
-	if driver == null or _autoplay or _input_locked or _paused or _halted:
+	if source == null or _autoplay or _input_locked or _paused or _halted:
 		return false
-	if card_lift.is_holding() or driver.is_over():
+	if card_lift.is_holding() or source.is_over():
 		return false
 	return _awaited
 
 
-## Applies a seat-0 action through the driver with no lock check, then queues its steps.
-## The one door to the engine for the player, shared by commit and concede.
+## Sends an action with no lock check, then queues its steps. The one door to the match for
+## the player, shared by commit and concede. A local source answers inside the call; a remote
+## one later, and input stays locked until it does (R22).
 func _submit(action: EngineAction) -> bool:
-	var result: ApplyResult = driver.submit_player(action)
-	if not result.ok:
-		_last_error = result.error
-		return false
+	var was_locked: bool = _input_locked
+	var was_awaited: bool = _awaited
+	_rejected = false
 	_input_locked = true
 	_awaited = false
+	_in_flight = true
+	_deferring_run = true
 	_refresh_commit_enabled()
-	_enqueue(driver.last_events())
+	source.submit(action)
+	_deferring_run = false
+	if _rejected:
+		_input_locked = was_locked
+		_awaited = was_awaited
+		_refresh_commit_enabled()
+		return false
 	# A concede ends the match under an open prompt; the runner then plays on.
 	_close_prompt()
 	_run()
 	return true
 
 
-## The seed for a first match: fixed, then --seed=N, then the clock.
-func _resolve_seed(args: PackedStringArray) -> int:
-	var flagged: int = fixed_seed if fixed_seed != 0 else BoardSeeds.from_args(args)
-	_seed_fixed = flagged != 0
-	return flagged if flagged != 0 else BoardSeeds.clock_seed()
+# --- The source's answers ----------------------------------------------------------------
+
+
+## The source's events (the opening, an accepted action of either seat): queued and played.
+func _on_events_ready(events: Array[MatchEvent]) -> void:
+	_in_flight = false
+	_answered_events = true
+	if _crew_pending:
+		_crew_pending = false
+		_bind_cards()
+		_crew_line.build(self, source.view(), _crew)
+	_enqueue(events)
+	if _pile_hide_pending:
+		_pile_hide_pending = false
+		_queue.append(BoardSteps.pile_step(false, speed))
+	if not _deferring_run:
+		_run()
+
+
+## The source refused the player's action (R24): unstage, flash the energy readout, name the
+## code in a warning, and stay awaiting the player.
+func _on_action_rejected(code: int) -> void:
+	_in_flight = false
+	_rejected = true
+	_last_error = code
+	push_warning("Board: the match refused the action (error %d)" % code)
+	if _running or not _queue.is_empty() or not source.is_player_awaited():
+		return
+	if not staging.cards().is_empty():
+		hud.flash_energy()
+	_unstage_all()
+	_input_locked = false
+	_awaited = true
+	_refresh_commit_enabled()
+
+
+func _on_connection_changed(state: String, detail: String) -> void:
+	hud.show_connection(state, detail)
+	_connection_left = CONNECTION_NOTE_TIME if state == MatchSource.STATE_OPPONENT_BACK else 0.0
+
+
+## The room closed under the player. An abandonment shows "Match abandoned" with Leave (R49);
+## any other close is main's to route.
+func _on_match_closed(reason: String) -> void:
+	if reason != MatchSource.CLOSED_ABANDONED:
+		return
+	_closed = true
+	_paused = false
+	if card_lift.is_holding():
+		card_lift.put_down()
+	hud.show_pause(false, true)
+	hud.set_waiting("")
+	hud.show_abandoned()
+	_refresh_commit_enabled()
+
+
+## A reconnect's whole redacted history (P8): the table is cleared and the history replayed at
+## speed with no prompt waits, then play resumes at normal speed.
+func _on_catch_up(events: Array[MatchEvent], _view: SeatView) -> void:
+	_serial += 1
+	_end_wait()
+	card_lift.drop_now()
+	_running = false
+	_input_locked = true
+	_awaited = false
+	_paused = false
+	_in_flight = false
+	_deferring_run = false
+	_pile_hide_pending = false
+	_queue.clear()
+	_close_prompt()
+	_clear_table_now()
+	hud.show_pause(false, _pvp())
+	hud.set_waiting("")
+	_crew_pending = false
+	_bind_cards()
+	_crew_line.build(self, source.view(), _crew)
+	catching_up = true
+	speed = CATCH_UP_SPEED
+	_enqueue(events)
+	_run()
+
+
+func _finish_catch_up() -> void:
+	catching_up = false
+	speed = AUTOPLAY_SPEED if _autoplay else NORMAL_SPEED
 
 
 # --- The queue ---------------------------------------------------------------------------
 
 
 func _enqueue(events: Array[MatchEvent]) -> void:
-	var steps: Array[BoardStep] = BoardSteps.from_events(events, speed, MatchDriver.PLAYER_SEAT)
-	_queue.append_array(steps)
+	var steps: Array[BoardStep] = BoardSteps.from_events(events, speed, source.player_seat)
+	for step: BoardStep in steps:
+		# A replayed history has no bot thinking time.
+		if catching_up and step.kind == BoardStep.Kind.BOT_WAIT:
+			continue
+		_queue.append(step)
 
 
 ## The one runner. Plays the queue, then asks _advance() what comes next, until nothing
@@ -301,26 +467,27 @@ func _run() -> void:
 		if _queue.is_empty():
 			break
 	_running = false
-	if driver.is_over():
+	if source.is_over():
 		_input_locked = false
 	_refresh_commit_enabled()
 
 
-## Called when the queue runs dry: the bot moves, or the human is awaited. Anything it
-## enqueues is picked up by the runner.
+## Called when the queue runs dry: a local bot moves, a remote opponent is waited for, or the
+## player is awaited. Anything it enqueues is picked up by the runner.
 func _advance() -> void:
-	if _halted or driver.is_over():
+	if _halted or source.is_over() or _in_flight:
 		return
-	if driver.bot_turn_due():
-		var result: ApplyResult = driver.play_bot()
-		if not result.ok:
-			push_error("Board: the bot's action was rejected (code %d)" % result.error)
-			_halted = true
-			return
+	if catching_up:
+		_finish_catch_up()
+	if source.advance():
 		_awaited = false
-		_enqueue(driver.last_events())
 		return
-	_awaited = driver.is_player_awaited()
+	if not source.is_player_awaited():
+		if _pvp():
+			hud.set_waiting(source.opponent_name())
+		return
+	hud.set_waiting("")
+	_awaited = true
 	_input_locked = false
 	_refresh_commit_enabled()
 	player_turn_started.emit()
@@ -350,7 +517,7 @@ func _play(step: BoardStep, serial: int) -> void:
 		await _wait(step.duration)
 		if serial != _serial:
 			return
-	if PromptRules.waits(step, _autoplay):
+	if PromptRules.waits(step, _autoplay or catching_up):
 		# R55: untimed. The runner holds here until a choice is accepted.
 		while _prompt.is_open() and serial == _serial:
 			await prompt_resolved
@@ -441,7 +608,7 @@ func _apply_effect(step: BoardStep) -> void:
 			hud.note_deck(step.seat, "Pile shuffled in", step.duration)
 		BoardStep.Kind.ENERGY_GRANT:
 			# Tithe's grant lands next Turn: this Turn's Energy stays as it is.
-			if step.seat == MatchDriver.PLAYER_SEAT and not step.next_turn:
+			if step.seat == BoardSteps.OWN_SIDE and not step.next_turn:
 				_turn_energy += step.amount
 				_unstage_all()
 		BoardStep.Kind.UNREVEAL:
@@ -507,35 +674,51 @@ func _clear_table(step: BoardStep) -> void:
 
 
 ## The final table stays (R42); Commit and drags are off from here, since may_act() is false
-## once the driver is over.
+## once the source is over.
 func _match_end(step: BoardStep) -> void:
-	print(driver.result_line())
+	var line: String = source.result_line()
+	if line != "":
+		print(line)
 	if card_lift.is_holding():
 		card_lift.put_down()
 	var reason: String = step.source.payload["reason"]
 	_paused = false
-	hud.show_pause(false)
+	hud.show_pause(false, _pvp())
 	var rounds: int = step.source.payload["rounds_played"]
-	hud.show_result(step.seat, step.wins, reason, rounds)
+	hud.show_result(step.seat, step.wins, reason, rounds, _pvp())
 	_refresh_commit_enabled()
 
 
 # --- Prompts (R55-R58, C16) ----------------------------------------------------------------
 
 
-## Shows seat 0's open prompt. Under autoplay the bot answers through play_bot(), so there is
-## no banner and no wait (R58). If the engine holds no prompt for seat 0 nothing opens, and
-## the runner does not wait either.
+## Shows the player's open prompt. Under autoplay the bot answers through the source, so there
+## is no banner and no wait (R58). If the source holds no prompt for the player nothing opens,
+## and the runner does not wait either. A replayed history (catch-up) opens only its last
+## prompt: the source returns the current prompt only, so an earlier one would show it early.
 func _open_prompt(step: BoardStep) -> void:
 	if _autoplay:
 		return
-	var open: Dictionary = driver.open_prompt()
-	if open.is_empty():
-		push_warning("Board: a PROMPT step but the engine holds no prompt for seat 0")
+	if catching_up and _prompt_queued():
 		return
-	_prompt.open(open, step.text, driver.view())
+	var open: Dictionary = source.open_prompt()
+	if open.is_empty():
+		if not catching_up:
+			push_warning("Board: a PROMPT step but the source holds no prompt for the player")
+		return
+	if catching_up:
+		_finish_catch_up()
+	_prompt.open(open, step.text, source.view())
 	_fx.strip = _prompt.strip_collection()
 	_refresh_commit_enabled()
+
+
+## Whether a PROMPT step is still waiting in the queue.
+func _prompt_queued() -> bool:
+	for queued: BoardStep in _queue:
+		if queued.kind == BoardStep.Kind.PROMPT:
+			return true
+	return false
 
 
 ## Clears the banner, glows and dim, and lets a held runner continue (R57). `keep_strip` leaves
@@ -546,42 +729,52 @@ func _close_prompt(keep_strip: bool = false) -> void:
 	prompt_resolved.emit()
 
 
-## Plays an accepted answer (R57, R47): its steps, then the strip's exit, and the prompt
-## closes. A rejection leaves the prompt up (it should not happen); null means nothing to do.
-func _answer(result: ApplyResult) -> void:
-	if result == null:
-		return
-	if not result.ok:
-		push_warning("Board: the engine rejected the choice (code %d)" % result.error)
+## Closes the prompt after the source took its answer (R57, R47): `submitted` is what
+## PromptHost returned. The events come through `events_ready` (already here for a local
+## source), then the strip's exit. A rejection leaves the prompt up (it should not happen).
+func _answer(submitted: bool) -> void:
+	if not submitted or _rejected:
 		return
 	var strip_up: bool = _prompt.strip_up()
-	_enqueue(driver.last_events())
-	if strip_up:
-		_queue.append(BoardSteps.pile_step(false, speed))
+	if _answered_events:
+		if strip_up:
+			_queue.append(BoardSteps.pile_step(false, speed))
+	else:
+		# A remote answer is still on its way: input stays locked until it lands.
+		_in_flight = true
+		_pile_hide_pending = strip_up
 	_close_prompt(strip_up)
 	_prompt.put_down(strip_up)
 
 
+func _begin_answer() -> void:
+	_rejected = false
+	_answered_events = false
+
+
 ## The reader's button (R42, R48): submits the lifted option, or toggles it in a multi set.
 func _on_action_pressed() -> void:
+	_begin_answer()
 	_answer(_prompt.press())
 
 
 ## The HUD confirm (R48): submits the selected set.
 func _on_confirm_pressed() -> void:
+	_begin_answer()
 	_answer(_prompt.confirm())
 
 
 ## A Pile count was tapped (R78): the Pile face up in the strip, or the strip away.
 func _on_pile_pressed(seat: int) -> void:
-	if driver == null or _halted:
+	if source == null or _halted:
 		return
-	_prompt.toggle_pile(seat, driver.view())
+	_prompt.toggle_pile(seat, source.view())
 	_fx.strip = _prompt.strip_collection()
 
 
 ## The Skip button (R63): declines the optional prompt.
 func _on_skip_pressed() -> void:
+	_begin_answer()
 	_answer(_prompt.skip())
 
 
@@ -626,6 +819,14 @@ func _clear_table_now() -> void:
 # --- The player's side: strategies, staging, drags (R11-R20, R26) --------------------------
 
 
+## Commit is on only while the player may act (R18); the label follows the staging (R16).
+func _refresh_commit_enabled() -> void:
+	hud.set_commit_enabled(may_act() and not _prompt.is_open())
+
+
+# --- Staging, drag feedback and card pick-up (R1-R20, R26) ---------------------------------
+
+
 func _make_strategy(role: BoardDragStrategy.Role) -> BoardDragStrategy:
 	var strategy: BoardDragStrategy = BoardDragStrategy.new()
 	strategy.role = role
@@ -667,13 +868,8 @@ func _card_played(card: Object) -> bool:
 
 ## The cost of a card instance, from the match's own definitions (the seats' decks differ).
 func _cost_of(id: int) -> int:
-	var def: CardDef = driver.match_cards().def_of(id)
-	return staging.cached_cost(id, driver.view, 0 if def == null else def.cost)
-
-
-## Commit is on only while the player may act (R18); the label follows the staging (R16).
-func _refresh_commit_enabled() -> void:
-	hud.set_commit_enabled(may_act() and not _prompt.is_open())
+	var def: CardDef = source.match_cards().def_of(id)
+	return staging.cached_cost(id, source.view, 0 if def == null else def.cost)
 
 
 func _refresh_staging_ui() -> void:
@@ -900,10 +1096,10 @@ func _on_commit_pressed() -> void:
 	if not may_act():
 		return
 	staging.set_row(_row_ids())
-	if submit_player(staging.to_action(MatchDriver.PLAYER_SEAT)):
-		return
-	push_error("Board: the engine rejected the commit (error %d)" % _last_error)
-	_unstage_all()
+	var sent: bool = submit_player(staging.to_action(source.player_seat))
+	if not sent:
+		# A rejection has already unstaged and warned (_on_action_rejected).
+		_refresh_commit_enabled()
 
 
 func _on_pause_pressed() -> void:
@@ -912,32 +1108,42 @@ func _on_pause_pressed() -> void:
 
 func _on_resume_pressed() -> void:
 	_paused = false
-	hud.show_pause(false)
+	hud.show_pause(false, _pvp())
 	_refresh_commit_enabled()
 
 
 func _open_pause() -> void:
-	if _paused or driver == null or driver.is_over():
+	if _paused or source == null or source.is_over() or _closed:
 		return
 	_paused = true
 	_pointer.cancel()
-	hud.show_pause(true)
+	hud.show_pause(true, _pvp())
 	_refresh_commit_enabled()
 
 
 ## Concede works while locked or while the bot is due, so it skips submit_player's lock check.
 func _on_concede_pressed() -> void:
 	_paused = false
-	hud.show_pause(false)
-	if driver == null or driver.is_over():
+	hud.show_pause(false, _pvp())
+	if source == null or source.is_over() or _closed:
 		return
-	if not _submit(EngineAction.concede(MatchDriver.PLAYER_SEAT)):
-		push_error("Board: the engine rejected the concede (error %d)" % _last_error)
+	if not _submit(EngineAction.concede(source.player_seat)):
+		push_warning("Board: the match refused the concede (error %d)" % _last_error)
 		_refresh_commit_enabled()
 
 
+## Leave (PVP): a running match is conceded first, then main is asked to close the room.
+func _on_leave_pressed() -> void:
+	_paused = false
+	hud.show_pause(false, _pvp())
+	if source != null and not source.is_over() and not _closed:
+		var sent: bool = _submit(EngineAction.concede(source.player_seat))
+		if not sent:
+			push_warning("Board: the concede before Leave was refused (error %d)" % _last_error)
+	leave_requested.emit()
+
+
+## Rematch (a local match only): main starts a fresh source with the next seed.
 func _on_rematch_pressed() -> void:
 	hud.hide_result()
-	if driver == null:
-		return  # The last match never started (its bot could not be built).
-	start_match(BoardSeeds.rematch(_seed_fixed, driver.match_seed), _deck_ids)
+	rematch_requested.emit()

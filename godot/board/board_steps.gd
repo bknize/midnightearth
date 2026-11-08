@@ -1,7 +1,12 @@
 class_name BoardSteps
 extends RefCounted
-## Maps seat-0 redacted events to BoardStep beats (R31-R38, spec M, plan P17). Pure: no
+## Maps a viewer's redacted events to BoardStep beats (R31-R38, spec M, plan P17). Pure: no
 ## nodes, no clock. Every duration and delay is the 1x value divided by `speed`.
+##
+## Seats in the steps are TABLE seats (cycle 12 P6): 0 is the viewer's own side of the table
+## and 1 the far side, whichever engine seat the viewer holds. Every seat field and every
+## seat-indexed array (totals, dross, scores, wins) is rotated by the viewer, so the rest of
+## the board never needs to know it. For viewer 0 the steps are exactly the engine's.
 ##
 ## Engine-facing: events are matched by the NAME of their MatchEvent.Kind (kind_name()), with
 ## the payload keys of the v7 event table (engine/match_event.gd), so this one file is the
@@ -53,6 +58,8 @@ const TELEGRAPH_TIME: float = 1.2
 const CREATE_TIME: float = 0.3
 const PLACE_TIME: float = 0.4
 const CONTROL_TIME: float = 0.4
+## The table seat of the viewer's own side.
+const OWN_SIDE: int = 0
 ## MatchEvent.Kind's names, read once (kind_name() runs several times per event).
 static var _kind_names: Array = MatchEvent.Kind.keys()
 
@@ -66,8 +73,8 @@ static func kind_name(event: MatchEvent) -> String:
 	return name
 
 
-## Steps for `events` (as `viewer` may see them) in event order. `speed` is 1 normally and
-## 4 under autoplay; a non-positive speed counts as 1.
+## Steps for `events` (as `viewer` may see them) in event order, with table seats (see the
+## header). `speed` is 1 normally and 4 under autoplay; a non-positive speed counts as 1.
 static func from_events(
 	events: Array[MatchEvent], speed: float, viewer: int = 0
 ) -> Array[BoardStep]:
@@ -102,6 +109,8 @@ static func from_events(
 			_:
 				made = _steps_for(event, viewer, after_deal)
 		for step: BoardStep in made:
+			if viewer != OWN_SIDE:
+				_orient(step, viewer)
 			step.duration = step.duration / divisor
 			step.delay = step.delay / divisor
 			step.chip_delay = step.chip_delay / divisor
@@ -109,6 +118,34 @@ static func from_events(
 		if not made.is_empty():
 			previous_kind = made[made.size() - 1].kind
 	return steps
+
+
+## The table seat of engine seat `seat` for `viewer`: 0 for the viewer's own, 1 for the other;
+## a negative seat (none, a tie) stays as it is.
+static func table_seat(seat: int, viewer: int) -> int:
+	if seat < 0:
+		return seat
+	return posmod(seat - viewer, MatchEngine.SEATS)
+
+
+## `values` (indexed by engine seat) re-indexed by table seat.
+static func by_table_seat(values: Array[int], viewer: int) -> Array[int]:
+	var out: Array[int] = []
+	out.assign(values)
+	for seat: int in range(mini(values.size(), MatchEngine.SEATS)):
+		out[table_seat(seat, viewer)] = values[seat]
+	return out
+
+
+## Rewrites a step's seats from engine seats to table seats.
+static func _orient(step: BoardStep, viewer: int) -> void:
+	step.seat = table_seat(step.seat, viewer)
+	step.from_seat = table_seat(step.from_seat, viewer)
+	step.owner = table_seat(step.owner, viewer)
+	step.totals.assign(by_table_seat(step.totals, viewer))
+	step.dross.assign(by_table_seat(step.dross, viewer))
+	step.scores.assign(by_table_seat(step.scores, viewer))
+	step.wins.assign(by_table_seat(step.wins, viewer))
 
 
 ## Whether `event` is the CARD_RETURNED that follows an EXIT_RESOLVED to the hand (the exit
