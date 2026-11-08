@@ -4,7 +4,7 @@ tags: [planning, bot, ledger]
 status: growing
 related: ["[[specs/cycle-11-bot-trainer/spec]]", "[[planning/bot-trainer-architecture]]", "[[specs/cycle-7-bot-players/spec]]", "[[specs/cycle-7-bot-players/plan]]", "[[planning/cycles]]", "[[planning/planning-moc]]"]
 created: 2026-11-04
-updated: 2026-11-07
+updated: 2026-11-08
 uid: ef993f98-4b7e-47a9-9dc2-6884a4a06820
 linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
@@ -28,8 +28,9 @@ under the stamp it carries.
 | Rung | Bot | Stamp | Measured against | Result | Commit | Note |
 |---|---|---|---|---|---|---|
 | 0 | random | r7-857b165d5a5d755e | random (selftest) | non-regression PASS (H1), 252 pairs, 504 games, 0.494 ± 0.024; first committer won 0.48 | (DC-16 `/cycle test`) | Uniform over legal commits and prompt answers. The match worker seeds a bot off its seat by its side (spec C10), so a seat-swapped game is not a mirror and the selftest samples real variance; game 0 of each seed is still the engine's golden match. Sweep p95 130 µs, p99 400 µs, slowest 2131 µs. Full line: `bot-eval: a=random b=random result=PASS bound=H1 pairs=252 games=504 winrate=0.494±0.024 first_committer=0.48 p95_us=207 p99_us=688 slowest_us=15458 overruns_a=2 overruns_b=2 stamp=match exit=0`. PC confirmation (DC-17 T14, 2026-11-07, the training PC over SSH, commit 959b957): the same games, `result=PASS bound=H1 pairs=252 games=504 winrate=0.494±0.024 first_committer=0.48 stamp=match exit=0`, timings `p95_us=523 p99_us=2032 slowest_us=19661 overruns_a=3 overruns_b=5`, 136 s. |
+| 0 | random | r8-857b165d5a5d755e | random (selftest) | non-regression PASS (H1), 93 pairs, 186 games, 0.511 ± 0.037; first committer won 0.51 | 8e1d2ab (DC-18, NSC-247) | Re-measured after rules 8 (cycle 13 C9: a sudden-death Round with no card committed ends the Match as a stalemate). Sweep p95 125 µs, p99 389 µs, 2 stalemates in 50 seeds. Full line: `bot-eval: a=random b=random result=PASS bound=H1 pairs=93 games=186 winrate=0.511±0.037 first_committer=0.51 p95_us=208 p99_us=609 slowest_us=10224 overruns_a=0 overruns_b=1 stamp=match exit=0`. The r7 row above measures nothing at the current stamp. |
 
-**The yardstick** is the highest rung at the current stamp: today `random`, rung 0.
+**The yardstick** is the highest rung at the current stamp: today `random`, rung 0 (r8).
 
 **Promotion (R4).** A policy becomes the next rung only after a gainer SPRT PASS against
 the yardstick (`scripts/bot-eval.sh --a <policy> --b <yardstick> --gainer`) and a quiet 50-seed `make sweep BOT=<policy>` with a p99 decision under 10 ms on
