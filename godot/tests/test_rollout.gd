@@ -216,6 +216,25 @@ func test_hidden_sets_are_empty_for_a_seat_out_of_range() -> void:
 	assert_object(Rollout.determinize(engine, -1, 3)).is_null()
 
 
+## R18 (NSC-213): a paused drain pins its kept entry's card and subject, the card lists of
+## its data and the subjects it woke; an amount, a stage or a slot equal to a live hidden
+## card's id pins nothing.
+func test_a_paused_entry_pins_card_ids_only() -> void:
+	var state: MatchState = _state()
+	state.queue.current = {
+		"entry": {"card": SHOWN, "subject": T + 20, "crew_slot": T + 1, "ability": 0},
+		"data": {"count": T + 1, "stage": FADED, "kept": [T + 21]},
+		"resolution": T + 2,
+		"woken": [{"moment": "on_moved", "subjects": [DROSS], "seat": -1, "context": {}}],
+	}
+	var engine: MatchEngine = _engine_on(state)
+	assert_bool(engine.state_copy().queue.is_paused()).is_true()
+	# Pinned: the subject T+20, Quorum's kept T+21 and the woken DROSS. Not pinned: the
+	# amount, the stage, the crew slot and the resolution number, though each equals a
+	# hidden card's id.
+	assert_array(Rollout.hidden_sets(engine, 0)[1]).is_equal(_typed([T + 1, T + 2, FADED]))
+
+
 # --- Determinized copies --------------------------------------------------------------
 
 

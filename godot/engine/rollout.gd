@@ -38,6 +38,13 @@ const ROLLOUT_TAG: int = 0x726F6C
 const CANDIDATE_TAG: int = 0x63616E
 const RESULT_WEIGHT: int = 1000
 const WINS_WEIGHT: int = 10
+## The ctx.data keys of a paused drain that hold card ids (R18): Quorum's kept cards
+## (AbilitiesComboDisruption.DATA_KEPT) and Cull's kept cards per seat
+## (AbilitiesGraveyardControl.DATA_KEPT). Every other data key is a number that is not a
+## card (Delve's `count`, Quorum's `stage`, Cull's `asked`).
+const PAUSED_CARD_LISTS: Array[String] = ["kept", "kept_0", "kept_1"]
+## The card list of a Batch a paused effect woke (TriggerContext.wake()).
+const WOKEN_SUBJECTS: String = "subjects"
 
 
 ## The cards hidden from `seat` in `engine`'s match, per Owner: [owner 0's, owner 1's], each
@@ -245,9 +252,11 @@ static func _hidden_of(state: MatchState, cards: MatchCards, view: SeatView) -> 
 	return out
 
 
-## The cards the trigger queue names (a queued entry's card and subject, and while a drain
-## is paused every whole number in its kept entry and data) and the open prompt's source:
-## they keep their identity in a copy. Empty at a commit decision.
+## The cards the trigger queue names and the open prompt's source: they keep their
+## identity in a copy (R18). A queued entry's card and subject; while a drain is paused, the
+## kept entry's card and subject, the ids under PAUSED_CARD_LISTS in its data and the
+## subjects of the Batches it woke; never any other number (an amount, a slot, a stage).
+## Empty at a commit decision.
 static func _pinned(state: MatchState) -> Dictionary[int, bool]:
 	var out: Dictionary[int, bool] = {}
 	for batch: Dictionary in state.queue.batches:
@@ -255,27 +264,48 @@ static func _pinned(state: MatchState) -> Dictionary[int, bool]:
 		for raw: Variant in entries:
 			if raw is Dictionary:
 				var entry: Dictionary = raw
-				_pin_value(entry.get("card", -1), out)
-				_pin_value(entry.get("subject", -1), out)
+				_pin_entry(entry, out)
 	if state.queue.is_paused():
-		_pin_all(state.queue.current, out)
+		_pin_paused(state.queue.current, out)
 	if not state.prompt.is_empty():
 		_pin_value(state.prompt.get(Abilities.KEY_CARD, -1), out)
 	return out
 
 
-## Pins every whole number in `value` (a number, or nested arrays and dictionaries).
-static func _pin_all(value: Variant, out: Dictionary[int, bool]) -> void:
-	if value is Dictionary:
-		var held: Dictionary = value
-		for key: Variant in held:
-			_pin_all(held[key], out)
-	elif value is Array:
-		var listed: Array = value
-		for item: Variant in listed:
-			_pin_all(item, out)
-	else:
-		_pin_value(value, out)
+## Pins a queue entry's card and subject.
+static func _pin_entry(entry: Dictionary, out: Dictionary[int, bool]) -> void:
+	_pin_value(entry.get("card", -1), out)
+	_pin_value(entry.get("subject", -1), out)
+
+
+## Pins the card ids of a paused drain's kept record (TriggerQueue `current`): its entry's
+## card and subject, the card lists of its data and the subjects of the Batches it woke.
+static func _pin_paused(current: Dictionary, out: Dictionary[int, bool]) -> void:
+	var held_entry: Variant = current.get("entry", {})
+	if held_entry is Dictionary:
+		var entry: Dictionary = held_entry
+		_pin_entry(entry, out)
+	var held_data: Variant = current.get("data", {})
+	if held_data is Dictionary:
+		var data: Dictionary = held_data
+		for key: String in PAUSED_CARD_LISTS:
+			_pin_list(data.get(key, []), out)
+	var woken: Variant = current.get("woken", [])
+	if woken is Array:
+		var batches: Array = woken
+		for raw: Variant in batches:
+			if raw is Dictionary:
+				var batch: Dictionary = raw
+				_pin_list(batch.get(WOKEN_SUBJECTS, []), out)
+
+
+## Pins each id of `value` when it is a list of card ids.
+static func _pin_list(value: Variant, out: Dictionary[int, bool]) -> void:
+	if not (value is Array):
+		return
+	var listed: Array = value
+	for item: Variant in listed:
+		_pin_value(item, out)
 
 
 ## Pins `value` when it is a whole number naming a card (not negative).
