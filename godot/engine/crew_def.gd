@@ -92,24 +92,13 @@ static func is_verb(verb_name: String) -> bool:
 
 ## Whether the known `verb_name` sits on `moment_name` (its one moment in VERBS).
 static func is_allowed_pair(moment_name: String, verb_name: String) -> bool:
-	if not VERBS.has(verb_name):
-		return false
-	var entry: Dictionary = VERBS[verb_name]
-	var own: String = entry["moment"]
-	return own == moment_name
+	return VerbTable.is_allowed_pair(VERBS, moment_name, verb_name)
 
 
 ## The inclusive [low, high] range of `key` ("amount" or "amount_2") for `verb_name`, or
 ## [0, 0] when the verb takes no such amount (or is unknown).
 static func range_of(verb_name: String, key: String) -> Array[int]:
-	var out: Array[int] = [0, 0]
-	if not VERBS.has(verb_name):
-		return out
-	var entry: Dictionary = VERBS[verb_name]
-	if entry.has(key):
-		var listed: Array = entry[key]
-		out.assign(listed)
-	return out
+	return VerbTable.range_of(VERBS, verb_name, key)
 
 
 ## The definition in its JSON form, as crew.json holds it.

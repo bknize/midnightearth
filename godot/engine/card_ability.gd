@@ -224,24 +224,13 @@ static func is_verb(verb_name: String) -> bool:
 
 ## Whether the known `verb_name` may sit on `moment_name` (VERBS `moments`).
 static func is_allowed_pair(moment_name: String, verb_name: String) -> bool:
-	if not VERBS.has(verb_name):
-		return false
-	var entry: Dictionary = VERBS[verb_name]
-	var moments: Array = entry["moments"]
-	return moments.has(moment_name)
+	return VerbTable.is_allowed_pair(VERBS, moment_name, verb_name)
 
 
 ## The inclusive [low, high] range of `key` for `verb_name`, or [0, 0] when the verb takes
 ## no such amount (or is unknown).
 static func range_of(verb_name: String, key: String) -> Array[int]:
-	var out: Array[int] = [0, 0]
-	if not VERBS.has(verb_name):
-		return out
-	var entry: Dictionary = VERBS[verb_name]
-	if entry.has(key):
-		var listed: Array = entry[key]
-		out.assign(listed)
-	return out
+	return VerbTable.range_of(VERBS, verb_name, key)
 
 
 ## The JSON form: the required keys, and each optional key only when it is not its default.
@@ -287,10 +276,9 @@ static func _bracket_problem(d: Dictionary) -> String:
 		return "%s: %s" % [ERR_WATCH, JSON.stringify(d[KEY_WATCH])]
 	if not _word_ok(d, KEY_ZONE, ZONES):
 		return "%s: %s" % [ERR_ZONE, JSON.stringify(d[KEY_ZONE])]
-	if d.has(KEY_USES):
-		var raw_uses: Variant = d[KEY_USES]
-		if not EngineAction.is_whole_number(raw_uses) or EngineAction.as_int(raw_uses) < 0:
-			return "%s: %s (a whole number >= 0)" % [ERR_USES, JSON.stringify(raw_uses)]
+	var raw_uses: Variant = d.get(KEY_USES, 0)
+	if not VerbTable.is_uses(raw_uses):
+		return "%s: %s (a whole number >= 0)" % [ERR_USES, JSON.stringify(raw_uses)]
 	return ""
 
 
@@ -298,18 +286,14 @@ static func _bracket_problem(d: Dictionary) -> String:
 ## each whole and within the verb's range (absent counts as 0).
 static func _amount_problem(d: Dictionary) -> String:
 	var verb_name: String = d[KEY_VERB]
-	for key: String in RANGED_KEYS:
-		var raw: Variant = d.get(key, 0)
-		if not EngineAction.is_whole_number(raw):
-			return "%s: %s %s is not a whole number" % [ERR_AMOUNT, key, JSON.stringify(raw)]
-		var value: int = EngineAction.as_int(raw)
-		var bounds: Array[int] = range_of(verb_name, key)
-		if value < bounds[0] or value > bounds[1]:
-			return (
-				'%s: "%s" %s %d (allowed %d..%d)'
-				% [ERR_AMOUNT, verb_name, key, value, bounds[0], bounds[1]]
-			)
-	return ""
+	return VerbTable.amount_problem(
+		d,
+		VERBS,
+		verb_name,
+		RANGED_KEYS,
+		"%s: %%s %%s is not a whole number" % ERR_AMOUNT,
+		"%s: " % ERR_AMOUNT
+	)
 
 
 ## Whether `d[key]` is absent or a string in `words`.

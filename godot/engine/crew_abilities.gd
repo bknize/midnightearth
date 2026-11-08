@@ -278,13 +278,18 @@ static func _scored_slot(ctx: TriggerContext) -> int:
 	if ctx.context.has(KEY_SLOT):
 		var slot: int = ctx.context[KEY_SLOT]
 		return slot
-	if ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
+	if not _seat_ok(ctx):
 		return -1
 	return ctx.state.seats[ctx.seat].board.find(ctx.subject)
 
 
+## Whether `ctx`'s seat is one of the state's seats.
+static func _seat_ok(ctx: TriggerContext) -> bool:
+	return ctx.seat >= 0 and ctx.seat < ctx.state.seats.size()
+
+
 static func _pile_of(ctx: TriggerContext) -> Array[int]:
-	if ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
+	if not _seat_ok(ctx):
 		var none: Array[int] = []
 		return none
 	return ctx.state.seats[ctx.seat].pile
@@ -319,7 +324,7 @@ static func _ask(ctx: TriggerContext, zone: int, options: Array[int]) -> void:
 ## Shade's offer: up to `amount` random slots among the seat's revealed row cards (a copy of
 ## their slots shuffled with the engine stream, the first `amount` kept), in slot order.
 static func _shade_offer(ctx: TriggerContext) -> Array[int]:
-	if ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
+	if not _seat_ok(ctx):
 		var none: Array[int] = []
 		return none
 	var slots: Array[int] = AbilitiesComboDisruption.revealed_slots(ctx.state, ctx.seat)
@@ -333,7 +338,7 @@ static func _shade_offer(ctx: TriggerContext) -> Array[int]:
 ## Veil's options: the slots of the seat's row whose card is Condemned.
 static func _condemned_slots(ctx: TriggerContext) -> Array[int]:
 	var slots: Array[int] = []
-	if ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
+	if not _seat_ok(ctx):
 		return slots
 	var row: Array[int] = ctx.state.seats[ctx.seat].board
 	for slot: int in range(row.size()):
@@ -344,7 +349,7 @@ static func _condemned_slots(ctx: TriggerContext) -> Array[int]:
 
 ## Salvager's options: every position of the seat's hand.
 static func _hand_positions(ctx: TriggerContext) -> Array[int]:
-	if ctx.seat < 0 or ctx.seat >= ctx.state.seats.size():
+	if not _seat_ok(ctx):
 		var none: Array[int] = []
 		return none
 	return Abilities.positions(ctx.state.seats[ctx.seat].hand.size())
@@ -365,7 +370,7 @@ static func _veil(ctx: TriggerContext) -> void:
 	var card: int = ctx.chosen_card()
 	if card < 0 or Statuses.exit_mark_of(ctx.state, card) != Statuses.CONDEMNED:
 		return
-	if Statuses.mark_exit(ctx.state, ctx.cards, card, Statuses.FLEETING, ctx.sink):
+	if Abilities.mark(ctx, card, Statuses.FLEETING):
 		pass  # The exit pass sends it to its Owner's hand.
 
 

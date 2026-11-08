@@ -61,7 +61,7 @@ static func next_slot(state: MatchState) -> Vector2i:
 	if not walk.active:
 		return Vector2i(-1, -1)
 	var seat: int = walk.next_seat
-	for candidate: int in [seat, 1 - seat]:
+	for candidate: int in MatchState.seats_from(seat):
 		var piles: MatchState.SeatPiles = state.seats[candidate]
 		if walk.cursor[candidate] < piles.board.size():
 			return Vector2i(candidate, walk.cursor[candidate])

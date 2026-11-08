@@ -170,7 +170,7 @@ static func continue_turn_start(
 static func _draws_from(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, index: int
 ) -> bool:
-	var order: Array[int] = [state.first_seat, 1 - state.first_seat]
+	var order: Array[int] = state.commit_order()
 	for at: int in range(index, order.size()):
 		if draw(state, cards, rng, sink, order[at]):
 			return true
@@ -484,7 +484,7 @@ static func settle_turn(state: MatchState, sink: Callable) -> void:
 ## awards the Round once the drain has finished).
 static func end_round(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> int:
 	var cleared: Array[int] = []
-	for seat: int in [state.first_seat, 1 - state.first_seat]:
+	for seat: int in state.commit_order():
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		var row: Array[int] = []
 		row.assign(piles.board)

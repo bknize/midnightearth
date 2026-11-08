@@ -345,7 +345,7 @@ static func unreveal(state: MatchState, seat: int, card: int, sink: Callable) ->
 static func exit_pass(state: MatchState, cards: MatchCards, sink: Callable) -> Array[int]:
 	var read: Array[Array] = _exit_ongoings(state, cards)
 	var discarded: Array[int] = []
-	for seat: int in [state.first_seat, 1 - state.first_seat]:
+	for seat: int in state.commit_order():
 		var row: Array[int] = []
 		row.assign(state.seats[seat].board)
 		for card: int in row:
