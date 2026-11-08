@@ -338,7 +338,7 @@ func test_scenario_4_encore_and_scrap() -> void:
 # --- Twin -----------------------------------------------------------------------------
 
 
-## Twin creates a copy of itself in its Controller's hand: the first created id, its
+## Twin creates a copy of itself in its Controller's hand: the first Dross id, its
 ## definition and Owner recorded once (def_of, origin_of; not in MatchState), CARD_CREATED
 ## public; the copy has base values and no Memory.
 func test_twin_creates_a_copy_in_hand() -> void:
@@ -349,9 +349,9 @@ func test_twin_creates_a_copy_in_hand() -> void:
 	state.memory_for(twin).power = 2
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	var copy: int = MatchCards.CREATED_BASE
+	var copy: int = MatchCards.DROSS_BASE
 	assert_array(state.seats[0].hand).is_equal(_typed([copy]))
-	assert_int(state.next_created_id).is_equal(copy + 1)
+	assert_int(state.next_dross_id).is_equal(copy + 1)
 	assert_str(cards.def_of(copy).id).is_equal("cb06")
 	assert_int(cards.origin_of(copy)).is_equal(0)
 	assert_object(state.memory_of(copy)).is_null()
@@ -362,20 +362,23 @@ func test_twin_creates_a_copy_in_hand() -> void:
 	assert_dict(created[0].payload).is_equal(
 		{"seat": 0, "card": copy, "def": "cb06", "owner": 0, "to": "hand", "slot": -1}
 	)
-	# One record of created cards, MatchCards (DC-20 T03, NSC-179): none in MatchState.
-	assert_bool(state.to_dict().has("created")).is_false()
+	# One record of Dross cards, MatchCards (DC-20 T03, NSC-179): none in MatchState.
+	assert_bool(state.to_dict().has("dross")).is_false()
 
 
 ## Twin Flags (LOOP across Turns, CREATE): the copy plays like any card; its own reveal makes
-## one more copy with a new id. Rules 9 (cycle 14 R10, C9): a copy is a created card of the
-## default lifetime, so a Discarded copy expires (CARD_EXPIRED) and enters no Pile.
+## one more copy with a new id. Rules 9 (cycle 14 R10, C13): Twin's copies are Dross of the
+## default lifetime `round`: a Discarded copy is filed in its Owner's Pile like any card, and
+## at the end of the Round (TurnFlow.expire_dross) every copy leaves the Match from wherever
+## it is (here the row and the Pile), one DROSS_EXPIRED each in ascending id; the Deck's own
+## Twin stays.
 func test_a_twin_copy_reveals_and_makes_another() -> void:
 	var cards: MatchCards = _cards()
 	var twin: int = 4
 	_put(cards, _typed([twin]), "cb06")
 	var state: MatchState = StubAbilities.table(_typed([twin]), false)
 	_walk(state, cards, StubAbilities.recorder())
-	var copy: int = MatchCards.CREATED_BASE
+	var copy: int = MatchCards.DROSS_BASE
 	state.seats[0].hand.clear()
 	state.seats[0].board.append(copy)
 	_walk(state, cards, StubAbilities.recorder())
@@ -385,14 +388,23 @@ func test_a_twin_copy_reveals_and_makes_another() -> void:
 	var reason: String = TurnFlow.REASON_DISCARD
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	TurnFlow.to_pile(state, cards, rec.record, copy + 1, TurnFlow.FROM_HAND, reason)
+	assert_array(state.seats[0].pile).is_equal(_typed([copy + 1]))
+	assert_array(rec.cards_of(MatchEvent.Kind.CARD_DISCARDED)).is_equal(_typed([copy + 1]))
+	assert_str(cards.def_of(copy + 1).id).is_equal("cb06")
+	# The Round ends: both copies (row, Pile) leave the Match; the Deck's own Twin stays.
+	var ended: StubAbilities.Recorder = StubAbilities.recorder()
+	TurnFlow.expire_dross(state, cards, ended.record)
+	assert_array(ended.cards_of(MatchEvent.Kind.DROSS_EXPIRED)).is_equal(
+		_typed([copy, copy + 1])
+	)
+	var expired: Array[MatchEvent] = ended.of_kind(MatchEvent.Kind.DROSS_EXPIRED)
+	assert_str(expired[0].payload["from"]).is_equal(TurnFlow.FROM_ROW)
+	assert_str(expired[1].payload["from"]).is_equal(TurnFlow.FROM_PILE)
 	assert_array(state.seats[0].pile).is_empty()
-	assert_array(rec.cards_of(MatchEvent.Kind.CARD_EXPIRED)).is_equal(_typed([copy + 1]))
+	assert_array(state.seats[0].board).is_equal(_typed([twin]))
+	assert_object(cards.def_of(copy)).is_null()
 	assert_object(cards.def_of(copy + 1)).is_null()
-	# The Deck's own Twin is not a created card: it is filed in its Owner's Pile as always.
-	assert_bool(state.seats[0].board.has(twin)).is_true()
-	state.seats[0].board.erase(twin)
-	TurnFlow.to_pile(state, cards, rec.record, twin, TurnFlow.FROM_ROW, reason)
-	assert_array(state.seats[0].pile).is_equal(_typed([twin]))
+	assert_str(cards.def_of(twin).id).is_equal("cb06")
 
 
 # --- Reprise --------------------------------------------------------------------------

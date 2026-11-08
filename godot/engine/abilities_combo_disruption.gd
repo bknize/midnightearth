@@ -14,7 +14,7 @@ extends RefCounted
 ## - `scrap` (Scrap): a hand card, chosen, is Discarded (its own On discard Batch); this card
 ##   gets Add +N until end of turn, N = `amount` per point of that card's Cost read now,
 ##   at most `cap`.
-## - `copy_self_to_hand` (Twin): a created copy of this card (base values, no Memory) goes to
+## - `copy_self_to_hand` (Twin): a Dross copy of this card (base values, no Memory) goes to
 ##   the Controller's hand, Owned by that seat (create(), CARD_CREATED).
 ## - `scores_twice` (Reprise, On commit): every later score stage this Turn runs twice (Q7).
 ## - `retrigger_reveals` (Encore): the Controller's other On reveals resolve twice this Turn
@@ -49,10 +49,12 @@ extends RefCounted
 ##   holder's walking total is multiplied by `amount` hundredths per Dross
 ##   (walk_end_total(), called by ScoreWalk.finish).
 ##
-## Created cards (plan P6): create() takes the next id from MatchState.next_created_id,
-## records the definition and Owner once, in MatchCards.record_created, so
-## def_of() and origin_of() answer; CARD_CREATED {seat, card, def, owner, to, slot} is
-## public (the creation is public; the card in a hand is then that seat's hidden card).
+## Dross cards, the cards an ability creates (plan P6, C13): create() takes the next id
+## from MatchState.next_dross_id, records the definition and Owner once, in
+## MatchCards.record_dross, so def_of() and origin_of() answer; CARD_CREATED {seat, card,
+## def, owner, to, slot} is public (the creation is public; the card in a hand is then that
+## seat's hidden card). A Dross card lasts until the end of the Round unless its lifetime is
+## `match` (TurnFlow.expire_dross; rules 9, C13).
 
 const VERB_WICK: String = "wick"
 const VERB_FADE_OTHER_OWN: String = "fade_other_own"
@@ -97,7 +99,7 @@ const VERBS: Array[String] = [
 	VERB_GAG,
 	VERB_QUORUM,
 ]
-## The pool id of Dross (cards.json, `"created": true`).
+## The pool id of the Dross card (cards.json, `"created": true`: a Dross definition).
 const DROSS_ID: String = "dross"
 ## CARD_CREATED `to`.
 const TO_HAND: String = "hand"
@@ -210,19 +212,19 @@ static func walk_end_total(state: MatchState, cards: MatchCards, seat: int) -> i
 	return total
 
 
-# --- Created cards ------------------------------------------------------------------------
+# --- Dross cards --------------------------------------------------------------------------
 
 
 ## Creates a card of `def` Owned by `owner` (plan P6, rules 9 R8: the seat it is created
-## for, never a fallback): the next created id, recorded once in MatchCards.record_created
+## for, never a fallback): the next Dross id, recorded once in MatchCards.record_dross
 ## (DC-20 T03, NSC-179). Returns the id; nowhere yet (the caller places it). -1, taking no
 ## id, when `def` is null or `owner` is not a seat.
 static func create(state: MatchState, cards: MatchCards, def: CardDef, owner: int) -> int:
 	if def == null or owner < 0 or owner >= MatchEngine.SEATS:
 		return -1
-	var made: int = state.next_created_id
-	state.next_created_id += 1
-	if cards != null and not cards.record_created(made, def, owner):
+	var made: int = state.next_dross_id
+	state.next_dross_id += 1
+	if cards != null and not cards.record_dross(made, def, owner):
 		pass  # Already recorded (a copied state on the same definitions): same id, same card.
 	return made
 
@@ -362,7 +364,7 @@ static func _scrap(ctx: TriggerContext) -> void:
 	Abilities.stats_changed(ctx, ctx.card, false)
 
 
-## Twin: a created copy of this card's definition (base values, no Memory) into the
+## Twin: a Dross copy of this card's definition (base values, no Memory) into the
 ## Controller's hand.
 static func _twin(ctx: TriggerContext) -> void:
 	var def: CardDef = ctx.cards.def_of(ctx.card)

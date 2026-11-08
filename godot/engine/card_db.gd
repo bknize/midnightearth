@@ -12,12 +12,13 @@ extends RefCounted
 ## (a known moment and verb, the verb allowed on the moment, amounts in range, known scope,
 ## watch and zone, whole uses, its own text); a non-empty card `text` when it has
 ## abilities. A pool has no card count: decks are checked by DeckList.validate().
-## An optional `"created": true` marks a card made only by an ability, never dealt from a
-## Deck (Dross, DC-14 T12): cards_tagged() leaves it out and created_cards() lists it.
-## A created card may carry `"lifetime"`: CardDef.LIFETIME_UNTIL_PILED (the default when
-## absent: it expires when sent to a Pile) or CardDef.LIFETIME_MATCH (filed in its Owner's
-## Pile like any card); any other value fails with ERR_LIFETIME (rules 9, cycle 14 R9, C9).
-## The key is read only when `created` is true; the format version stays 5.
+## An optional `"created": true` (KEY_DROSS: the pool keeps that key name) marks a Dross
+## definition, made only by an ability, never dealt from a Deck (the Dross card, DC-14 T12):
+## cards_tagged() leaves it out and dross_cards() lists it. A Dross definition may carry
+## `"lifetime"`: CardDef.LIFETIME_ROUND (the default when absent: removed at the end of the
+## Round) or CardDef.LIFETIME_MATCH (lasts the Match); any other value, `until_piled`
+## included, fails with ERR_LIFETIME (rules 9, cycle 14 R9, C13). The key is read only for
+## a Dross definition; the format version stays 5.
 ##
 ## Loading never prints, asserts or pushes an error: every failure is reported through
 ## load_error(), and a failed database holds no cards, so the engine refuses to start.
@@ -58,7 +59,8 @@ const KEY_POWER: String = "power"
 const KEY_BONUS: String = "bonus"
 const KEY_ABILITIES: String = "abilities"
 const KEY_TEXT: String = "text"
-const KEY_CREATED: String = "created"
+## The pool key of a Dross definition (CardDef.dross): cards.json keeps the name `created`.
+const KEY_DROSS: String = "created"
 const KEY_LIFETIME: String = "lifetime"
 
 var _cards: Array[CardDef] = []
@@ -162,20 +164,20 @@ func cards() -> Array[CardDef]:
 	return out
 
 
-## The Deck cards with tag `tag`, in file order (a created-only card is left out).
+## The Deck cards with tag `tag`, in file order (a Dross definition is left out).
 func cards_tagged(tag: String) -> Array[CardDef]:
 	var out: Array[CardDef] = []
 	for def: CardDef in _cards:
-		if def.tag == tag and not def.created:
+		if def.tag == tag and not def.dross:
 			out.append(def)
 	return out
 
 
-## The created-only definitions (`"created": true`: Dross), in file order.
-func created_cards() -> Array[CardDef]:
+## The Dross definitions (`"created": true`: the Dross card), in file order (C13).
+func dross_cards() -> Array[CardDef]:
 	var out: Array[CardDef] = []
 	for def: CardDef in _cards:
-		if def.created:
+		if def.dross:
 			out.append(def)
 	return out
 
@@ -243,7 +245,7 @@ static func _has_card_fields(d: Dictionary) -> bool:
 		return false
 	if d.has(KEY_ABILITIES) and not d[KEY_ABILITIES] is Array:
 		return false
-	if d.has(KEY_CREATED) and not d[KEY_CREATED] is bool:
+	if d.has(KEY_DROSS) and not d[KEY_DROSS] is bool:
 		return false
 	return not d.has(KEY_TEXT) or d[KEY_TEXT] is String
 
@@ -268,11 +270,11 @@ static func _range_problem(d: Dictionary, abilities: Array, i: int) -> String:
 	return _lifetime_problem(d, i)
 
 
-## The lifetime problem of a created card entry, or "": absent, or a string in
-## CardDef.LIFETIMES. A card that is not created is not read for it.
+## The lifetime problem of a Dross entry, or "": absent, or a string in CardDef.LIFETIMES. A
+## card that is not Dross is not read for it.
 static func _lifetime_problem(d: Dictionary, i: int) -> String:
-	var created: bool = d.get(KEY_CREATED, false)
-	if not created or not d.has(KEY_LIFETIME):
+	var dross: bool = d.get(KEY_DROSS, false)
+	if not dross or not d.has(KEY_LIFETIME):
 		return ""
 	var raw: Variant = d[KEY_LIFETIME]
 	if raw is String and CardDef.LIFETIMES.has(raw):
@@ -381,9 +383,9 @@ static func _build_entry(entry: Variant) -> CardDef:
 		abilities,
 		text
 	)
-	var created: bool = d.get(KEY_CREATED, false)
-	def.created = created
-	if created:
-		var lifetime: String = d.get(KEY_LIFETIME, CardDef.LIFETIME_UNTIL_PILED)
+	var dross: bool = d.get(KEY_DROSS, false)
+	def.dross = dross
+	if dross:
+		var lifetime: String = d.get(KEY_LIFETIME, CardDef.LIFETIME_ROUND)
 		def.lifetime = lifetime
 	return def

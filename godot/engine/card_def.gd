@@ -16,12 +16,13 @@ enum BonusKind { NONE, MULT, ADD }
 const KEY_MULT: String = "mult"
 ## JSON key of an ADD Bonus.
 const KEY_ADD: String = "add"
-## CardDef.lifetime of a created card that expires when sent to a Pile (the default).
-const LIFETIME_UNTIL_PILED: String = "until_piled"
-## CardDef.lifetime of a created card that lasts the Match: filed in its Owner's Pile.
+## CardDef.lifetime of a Dross card removed from the Match at the end of the Round (the
+## default; TurnFlow.expire_dross, rules 9, cycle 14 R10, C13).
+const LIFETIME_ROUND: String = "round"
+## CardDef.lifetime of a Dross card that lasts the Match: never removed (R11, C13).
 const LIFETIME_MATCH: String = "match"
-## Every legal `lifetime` (pool key, read only for a created card; rules 9, cycle 14 R9).
-const LIFETIMES: Array[String] = [LIFETIME_UNTIL_PILED, LIFETIME_MATCH]
+## Every legal `lifetime` (pool key, read only for a Dross card; rules 9, cycle 14 R9, C13).
+const LIFETIMES: Array[String] = [LIFETIME_ROUND, LIFETIME_MATCH]
 ## The card tags (canon R59): the six strategies and `evergreen`.
 const TAGS: Array[String] = [
 	"evergreen", "greed", "combo", "disruption", "graveyard", "control", "ramp"
@@ -37,14 +38,15 @@ var bonus_kind: BonusKind = BonusKind.NONE
 var bonus: int = 0
 var abilities: Array[CardAbility] = []
 var text: String = ""
-## True for a card made only by an ability, never in a Deck (Dross; pool key `created`).
-var created: bool = false
-## The lifetime of a card created with this definition (pool key `lifetime`, read only for a
-## `created` card, C9): LIFETIME_UNTIL_PILED, it expires when sent to a Pile
-## (TurnFlow.to_pile, CARD_EXPIRED), or LIFETIME_MATCH, filed like any card. A Deck card's
-## definition keeps the default, so a created copy of it (Twin's) expires; the Deck card
-## itself is never a created card and is filed as always.
-var lifetime: String = LIFETIME_UNTIL_PILED
+## True for a definition only an ability makes, never in a Deck (the Dross card; pool key
+## `created`, the name cards.json keeps, CardDb.KEY_DROSS).
+var dross: bool = false
+## The lifetime of a Dross card of this definition (pool key `lifetime`, read only for a
+## `dross` definition, C13): LIFETIME_ROUND, removed from the Match at the end of the Round
+## wherever it is (TurnFlow.expire_dross, DROSS_EXPIRED), or LIFETIME_MATCH, never removed.
+## A Deck card's definition keeps the default, so a Dross copy of it (Twin's) lasts the
+## Round; the Deck card itself is never Dross and never expires.
+var lifetime: String = LIFETIME_ROUND
 
 
 func _init(
@@ -69,11 +71,11 @@ func _init(
 	text = p_text
 
 
-## Whether a created card of this definition (MatchCards.is_created()) expires when sent to a
-## Pile: its lifetime is LIFETIME_UNTIL_PILED (rules 9, cycle 14 R10). A Deck card never
-## expires, whatever this says (TurnFlow.to_pile asks only for a created instance).
-func expires_when_piled() -> bool:
-	return lifetime == LIFETIME_UNTIL_PILED
+## Whether a Dross card of this definition (MatchCards.is_dross()) is removed at the end of
+## the Round: its lifetime is LIFETIME_ROUND (rules 9, cycle 14 R10, C13). A Deck card never
+## expires, whatever this says (TurnFlow.expire_dross asks only for a Dross instance).
+func expires_at_round_end() -> bool:
+	return lifetime == LIFETIME_ROUND
 
 
 ## Whether the card has no abilities: a plain body (Banner's "no rules text").
@@ -123,8 +125,8 @@ func to_dict() -> Dictionary:
 		"abilities": listed,
 		"text": text,
 	}
-	if created:
-		out["created"] = true
-		if lifetime != LIFETIME_UNTIL_PILED:
+	if dross:
+		out["created"] = true  # The pool key cards.json uses (CardDb.KEY_DROSS).
+		if lifetime != LIFETIME_ROUND:
 			out["lifetime"] = lifetime
 	return out

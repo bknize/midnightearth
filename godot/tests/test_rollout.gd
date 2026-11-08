@@ -2,7 +2,7 @@ class_name TestRollout
 extends GdUnitTestSuite
 ## The rollout entry (cycle 11 T04; spec R16 to R24, plan P5 to P8, P10): the hidden sets
 ## per Owner on a hand-built state (a face-down Fade card, a looked-at card, `deck_top`, a
-## created Dross in the other hand), the determinized copy keeping the seat's view and
+## Dross card in the other hand), the determinized copy keeping the seat's view and
 ## moving each card's records as the class comment says, the real match untouched by 16
 ## play-outs, same seeds same values, the value formula, `capped` and `rejected`, the
 ## candidate sampler, and the seed-1 pin. The seed-1 position is seat 1's first Round 3
@@ -10,7 +10,7 @@ extends GdUnitTestSuite
 ## short where the full length is not the point, to keep the gdUnit budget.
 
 const T: int = MatchRules.DECK_SIZE
-const DROSS: int = MatchCards.CREATED_BASE
+const DROSS: int = MatchCards.DROSS_BASE
 const FADED: int = T + 30
 const LOOKED: int = T + 31
 const SHOWN: int = T + 32
@@ -50,7 +50,7 @@ func _typed(values: Array) -> Array[int]:
 
 
 ## A hand-built state at seat 0's commit: seat 0 holds 0..2 with 20..22 in its Deck and 12
-## face down on its row; seat 1 holds T+1, T+2 and a created Dross (owner 1), T+20 and T+21
+## face down on its row; seat 1 holds T+1, T+2 and a Dross card (owner 1), T+20 and T+21
 ## in its Deck, and on its row FADED face down with a Fade mark, LOOKED face down but looked
 ## at by seat 0 and SHOWN revealed. T+1 has Memory.
 func _state() -> MatchState:
@@ -72,14 +72,14 @@ func _state() -> MatchState:
 	state.seats[1].pile.assign(_typed([T + 4]))
 	state.card_state_for(FADED).exit_mark = Statuses.FADE
 	state.memory_for(T + 1).power = 2
-	state.next_created_id = DROSS + 1  # The Dross's record is MatchCards' (_engine_on).
+	state.next_dross_id = DROSS + 1  # The Dross's record is MatchCards' (_engine_on).
 	return state
 
 
 ## An engine around a copy of `state` on Greed against Greed with the Dross recorded.
 func _engine_on(state: MatchState) -> MatchEngine:
 	var cards: MatchCards = _defs().copy()
-	cards.record_created(DROSS, cards.pool_def("dross"), 1)
+	cards.record_dross(DROSS, cards.pool_def("dross"), 1)
 	return MatchEngine.from_state(state.duplicate(), cards, 0)
 
 
@@ -264,7 +264,7 @@ func test_a_copy_keeps_the_seats_view_and_moves_records_with_their_owners() -> v
 		var faded: Dictionary = states[row[0]]
 		assert_str(faded["exit_mark"]).is_equal(Statuses.FADE)
 		assert_dict(full["memory"]).is_equal(before["memory"])
-		assert_dict(full["created"]).is_equal(before["created"])
+		assert_dict(full["dross"]).is_equal(before["dross"])
 		assert_str(copy.match_cards().def_of(DROSS).id).is_equal("dross")
 		faded_moved = faded_moved or row[0] != FADED
 		dross_moved = dross_moved or _zone(full, "hand", 1)[2] != DROSS
@@ -300,7 +300,7 @@ func test_the_real_match_is_unchanged_by_16_play_outs() -> void:
 	var before: Dictionary = engine.full_state()
 	var log_before: String = engine.action_log().to_json()
 	var count_before: int = engine.accepted_action_count()
-	var next_created: int = before["next_created_id"]
+	var next_dross: int = before["next_dross_id"]
 	var candidate: EngineAction = _candidate(engine)
 	for det: int in range(16):
 		var det_seed: int = _det_seed(0, det)
@@ -312,9 +312,9 @@ func test_the_real_match_is_unchanged_by_16_play_outs() -> void:
 	assert_dict(engine.full_state()).is_equal(before)
 	assert_str(engine.action_log().to_json()).is_equal(log_before)
 	assert_int(engine.accepted_action_count()).is_equal(count_before)
-	# No card a copy created was recorded on the real match's definitions.
-	for created: int in range(next_created, next_created + 16):
-		assert_object(engine.match_cards().def_of(created)).is_null()
+	# No Dross card a copy created was recorded on the real match's definitions.
+	for made: int in range(next_dross, next_dross + 16):
+		assert_object(engine.match_cards().def_of(made)).is_null()
 
 
 # --- Play-outs and labels -------------------------------------------------------------

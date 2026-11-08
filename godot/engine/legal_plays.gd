@@ -21,7 +21,7 @@ extends RefCounted
 ## order, where bit i stands for hand[i], and each subset keeps the hand's order. So the
 ## empty set (mask 0) always comes first, then {hand[0]}, {hand[1]}, {hand[0], hand[1]},
 ## {hand[2]}, and so on. Under rules 7 (DC-13 T03) a hand at its Commit holds its Hand size
-## plus the Turn's draws and any created cards (Dross), so it can pass 12 cards; the
+## plus the Turn's draws and any Dross cards (created by an ability), so it can pass 12 cards; the
 ## discard-down brings it back after each Commit, and a hand above ENUMERATE_MAX is counted
 ## rather than enumerated (below).
 ##

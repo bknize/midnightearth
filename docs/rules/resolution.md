@@ -166,7 +166,9 @@ to **D12**.
 
 **After Turn 7** (Round end): every card on both rows goes to its Owner's Pile as a Discard,
 hands and Decks stay as they are, and On discard wakes as a Batch. **D12: drain.** Then the
-Round is awarded.
+Round is awarded. Then every Dross card (a card an ability created) leaves the Match from
+wherever it is, hand, row, Pile or Deck, unless it lasts the whole Match (rules 9, cycle 14
+C13); nothing wakes and no other card moves.
 
 Twelve drain points in all: ten are outside the Walk, only D7 and D8 sit in a pulse.
 

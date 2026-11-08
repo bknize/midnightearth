@@ -38,4 +38,4 @@ func test_costs_and_the_trigger_budget() -> void:
 	assert_int(MatchRules.MIN_COST).is_equal(0)
 	assert_int(MatchRules.MAX_PRINTED_COST).is_equal(7)
 	assert_int(MatchRules.TRIGGER_BUDGET).is_equal(50)
-	assert_int(MatchCards.CREATED_BASE).is_equal(2 * MatchRules.DECK_SIZE)
+	assert_int(MatchCards.DROSS_BASE).is_equal(2 * MatchRules.DECK_SIZE)  # The first Dross id.
