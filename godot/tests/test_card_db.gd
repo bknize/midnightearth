@@ -315,6 +315,55 @@ func test_mult_below_one_and_the_created_flag() -> void:
 	_assert_invalid(_pool_of([made]), CardDb.ERR_SHAPE)
 
 
+## Rules 9 (cycle 14 R9, C9): a created card's `lifetime` is `until_piled` (the default when
+## absent) or `match`, and round-trips; any other value fails with ERR_LIFETIME. A card that
+## is not created is not read for it (it keeps the default).
+func test_a_created_cards_lifetime() -> void:
+	var made: Dictionary = _plain()
+	made["created"] = true
+	var plain_db: CardDb = _pool_of([made])
+	_assert_valid(plain_db)
+	assert_str(plain_db.card_at(0).lifetime).is_equal(CardDef.LIFETIME_UNTIL_PILED)
+	assert_bool(plain_db.card_at(0).expires_when_piled()).is_true()
+	assert_bool(plain_db.card_at(0).to_dict().has("lifetime")).is_false()
+	made["lifetime"] = "match"
+	var lasting: CardDb = _pool_of([made])
+	_assert_valid(lasting)
+	assert_str(lasting.card_at(0).lifetime).is_equal(CardDef.LIFETIME_MATCH)
+	assert_bool(lasting.card_at(0).expires_when_piled()).is_false()
+	assert_str(lasting.card_at(0).to_dict().get("lifetime", "")).is_equal("match")
+	made["lifetime"] = "until_piled"
+	_assert_valid(_pool_of([made]))
+	for bad: Variant in ["forever", "", 3, null, true]:
+		made["lifetime"] = bad
+		_assert_invalid(_pool_of([made]), CardDb.ERR_LIFETIME)
+	var deck_card: Dictionary = _plain()
+	deck_card["lifetime"] = "forever"
+	var unread: CardDb = _pool_of([deck_card])
+	_assert_valid(unread)
+	assert_str(unread.card_at(0).lifetime).is_equal(CardDef.LIFETIME_UNTIL_PILED)
+
+
+## The format stays 5 and the shipped pool is not edited for lifetimes (R9): no shipped card
+## carries a `lifetime` key, so Dross expires by the default.
+func test_no_shipped_card_has_a_lifetime_key() -> void:
+	assert_int(CardDb.FORMAT_VERSION).is_equal(5)
+	var text: String = FileAccess.get_file_as_string(CardDb.DEFAULT_PATH)
+	var parsed: Variant = JSON.parse_string(text)
+	assert_bool(parsed is Dictionary).is_true()
+	if not parsed is Dictionary:
+		return
+	var root: Dictionary = parsed
+	var entries: Array = root["cards"]
+	assert_bool(entries.is_empty()).is_false()
+	for raw: Variant in entries:
+		var entry: Dictionary = raw
+		var card_id: String = entry.get("id", "")
+		assert_bool(entry.has("lifetime")).override_failure_message(card_id).is_false()
+	var dross: CardDef = CardDb.load_default().card_by_id("dross")
+	assert_bool(dross.expires_when_piled()).is_true()
+
+
 func _assert_bonus(def: CardDef, row: Array) -> void:
 	var kind: String = row[5]
 	var amount: int = row[6]

@@ -22,7 +22,8 @@ extends RefCounted
 ## still reads):
 ## - MATCH_STARTED {decks, crew}; ROUND_STARTED {round, sudden_death}
 ## - CARD_DEALT, CARD_DRAWN {seat, card}; DRAW_EMPTY {seat}; PILE_SHUFFLED_IN {seat, count}
-## - TURN_STARTED {round, turn, first_seat, budgets}; ENERGY_GRANTED {seat, amount, source}
+## - TURN_STARTED {round, turn, first_seat, budgets, free_first} (`free_first` per seat,
+##   Lantern's free first card, rules 9 R16); ENERGY_GRANTED {seat, amount, source}
 ##   (+ `next_turn: true` for a grant that lands next Turn, Tithe)
 ## - COMMITTED {seat, cards, slots, cost, pass} (+ `count`, the card count)
 ## - PROMPT_OPENED the prompt (MatchState.prompt) plus `text`; CHOICE_MADE {seat, card,
@@ -33,8 +34,9 @@ extends RefCounted
 ##   statuses}; CARD_SCORED {seat, card, slot, power, bonus_value, total, pass};
 ##   WALK_ENDED {totals, scores, dross} (`dross` the Dross counted in each seat's hand)
 ## - TRIGGER_FIRED {seat, card, crew, moment, verb, resolution}; TRIGGER_FIZZLED {seat,
-##   card, crew, verb, reason: no_target|exhausted|spent}; both add `from_hand: true` for a
-##   card firing from its hand
+##   card, crew, verb, reason: no_target|exhausted|spent|protected|already_marked}; both add
+##   `from_hand: true` for a card firing from its hand. `protected` and `already_marked`
+##   name one missed random Condemn pick of a trigger that fired (Fuse, Immolator, rules 9)
 ## - STATS_CHANGED {card, power, mult, add, cost, permanent, cause}; STATUS_SET {card,
 ##   status, cessation, cause}; STATUS_ENDED {card, status, cause}; EXIT_MARKED {card, mark,
 ##   replaced}; EXIT_RESOLVED {card, mark, owner, to: pile|hand|face_down, seat, slot}
@@ -53,6 +55,9 @@ extends RefCounted
 ##   CARD_PLACED {seat, card, from: pile, slot} (Revive: a Pile card put on a row);
 ##   CONTROL_CHANGED {card, owner, controller, from_seat, slot} (Saboteur: the card moves to
 ##   the controller's row at `slot`; the Owner is kept)
+## - Rules 9 (DC-20 T03, public): CARD_EXPIRED {owner, card, from: hand|row, reason} (a
+##   created `until_piled` card sent to a Pile leaves the Match instead: no Pile entry;
+##   `reason` is the Discard's, as CARD_DISCARDED's)
 
 enum Kind {
 	MATCH_STARTED,
@@ -91,6 +96,7 @@ enum Kind {
 	CARD_CREATED,
 	CARD_PLACED,
 	CONTROL_CHANGED,
+	CARD_EXPIRED,
 }
 
 ## owner_seat of an event every seat may see in full.

@@ -72,9 +72,10 @@ end of the Walk, before rounding, your walking total is multiplied by ×0.75 for
 in your hand. Ben's sketch (L25) was a ×.75 Bonus while in hand; under the walking total a
 Mult on a card in hand has nothing to multiply, so the intent, a tax on the holder's Score,
 is kept as a Walk-end multiply (confirmed by Ben, C32). Dross is a created card Owned by the seat
-whose hand it was put in; when that seat Discards it, it goes to that seat's Pile as a
-Discard (R22), and a Pile-shuffling Crew (Dredger) can shuffle it into that seat's Deck again.
-Twin's copies are created the same way. Dross and copies are not part of the 90.
+whose hand it was put in. Like every created card it lasts until it is sent to the Pile
+(`until_piled`, rules 9): when that seat Discards it, it expires and is removed from the Match,
+so it enters no Pile and a Pile-shuffling Crew (Dredger) never shuffles it back. Twin's copies
+are created the same way and expire the same way. Dross and copies are not part of the 90.
 
 ## 2. The cards
 

@@ -4,7 +4,7 @@ extends GdUnitTestSuite
 ## The Disruption card abilities and Dross (DC-14 T12; canon [[rules/cards-v2]] sections 1,
 ## 2.3 and 5; [[rules/resolution]] Q2, Q9, Q10): one case per card text and one per Flags
 ## note. Each case puts the shipped card's definition on a stub deck instance
-## (StubAbilities, MatchCards.replace_def); seat 1's instances add DECK_SIZE.
+## (StubAbilities.replace_def); seat 1's instances add DECK_SIZE.
 
 const SEED: int = 1
 const OTHER: int = MatchRules.DECK_SIZE
@@ -186,19 +186,38 @@ func test_litter_creates_three_dross_in_the_opponents_hand() -> void:
 	assert_array(held.own_hand).is_equal(_typed([base, base + 1, base + 2]))
 
 
-## Litter Flags (CREATE): a created card is Owned by the seat it is put in; a Discarded Dross
-## goes to that seat's Pile as a Discard.
-func test_a_discarded_dross_goes_to_its_owners_pile() -> void:
-	var cards: MatchCards = _cards()
+## Litter Flags (CREATE) under rules 9 (cycle 14 R10, C9): a created card is Owned by the
+## seat it is put in, and a Discarded Dross (lifetime `until_piled`) expires instead of
+## entering a Pile: one public CARD_EXPIRED {owner, card, from, reason}, no CARD_DISCARDED,
+## no Pile entry, its record gone; a later Dredger has no Pile to shuffle in.
+func test_a_discarded_dross_expires() -> void:
+	var cards: MatchCards = StubAbilities.defs(StubAbilities.RAMP_CREW)
 	var state: MatchState = MatchState.new(SEED)
 	_dross_into(state, cards, 1, 1)
 	var dross: int = MatchCards.CREATED_BASE
+	assert_bool(cards.def_of(dross).expires_when_piled()).is_true()
 	state.seats[1].hand.erase(dross)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	TurnFlow.to_pile(state, cards, rec.record, dross, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD)
-	assert_array(state.seats[1].pile).is_equal(_typed([dross]))
+	TurnFlow.to_pile(
+		state, cards, rec.record, dross, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD_DOWN
+	)
+	assert_array(state.seats[1].pile).is_empty()
 	assert_array(state.seats[0].pile).is_empty()
-	assert_int(_int_of(rec.events[0], "owner")).is_equal(1)
+	assert_array(rec.of_kind(MatchEvent.Kind.CARD_DISCARDED)).is_empty()
+	var expired: Array[MatchEvent] = rec.of_kind(MatchEvent.Kind.CARD_EXPIRED)
+	assert_int(expired.size()).is_equal(1)
+	assert_int(expired[0].owner_seat).is_equal(MatchEvent.PUBLIC)
+	assert_dict(expired[0].payload).is_equal(
+		{"owner": 1, "card": dross, "from": "hand", "reason": "discard_down"}
+	)
+	assert_object(cards.def_of(dross)).is_null()
+	assert_int(cards.origin_of(dross)).is_equal(-1)
+	# Seat 1's Deck is empty: its draw wakes Dredger, which finds no Pile and fizzles.
+	var dredge: StubAbilities.Recorder = StubAbilities.recorder()
+	assert_bool(TurnFlow.draw(state, cards, MatchRng.new(SEED), dredge.record, 1)).is_false()
+	assert_array(dredge.of_kind(MatchEvent.Kind.PILE_SHUFFLED_IN)).is_empty()
+	assert_array(state.seats[1].deck).is_empty()
+	assert_bool(state.seats[1].hand.has(dross)).is_false()
 
 
 ## Dross: at Walk end, before rounding, the holder's walking total is multiplied by ×0.75

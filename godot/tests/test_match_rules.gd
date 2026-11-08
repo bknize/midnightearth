@@ -1,11 +1,13 @@
 class_name TestMatchRules
 extends GdUnitTestSuite
-## MatchRules v8 (DC-13 T02, cycle 9 plan P1; rules 8 at cycle 13 C9): the constants the
+## MatchRules v9 (DC-13 T02, cycle 9 plan P1; rules 8 at cycle 13 C9, rules 9 at DC-20 T03,
+## cycle 14 R12): the constants the
 ## rest of the engine reads, pinned so a change to one is a decision, not a slip.
 
 
+## Rules 9 (DC-20 T03): a rules-8 log is refused at replay (test_action_log.gd).
 func test_versions() -> void:
-	assert_int(MatchRules.RULES_VERSION).is_equal(8)
+	assert_int(MatchRules.RULES_VERSION).is_equal(9)
 	assert_int(MatchRules.LOG_FORMAT).is_equal(5)
 
 

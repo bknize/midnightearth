@@ -6,7 +6,7 @@ extends GdUnitTestSuite
 ## Scores twice, the On commit and On start brackets, and a prompt pausing a drain inside
 ## the Walk (D8) in a real match that a replay of its log reaches and resumes the same way.
 ## Every card here carries the fixture's stub verbs (StubAbilities.StubVerbs) through
-## MatchCards.replace_def; seat 1's instances add MatchRules.DECK_SIZE.
+## StubAbilities.replace_def; seat 1's instances add MatchRules.DECK_SIZE.
 
 const SEED: int = 1
 const OTHER: int = MatchRules.DECK_SIZE
@@ -559,7 +559,10 @@ func test_a_full_state_taken_while_paused_replays_and_resumes_the_same_way() -> 
 	var current: Dictionary = queue["current"]
 	assert_dict(current).is_not_empty()
 	var copy: MatchState = engine._state.duplicate()
-	assert_dict(copy.to_dict()).is_equal(paused)
+	# full_state() adds `created` from MatchCards (NSC-179: one record); the rest is the state.
+	var state_only: Dictionary = paused.duplicate(true)
+	state_only.erase("created")
+	assert_dict(copy.to_dict()).is_equal(state_only)
 	var again_verbs: StubAbilities.StubVerbs = StubAbilities.StubVerbs.new()
 	var again: MatchEngine = _chooser_engine(again_verbs)
 	var guard: int = 0

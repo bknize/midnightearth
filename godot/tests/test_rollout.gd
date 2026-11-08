@@ -24,8 +24,8 @@ const LABEL_SEED: int = 11
 const SHORT_CAP: int = 300
 ## The value and action count of the one play-out of test_seed_1_pin, pinned at DC-16;
 ## re-pin from the failure message after a rules or data change.
-const PIN_VALUE: int = -1030  # Pinned DC-16 (seed 1, seat 1, first Round 3 commit, random)
-const PIN_ACTIONS: int = 115  # Pinned DC-16
+const PIN_VALUE: int = 1010  # Pinned DC-20 T03, rules 9 (seed 1, seat 1, Round 3 commit)
+const PIN_ACTIONS: int = 208  # Pinned DC-20 T03 at rules 9
 
 var _cached_defs: MatchCards = null
 var _cached_position: MatchEngine = null
@@ -72,8 +72,7 @@ func _state() -> MatchState:
 	state.seats[1].pile.assign(_typed([T + 4]))
 	state.card_state_for(FADED).exit_mark = Statuses.FADE
 	state.memory_for(T + 1).power = 2
-	state.created[DROSS] = {"def": "dross", "owner": 1}
-	state.next_created_id = DROSS + 1
+	state.next_created_id = DROSS + 1  # The Dross's record is MatchCards' (_engine_on).
 	return state
 
 

@@ -180,6 +180,28 @@ func test_an_empty_deck_draws_nothing_and_emits_draw_empty() -> void:
 	assert_array(state.seats[1].hand).is_equal(_typed([40, 41, 42]))
 
 
+## Rules 9 (cycle 14 R16, NSC-186): TURN_STARTED says which seat starts its Turn with a
+## free first card (Lantern), `free_first` per seat from the state's Energy, so a viewer
+## learns it without the SeatView. An event change only: nothing else moves.
+func test_turn_started_carries_free_first_per_seat() -> void:
+	var state: MatchState = MatchState.new(SEED)
+	state.seats[0].deck.assign(_typed([0, 1]))
+	state.seats[1].deck.assign(_typed([40, 41]))
+	state.energy.free_first[1] = true
+	var recorder: Recorder = _recorder()
+	assert_bool(TurnFlow.begin_turn(state, _defs(), MatchRng.new(SEED), recorder.record)).is_false()
+	var started: MatchEvent = recorder.events[0]
+	assert_int(started.kind).is_equal(MatchEvent.Kind.TURN_STARTED)
+	assert_int(started.owner_seat).is_equal(MatchEvent.PUBLIC)
+	assert_array(started.payload["free_first"]).is_equal([false, true])
+	assert_bool(state.energy.free_first[1]).is_true()
+	var engine: MatchEngine = _started(SEED)
+	var events: Array[MatchEvent] = _pass(engine)
+	events.append_array(_pass(engine))
+	var next: MatchEvent = _of_kind(events, MatchEvent.Kind.TURN_STARTED)[0]
+	assert_array(next.payload["free_first"]).is_equal([false, false])
+
+
 ## In a match, a seat whose Deck ran out draws nothing at the next turn start, in public,
 ## while the other seat still draws.
 func test_an_empty_deck_at_turn_start_emits_draw_empty_in_the_match() -> void:

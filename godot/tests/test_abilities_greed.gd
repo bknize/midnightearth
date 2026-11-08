@@ -4,7 +4,7 @@ extends GdUnitTestSuite
 ## [[rules/cards-v2]] section 2.1): Ember's choice from the hand (Q9), Flare's own Condemn
 ## (Q10), Courier's and Bounty's draws for the right seat, Jackpot's Discards each waking its
 ## own On discard Batch (Q1). Each case puts the shipped card's definition on a stub deck
-## instance (StubAbilities, MatchCards.replace_def); seat 1's instances add DECK_SIZE.
+## instance (StubAbilities.replace_def); seat 1's instances add DECK_SIZE.
 
 const SEED: int = 1
 const OTHER: int = MatchRules.DECK_SIZE

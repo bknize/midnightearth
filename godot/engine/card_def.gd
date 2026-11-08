@@ -16,6 +16,12 @@ enum BonusKind { NONE, MULT, ADD }
 const KEY_MULT: String = "mult"
 ## JSON key of an ADD Bonus.
 const KEY_ADD: String = "add"
+## CardDef.lifetime of a created card that expires when sent to a Pile (the default).
+const LIFETIME_UNTIL_PILED: String = "until_piled"
+## CardDef.lifetime of a created card that lasts the Match: filed in its Owner's Pile.
+const LIFETIME_MATCH: String = "match"
+## Every legal `lifetime` (pool key, read only for a created card; rules 9, cycle 14 R9).
+const LIFETIMES: Array[String] = [LIFETIME_UNTIL_PILED, LIFETIME_MATCH]
 ## The card tags (canon R59): the six strategies and `evergreen`.
 const TAGS: Array[String] = [
 	"evergreen", "greed", "combo", "disruption", "graveyard", "control", "ramp"
@@ -33,6 +39,12 @@ var abilities: Array[CardAbility] = []
 var text: String = ""
 ## True for a card made only by an ability, never in a Deck (Dross; pool key `created`).
 var created: bool = false
+## The lifetime of a card created with this definition (pool key `lifetime`, read only for a
+## `created` card, C9): LIFETIME_UNTIL_PILED, it expires when sent to a Pile
+## (TurnFlow.to_pile, CARD_EXPIRED), or LIFETIME_MATCH, filed like any card. A Deck card's
+## definition keeps the default, so a created copy of it (Twin's) expires; the Deck card
+## itself is never a created card and is filed as always.
+var lifetime: String = LIFETIME_UNTIL_PILED
 
 
 func _init(
@@ -55,6 +67,13 @@ func _init(
 	bonus = p_bonus
 	abilities.assign(p_abilities)
 	text = p_text
+
+
+## Whether a created card of this definition (MatchCards.is_created()) expires when sent to a
+## Pile: its lifetime is LIFETIME_UNTIL_PILED (rules 9, cycle 14 R10). A Deck card never
+## expires, whatever this says (TurnFlow.to_pile asks only for a created instance).
+func expires_when_piled() -> bool:
+	return lifetime == LIFETIME_UNTIL_PILED
 
 
 ## Whether the card has no abilities: a plain body (Banner's "no rules text").
@@ -106,4 +125,6 @@ func to_dict() -> Dictionary:
 	}
 	if created:
 		out["created"] = true
+		if lifetime != LIFETIME_UNTIL_PILED:
+			out["lifetime"] = lifetime
 	return out

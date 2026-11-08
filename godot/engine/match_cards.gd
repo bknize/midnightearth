@@ -9,8 +9,12 @@ extends RefCounted
 ## definition whichever seat controls it. Both seats may name the same deck. Cards created
 ## in a match (milestone B: Dross, Twin's copies) take ids from CREATED_BASE up, never
 ## colliding with a Deck card; record_created() gives one its definition and Owner, and
-## def_of() and origin_of() answer for it as for a Deck card (its verbs join has_verb()). A
-## failed build holds no definitions and reports why through build_error().
+## def_of() and origin_of() answer for it as for a Deck card (its verbs join has_verb()).
+## This is the one record of the created cards (DC-20 T03, NSC-179): MatchState keeps only
+## the next id to hand out, and MatchEngine.full_state() lists the record as `created`. A
+## created card that expires (CardDef.expires_when_piled, rules 9) is dropped from it by
+## forget_created(). A failed build holds no definitions and reports why through
+## build_error().
 ##
 ## It also holds each seat's three Crew, resolved from its deck's `crew` list through the
 ## Crew pool: crew_for(seat) in deck order (slot 0..2). Crew are not cards: they have no
@@ -32,7 +36,9 @@ var _verbs: Dictionary[String, bool] = {}
 ## Each seat's Crew in slot order, seat 0's MatchRules.CREW_SIZE then seat 1's.
 var _crew: Array[CrewDef] = []
 ## Extra verbs the trigger queue asks before Abilities (DC-13 T05): none in a shipped match;
-## the test fixtures set one for their stub verbs (set_verb_handler).
+## the test fixtures set one for their stub verbs (set_verb_handler). The fixtures also swap
+## a Deck instance's definition here (StubAbilities.replace_def, DC-20 T03: no engine
+## method does that).
 var _verb_handler: VerbHandler = null
 ## The pool the match was built from (DC-14 T12): created cards take their definition from
 ## it by id (pool_def: Dross). Null after a failed build.
@@ -94,7 +100,7 @@ func def_of(instance: int) -> CardDef:
 	if instance >= CREATED_BASE:
 		if _created.has(instance):
 			return _created[instance]
-		return null
+		return null  # Never created, or expired (forget_created).
 	if instance < 0 or instance >= _defs.size():
 		return null
 	return _defs[instance]
@@ -142,6 +148,19 @@ func record_created(instance: int, def: CardDef, owner: int) -> bool:
 	_created_owner[instance] = owner
 	_add_verbs(def)
 	return true
+
+
+## Drops the created card `instance` from the record (rules 9, cycle 14 R10: an
+## `until_piled` card sent to a Pile leaves the Match), so def_of() is null and origin_of()
+## -1 from now on. False, changing nothing, when it is not a recorded created card. Its verbs
+## stay in has_verb() (that only makes a hot path do work it could skip). Shared like
+## record_created(): the engine never runs diverging MatchState copies on one MatchCards.
+func forget_created(instance: int) -> bool:
+	if not _created.has(instance):
+		return false
+	var dropped: bool = _created.erase(instance) and _created_owner.erase(instance)
+	return dropped
+
 
 
 ## An independent copy for a training copy of the match (MatchEngine.from_state, cycle 11
@@ -218,17 +237,6 @@ func verb_handler() -> VerbHandler:
 ## Installs `handler` as this match's extra verb table (the test fixtures' stub verbs).
 func set_verb_handler(handler: VerbHandler) -> void:
 	_verb_handler = handler
-
-
-## Replaces the definition of the Deck instance `instance` with `def` (test fixtures: a card
-## carrying a stub verb). False, changing nothing, for an id outside the Decks or a null
-## `def`. The deck lists and every other instance keep theirs.
-func replace_def(instance: int, def: CardDef) -> bool:
-	if def == null or instance < 0 or instance >= _defs.size():
-		return false
-	_defs[instance] = def
-	_add_verbs(def)
-	return true
 
 
 ## `seat`'s Crew in slot order: MatchRules.CREW_SIZE definitions, or none for a seat out of

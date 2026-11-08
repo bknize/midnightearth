@@ -3,8 +3,8 @@ extends GdUnitTestSuite
 ## MatchCards (DC-13 T02; cycle 9 plan P6, spec R69): instance `origin * DECK_SIZE + index`
 ## resolves to index `index` of its origin seat's deck, whichever decks the seats play, so
 ## the two Decks take 0 .. 79; created cards take ids from CREATED_BASE (80) up and answer
-## def_of() and origin_of() once recorded. crew_for(seat) is that seat's deck's three Crew
-## in slot order.
+## def_of() and origin_of() once recorded, until forget_created() (rules 9: an expired
+## card). crew_for(seat) is that seat's deck's three Crew in slot order.
 
 const CREW_A: Array[String] = ["tallyman", "void", "engineer"]
 const CREW_B: Array[String] = ["navigator", "captain", "dredger"]
@@ -145,6 +145,96 @@ func test_a_recorded_created_card_resolves() -> void:
 	assert_bool(cards.record_created(created + 1, copy, 2)).is_false()
 	assert_object(cards.def_of(created + 1)).is_null()
 	assert_int(cards.size()).is_equal(2 * MatchRules.DECK_SIZE)
+
+
+## forget_created() drops a recorded created card (rules 9 R10): def_of() null, origin_of()
+## -1; a Deck card or an unknown id is refused, changing nothing.
+func test_a_forgotten_created_card_resolves_no_more() -> void:
+	var cards: MatchCards = MatchCards.build(_cards(), _pair(), _seats("a", "b"), _crew())
+	var created: int = MatchCards.CREATED_BASE
+	assert_bool(cards.record_created(created, _cards().card_by_id("ev05"), 0)).is_true()
+	assert_bool(cards.forget_created(created)).is_true()
+	assert_object(cards.def_of(created)).is_null()
+	assert_int(cards.origin_of(created)).is_equal(-1)
+	assert_bool(cards.forget_created(created)).is_false()
+	assert_bool(cards.forget_created(5)).is_false()
+	assert_str(cards.def_of(5).id).is_equal("ev06")
+
+
+## AbilitiesComboDisruption.create() never takes an id for a card with no seat to own it
+## (rules 9 R8): -1 and next_created_id unchanged.
+func test_create_refuses_an_ownerless_card() -> void:
+	var cards: MatchCards = MatchCards.build(_cards(), _pair(), _seats("a", "b"), _crew())
+	var state: MatchState = MatchState.new(1)
+	var def: CardDef = cards.pool_def("dross")
+	for owner: int in [-1, 2]:
+		assert_int(AbilitiesComboDisruption.create(state, cards, def, owner)).is_equal(-1)
+	assert_int(state.next_created_id).is_equal(MatchCards.CREATED_BASE)
+	assert_object(cards.def_of(MatchCards.CREATED_BASE)).is_null()
+
+
+## A fixture created card with `lifetime: match` (C9, R11) is filed in its Owner's Pile like
+## any card: CARD_DISCARDED, its definition kept; a Dross (`until_piled`) expires instead.
+func test_a_match_lifetime_created_card_is_filed_in_its_owners_pile() -> void:
+	var cards: MatchCards = MatchCards.build(_cards(), _pair(), _seats("a", "b"), _crew())
+	var keeper: CardDef = CardDef.new("keeper", "Keeper", "evergreen", 1, 2)
+	keeper.created = true
+	keeper.lifetime = CardDef.LIFETIME_MATCH
+	assert_bool(keeper.expires_when_piled()).is_false()
+	var state: MatchState = MatchState.new(1)
+	var made: int = AbilitiesComboDisruption.create(state, cards, keeper, 1)
+	assert_int(made).is_equal(MatchCards.CREATED_BASE)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	TurnFlow.to_pile(state, cards, rec.record, made, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD)
+	var filed_pile: Array[int] = [made]
+	assert_array(state.seats[1].pile).is_equal(filed_pile)
+	assert_array(state.seats[0].pile).is_empty()
+	assert_array(rec.of_kind(MatchEvent.Kind.CARD_EXPIRED)).is_empty()
+	var filed: Array[MatchEvent] = rec.of_kind(MatchEvent.Kind.CARD_DISCARDED)
+	assert_int(filed.size()).is_equal(1)
+	assert_int(filed[0].payload["owner"]).is_equal(1)
+	assert_object(cards.def_of(made)).is_same(keeper)
+	# A Dross of the same seat expires: no Pile entry, its record gone.
+	var dross: int = AbilitiesComboDisruption.create(state, cards, cards.pool_def("dross"), 1)
+	TurnFlow.to_pile(state, cards, rec.record, dross, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD)
+	assert_array(state.seats[1].pile).is_equal(filed_pile)
+	assert_int(rec.of_kind(MatchEvent.Kind.CARD_EXPIRED).size()).is_equal(1)
+	assert_object(cards.def_of(dross)).is_null()
+
+
+## An ownerless id has no fallback seat (R8): to_pile() files it in no Pile and names it in
+## no event.
+func test_an_ownerless_id_is_filed_nowhere() -> void:
+	var cards: MatchCards = MatchCards.build(_cards(), _pair(), _seats("a", "b"), _crew())
+	var state: MatchState = MatchState.new(1)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	var unknown: int = MatchCards.CREATED_BASE + 3
+	TurnFlow.to_pile(state, cards, rec.record, unknown, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD)
+	assert_array(state.seats[0].pile).is_empty()
+	assert_array(state.seats[1].pile).is_empty()
+	assert_array(rec.events).is_empty()
+
+
+## replace_def is a test fixture (DC-20 T03, NSC-179): no script outside godot/tests calls
+## it, and MatchCards has no such method.
+func test_replace_def_is_fixtures_only() -> void:
+	assert_bool(MatchCards.new().has_method("replace_def")).is_false()
+	var found: Array[String] = []
+	for dir: String in ["res://engine", "res://board", "res://net", "res://server", "res://tools"]:
+		_scan_for(dir, "replace_def(", found)
+	assert_array(found).is_empty()
+
+
+## Appends to `out` every .gd path under `dir` whose text contains `needle`.
+func _scan_for(dir: String, needle: String, out: Array[String]) -> void:
+	for sub: String in DirAccess.get_directories_at(dir):
+		_scan_for(dir.path_join(sub), needle, out)
+	for file: String in DirAccess.get_files_at(dir):
+		if not file.ends_with(".gd"):
+			continue
+		var path: String = dir.path_join(file)
+		if FileAccess.get_file_as_string(path).contains(needle):
+			out.append(path)
 
 
 # --- Failed builds --------------------------------------------------------------------

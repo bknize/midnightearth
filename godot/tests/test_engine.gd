@@ -261,7 +261,8 @@ func test_match_start_deals_four_then_round_one_draws_one() -> void:
 	assert_int(engine.awaited_seat()).is_equal(_payload_int(turn_started, "first_seat"))
 	var keys: Array = turn_started.payload.keys()
 	keys.sort()
-	assert_array(keys).is_equal(["budgets", "first_seat", "round", "turn"])
+	# `free_first` per seat since rules 9 (cycle 14 R16).
+	assert_array(keys).is_equal(["budgets", "first_seat", "free_first", "round", "turn"])
 
 
 func test_deal_events_are_private_to_their_seat() -> void:
@@ -1140,7 +1141,10 @@ func test_crew_uses_are_filled_once_and_kept() -> void:
 	var all_unlimited: Array = [unlimited, unlimited, unlimited]
 	assert_array(_crew_uses(engine)).is_equal([all_unlimited, all_unlimited])
 	engine._state.crew_uses[0] = [0, unlimited, unlimited]
-	assert_dict(engine._state.duplicate().to_dict()).is_equal(engine.full_state())
+	# full_state() adds `created` from MatchCards (NSC-179: one record); the rest is the state.
+	var full: Dictionary = engine.full_state()
+	full.erase("created")
+	assert_dict(engine._state.duplicate().to_dict()).is_equal(full)
 	for _step: int in range(2 * MatchRules.TURNS + 2):
 		if _state_int(engine, "round") > 1 or engine.is_over():
 			break

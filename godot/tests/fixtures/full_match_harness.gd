@@ -469,12 +469,12 @@ func _scan_leaks(
 
 ## When each card was public during the step of `result` (event positions): from -1 for a
 ## card face up on a row or in a Pile in `before`; otherwise from the event that made it
-## public: its CARD_REVEALED, its EXIT_RESOLVED to a Pile, its CARD_DISCARDED, or a
-## TRIGGER_FIRED / TRIGGER_FIZZLED of it firing from its hand (`from_hand`, C14); until the
-## PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`), or
-## the event after its CARD_UNREVEALED: the un-reveal may name the card it flips (Shade,
-## Fade; DC-14 T14), but a later event of the step may not unless another window opens
-## (DC-14 T17).
+## public: its CARD_REVEALED, its EXIT_RESOLVED to a Pile, its CARD_DISCARDED or
+## CARD_EXPIRED (rules 9), or a TRIGGER_FIRED / TRIGGER_FIZZLED of it firing from its hand
+## (`from_hand`, C14); until the PILE_SHUFFLED_IN that put it into its seat's Deck (one
+## found in that Deck in `after`), or the event after its CARD_UNREVEALED: the un-reveal may
+## name the card it flips (Shade, Fade; DC-14 T14), but a later event of the step may not
+## unless another window opens (DC-14 T17).
 func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult) -> PublicWindows:
 	var out: PublicWindows = PublicWindows.new()
 	for seat: int in range(MatchEngine.SEATS):
@@ -505,6 +505,10 @@ func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult)
 func _opens_window(event: MatchEvent) -> bool:
 	match event.kind:
 		MatchEvent.Kind.CARD_REVEALED, MatchEvent.Kind.CARD_DISCARDED:
+			return not event.is_private()
+		MatchEvent.Kind.CARD_EXPIRED:
+			# A created card leaving the Match (rules 9, DC-20 T03) is public as a Discard
+			# is: its creation already named it.
 			return not event.is_private()
 		MatchEvent.Kind.CARD_CREATED:
 			# A creation is public (DC-14 T12): the new card is named once, then it is the

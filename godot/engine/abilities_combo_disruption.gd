@@ -50,7 +50,7 @@ extends RefCounted
 ##   (walk_end_total(), called by ScoreWalk.finish).
 ##
 ## Created cards (plan P6): create() takes the next id from MatchState.next_created_id,
-## records the definition and Owner in MatchState.created and MatchCards.record_created, so
+## records the definition and Owner once, in MatchCards.record_created, so
 ## def_of() and origin_of() answer; CARD_CREATED {seat, card, def, owner, to, slot} is
 ## public (the creation is public; the card in a hand is then that seat's hidden card).
 
@@ -101,9 +101,6 @@ const VERBS: Array[String] = [
 const DROSS_ID: String = "dross"
 ## CARD_CREATED `to`.
 const TO_HAND: String = "hand"
-## MatchState.created keys.
-const KEY_DEF: String = "def"
-const KEY_OWNER: String = "owner"
 ## ctx.data keys of Quorum's two prompts: the position in the commit order being asked,
 ## and the cards kept so far.
 const DATA_STAGE: String = "stage"
@@ -216,17 +213,17 @@ static func walk_end_total(state: MatchState, cards: MatchCards, seat: int) -> i
 # --- Created cards ------------------------------------------------------------------------
 
 
-## Creates a card of `def` Owned by `owner` (plan P6): the next created id, recorded in
-## MatchState.created and MatchCards.record_created. Returns the id; nowhere yet (the
-## caller places it). -1 when `def` is null.
+## Creates a card of `def` Owned by `owner` (plan P6, rules 9 R8: the seat it is created
+## for, never a fallback): the next created id, recorded once in MatchCards.record_created
+## (DC-20 T03, NSC-179). Returns the id; nowhere yet (the caller places it). -1, taking no
+## id, when `def` is null or `owner` is not a seat.
 static func create(state: MatchState, cards: MatchCards, def: CardDef, owner: int) -> int:
-	if def == null:
+	if def == null or owner < 0 or owner >= MatchEngine.SEATS:
 		return -1
 	var made: int = state.next_created_id
 	state.next_created_id += 1
 	if cards != null and not cards.record_created(made, def, owner):
 		pass  # Already recorded (a copied state on the same definitions): same id, same card.
-	state.created[made] = {KEY_DEF: def.id, KEY_OWNER: owner}
 	return made
 
 

@@ -5,7 +5,7 @@ extends GdUnitTestSuite
 ## Deck (Whisper, Rain), Mult growth to its cap (Sapling, Graft), Energy this Turn (Dynamo),
 ## Cost reductions with floor 0 (Tinker, Layaway) and the Turn-7 Cost (Colossus), the Pass
 ## check (Idler) and the free first card (Lantern). Each case puts the shipped card's
-## definition on a stub deck instance (StubAbilities, MatchCards.replace_def); seat 1's
+## definition on a stub deck instance (StubAbilities.replace_def); seat 1's
 ## instances add DECK_SIZE.
 
 const SEED: int = 1
