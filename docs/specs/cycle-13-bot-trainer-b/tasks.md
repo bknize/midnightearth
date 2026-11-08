@@ -6,7 +6,7 @@ related: ["[[specs/cycle-13-bot-trainer-b/spec]]", "[[specs/cycle-13-bot-trainer
 created: 2026-11-07
 updated: 2026-11-07
 uid: 0ff43372-b685-419c-a103-2573766111cd
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-13-bot-trainer-cycle-b-the-learner-the-linear-bot-rung-1-64d41cbb8498
 supersedes:
 ---
 
@@ -54,14 +54,25 @@ Tasks T08 to T11, owned by the orchestrator:
 (1) T01; (2) T02; (3) T03; (4) T04, T05; (5) T06; (6) T07; (7) T08; (8) T09 (night 1);
 (9) T10 (nights 2 and 3); (10) T11.
 
-## Linear
+## Linear (exercised 2026-11-08)
 
-Filled by `/exercise cycle-13-bot-trainer-b`. Empty until then.
+- Project: [Cycle 13 — bot trainer, cycle B](https://linear.app/night-science-llc/project/cycle-13-bot-trainer-cycle-b-the-learner-the-linear-bot-rung-1-64d41cbb8498) (P-NSC-15), label `spec/cycle-13-bot-trainer-b`, all issues in Todo with blockers from the Depends column.
+- Milestone: DC-NN bot-trainer-b (the number is decided at `/cycle plan`; DC-15 was cycle 10, DC-16 and DC-17 cycle 11, and cycle 12 runs in another session).
+- NSC-232 (fold `inspect` into `label`) is folded into T03 and T05 and closes with them.
 
-- Project: <URL>
-- Milestone: DC-NN bot-trainer-b (the number is decided at `/cycle plan`; DC-15 was cycle
-  10, DC-16 and DC-17 cycle 11, and cycle 12 runs in another session)
-- Issue mapping: task n is issue <KEY-m> (T01 = <KEY-…> … T11 = <KEY-…>)
+| Task | Issue |
+|---|---|
+| T01 | NSC-234 |
+| T02 | NSC-235 |
+| T03 | NSC-236 |
+| T04 | NSC-237 |
+| T05 | NSC-238 |
+| T06 | NSC-239 |
+| T07 | NSC-240 |
+| T08 | NSC-241 |
+| T09 | NSC-242 |
+| T10 | NSC-243 |
+| T11 | NSC-244 |
 
 ## Commit plan
 

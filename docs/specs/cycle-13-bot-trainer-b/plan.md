@@ -6,7 +6,7 @@ related: ["[[specs/cycle-13-bot-trainer-b/spec]]", "[[specs/cycle-13-bot-trainer
 created: 2026-11-07
 updated: 2026-11-07
 uid: 2ea5064c-055c-4990-92e1-5b7b8b33c794
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-13-bot-trainer-cycle-b-the-learner-the-linear-bot-rung-1-64d41cbb8498
 supersedes:
 ---
 
