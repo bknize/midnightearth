@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -14,7 +15,7 @@ from trainer.config import RunConfig
 from trainer.farm import Farm
 from trainer.store import Store
 from trainer.server import (BearerMiddleware, Service, TokenError, acquire_serve_lock,
-                            build_app, build_mcp, check_bearer, load_token)
+                            build_app, build_mcp, check_bearer, load_token, numpy_version)
 
 STUB = str(Path(__file__).resolve().parent / "stub_worker.py")
 STAMP = "r7-stub"
@@ -181,6 +182,40 @@ class ServiceTest(unittest.TestCase):
             self.assertEqual(set(p["hand"][0]), {"instance", "card", "name"})
             means = [c["mean"] for c in p["candidates"]]
             self.assertEqual(means, sorted(means, reverse=True))
+
+    def test_start_run_resolves_fit_ids_and_refuses_unknown(self) -> None:
+        for field in ("rollout_weights", "generator_weights"):
+            r = self.svc.start_run(cfg_dict(**{field: "nofit"}))
+            self.assertIn("unknown fit", r["error"])
+        self.svc.store.create_fit("f1", {}, STAMP, "stub-1", [], state="running")
+        self.assertIn("not done", self.svc.start_run(cfg_dict(rollout_weights="f1"))["error"])
+        self.svc.store.db.execute("UPDATE fits SET state = 'done'")
+        self.svc.store.db.commit()
+        self.assertIn("no weights file",
+                      self.svc.start_run(cfg_dict(rollout_weights="f1"))["error"])
+        fits = self.root / "data" / "fits" / "f1"
+        fits.mkdir(parents=True)
+        (fits / "linear_weights.json").write_text("{}", encoding="utf-8")
+        r = self.svc.start_run(cfg_dict(positions=20, rollout_weights="f1"))
+        self.assertNotIn("error", r)
+        self.assertEqual(self.wait(r["run_id"])["state"], "done")
+
+    def test_health_reports_numpy_or_none(self) -> None:
+        self.assertIsInstance(self.svc.health()["numpy"], str)
+        with mock.patch("importlib.metadata.version", side_effect=Exception("absent")):
+            self.assertEqual(numpy_version(), "none")
+
+    def test_report_failure_keeps_run_done_and_report_is_rebuilt(self) -> None:
+        with mock.patch.object(Service, "_write_report", side_effect=OSError("disk full")):
+            rid = self.svc.start_run(cfg_dict())["run_id"]
+            st = self.wait(rid)
+        self.assertEqual(st["state"], "done", st)
+        self.assertIn("report not written", st["last_error"])
+        self.assertIn("disk full", st["last_error"])
+        self.assertFalse((self.root / "data" / "runs" / rid / "report.json").exists())
+        rep = self.svc.get_report(rid)
+        self.assertEqual(rep["digest"], st["digest"])
+        self.assertEqual(rep["positions"], 40)
 
     def test_start_refused_while_active_and_bad_config(self) -> None:
         self.assertIn("error", self.svc.start_run({"positions": 0}))

@@ -17,6 +17,8 @@ class RunConfig:
     batch: int = 25
     run_seed: int = 0
     hours: float = 8.0
+    rollout_weights: str = ""  # a fit id; "" is the committed weights
+    generator_weights: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -49,6 +51,9 @@ class RunConfig:
                 raise ValueError("config: %s must be a non-empty string" % name)
         if merged["decks"] not in DECK_MODES:
             raise ValueError("config: decks must be one of %s" % ", ".join(DECK_MODES))
+        for name in ("rollout_weights", "generator_weights"):
+            if not isinstance(merged[name], str):
+                raise ValueError("config: %s must be a string (a fit id)" % name)
         v = merged["hours"]
         if isinstance(v, bool) or not isinstance(v, (int, float)):
             raise ValueError("config: hours must be a number")

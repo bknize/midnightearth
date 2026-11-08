@@ -11,6 +11,14 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual((c.rollout, c.generator, c.decks, c.hours),
                          ("random", "random", "seeded", 8.0))
 
+    def test_weights_fields(self) -> None:
+        c = RunConfig.from_dict({})
+        self.assertEqual((c.rollout_weights, c.generator_weights), ("", ""))
+        c = RunConfig.from_dict({"rollout_weights": "f1", "generator_weights": "f2"})
+        self.assertEqual(RunConfig.from_dict(c.to_dict()), c)
+        self.assert_bad({"rollout_weights": 3}, "rollout_weights")
+        self.assert_bad({"generator_weights": None}, "generator_weights")
+
     def test_round_trip(self) -> None:
         c = RunConfig.from_dict({"positions": 50, "run_seed": -7, "decks": "all_pairings"})
         self.assertEqual(RunConfig.from_dict(c.to_dict()), c)
