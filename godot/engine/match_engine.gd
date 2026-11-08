@@ -71,6 +71,25 @@ static func create(
 	return engine
 
 
+## TRAINING ONLY, never for live play (cycle 11 R24, plan P5): an engine around `state`,
+## which it keeps as its own (pass a MatchState.duplicate(), as Rollout.determinize does),
+## with a copy of `cards` (MatchCards.copy(), so cards created here are never recorded on
+## the original), a fresh MatchRng seeded `rng_seed` written into `state.rng_state` (P7)
+## and no accepted action, so its action_log() does not replay to its state. It accepts
+## actions from the state's decision point on. start() fails on a `cards` that is null or
+## failed its build (CARD_DATA_INVALID); a started `state` refuses start() as any match.
+static func from_state(state: MatchState, cards: MatchCards, rng_seed: int) -> MatchEngine:
+	var engine: MatchEngine = MatchEngine.new()
+	engine._rng = MatchRng.new(rng_seed)
+	engine._state = state
+	engine._state.rng_state = engine._rng.state
+	if cards != null:
+		engine._cards = cards.copy()
+	if not engine._cards.is_valid() or engine._cards.size() == 0:
+		engine._setup_error = EngineError.Code.CARD_DATA_INVALID
+	return engine
+
+
 ## Starts the match and runs to the first decision point. Not logged: it is fully determined
 ## by the seed and the deck ids. Its first event is MATCH_STARTED {decks, crew}. Fails with
 ## CARD_DATA_INVALID on a failed pool or deck list, DECK_UNKNOWN on a deck id the list does
@@ -140,6 +159,21 @@ func is_over() -> bool:
 	return _state.phase == MatchState.Phase.OVER
 
 
+## Both seats' Round wins, indexed by seat: a copy of what full_state()["wins"] holds,
+## read without serializing the match (Rollout's outcomes, NSC-211). Public.
+func round_wins() -> Array[int]:
+	var out: Array[int] = []
+	out.assign(_state.wins)
+	return out
+
+
+## The match result's winner: the seat that won, or -1 for a draw or while the match is
+## in progress (full_state()["result"]["winner"], read without serializing). Public.
+func match_winner() -> int:
+	var held: int = _state.result.get("winner", -1)
+	return held
+
+
 ## The Turn number: every seat's base Energy (R6); 0 before start().
 func energy() -> int:
 	return _state.turn
@@ -174,6 +208,12 @@ func view_for(seat: int) -> SeatView:
 ## everything view_for() omits (seed, stream state, Decks, hands, pending).
 func full_state() -> Dictionary:
 	return _state.to_dict()
+
+
+## A deep copy of the full state (MatchState.duplicate()), for the training entry (Rollout)
+## and tests only: like full_state() it holds hidden information.
+func state_copy() -> MatchState:
+	return _state.duplicate()
 
 
 ## The replayable log: this match's seed, its resolved deck ids and copies of its accepted

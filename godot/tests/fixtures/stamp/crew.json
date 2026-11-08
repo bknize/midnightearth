@@ -1,0 +1,126 @@
+{
+  "version": 2,
+  "crew": [
+    {
+      "id": "tallyman",
+      "name": "Tallyman",
+      "tag": "greed",
+      "moment": "ongoing",
+      "verb": "tallyman_fifth",
+      "amount": 5,
+      "amount_2": 200,
+      "optional": false,
+      "uses": 0,
+      "scope": "",
+      "text": "Your 5th, 10th, 15th ... Scoring card in a Walk gets Mult ×2 for that Score."
+    },
+    {
+      "id": "void",
+      "name": "Void",
+      "tag": "greed",
+      "moment": "on_empty_draw",
+      "verb": "void_grant",
+      "amount": 10,
+      "amount_2": 50,
+      "optional": false,
+      "uses": 0,
+      "scope": "turn",
+      "text": "Your next Scoring card gets Power +10, Add +0.5 and Mult ×1.25 until it Scores or turn end."
+    },
+    {
+      "id": "engineer",
+      "name": "Engineer",
+      "tag": "evergreen",
+      "moment": "ongoing",
+      "verb": "engineer_energy",
+      "amount": 1,
+      "amount_2": 3,
+      "optional": false,
+      "uses": 0,
+      "scope": "",
+      "text": "From Turn 3 of each Round, your Budget is +1 Energy."
+    },
+    {
+      "id": "navigator",
+      "name": "Navigator",
+      "tag": "ramp",
+      "moment": "on_score",
+      "verb": "navigator_second",
+      "amount": 2,
+      "amount_2": 2,
+      "optional": false,
+      "uses": 0,
+      "scope": "match",
+      "text": "The second of your cards to Score in a Walk gets Power +2 permanently, after it has Scored."
+    },
+    {
+      "id": "captain",
+      "name": "Captain",
+      "tag": "ramp",
+      "moment": "on_score",
+      "verb": "captain_leftmost",
+      "amount": 1,
+      "optional": false,
+      "uses": 0,
+      "scope": "match",
+      "text": "When the card in the leftmost slot of your row Scores, it gets Power +1 for the match, after it has Scored."
+    },
+    {
+      "id": "dredger",
+      "name": "Dredger",
+      "tag": "graveyard",
+      "moment": "on_empty_draw",
+      "verb": "dredge",
+      "optional": false,
+      "uses": 0,
+      "scope": "",
+      "text": "Shuffle your Pile into your Deck."
+    },
+    {
+      "id": "shade",
+      "name": "Shade",
+      "tag": "combo",
+      "moment": "at_turn_end_after",
+      "verb": "shade_unreveal",
+      "amount": 3,
+      "optional": true,
+      "uses": 0,
+      "scope": "",
+      "text": "Choose one of up to three random revealed cards of yours and Un-reveal it."
+    },
+    {
+      "id": "veil",
+      "name": "Veil",
+      "tag": "graveyard",
+      "moment": "at_turn_end_before",
+      "verb": "veil_fleeting",
+      "optional": true,
+      "uses": 0,
+      "scope": "",
+      "text": "Choose one Condemned card of yours; it gets Fleeting instead of Condemned."
+    },
+    {
+      "id": "quartermaster",
+      "name": "Quartermaster",
+      "tag": "evergreen",
+      "moment": "ongoing",
+      "verb": "quartermaster_hand",
+      "amount": 7,
+      "optional": false,
+      "uses": 0,
+      "scope": "",
+      "text": "Your Hand size is 7."
+    },
+    {
+      "id": "salvager",
+      "name": "Salvager",
+      "tag": "graveyard",
+      "moment": "on_commit",
+      "verb": "salvager_cycle",
+      "optional": true,
+      "uses": 0,
+      "scope": "",
+      "text": "You may Discard a card from your hand, then draw a card."
+    }
+  ]
+}

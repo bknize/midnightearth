@@ -101,12 +101,12 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
 1. `scripts/check.sh` on `<cycle branch>`: must exit 0. Paste the stage summary. Then run
    `make sweep` (the 50-seed sweep, outside the gate since NSC-133) and paste its summary
    lines (`Sweep: ...`, the `Sweep pairing` lines, the `stamp=` and `p99_us=` fields).
-1b. Bot rerun provision (cycle 7 R36): if this cycle changed `RULES_VERSION`, the card
-   pool JSON, the deck list JSON or the Crew JSON (anything that moves the stamp), `make sweep` and `make sweep BOT=matrix` (the `stamp=`
-   and `p99_us=` fields; p99 under 10 ms), `make bot-eval` and `make bot-eval BOT=matrix`;
-   on FAIL or `stamp=MISMATCH` run `make bot-train` (tuned) and `make bot-train BOT=matrix`,
-   and commit the promoted weights on the cycle branch before the merge.
-   Record the outcome in the cycle's row and in `docs/planning/bot-ladder.md`.
+1b. Ladder provision (`docs/planning/bot-ladder.md`; cycle 11 R5): if this cycle changed
+   `RULES_VERSION`, the card pool JSON, the deck list JSON or the Crew JSON (anything that
+   moves the stamp), run `make bot-eval` (`random` vs `random`, the rung-0 check) and
+   `make sweep` (the `stamp=` and `p99_us=` fields), add a rung-0 row at the new stamp and
+   mark every higher rung unproven until it is re-measured against the yardstick. Record
+   the outcome in the cycle's row and in the ladder note.
 2. Point the editor at the cycle branch: `scripts/godot-editor.sh switch <cycle branch>`.
    It closes any open editor (the MCP port takes one at a time), opens the cycle
    worktree's `godot/` and waits for the MCP plugin. `get_godot_status` must report that
