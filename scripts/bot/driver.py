@@ -3,6 +3,7 @@
 
   driver.py eval --a random --b random [--gainer|--nonreg] [--seeds 1-5000]
                  [--cap 20000] [--batch 25] [--decks seeded] [--budget-us N] [--label L]
+                 [--weights-a PATH] [--weights-b PATH]
   driver.py selftest
 
 Exit codes: 0 PASS, 1 FAIL, 2 CAP (cap or seed range ended the run), 3 error.
@@ -57,13 +58,18 @@ def godot_found(path: str) -> bool:
 
 
 def godot_worker(a: str, b: str, lo: int, hi: int, out: str, label: str,
-                 decks: str = "seeded", budget_us: Optional[int] = None) -> List[str]:
+                 decks: str = "seeded", budget_us: Optional[int] = None,
+                 weights_a: str = "", weights_b: str = "") -> List[str]:
     """The match worker's argv (no shell). `decks` is `seeded` or `<id>/<id>`."""
     cmd = [godot_bin(), "--headless", "--path", "godot", "-s", "res://tools/match_worker.gd",
            "--", "--a=%s" % a, "--b=%s" % b, "--seeds=%d-%d" % (lo, hi),
            "--decks=%s" % decks, "--out=%s" % out, "--label=%s" % label]
     if budget_us is not None:
         cmd.append("--budget-us=%d" % budget_us)
+    if weights_a:
+        cmd.append("--weights-a=%s" % weights_a)
+    if weights_b:
+        cmd.append("--weights-b=%s" % weights_b)
     return cmd
 
 
@@ -83,17 +89,36 @@ def feed_until_decided(test: sprt.Sprt,
                        recs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Feed a batch's pair records to `test` in order and stop at the first pair that
     decides it (R28: the stopping rule is checked per pair, never per batch). Returns the
-    batch's records for the seeds fed: their pairs, games and decisions, plus the batch's
-    own `end` record, whose counts (rejected, overruns) cover the whole batch."""
-    seeds = set()
+    records of the pairs fed (NSC-206): each fed pair's `p` record and the games and
+    decisions of its two games (a seed's k-th pair owns games 2k and 2k+1), plus the
+    batch's own `end` record, whose counts (rejected, overruns) cover the whole batch."""
+    seen: Dict[Any, int] = {}
+    fed = set()
     for r in recs:
         if r.get("t") != "p":
             continue
+        seed = r.get("seed")
+        k = seen.get(seed, 0)
+        seen[seed] = k + 1
         test.add(float(r["points_a"]))
-        seeds.add(r.get("seed"))
+        fed.add((seed, k))
         if test.decided():
             break
-    return [r for r in recs if r.get("t") == "end" or r.get("seed") in seeds]
+    kept: List[Dict[str, Any]] = []
+    counted: Dict[Any, int] = {}
+    for r in recs:
+        kind = r.get("t")
+        if kind == "end":
+            kept.append(r)
+        elif kind == "p":
+            seed = r.get("seed")
+            k = counted.get(seed, 0)
+            counted[seed] = k + 1
+            if (seed, k) in fed:
+                kept.append(r)
+        elif (r.get("seed"), int(r.get("game", 0)) // 2) in fed:
+            kept.append(r)
+    return kept
 
 
 def run_eval(args: argparse.Namespace,
@@ -120,8 +145,9 @@ def eval_report(args: argparse.Namespace,
             return EXIT_ERROR, {}
         decks = args.decks
         budget = args.budget_us
+        wa, wb = args.weights_a, args.weights_b
         factory = lambda a, b, s, e, out: godot_worker(  # noqa: E731
-            a, b, s, e, out, label, decks, budget)
+            a, b, s, e, out, label, decks, budget, wa, wb)
     stamp = records.current_stamp()
     base = args.reports_dir or os.path.join(records.GODOT_DIR, "reports", "bot")
     out_dir = os.path.join(base, "%s-%s" % (label, datetime.date.today().isoformat()))
@@ -180,7 +206,13 @@ def eval_report(args: argparse.Namespace,
     result = {"H1": "PASS", "H0": "FAIL"}.get(state or "", "CAP")
     bound = state if state in ("H0", "H1") else "cap"
     code = {"PASS": EXIT_PASS, "FAIL": EXIT_FAIL, "CAP": EXIT_CAP}[result]
-    mismatch = any(s != stamp for s in agg["stamps"])
+    if any(s != stamp for s in agg["stamps"]):
+        # cycle 11: a worker built on other card data than the driver's is an error
+        print("bot-eval: engine stamp %s differs from the driver's %s"
+              % (", ".join(agg["stamps"]), stamp), file=sys.stderr)
+        return EXIT_ERROR, {}
+    # plan P7: `none` (no weights file) is not a mismatch
+    mismatch = any(s not in ("match", "none") for s in agg["weights_stamps"])
     if agg["rejected"] or agg["replay_mismatches"]:
         print("bot-eval: invariant counts rejected=%d replay_mismatches=%d"
               % (agg["rejected"], agg["replay_mismatches"]), file=sys.stderr)
@@ -236,6 +268,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="seeds per worker process (default %d)" % BATCH_SEEDS)
     ev.add_argument("--decks", default="seeded", help="seeded or <id>/<id>")
     ev.add_argument("--budget-us", type=int, default=None, help="decision budget override")
+    ev.add_argument("--weights-a", default="", help="weights file for side a (optional)")
+    ev.add_argument("--weights-b", default="", help="weights file for side b (optional)")
     sub.add_parser("selftest", help="run the unit tests")
     return p
 
