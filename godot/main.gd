@@ -1,16 +1,29 @@
 extends Node3D
 ## Main scene. Runs the engine smoke match (R39, R40; seed 1 under its seeded deck pairing,
-## DC-07 P14), then shows the deck picker, or the board at once when `--autoplay`, `--deck=`
-## or `--bot-deck=` is given (R42), and prints the lines the build gate looks for: the
-## "Engine smoke:" line, then "Main ready" once the picker or the board is in the tree.
+## DC-07 P14), then shows the title screen, or the board at once when `--autoplay`, `--deck=`
+## or `--bot-deck=` is given (cycle 12 R8), and prints the lines the build gate looks for: the
+## "Engine smoke:" line, then "Main ready" once the title screen or the board is in the tree.
+## Play vs Bot leads to the two-column picker and the board; Host and Join lead to the
+## one-column picker and then emit `host_requested(deck)` / `join_requested(code, deck)`
+## (T09 wires them). `--server=<host:port>` replaces the saved server address for the run.
 ## An unknown deck id is a push_error and no board. Under rules 7 (cycle 9 R86, DC-13 T08)
 ## the smoke line is "Engine smoke: seed=1 decks=a/b bot=random winner=.. wins=..-..
 ## rounds=.. end=<reason> actions=..", the winner -1 on a stalemate draw (spec C12).
+
+## Emitted when the one-column picker's Host is pressed.
+signal host_requested(deck: String)
+## Emitted when the one-column picker's Join is pressed.
+signal join_requested(code: String, deck: String)
+
+enum PickerMode { BOT, HOST, JOIN }
 
 const SMOKE_SEED: int = 1
 const MAX_ACTIONS: int = 2000
 const BOARD_PATH: String = "res://board/board.tscn"
 const PICKER_PATH: String = "res://picker/deck_picker.tscn"
+const TITLE_PATH: String = "res://title/title_screen.tscn"
+const SERVER_ARG: String = "--server="
+const PVP_COLUMN_TITLES: Array[String] = ["Your deck"]
 const AUTOPLAY_ARG: String = "--autoplay"
 const DECK_ARG: String = "--deck="
 const BOT_DECK_ARG: String = "--bot-deck="
@@ -27,6 +40,13 @@ var _seed: int = 0
 var _seed_fixed: bool = false
 var _autoplay: bool = false
 var _bot_name: String = BotRegistry.default_name()
+var _title_scene: PackedScene = null
+var _title: TitleScreen = null
+var _identity: Identity = null
+var _server_override: String = ""
+var _picker_mode: int = PickerMode.BOT
+## The room code typed on the title screen, kept for Join.
+var _join_code: String = ""
 
 
 func _ready() -> void:
@@ -39,9 +59,13 @@ func _ready() -> void:
 		return
 	_board_scene = load(BOARD_PATH) as PackedScene
 	_picker_scene = load(PICKER_PATH) as PackedScene
-	if _board_scene == null or _picker_scene == null:
-		push_error("Board or picker scene failed to load")
+	_title_scene = load(TITLE_PATH) as PackedScene
+	if _board_scene == null or _picker_scene == null or _title_scene == null:
+		push_error("Board, picker or title scene failed to load")
 		return
+	for arg: String in args:
+		if arg.begins_with(SERVER_ARG):
+			_server_override = arg.substr(SERVER_ARG.length())
 	var flagged: int = BoardSeeds.from_args(args)
 	_seed_fixed = flagged != 0
 	_seed = flagged if _seed_fixed else BoardSeeds.clock_seed()
@@ -67,7 +91,8 @@ func _ready() -> void:
 	if _autoplay or named:
 		_start_board(deck_ids)
 	else:
-		_show_picker([_decks.seeded_pick(_seed, 0), _decks.seeded_pick(_seed, 1)])
+		_identity = Identity.load_or_create()
+		show_title()
 	print("Main ready")
 
 
@@ -116,10 +141,63 @@ func _start_board(deck_ids: Array[String]) -> void:
 	_board.start_match(_seed, deck_ids)
 
 
-func _show_picker(preselected: Array[String]) -> void:
+## Shows the title screen, with `message` under the buttons when not empty (T09 routes
+## refusals here). Any picker on screen is dropped.
+func show_title(message: String = "") -> void:
+	if _picker != null:
+		_picker.queue_free()
+		_picker = null
+	if _identity == null:
+		_identity = Identity.load_or_create()
+	if _title == null:
+		_title = _title_scene.instantiate() as TitleScreen
+		add_child(_title)
+		_title.setup(_identity, _server_override)
+		var errors: Array[int] = [
+			_title.play_bot_pressed.connect(_on_play_bot_pressed),
+			_title.host_pressed.connect(_on_host_pressed),
+			_title.join_pressed.connect(_on_join_pressed),
+		]
+		if errors.has(ERR_INVALID_PARAMETER) or errors.has(ERR_UNAVAILABLE):
+			push_warning("Main: could not connect the title screen")
+	_title.show_message(message)
+
+
+func _close_title() -> void:
+	if _title == null:
+		return
+	_title.queue_free()
+	_title = null
+
+
+func _on_play_bot_pressed() -> void:
+	_close_title()
+	_picker_mode = PickerMode.BOT
+	_show_picker([_decks.seeded_pick(_seed, 0), _decks.seeded_pick(_seed, 1)])
+
+
+func _on_host_pressed() -> void:
+	_close_title()
+	_picker_mode = PickerMode.HOST
+	_show_picker([_decks.seeded_pick(_seed, 0)], 1, PVP_COLUMN_TITLES, "Host")
+
+
+func _on_join_pressed(code: String) -> void:
+	_join_code = code
+	_close_title()
+	_picker_mode = PickerMode.JOIN
+	_show_picker([_decks.seeded_pick(_seed, 0)], 1, PVP_COLUMN_TITLES, "Join")
+
+
+func _show_picker(
+	preselected: Array[String],
+	columns: int = DeckPickState.COLUMNS,
+	titles: Array[String] = DeckPicker.COLUMN_TITLES,
+	start_label: String = "Start"
+) -> void:
 	_picker = _picker_scene.instantiate() as DeckPicker
 	add_child(_picker)
-	_picker.setup(_decks, preselected)
+	_picker.setup(_decks, preselected, columns, titles, start_label)
 	var err: int = _picker.picked.connect(_on_picked)
 	if err != OK:
 		push_warning("Main: could not connect picked")
@@ -128,7 +206,13 @@ func _show_picker(preselected: Array[String]) -> void:
 func _on_picked(deck_ids: Array[String]) -> void:
 	_picker.queue_free()
 	_picker = null
-	_start_board(deck_ids)
+	match _picker_mode:
+		PickerMode.HOST:
+			host_requested.emit(deck_ids[0])
+		PickerMode.JOIN:
+			join_requested.emit(_join_code, deck_ids[0])
+		_:
+			_start_board(deck_ids)
 
 
 ## Tears the board down and shows the picker again with the match's decks preselected.
@@ -149,9 +233,7 @@ func _on_decks_requested() -> void:
 ## Returns false after a push_error: a rejected action, the action cap or a start failure.
 func _run_smoke(cards: CardDb) -> bool:
 	var seeded: Array[String] = ["", ""]
-	var engine: MatchEngine = MatchEngine.create(
-		SMOKE_SEED, cards, _decks, seeded, _crew
-	)
+	var engine: MatchEngine = MatchEngine.create(SMOKE_SEED, cards, _decks, seeded, _crew)
 	var started: ApplyResult = engine.start()
 	if not started.ok:
 		push_error("Engine smoke: start rejected, code %d" % started.error)
@@ -183,8 +265,10 @@ func _run_smoke(cards: CardDb) -> bool:
 		if event.kind != MatchEvent.Kind.MATCH_ENDED:
 			continue
 		print(
-			"Engine smoke: "
-			+ MatchDriver.summary(SMOKE_SEED, decks, _bot_name, event.payload, actions)
+			(
+				"Engine smoke: "
+				+ MatchDriver.summary(SMOKE_SEED, decks, _bot_name, event.payload, actions)
+			)
 		)
 		return true
 	push_error("Engine smoke: match ended without a MATCH_ENDED event")
