@@ -35,6 +35,8 @@ func _ready() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	if not _read_bot_args(args):
 		return
+	# The launcher's one `Bot weights:` line when the bot's weights file is broken (R9).
+	MatchDriver.report_weights(_bot_name, "")
 	if not _run_smoke(_cards):
 		return
 	_board_scene = load(BOARD_PATH) as PackedScene
@@ -90,7 +92,7 @@ func _load_data() -> bool:
 	return true
 
 
-## Reads --bot=<name> (cycle 9 R73: `random` is the only bot and the default). Returns false
+## Reads --bot=<name> (cycle 9 R73; `random` is the default). Returns false
 ## after a push_error naming the known bots for an unknown name.
 func _read_bot_args(args: PackedStringArray) -> bool:
 	for arg: String in args:

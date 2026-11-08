@@ -1,8 +1,8 @@
 class_name TestBotRegistry
 extends GdUnitTestSuite
 ## The bot base class and the registry (cycle 7 R1, R2, R5; cycle 9 R70, R73, P16): make()
-## builds the random bot and nothing else, the default is `random`, seed_for() keeps its
-## cycle-7 value, and decision_rng() is the documented derivation.
+## builds the random bot and (cycle 13 R5) the linear bot, the default is still `random`,
+## seed_for() keeps its cycle-7 value, and decision_rng() is the documented derivation.
 
 ## The pre-cycle-7 seed tag ("bot" in ASCII).
 const OLD_SEED_TAG: int = 0x626F74
@@ -30,6 +30,24 @@ func test_make_random_is_a_random_bot() -> void:
 	assert_str(bot.bot_name()).is_equal("random")
 
 
+## Cycle 13 R5, R8, P4: `linear` is a LinearBot on the committed file (make) or a named
+## path (make_with); `random` ignores a path; weights_error is "" for a sound file and for
+## `random`, the file's load_error for a missing one.
+func test_make_linear_is_a_linear_bot_on_the_committed_file() -> void:
+	var bot: BotPlayer = BotRegistry.make("linear", 7, _defs())
+	assert_bool(bot is LinearBot).is_true()
+	assert_str(bot.bot_name()).is_equal("linear")
+	var linear: LinearBot = bot as LinearBot
+	assert_str(linear.weights().load_error).is_equal("")
+	var missing: String = "res://engine/bot/data/no_such_weights.json"
+	var fallback: BotPlayer = BotRegistry.make_with("linear", 7, _defs(), missing)
+	assert_bool(fallback is LinearBot).is_true()
+	assert_str(BotRegistry.weights_error("linear", "")).is_equal("")
+	assert_str(BotRegistry.weights_error("linear", missing)).contains("not found")
+	assert_str(BotRegistry.weights_error("random", missing)).is_equal("")
+	assert_bool(BotRegistry.make_with("random", 7, _defs(), missing) is RandomBot).is_true()
+
+
 ## Every removed bot (R71) and any other unknown name is null.
 func test_make_unknown_name_is_null() -> void:
 	for unknown: String in ["tuned", "greedy", "greedy_v1", "matrix", "nope", "", "Random"]:
@@ -37,7 +55,7 @@ func test_make_unknown_name_is_null() -> void:
 
 
 func test_names_and_default_name() -> void:
-	var expected: Array[String] = ["random"]
+	var expected: Array[String] = ["random", "linear"]
 	assert_array(BotRegistry.NAMES).is_equal(expected)
 	assert_str(BotRegistry.default_name()).is_equal("random")
 	var bot: BotPlayer = BotRegistry.make(BotRegistry.default_name(), 1, _defs())
