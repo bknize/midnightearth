@@ -4,7 +4,7 @@ tags: [system, cards, crew, decks]
 status: growing
 related: ["[[systems/systems-moc]]", "[[systems/game-loop]]", "[[systems/bot-training]]", "[[rules/rules-moc]]", "[[rules/cards-v2]]", "[[rules/crew-v2]]", "[[rules/test-decks]]", "[[planning/cycles]]", "[[specs/cycle-9-rules-v2/spec]]"]
 created: 2026-11-05
-updated: 2026-11-06
+updated: 2026-11-08
 uid: 692bf835-9b24-4738-9df5-6a5ed267a33e
 linear: https://linear.app/night-science-llc/issue/NSC-160
 supersedes:
@@ -51,7 +51,7 @@ The numbers on a card face are its **effective** stats, not its printed ones. `S
 1. **Base**: the printed Power and Bonus, or the copied base if Mirror has copied another card.
 2. **Memory**: anything a persisting ability gave this card for the match (see below).
 3. **Board changes**: granted Power, Adds and Mults.
-4. **Ongoing reads**: Banner's Power for plain cards, Boneyard's Power, Herald's Mult, Level's lowest Power.
+4. **Ongoing reads**: Banner's Power for plain cards, Boneyard's Power, Herald's Mult, Level's lowest Power, which only revealed cards receive (a face-down card is not levelled).
 5. At Score time, **Crew grants** (`Scoring.score_stats()`): Void's held grants and Tallyman's Mult on the fifth Score.
 
 The **effective Cost** is the printed Cost (or Colossus's 7 on Turn 7) plus Memory's Cost change, never below 0 (`Scoring.effective_cost()`). Every Budget check reads it.
@@ -100,7 +100,7 @@ The moment says *when* and the verb says *what*. The ten moments (and Ongoing):
 
 Two brackets refine this. A **watcher bracket** (`watch`: `self`, `other_own`, `opposing`, `any`) says whose event the ability watches: "On reveal (another card of yours)". A **zone bracket** (`zone`: `row`, `hand`) says where the card must be for the ability to act: "(while in your hand)". The exact order in which triggers resolve is in [[systems/game-loop]] and [[rules/resolution]].
 
-**Choices.** Some verbs need a target. With no eligible target the ability fizzles ("no target"). With exactly one, the engine picks it. With two or more, play pauses on a prompt. Immolator and Exhume always prompt and may choose none. Immolator's prompt is a multi-select with a minimum of 0, not an optional prompt: an empty set is its "none". Exhume asks once for "up to two" cards over both Piles (a prompt with a maximum, spec C15): an empty set or a Skip chooses none.
+**Choices.** Some verbs need a target. With no eligible target the ability fizzles ("no target"). With exactly one, the engine picks it. With two or more, play pauses on a prompt. Immolator and Exhume always prompt and may choose none. A random Condemn (Immolator, Fuse) picks from the whole opposing row; a pick on a protected or already Condemned card misses, visibly. Immolator's prompt is a multi-select with a minimum of 0, not an optional prompt: an empty set is its "none". Exhume asks once for "up to two" cards over both Piles (a prompt with a maximum, spec C15): an empty set or a Skip chooses none.
 
 **Loader checks.** The loader (`CardDb`, `card_db.gd`) refuses a bad pool outright: format 5; unique ids; a known tag; Cost 1 to 7 (more only with the `cost_on_turn` verb); Power in range; a Bonus from the legal lists; each ability checked by `CardAbility.problem_of` (a known moment and verb, the verb allowed on that moment, amounts in the verb's range, a known scope, watcher and zone, whole uses, its own text); and a card `text` when it has abilities.
 
@@ -118,7 +118,7 @@ No ability removes a card from a row in the middle of a Walk. Condemn, Fleeting 
 
 ## The 90 cards
 
-The pool is ten cards for each of six strategies and thirty evergreen cards, with Costs 1 to 7 (Colossus 12). The text of each card is the text in `cards.json`; the design reasons and the Power guideline are in [[rules/cards-v2]]. Dross is the extra definition in the file: Cost 1, Power 0, no Bonus, "Ongoing (while in your hand): at the end of the Walk, before rounding, your walking total is multiplied by ×0.75 for each Dross in your hand". Litter creates it in the opponent's hand; Twin creates copies of itself. A created card is Owned by the seat it is created for, is in no Deck, and has base values and no Memory. `CardDb` marks it `"created": true`, so no Deck may list it.
+The pool is ten cards for each of six strategies and thirty evergreen cards, with Costs 1 to 7 (Colossus 12). The text of each card is the text in `cards.json`; the design reasons and the Power guideline are in [[rules/cards-v2]]. Dross is the extra definition in the file: Cost 1, Power 0, no Bonus, "Ongoing (while in your hand): at the end of the Walk, before rounding, your walking total is multiplied by ×0.75 for each Dross in your hand". Litter creates it in the opponent's hand; Twin creates copies of itself. A created card is Owned by the seat it is created for from the moment it is created, is in no Deck, and has base values and no Memory. By default (`until_piled`) it expires when it is sent to the Pile; a card whose lifetime is `match` is filed in its Owner's Pile like any card. `CardDb` marks it `"created": true`, so no Deck may list it.
 
 ### Greed
 

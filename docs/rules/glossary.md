@@ -4,7 +4,7 @@ tags: [reference, rules-v2, glossary]
 status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-08
 uid: 50ec83af-22d5-4bb1-9262-1e94e9a6cfac
 linear: https://linear.app/night-science-llc/issue/NSC-137/t01-glossary
 supersedes:
@@ -61,7 +61,7 @@ Round wins takes the Match, with sudden-death Rounds while they are level.
 | Leaving a Pile | A card leaves a Pile by being shuffled into a Deck (Exhume, Reset, the Pile-shuffling Crew) or put on a row (Revive). It is not a Discard, and its Memory goes with it. | A Pile | New in v2 |
 | Discard | A card entering a Pile from a hand (a chosen discard or the discard-down) or from a row (a Condemned card leaving at turn end, a card cleared at Round end). | The moment of entering a Pile; fires On discard | Discard from hand, destroyed card moving to the destroyed pile |
 | Hand size | The number of cards a seat may hold after its own Commit. The base is four. Where abilities change it, every "your Hand size is N" (a set) applies first, the highest set winning, then every "+N" (an addition): Quartermaster's 7 with Pantry's +2 is 9. | Checked once per Commit, never at any other time | Hand cap of 7, a card drawn at the cap is burned |
-| Owner | The seat whose Deck the card came from; for a created card, the seat it is created for. | Fixed for the card's life in the Match | Origin (the "origin's deck") |
+| Owner | The seat whose Deck the card came from; for a created card, the seat it is created for, from the moment it is created. | Fixed for the card's life in the Match | Origin (the "origin's deck") |
 | Controller | The seat whose row the card is on; for an ability, the seat it acts for (see "you, your"). | Changes only while the card is on a row it does not Own | Controller (same) |
 
 A card that leaves a row it does not Own goes to its Owner's Pile or hand (spec R30).
@@ -143,7 +143,7 @@ Condemn for the verb that gives the Condemned status.
 | chosen card | The card a "choose" picked. The choice is kept as long as the text says; it ends when the chosen card or the card that chose it leaves its row or is Un-revealed. |
 | random | Picked with the Match's seeded RNG, by slot, with no identity shown. |
 | shuffle (into) | Put a card from a Pile or hand into a Deck at a random position, using the seeded RNG. |
-| create | Make a new card that is in no Deck, in the place the text names. Its Owner is the seat it is created for; it has base values and no Memory. It is not part of the 40-card Deck. |
+| create | Make a new card that is in no Deck, in the place the text names. Its Owner is the seat it is created for; it has base values and no Memory. It is not part of the 40-card Deck. A created card has a lifetime. By default (`until_piled`) it expires when it is sent to the Pile: it is removed from the Match and enters no Pile. A few last the whole Match (`match`) and are filed in their Owner's Pile like any card. |
 | copy | As "create a copy": a new card with the same base values and no Memory. As "copies its Power and Bonus": takes the current values until the stated end. |
 | look at | Show the identity of a card to the looking seat only; nothing is made public. |
 | shift | Move a card one slot in a direction; other cards slide past Anchored cards. |
@@ -162,7 +162,7 @@ These are not in the spec's term list but the entries above need them. Each has 
 | Seat | One of the two sides of a Match, numbered 0 and 1; owns a hand, a Deck, a Pile, a row and Crew. |
 | Walk end | The moment after the last Scoring card of a Walk and before its walking totals are rounded; an Ongoing that names it applies there once. |
 | Reveal-stage hook | The point in a pulse after the reveal-stage drain (D7) and before the score stage; a text that says "after its On reveal resolves and before it Scores" acts here ([[rules/resolution]] step 10). |
-| Dross | A created card (Litter makes it): Cost 1, Power 0, no Bonus; Ongoing (while in your hand): at Walk end your walking total is multiplied by ×0.75 for each Dross in your hand. Owned by the seat whose hand it was created in ([[rules/cards-v2]]). |
+| Dross | A created card (Litter makes it): Cost 1, Power 0, no Bonus; Ongoing (while in your hand): at Walk end your walking total is multiplied by ×0.75 for each Dross in your hand. Owned by the seat whose hand it was created in ([[rules/cards-v2]]). Like any created card, it lasts until it is sent to the Pile (`until_piled`) and then expires. |
 | Opponent, opposing | The opponent is the other seat than "you"; opposing means on the opponent's row (or, for a hand or a Pile, the opponent's). |
 | you, your | In card and Crew text, the ability's Controller: for a card on a row, its Controller; for a hand card, the holding seat; for a Crew, the Crew's seat. |
 | Hand | The cards a seat holds, private to that seat. |
@@ -187,7 +187,7 @@ These are not in the spec's term list but the entries above need them. Each has 
 | Target | A card an effect acts on; Crew are never Targets. |
 | Eligible | A Target that fits the text and may legally be acted on: not Anchored for a Move, swap or reorder, revealed where the text says so, and never a Crew. |
 | Resolution | One trigger taken off the queue and carried out; it counts one against the Budget (trigger). |
-| Uses | How often an ability may act: "unlimited" means every time its moment occurs; "once per Turn" or "once per Walk" caps it. |
+| Uses | How often an ability may act: "unlimited" means every time its moment occurs; "once per Turn" or "once per Walk" caps it. The engine enforces a limited count: once the uses are spent, the ability does not fire again in that scope. |
 | Retrigger | An extra resolution of the same ability immediately after each resolution it applies to, with choices made again. |
 | Queue | The one first-in, first-out line of Batches per Walk; it drains fully before the pulse moves to its next stage. |
 | Prompt | A pause for a choice by a seat, wherever the queue is draining; with no eligible target the effect fizzles, with one it is chosen automatically, except for optional counts and Crew (see Q9). |
