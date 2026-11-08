@@ -82,12 +82,12 @@ func is_open() -> bool:
 	return _peer != null and _peer.get_ready_state() == WebSocketPeer.STATE_OPEN
 
 
-## Sends `message` as one text frame. False when the connection is not up or the message
+## Sends `outgoing` as one text frame. False when the connection is not up or the message
 ## does not encode (malformed, or past its size bound).
-func send(message: Dictionary) -> bool:
+func send(outgoing: Dictionary) -> bool:
 	if not is_open():
 		return false
-	var text: String = NetCodec.encode(message)
+	var text: String = NetCodec.encode(outgoing)
 	if text == "":
 		push_warning("NetClient: a message did not encode and was not sent")
 		return false

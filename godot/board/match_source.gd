@@ -11,15 +11,20 @@ extends RefCounted
 ## the call, a remote one later.
 
 ## Redacted events of an accepted action, or of the start, for `player_seat`.
+@warning_ignore("unused_signal")
 signal events_ready(events: Array[MatchEvent])
 ## The source refused the player's last action; `code` is an EngineError.Code.
+@warning_ignore("unused_signal")
 signal action_rejected(code: int)
 ## The link changed: `state` is one of the STATE_* names, `detail` the opponent's name or "".
+@warning_ignore("unused_signal")
 signal connection_changed(state: String, detail: String)
 ## The match is closed from outside the rules: `reason` is one of the CLOSED_* names.
+@warning_ignore("unused_signal")
 signal match_closed(reason: String)
 ## A reconnect's whole redacted history and the current view (a remote source only, P8:
 ## MatchDriver never emits it).
+@warning_ignore("unused_signal")
 signal catch_up(events: Array[MatchEvent], view: SeatView)
 
 ## connection_changed states.
