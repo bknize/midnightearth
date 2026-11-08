@@ -9,7 +9,7 @@ const DEFAULT_PATH: String = "user://identity.json"
 const DEFAULT_NAME: String = "Player"
 const MAX_NAME_LENGTH: int = 16
 ## The compiled-in server address (plan P16); `--server=` overrides it for a run.
-const DEFAULT_SERVER: String = "192.168.68.63:8766"
+const DEFAULT_SERVER: String = NetDefaults.SERVER_ADDRESS
 const KEY_NAME: String = "name"
 const KEY_INSTALL_ID: String = "install_id"
 const KEY_SERVER: String = "server"
@@ -99,7 +99,10 @@ func _read() -> bool:
 	if not FileAccess.file_exists(_path):
 		return false
 	var text: String = FileAccess.get_file_as_string(_path)
-	var parsed: Variant = JSON.parse_string(text)
+	var json: JSON = JSON.new()
+	if json.parse(text) != OK:
+		return false  # Malformed: JSON.new().parse() reports it without logging an error.
+	var parsed: Variant = json.data
 	if not parsed is Dictionary:
 		return false
 	var data: Dictionary = parsed
