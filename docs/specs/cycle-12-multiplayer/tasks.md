@@ -93,8 +93,8 @@ Ben, round 2 Q3 and round 3 Q2b):
 ## Linear (exercised 2026-11-07)
 
 - Project: [Cycle 12 — PVP through a match server on the testing PC](https://linear.app/night-science-llc/project/cycle-12-pvp-through-a-match-server-on-the-testing-pc-130cdbdf69c0) (`planned`)
-- Milestone: `DC-NN multiplayer` (N assigned at `/cycle plan`; cycle 11 took DC-16, so
-  DC-17 is expected)
+- Milestone: `DC-19 multiplayer` (assigned at `/cycle plan` on 2026-11-07; DC-16 and DC-17
+  went to cycle 11, DC-18 to cycle 13)
 - Issue mapping: T01 = NSC-214, T02 = NSC-215, T03 = NSC-216, T04 = NSC-217,
   T05 = NSC-218, T06 = NSC-219, T07 = NSC-220, T08 = NSC-221, T09 = NSC-222,
   T10 = NSC-223, T11 = NSC-224, T12 = NSC-225, T13 = NSC-226, T14 = NSC-227 (all Todo;
