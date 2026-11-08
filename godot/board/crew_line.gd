@@ -17,11 +17,13 @@ const MIN_TIME: float = 0.02
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const COLLECTION_SCENE: PackedScene = preload("res://addons/card_3d/scenes/card_collection_3d.tscn")
 
+## The engine seat the player holds: the lines are by table seat (0 = the player), the view's
+## `crew` and `crew_uses` by engine seat (R20).
+var viewer: int = 0
 ## Per seat, the line's collection (null until built).
 var _collections: Array[CardCollection3D] = [null, null]
 ## Per seat, the Crew cards in slot order.
 var _cards: Array[Array] = [[], []]
-## Per seat, the CrewDefs in slot order.
 
 
 ## The badge text for `uses_left` uses: "2 left", "1 left", "spent" at 0 and "" for the
@@ -37,6 +39,16 @@ static func badge_text(uses_left: int) -> String:
 ## Whether a Crew with `uses_left` uses is spent and dimmed.
 static func is_spent(uses_left: int) -> bool:
 	return uses_left == 0
+
+
+## The entry of table seat `table` in `per_seat` (indexed by engine seat) for the player in
+## engine seat `seat_held`, or [] when it has none. With two seats the rotation is its own
+## inverse.
+static func seat_entries(per_seat: Array[Array], table: int, seat_held: int) -> Array:
+	var seat: int = BoardSteps.table_seat(table, seat_held)
+	if seat < 0 or seat >= per_seat.size():
+		return []
+	return per_seat[seat]
 
 
 ## Lays out three Crew per seat under `parent` from `view` (its `crew` ids and `crew_uses`)
@@ -131,8 +143,8 @@ func fire(seat: int, slot: int, uses_left: int, seconds: float) -> void:
 
 
 func _fill(seat: int, made: CardCollection3D, view: SeatView, pool: CrewPool) -> void:
-	var ids: Array = view.crew[seat] if seat < view.crew.size() else []
-	var uses: Array = view.crew_uses[seat] if seat < view.crew_uses.size() else []
+	var ids: Array = seat_entries(view.crew, seat, viewer)
+	var uses: Array = seat_entries(view.crew_uses, seat, viewer)
 	for slot: int in range(ids.size()):
 		var crew_id: String = ids[slot]
 		var def: CrewDef = pool.crew_of(crew_id)

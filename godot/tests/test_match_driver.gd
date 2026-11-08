@@ -4,7 +4,7 @@ extends GdUnitTestSuite
 ## smoke match and prints the board's result line, seat 0 never sees a seat-1 card id, a
 ## seat-0 concede ends the match with reason "concede", and bot turns are due exactly when
 ## the human is not awaited. DC-05 T07: play_bot() answers a bot's prompt, and seat 0's
-## prompt is read with open_prompt() and answered with submit_choice(). DC-07 T02 (P14):
+## prompt is read with open_prompt() and answered with apply_choice(). DC-07 T02 (P14):
 ## the driver takes the pool, the deck list and a deck id per seat (the fixture deck on
 ## both seats here), resolves an empty id to the seed's pick, and the result line names
 ## both decks right after the seed.
@@ -189,7 +189,7 @@ func test_seed_1_autoplay_equals_the_smoke_match() -> void:
 	assert_bool(driver.autoplay).is_true()
 	assert_int(driver.match_seed).is_equal(SEED)
 	assert_str(driver.result_line()).is_empty()
-	var leaks: Array[String] = _opponent_leaks(driver.start())
+	var leaks: Array[String] = _opponent_leaks(driver.begin())
 	var steps: int = 0
 	while driver.bot_turn_due() and steps < MAX_ACTIONS:
 		var result: ApplyResult = driver.play_bot()
@@ -247,17 +247,17 @@ func test_result_line_names_both_decks_after_the_seed() -> void:
 	)
 	var expected: Array[String] = [decks.seeded_pick(7, 0), decks.seeded_pick(7, 1)]
 	assert_array(picked.deck_ids()).is_equal(expected)
-	assert_bool(picked.start().is_empty()).is_false()
+	assert_bool(picked.begin().is_empty()).is_false()
 	var unknown: Array[String] = ["fixture", "nope"]
 	var refused: MatchDriver = MatchDriver.create(
 		SEED, _db(), decks, unknown, true, BOT, FixtureDecks.crew()
 	)
-	assert_array(refused.start()).is_empty()
+	assert_array(refused.begin()).is_empty()
 
 
 func test_seat_0_concede_ends_the_match_with_concede() -> void:
 	var driver: MatchDriver = _driver(SEED, false)
-	var started: Array[MatchEvent] = driver.start()
+	var started: Array[MatchEvent] = driver.begin()
 	assert_bool(started.is_empty()).is_false()
 	assert_str(driver.result_line()).is_empty()
 	var result: ApplyResult = driver.submit_player(EngineAction.concede(0))
@@ -289,7 +289,7 @@ func test_bot_turn_is_due_exactly_when_seat_0_is_not_awaited() -> void:
 			# Seat 0's discard-down after a pass (rules 7): its first `exact` hand cards.
 			var picked: Array[int] = []
 			picked.assign(Choice.options_of(prompt).slice(0, Choice.exact_of(prompt)))
-			result = driver.submit_set(Choice.zone_of(prompt), picked)
+			result = driver.apply_set(Choice.zone_of(prompt), picked)
 			discards += 1
 		else:
 			var none: Array[int] = []
@@ -336,14 +336,14 @@ func test_play_bot_answers_a_bot_prompt() -> void:
 	assert_int(_prompted_seat(driver)).is_equal(-1)
 
 
-## Seat 0's prompt (DC-05 T07): with no prompt open submit_choice() fails with NO_PROMPT;
+## Seat 0's prompt (DC-05 T07): with no prompt open apply_choice() fails with NO_PROMPT;
 ## once one opens, open_prompt() gives its zone and options, an option it does not offer
 ## fails with NOT_ELIGIBLE and changes nothing, and an offered option is accepted.
 func test_submit_choice_answers_the_open_player_prompt() -> void:
 	var idle: MatchDriver = _driver(SEED, false)
 	idle.start()
 	assert_dict(idle.open_prompt()).is_empty()
-	var early: ApplyResult = idle.submit_choice(Choice.Zone.OWN_HAND, 0)
+	var early: ApplyResult = idle.apply_choice(Choice.Zone.OWN_HAND, 0)
 	assert_bool(early.ok).is_false()
 	assert_int(early.error).is_equal(EngineError.Code.NO_PROMPT)
 	var driver: MatchDriver = _driver(SEED, false)
@@ -359,19 +359,19 @@ func test_submit_choice_answers_the_open_player_prompt() -> void:
 	assert_int(options.size()).is_greater_equal(2)
 	assert_bool(options.has(NOT_AN_OPTION)).is_false()
 	var count: int = driver.action_count()
-	var refused: ApplyResult = driver.submit_choice(zone, NOT_AN_OPTION)
+	var refused: ApplyResult = driver.apply_choice(zone, NOT_AN_OPTION)
 	assert_bool(refused.ok).is_false()
 	assert_int(refused.error).is_equal(EngineError.Code.NOT_ELIGIBLE)
 	assert_int(driver.action_count()).is_equal(count)
 	assert_dict(driver.open_prompt()).is_equal(prompt)
-	var answered: ApplyResult = driver.submit_choice(zone, options[0])
+	var answered: ApplyResult = driver.apply_choice(zone, options[0])
 	assert_bool(answered.ok).is_true()
 	assert_int(driver.action_count()).is_equal(count + 1)
 	var made: bool = _has_kind(driver.last_events(), MatchEvent.Kind.CHOICE_MADE)
 	assert_bool(made).override_failure_message("no CHOICE_MADE for seat 0").is_true()
 
 
-## DC-07 T05 (P7): submit_set() reaches the engine. With a hand-made multi-select prompt
+## DC-07 T05 (P7): apply_set() reaches the engine. With a hand-made multi-select prompt
 ## for seat 0 over hand positions 0 and 1, open_prompt() says `multi`, a set naming a
 ## position it does not offer fails with BAD_SET, and a valid set is accepted with
 ## CHOICE_MADE `indices`.
@@ -384,10 +384,10 @@ func test_submit_set_answers_the_open_multi_prompt() -> void:
 	assert_bool(multi).is_true()
 	var count: int = driver.action_count()
 	var bad: Array[int] = [2]
-	var refused: ApplyResult = driver.submit_set(Choice.Zone.OWN_HAND, bad)
+	var refused: ApplyResult = driver.apply_set(Choice.Zone.OWN_HAND, bad)
 	assert_int(refused.error).is_equal(EngineError.Code.BAD_SET)
 	var chosen: Array[int] = [1]
-	var result: ApplyResult = driver.submit_set(Choice.Zone.OWN_HAND, chosen)
+	var result: ApplyResult = driver.apply_set(Choice.Zone.OWN_HAND, chosen)
 	assert_bool(result.ok).is_true()
 	assert_int(driver.action_count()).is_equal(count + 1)
 	var indices: Array = []
@@ -433,11 +433,17 @@ func test_create_with_an_unknown_bot_is_null() -> void:
 	)
 	assert_object(made).is_not_null()
 	if made != null:
-		assert_bool(made.start().is_empty()).is_false()
+		assert_bool(made.begin().is_empty()).is_false()
 		assert_bool(made.bot_turn_due()).is_true()
 	for unknown: String in ["tuned", "nope"]:
 		var refused: MatchDriver = MatchDriver.create(
-			SEED, _db(), FixtureDecks.decks(), FixtureDecks.ids(), true, unknown, FixtureDecks.crew()
+			SEED,
+			_db(),
+			FixtureDecks.decks(),
+			FixtureDecks.ids(),
+			true,
+			unknown,
+			FixtureDecks.crew()
 		)
 		assert_object(refused).is_null()
 
@@ -451,7 +457,7 @@ func _one_call(driver: MatchDriver) -> ApplyResult:
 	if not prompt.is_empty():
 		var picked: Array[int] = []
 		picked.assign(Choice.options_of(prompt).slice(0, Choice.exact_of(prompt)))
-		return driver.submit_set(Choice.zone_of(prompt), picked)
+		return driver.apply_set(Choice.zone_of(prompt), picked)
 	var none: Array[int] = []
 	return driver.submit_player(EngineAction.commit(0, none))
 
@@ -471,8 +477,123 @@ func test_view_is_shared_between_calls_and_rebuilt_after_each() -> void:
 	assert_object(second).is_not_same(first)
 	assert_object(driver.view()).is_same(second)
 	assert_bool(driver.is_player_awaited()).is_equal(second.is_awaited())
-	var refused: ApplyResult = driver.submit_choice(Choice.Zone.OWN_HAND, NOT_AN_OPTION)
+	var refused: ApplyResult = driver.apply_choice(Choice.Zone.OWN_HAND, NOT_AN_OPTION)
 	assert_bool(refused.ok).is_false()
 	var third: SeatView = driver.view()
 	assert_object(third).is_not_same(second)
 	assert_dict(third.to_dict()).is_equal(second.to_dict())
+
+
+# --- The MatchSource contract (cycle 12 P5) -----------------------------------------------
+
+
+## A driver on the shipped data and seed 1's seeded pairing, the board's own match.
+func _shipped_driver(autoplay: bool) -> MatchDriver:
+	var seeded: Array[String] = ["", ""]
+	return MatchDriver.create(
+		SEED,
+		CardDb.load_default(),
+		DeckList.load_default(),
+		seeded,
+		autoplay,
+		BOT,
+		CrewPool.load_default()
+	)
+
+
+func test_a_driver_is_the_local_match_source() -> void:
+	var source: MatchSource = _driver(SEED, false)
+	assert_int(source.player_seat).is_equal(0)
+	assert_bool(source.allows_rematch()).is_true()
+	assert_str(source.opponent_name()).is_equal("Opponent")
+	assert_int(source.deck_ids().size()).is_equal(2)
+	assert_object(source.match_cards()).is_not_null()
+
+
+func test_start_emits_seat_0s_opening_events_once() -> void:
+	var driver: MatchDriver = _driver(SEED, false)
+	var batches: Array[int] = []
+	var leaks: Array[String] = []
+	driver.events_ready.connect(
+		func(events: Array[MatchEvent]) -> void:
+			batches.append(events.size())
+			leaks.append_array(_opponent_leaks(events))
+	)
+	driver.start()
+	assert_int(batches.size()).is_equal(1)
+	assert_int(batches[0]).is_greater(0)
+	assert_array(leaks).is_empty()
+	assert_object(driver.view()).is_not_null()
+
+
+## The seed-1 autoplay match through the source calls alone: start() and advance() print the
+## pinned golden line, one events_ready per accepted action (plus the opening).
+func test_seed_1_autoplay_through_the_source_calls_prints_the_pinned_line() -> void:
+	var driver: MatchDriver = _shipped_driver(true)
+	var batches: Array[int] = []
+	driver.events_ready.connect(
+		func(events: Array[MatchEvent]) -> void: batches.append(events.size())
+	)
+	driver.start()
+	var steps: int = 0
+	while steps < MAX_ACTIONS and driver.advance():
+		steps += 1
+	assert_bool(driver.is_over()).is_true()
+	assert_bool(driver.advance()).is_false()
+	assert_str(driver.result_line()).is_equal(EXPECTED_LINE)
+	assert_int(batches.size()).is_equal(steps + 1)
+	assert_int(driver.action_count()).is_equal(steps)
+
+
+## A human seat through submit(), submit_set() and advance(): the bot replies only when asked
+## for, every accepted call emits once, and the match ends.
+func test_a_human_match_through_submit_and_advance() -> void:
+	var driver: MatchDriver = _driver(SEED, false)
+	var batches: Array[int] = []
+	var rejected: Array[int] = []
+	driver.events_ready.connect(
+		func(events: Array[MatchEvent]) -> void: batches.append(events.size())
+	)
+	driver.action_rejected.connect(func(code: int) -> void: rejected.append(code))
+	driver.start()
+	var calls: int = 0
+	while not driver.is_over() and calls < MAX_ACTIONS:
+		if driver.is_player_awaited():
+			assert_bool(driver.advance()).is_false()
+			var prompt: Dictionary = driver.open_prompt()
+			if prompt.is_empty():
+				var none: Array[int] = []
+				driver.submit(EngineAction.commit(0, none))
+			else:
+				var picked: Array[int] = []
+				picked.assign(Choice.options_of(prompt).slice(0, Choice.exact_of(prompt)))
+				driver.submit_set(Choice.zone_of(prompt), picked)
+		else:
+			assert_bool(driver.advance()).is_true()
+		calls += 1
+	assert_bool(driver.is_over()).is_true()
+	assert_array(rejected).is_empty()
+	assert_int(batches.size()).is_equal(calls + 1)
+	assert_str(driver.result_line()).is_not_empty()
+
+
+func test_a_refused_submit_emits_action_rejected_and_no_events() -> void:
+	var driver: MatchDriver = _driver(SEED, false)
+	driver.start()
+	var batches: Array[int] = []
+	var rejected: Array[int] = []
+	driver.events_ready.connect(
+		func(events: Array[MatchEvent]) -> void: batches.append(events.size())
+	)
+	driver.action_rejected.connect(func(code: int) -> void: rejected.append(code))
+	driver.submit_choice(Choice.Zone.OWN_HAND, 0)
+	assert_array(batches).is_empty()
+	assert_int(rejected.size()).is_equal(1)
+	assert_int(rejected[0]).is_equal(EngineError.Code.NO_PROMPT)
+
+
+## A bot-driven seat is not "the player": advance() has nothing to do when the human is awaited.
+func test_the_source_reports_the_player_awaited_like_the_view() -> void:
+	var driver: MatchDriver = _driver(SEED, false)
+	driver.start()
+	assert_bool(driver.is_player_awaited()).is_equal(driver.view().is_awaited())

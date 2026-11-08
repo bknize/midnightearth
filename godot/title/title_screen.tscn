@@ -1,0 +1,96 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://title/title_screen.gd" id="1_title"]
+[ext_resource type="Theme" path="res://board/board_theme.tres" id="2_theme"]
+
+[node name="TitleScreen" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_title")
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Box" type="VBoxContainer" parent="Center"]
+custom_minimum_size = Vector2(520, 0)
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="Center/Box"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 48
+text = "Midnight Earth"
+horizontal_alignment = 1
+
+[node name="NameLabel" type="Label" parent="Center/Box"]
+layout_mode = 2
+text = "Name"
+
+[node name="NameField" type="LineEdit" parent="Center/Box"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "Player"
+max_length = 16
+
+[node name="ServerLabel" type="Label" parent="Center/Box"]
+layout_mode = 2
+text = "Server"
+
+[node name="ServerField" type="LineEdit" parent="Center/Box"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="BotButton" type="Button" parent="Center/Box"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Play vs Bot"
+
+[node name="CodeLabel" type="Label" parent="Center/Box"]
+layout_mode = 2
+text = "Room code"
+
+[node name="CodeField" type="LineEdit" parent="Center/Box"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "K7QX"
+max_length = 4
+
+[node name="Buttons" type="HBoxContainer" parent="Center/Box"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="HostButton" type="Button" parent="Center/Box/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Host"
+
+[node name="JoinButton" type="Button" parent="Center/Box/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Join"
+
+[node name="Consent" type="Label" parent="Center/Box"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(520, 0)
+layout_mode = 2
+autowrap_mode = 3
+horizontal_alignment = 1
+
+[node name="Message" type="Label" parent="Center/Box"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(520, 0)
+layout_mode = 2
+autowrap_mode = 3
+horizontal_alignment = 1

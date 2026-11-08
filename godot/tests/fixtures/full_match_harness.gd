@@ -695,6 +695,50 @@ func _assert_none(found: Array[String], what: String) -> void:
 	assert_array(found).override_failure_message(message).is_empty()
 
 
+## Plays `match_seed` bot against bot under its seeded pairing, as _play() does but with no
+## checks, keeping both seats' views after the start and after every action, and every
+## event of each step in full and as each seat's redacted copy (cycle 12 T01's round
+## trips).
+func _played_steps(match_seed: int) -> PlayedSteps:
+	var played: PlayedSteps = PlayedSteps.new()
+	var engine: MatchEngine = _new_engine(match_seed)
+	var result: ApplyResult = engine.start()
+	if not result.ok:
+		return played
+	played.keep(engine, result)
+	var bots: Array[BotPlayer] = _new_bots(match_seed, engine)
+	if bots.has(null):
+		return played
+	while not engine.is_over() and played.actions < MAX_ACTIONS:
+		var seat: int = engine.awaited_seat()
+		if seat < 0 or seat >= MatchEngine.SEATS:
+			return played
+		result = engine.apply(bots[seat].choose(engine.view_for(seat), engine))
+		if not result.ok:
+			return played
+		played.actions += 1
+		played.keep(engine, result)
+	played.over = engine.is_over()
+	return played
+
+
+## One played match's views and events (_played_steps).
+class PlayedSteps:
+	extends RefCounted
+
+	var over: bool = false
+	var actions: int = 0
+	var views: Array[SeatView] = []
+	var events: Array[MatchEvent] = []
+
+	## Both seats' views of `engine` now, and `result`'s events in full and redacted.
+	func keep(engine: MatchEngine, result: ApplyResult) -> void:
+		events.append_array(result.events)
+		for seat: int in range(MatchEngine.SEATS):
+			views.append(engine.view_for(seat))
+			events.append_array(result.events_for(seat))
+
+
 ## The positions of a step's events between which each card was public (_public_windows).
 class PublicWindows:
 	extends RefCounted

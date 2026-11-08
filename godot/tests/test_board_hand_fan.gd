@@ -47,7 +47,7 @@ func test_opponent_fan_follows_the_engine_every_action() -> void:
 	var fan: int = 0
 	var checked: int = 0
 	var clears: int = 0
-	var events: Array[MatchEvent] = driver.start()
+	var events: Array[MatchEvent] = driver.begin()
 	var guard: int = 0
 	while guard < MAX_ACTIONS:
 		guard += 1
