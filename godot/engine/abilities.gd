@@ -42,6 +42,14 @@ extends RefCounted
 ## STATS_CHANGED {card, power, mult, add, cost, permanent, cause}, private to the seat that
 ## holds the card while it is in a hand or Deck or face down on a row.
 ##
+## Limited uses (rules 9, cycle 14 R6, R7, plan P4): an ability whose `uses` is above 0 is
+## counted each time it resolves (count_use()) in the scope its `scope` names: `turn` and
+## `row` as a KIND_USED Board change (CardState.granted, until that scope, so it ends at turn
+## end or when the card leaves its row), `match` or none as the Memory's `uses_left` (which
+## follows the card through every zone). Once none is left in that scope, prepare() fizzles
+## it `spent` (TRIGGER_FIZZLED) instead of firing. `uses` 0 or absent is unlimited and never
+## counts, so no shipped card changes behaviour. card_uses_left() reads what is left.
+##
 ## Milestone B: the Combo and Disruption verbs (AbilitiesComboDisruption.handles()) go to
 ## that module's prepare() and resolve() before any verb here (DC-14 T12).
 ##
@@ -65,6 +73,8 @@ const KEY_CARD: String = "card"
 const KEY_VERB: String = "verb"
 ## CardState.granted kind of a Power change until end of turn (also in `power_delta`).
 const KIND_POWER: String = "power"
+## CardState.granted kind of one counted use of a limited ability (scope `turn` or `row`).
+const KIND_USED: String = "used"  # AbilitiesGraveyardControl.KIND_USED (Tithe, Reliquary).
 ## Ability scopes (CardAbility.SCOPES).
 const SCOPE_TURN: String = "turn"
 const SCOPE_ROW: String = "row"
@@ -138,6 +148,9 @@ static func prepare(ctx: TriggerContext) -> void:
 	if ctx.card < 0 or ctx.ability == null or ctx.state == null:
 		ctx.fizzle(REASON_NO_TARGET)
 		return
+	if uses_spent(ctx):
+		ctx.fizzle(REASON_SPENT)  # Limited uses, none left in its scope (R6).
+		return
 	if AbilitiesComboDisruption.handles(ctx.verb):
 		AbilitiesComboDisruption.prepare(ctx)  # Combo and Disruption (DC-14 T12).
 		return
@@ -178,6 +191,7 @@ static func prepare(ctx: TriggerContext) -> void:
 static func resolve(ctx: TriggerContext) -> void:
 	if ctx.state == null or ctx.ability == null:
 		return
+	count_use(ctx)
 	if AbilitiesComboDisruption.handles(ctx.verb):
 		AbilitiesComboDisruption.resolve(ctx)  # Combo and Disruption (DC-14 T12).
 		return
@@ -318,6 +332,56 @@ static func has_mult(state: MatchState, cards: MatchCards, card: int) -> bool:
 		return true
 	var kept: CardMemory = state.memory_of(card)
 	return kept != null and kept.grows_mult()
+
+
+## The uses `card`'s limited `ability` has left in its scope (R6): -1 for an unlimited one
+## (`uses` 0); for `turn` or `row` its `uses` less the KIND_USED Board changes of that scope;
+## else (`match` or none) the Memory's `uses_left`, its `uses` until first counted.
+static func card_uses_left(state: MatchState, card: int, ability: CardAbility) -> int:
+	if ability == null or ability.uses <= 0:
+		return -1
+	if ability.scope == SCOPE_TURN or ability.scope == SCOPE_ROW:
+		return maxi(ability.uses - _used_in(state, card, ability.scope), 0)
+	var kept: CardMemory = state.memory_of(card)
+	if kept == null or kept.uses_left < 0:
+		return ability.uses
+	return kept.uses_left
+
+
+## Whether `ctx`'s card ability is limited and has no use left in its scope (R6, R7).
+static func uses_spent(ctx: TriggerContext) -> bool:
+	if ctx.ability == null or ctx.ability.uses <= 0 or ctx.card < 0:
+		return false
+	return card_uses_left(ctx.state, ctx.card, ctx.ability) == 0
+
+
+## Counts one use of `ctx`'s limited card ability as it resolves (R6): a KIND_USED Board
+## change until its scope (`turn`, `row`), else one off the Memory's `uses_left`. An
+## unlimited ability (`uses` 0) counts nothing.
+static func count_use(ctx: TriggerContext) -> void:
+	if ctx.ability == null or ctx.ability.uses <= 0 or ctx.card < 0:
+		return
+	var scope: String = ctx.ability.scope
+	if scope == SCOPE_TURN or scope == SCOPE_ROW:
+		ctx.state.card_state_for(ctx.card).grant(KIND_USED, 1, scope)
+		return
+	var left: int = card_uses_left(ctx.state, ctx.card, ctx.ability)
+	ctx.state.memory_for(ctx.card).uses_left = maxi(left - 1, 0)
+
+
+## The uses counted by the KIND_USED Board changes of `card` held until `scope`.
+static func _used_in(state: MatchState, card: int, scope: String) -> int:
+	var held: CardState = state.card_state(card)
+	if held == null:
+		return 0
+	var count: int = 0
+	for entry: Dictionary in held.granted:
+		var kind: String = entry.get(CardState.KEY_KIND, "")
+		var until: String = entry.get(CardState.KEY_UNTIL, "")
+		if kind == KIND_USED and until == scope:
+			var value: int = entry.get(CardState.KEY_VALUE, 0)
+			count += value
+	return count
 
 
 # --- Preparing --------------------------------------------------------------------------
@@ -638,8 +702,12 @@ static func _others_revealed(state: MatchState, seat: int, card: int) -> Array[i
 
 
 ## STATS_CHANGED {card, power, mult, add, cost, permanent, cause} for `card` now, private
-## to the seat holding it while it is hidden (hidden_holder()).
-static func stats_changed(ctx: TriggerContext, card: int, permanent: bool) -> void:
+## to the seat holding it while it is hidden (hidden_holder(), a pending Commit's card to the
+## first committer only, R15). `cause` is the change's source: the ability's verb by default
+## (""), a Crew's id for a Crew's change (R14, CrewAbilities).
+static func stats_changed(
+	ctx: TriggerContext, card: int, permanent: bool, cause: String = ""
+) -> void:
 	var read: Scoring.Stats = Scoring.stats(card, ctx.state, ctx.cards)
 	var changed: Dictionary = {
 		"card": card,
@@ -648,7 +716,7 @@ static func stats_changed(ctx: TriggerContext, card: int, permanent: bool) -> vo
 		"add": read.add(),
 		"cost": maxi(Scoring.effective_cost(card, ctx.state, ctx.cards), 0),
 		"permanent": permanent,
-		"cause": ctx.verb,
+		"cause": cause if cause != "" else ctx.verb,
 	}
 	ctx.emit(MatchEvent.Kind.STATS_CHANGED, changed, hidden_holder(ctx.state, card))
 

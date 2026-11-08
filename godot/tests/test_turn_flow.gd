@@ -166,8 +166,9 @@ func test_an_empty_deck_draws_nothing_and_emits_draw_empty() -> void:
 	assert_int(recorder.events[0].owner_seat).is_equal(MatchEvent.PUBLIC)
 	assert_dict(recorder.events[0].payload).is_equal({"seat": 1})
 	var seen: int = recorder.events.size()
+	var crew_kinds: Array[int] = [MatchEvent.Kind.TRIGGER_FIRED, MatchEvent.Kind.CREW_FIRED]
 	for event: MatchEvent in recorder.events.slice(1):
-		assert_int(event.kind).is_equal(MatchEvent.Kind.TRIGGER_FIRED)
+		assert_bool(crew_kinds.has(event.kind)).is_true()
 	assert_array(state.seats[1].hand).is_equal(_typed([40, 41]))
 	assert_bool(MatchEvent.Kind.keys().has("CARD_BURNED")).is_false()
 	# The resumed draw (Q11) finds the Deck still empty: nothing, and no second DRAW_EMPTY.

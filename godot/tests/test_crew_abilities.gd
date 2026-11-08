@@ -1,3 +1,4 @@
+# gdlint: disable=max-public-methods
 class_name TestCrewAbilities
 extends GdUnitTestSuite
 ## The six milestone A Crew (DC-13 T07; cycle 9 plan P4, P13; spec R18, R62; canon
@@ -22,6 +23,9 @@ const DRAWN: int = MatchEvent.Kind.CARD_DRAWN
 const EMPTY: int = MatchEvent.Kind.DRAW_EMPTY
 const SHUFFLED: int = MatchEvent.Kind.PILE_SHUFFLED_IN
 const STATS: int = MatchEvent.Kind.STATS_CHANGED
+const CREW: int = MatchEvent.Kind.CREW_FIRED
+## CREW_FIRED's payload keys, in order (rules 9, cycle 14 R13, plan P7).
+const CREW_FIRED_KEYS: Array[String] = ["seat", "slot", "crew", "moment", "verb", "uses_left"]
 const ONE: int = MatchRules.SCALE
 const GUARD: int = 100
 ## Void and Dredger in either Crew slot order (C29).
@@ -295,6 +299,129 @@ func test_navigator_grows_the_second_scorer_and_captain_the_leftmost_after_the_s
 	).is_equal(_typed([2, 4, 0]))
 
 
+# --- Limited uses and CREW_FIRED (rules 9, cycle 14 R6, R7, R13) ----------------------
+
+
+## A fixture Crew pool built from the shipped one in memory (its file is never edited):
+## `crew_id` gets `uses` and `scope`.
+func _limited_pool(crew_id: String, uses: int, scope: String) -> CrewPool:
+	var listed: Array = []
+	for def: CrewDef in CrewPool.load_default().all():
+		var entry: Dictionary = def.to_dict()
+		if def.id == crew_id:
+			entry["uses"] = uses
+			entry["scope"] = scope
+		listed.append(entry)
+	var text: String = JSON.stringify({"version": CrewPool.FORMAT_VERSION, "crew": listed})
+	var pool: CrewPool = CrewPool.from_json(text)
+	assert_bool(pool.is_valid()).override_failure_message(pool.load_error()).is_true()
+	return pool
+
+
+## The stub match's definitions over `pool` with the Crew `crew` on both seats, `instances`
+## made plain bodies of Power 1; the Crew uses filled as at Match start.
+func _limited_cards(crew: Array[String], pool: CrewPool, instances: Array[int]) -> MatchCards:
+	var ids: Array[String] = [StubAbilities.DECK_ID, StubAbilities.DECK_ID]
+	var decks: DeckList = StubAbilities.deck_list(crew)
+	var cards: MatchCards = MatchCards.build(CardDb.load_default(), decks, ids, pool)
+	var none: Array[CardAbility] = []
+	var plain: CardDef = StubAbilities.card_def("Plain", none, 1)
+	assert_bool(StubAbilities.give(cards, instances, plain)).is_true()
+	return cards
+
+
+## The `reason` of every TRIGGER_FIZZLED of the Crew `crew_id` in `events`.
+func _crew_reasons(events: Array[MatchEvent], crew_id: String) -> Array[String]:
+	var out: Array[String] = []
+	for event: MatchEvent in events:
+		var crew: String = event.payload.get("crew", "")
+		if event.kind == FIZZLED and crew == crew_id:
+			var reason: String = event.payload["reason"]
+			out.append(reason)
+	return out
+
+
+## A fixture Captain with `uses` 1 for the match (Ramp's Crew, Captain in slot 1): it fires
+## once, on the slot-0 card's Score, and CREW_FIRED {seat, slot, crew, moment, verb,
+## uses_left} (exactly those keys, public) shows `uses_left` 0; the unlimited Navigator's
+## shows -1. Every later wake of Captain, that Walk and the next, fizzles `spent`: no
+## TRIGGER_FIRED, no CREW_FIRED and no growth.
+func test_a_crew_with_one_use_fires_once_and_crew_fired_shows_the_uses_left() -> void:
+	var row: Array[int] = [0, 1, 2]
+	var pool: CrewPool = _limited_pool("captain", 1, "")
+	var cards: MatchCards = _limited_cards(StubAbilities.RAMP_CREW, pool, row)
+	var state: MatchState = StubAbilities.table(row, true)
+	state.reset_crew_uses(cards)
+	assert_array(state.crew_uses[0]).is_equal([CrewDef.UNLIMITED, 1, CrewDef.UNLIMITED])
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	_walk(state, cards, rec)
+	assert_array(_crews(rec.of_kind(FIRED))).is_equal(["captain", "navigator"])
+	var crew_fired: Array[MatchEvent] = rec.of_kind(CREW)
+	assert_array(_crews(crew_fired)).is_equal(["captain", "navigator"])
+	var captain: MatchEvent = crew_fired[0]
+	assert_int(captain.owner_seat).is_equal(MatchEvent.PUBLIC)
+	var keys: Array[String] = []
+	keys.assign(captain.payload.keys())
+	assert_array(keys).is_equal(CREW_FIRED_KEYS)
+	var expected: Dictionary = {
+		"seat": 0,
+		"slot": 1,
+		"crew": "captain",
+		"moment": "on_score",
+		"verb": CrewAbilities.VERB_CAPTAIN,
+		"uses_left": 0,
+	}
+	assert_dict(captain.payload).is_equal(expected)
+	var navigator: int = crew_fired[1].payload["uses_left"]
+	assert_int(navigator).is_equal(CrewDef.UNLIMITED)
+	assert_array(_crew_reasons(rec.events, "captain")).is_equal(
+		[Abilities.REASON_SPENT, Abilities.REASON_SPENT]
+	)
+	assert_array(state.crew_uses[0]).is_equal([CrewDef.UNLIMITED, 0, CrewDef.UNLIMITED])
+	assert_int(_memory_power(state, 0)).is_equal(1)
+	var again: StubAbilities.Recorder = StubAbilities.recorder()
+	_walk(state, cards, again)
+	assert_array(_crews(again.of_kind(FIRED))).is_equal(["navigator"])
+	assert_array(_crews(again.of_kind(CREW))).is_equal(["navigator"])
+	var spent: Array[String] = [
+		Abilities.REASON_SPENT, Abilities.REASON_SPENT, Abilities.REASON_SPENT
+	]
+	assert_array(_crew_reasons(again.events, "captain")).is_equal(spent)
+	assert_int(_memory_power(state, 0)).is_equal(1)
+
+
+## A fixture Void with `uses` 1 per Turn: the first empty draw fires it (CREW_FIRED
+## `uses_left` 0), the second that Turn wakes no firing (`spent`, one grant held); after
+## turn end its use is back and the next empty draw fires it again.
+func test_a_once_per_turn_crew_fires_again_after_turn_end() -> void:
+	var pool: CrewPool = _limited_pool("void", 1, Abilities.SCOPE_TURN)
+	var cards: MatchCards = _limited_cards(StubAbilities.CREW, pool, _typed([]))
+	var state: MatchState = _dry(_typed([]), _typed([]))
+	state.reset_crew_uses(cards)
+	var rng: MatchRng = MatchRng.new(SEED)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	for _draw: int in range(2):
+		assert_bool(TurnFlow.draw(state, cards, rng, rec.record, 0)).is_false()
+	assert_array(_crews(rec.of_kind(FIRED))).is_equal(["void"])
+	assert_array(_ints(rec.of_kind(CREW), "uses_left")).is_equal(_typed([0]))
+	assert_array(_crew_reasons(rec.events, "void")).is_equal([Abilities.REASON_SPENT])
+	assert_array(state.void_grants).is_equal(_typed([1, 0]))
+	assert_bool(TurnFlow.end_turn(state, cards, rng, rec.record)).is_false()
+	assert_array(state.crew_uses[0]).is_equal([CrewDef.UNLIMITED, 1, CrewDef.UNLIMITED])
+	var next: StubAbilities.Recorder = StubAbilities.recorder()
+	assert_bool(TurnFlow.draw(state, cards, rng, next.record, 0)).is_false()
+	assert_array(_crews(next.of_kind(FIRED))).is_equal(["void"])
+	assert_array(_ints(next.of_kind(CREW), "uses_left")).is_equal(_typed([0]))
+
+
+## R7: every shipped Crew has `uses` 0 (unlimited, CrewDef.UNLIMITED at Match start), so
+## enforcing uses changes no shipped Crew.
+func test_no_shipped_crew_has_limited_uses() -> void:
+	for def: CrewDef in CrewPool.load_default().all():
+		assert_int(def.uses).override_failure_message(def.id).is_equal(0)
+		assert_int(def.initial_uses()).is_equal(CrewDef.UNLIMITED)
+
+
 # --- Dredger --------------------------------------------------------------------------
 
 
@@ -312,7 +439,7 @@ func test_dredger_shuffles_the_pile_in_with_the_stream_and_the_draw_resumes_once
 	assert_array(state.seats[0].hand).is_equal(_typed([0, expected[0]]))
 	assert_array(state.seats[0].deck).is_equal(expected.slice(1))
 	assert_array(state.seats[0].pile).is_empty()
-	assert_array(_kinds(rec.events)).is_equal(_typed([EMPTY, FIRED, SHUFFLED, DRAWN]))
+	assert_array(_kinds(rec.events)).is_equal(_typed([EMPTY, FIRED, SHUFFLED, CREW, DRAWN]))
 	assert_array(_crews(rec.of_kind(FIRED))).is_equal(["dredger"])
 	var shuffled: MatchEvent = rec.of_kind(SHUFFLED)[0]
 	assert_int(shuffled.owner_seat).is_equal(MatchEvent.PUBLIC)
@@ -353,7 +480,8 @@ func test_dredger_resumes_an_effect_draw_once() -> void:
 	MatchRng.new(SEED).shuffle_in_place(expected)
 	assert_array(state.seats[0].hand).is_equal(_typed([expected[0]]))
 	assert_array(state.seats[0].deck).is_equal(expected.slice(1))
-	assert_array(_kinds(rec.events)).is_equal(_typed([FIRED, EMPTY, FIRED, SHUFFLED, DRAWN]))
+	var expected_kinds: Array[int] = [FIRED, EMPTY, FIRED, SHUFFLED, CREW, DRAWN]
+	assert_array(_kinds(rec.events)).is_equal(expected_kinds)
 	assert_bool(state.queue.is_empty()).is_true()
 
 

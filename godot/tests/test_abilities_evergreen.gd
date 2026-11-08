@@ -499,6 +499,89 @@ func test_banner_gives_four_to_mote_and_nothing_to_scout() -> void:
 	assert_int(_power(state, cards, mote)).is_equal(2)
 
 
+# --- Limited uses (rules 9, cycle 14 R6, R7) ------------------------------------------
+
+
+## A fixture card (a stub definition, never the shipped pool) on `card` whose one On score
+## ability gives it Power +1 with `uses` `uses` in `scope`.
+func _limited(cards: MatchCards, card: int, uses: int, scope: String) -> void:
+	var limited: CardAbility = StubAbilities.ability(
+		"on_score", Abilities.VERB_GROW_SELF_POWER, 1
+	)
+	limited.uses = uses
+	limited.scope = scope
+	var abilities: Array[CardAbility] = [limited]
+	var def: CardDef = StubAbilities.card_def("Limited", abilities, 1)
+	assert_bool(StubAbilities.give(cards, _typed([card]), def)).is_true()
+
+
+## The `reason` of every TRIGGER_FIZZLED `rec` holds, in order.
+func _reasons(rec: StubAbilities.Recorder) -> Array[String]:
+	var out: Array[String] = []
+	for event: MatchEvent in rec.of_kind(FIZZLED):
+		out.append(_str_of(event, "reason"))
+	return out
+
+
+## `uses` 1 per Turn: the ability fires on its first On score of a Turn (Power +1 until end
+## of turn, the use a KIND_USED Board change), a second On score that Turn fizzles `spent`
+## with no TRIGGER_FIRED and no stats change, and after turn end it fires again.
+func test_a_once_per_turn_ability_fires_once_per_turn_and_again_next_turn() -> void:
+	var cards: MatchCards = _cards()
+	var card: int = 0
+	_limited(cards, card, 1, Abilities.SCOPE_TURN)
+	var state: MatchState = StubAbilities.table(_typed([card]), true)
+	assert_int(Scoring.uses_left(card, state, cards)).is_equal(1)
+	var first: StubAbilities.Recorder = StubAbilities.recorder()
+	assert_bool(_fire(state, cards, "on_score", _typed([card]), first)).is_false()
+	assert_array(first.cards_of(FIRED)).is_equal(_typed([card]))
+	assert_int(first.of_kind(STATS).size()).is_equal(1)
+	assert_int(_power(state, cards, card)).is_equal(2)
+	assert_int(Scoring.uses_left(card, state, cards)).is_equal(0)
+	var second: StubAbilities.Recorder = StubAbilities.recorder()
+	assert_bool(_fire(state, cards, "on_score", _typed([card]), second)).is_false()
+	assert_array(second.of_kind(FIRED)).is_empty()
+	assert_array(second.of_kind(STATS)).is_empty()
+	assert_array(_reasons(second)).is_equal([Abilities.REASON_SPENT])
+	assert_int(_power(state, cards, card)).is_equal(2)
+	Abilities.end_turn_changes(state)
+	assert_int(_power(state, cards, card)).is_equal(1)
+	assert_int(Scoring.uses_left(card, state, cards)).is_equal(1)
+	var next: StubAbilities.Recorder = StubAbilities.recorder()
+	assert_bool(_fire(state, cards, "on_score", _typed([card]), next)).is_false()
+	assert_array(next.cards_of(FIRED)).is_equal(_typed([card]))
+	assert_array(next.of_kind(FIZZLED)).is_empty()
+	assert_int(_power(state, cards, card)).is_equal(2)
+
+
+## `uses` 2 for the match counts down in Memory (`uses_left`): two fires, then `spent`, and
+## turn end gives none back.
+func test_a_match_scoped_ability_counts_down_in_memory_and_stays_spent() -> void:
+	var cards: MatchCards = _cards()
+	var card: int = 0
+	_limited(cards, card, 2, Abilities.SCOPE_MATCH)
+	var state: MatchState = StubAbilities.table(_typed([card]), true)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	for _score: int in range(3):
+		assert_bool(_fire(state, cards, "on_score", _typed([card]), rec)).is_false()
+	assert_int(rec.of_kind(FIRED).size()).is_equal(2)
+	assert_array(_reasons(rec)).is_equal([Abilities.REASON_SPENT])
+	assert_int(state.memory_of(card).uses_left).is_equal(0)
+	Abilities.end_turn_changes(state)
+	var later: StubAbilities.Recorder = StubAbilities.recorder()
+	assert_bool(_fire(state, cards, "on_score", _typed([card]), later)).is_false()
+	assert_array(later.of_kind(FIRED)).is_empty()
+	assert_array(_reasons(later)).is_equal([Abilities.REASON_SPENT])
+
+
+## R7: every ability of the shipped pool has `uses` 0 (unlimited), so enforcing uses
+## changes no shipped card.
+func test_no_shipped_card_ability_has_limited_uses() -> void:
+	for def: CardDef in _db().cards():
+		for ability: CardAbility in def.abilities:
+			assert_int(ability.uses).override_failure_message(def.id).is_equal(0)
+
+
 # --- Random bots over the look-at and choice cards ------------------------------------
 
 

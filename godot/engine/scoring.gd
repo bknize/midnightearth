@@ -179,20 +179,16 @@ static func is_grown(card: int, state: MatchState) -> bool:
 	return kept != null and not kept.is_empty()
 
 
-## The uses `card`'s first limited ability has left, as a view shows them: -1 when none of
-## its abilities is limited, the ability's `uses` until the Memory has read them, then the
-## Memory's `uses_left`.
+## The uses `card`'s first limited ability has left in its scope, as a view shows them: -1
+## when none of its abilities is limited, else Abilities.card_uses_left() (its `uses` until
+## the first is counted).
 static func uses_left(card: int, state: MatchState, cards: MatchCards) -> int:
 	var def: CardDef = cards.def_of(card) if cards != null else null
 	if def == null:
 		return -1
 	for ability: CardAbility in def.abilities:
-		if ability.uses <= 0:
-			continue
-		var kept: CardMemory = state.memory_of(card)
-		if kept == null or kept.uses_left < 0:
-			return ability.uses
-		return kept.uses_left
+		if ability.uses > 0:
+			return Abilities.card_uses_left(state, card, ability)
 	return -1
 
 
