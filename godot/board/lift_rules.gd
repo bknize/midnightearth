@@ -35,7 +35,11 @@ static func step_touches(
 		BoardStep.Kind.PULSE:
 			# Your own card's pulse; an opponent's card only on a re-pulse (`again`), since its
 			# first reveal never touches a card being read (DC-04) (R37).
-			return held_id >= 0 and step.card == held_id and (step.seat == 0 or step.again)
+			return (
+				held_id >= 0
+				and step.card == held_id
+				and (step.seat == BoardSteps.OWN_SIDE or step.again)
+			)
 		BoardStep.Kind.EFFECT, BoardStep.Kind.FIZZLE:
 			# A public hand trigger pulses the viewer's own hand card (C14).
 			return step.from_hand and held_id >= 0 and step.card == held_id
@@ -55,7 +59,7 @@ static func step_touches(
 		BoardStep.Kind.PLAYER_COMMIT:
 			# The commit moves a held hand card and flips a held staged card on the row.
 			var on_table: bool = held_place == Place.HAND or held_place == Place.ROW
-			if step.seat != 0 or not on_table or step.source == null:
+			if step.seat != BoardSteps.OWN_SIDE or not on_table or step.source == null:
 				return false
 			var raw: Array = step.source.payload["cards"]
 			var ids: Array[int] = []
@@ -69,6 +73,6 @@ static func step_touches(
 static func _moves_row_of(step: BoardStep, held_id: int, held_place: Place) -> bool:
 	if held_id >= 0 and (step.card == held_id or step.cards.has(held_id)):
 		return true
-	if step.seat == 0:
+	if step.seat == BoardSteps.OWN_SIDE:
 		return held_place == Place.ROW
 	return held_place == Place.OPPONENT_ROW

@@ -26,6 +26,9 @@ var match_cards: MatchCards = null
 ## Returns seat 0's current SeatView (cycle 8 P16): the hand faces read their effective cost
 ## and memory from it. Unset, faces show the printed card.
 var view_source: Callable = Callable()
+## The engine seat the local player holds. Steps carry table seats (0 = the player's side);
+## only a seat read from a raw event needs this to be turned into one.
+var viewer: int = 0
 ## The Pile strip (a Pile prompt or a tap on a Pile count); null while there is none.
 var strip: CardCollection3D = null
 ## The board's zone-glow material, copied per card for CHOICE_SHOW (and T12's prompts).
@@ -39,7 +42,7 @@ var face_down_ids: Dictionary[int, bool] = {}
 
 ## The card a pulse step is about, once pulse() has run (the chips go above it), or null.
 func card_for(step: BoardStep) -> BoardCard:
-	if step.seat == 0:
+	if step.seat == BoardSteps.OWN_SIDE:
 		return _player_card(step.card)
 	return _find_in_row(step.seat, step.card, step.slot)
 
@@ -55,7 +58,7 @@ func pulse(step: BoardStep) -> void:
 	# The flip keeps the reveal's own time; a scoring reveal's step is longer only so its
 	# chips can follow the flip (chip_delay, R31).
 	var flip_time: float = step.chip_delay if step.chip_delay > 0.0 else step.duration
-	if step.seat == 0:
+	if step.seat == BoardSteps.OWN_SIDE:
 		var own: BoardCard = _player_card(step.card)
 		if own == null:
 			return
@@ -169,7 +172,7 @@ func exit_card(step: BoardStep) -> void:
 			var hand: CardCollection3D = _hand_of(step.seat)
 			move_card(card, _row_of(row_seat), hand, step.duration)
 			_hide_if_opponent(card, step.seat, step.duration)
-			if step.seat == 0:
+			if step.seat == BoardSteps.OWN_SIDE:
 				# Home again: a card the opponent held on its row is the player's once more.
 				_forget_flags(step.card)
 				player_cards[step.card] = card
@@ -177,7 +180,7 @@ func exit_card(step: BoardStep) -> void:
 				_forget(step.card)
 		"face_down":
 			flip_down(card, step.duration)
-			if row_seat == 0:
+			if row_seat == BoardSteps.OWN_SIDE:
 				face_down_ids[step.card] = true
 			else:
 				_hide_if_opponent(card, 1, step.duration)
@@ -192,7 +195,7 @@ func _exit_hidden(step: BoardStep) -> void:
 		return
 	var row_seat: int = step.from_seat
 	if row_seat < 0 and step.source != null:
-		row_seat = step.source.owner_seat
+		row_seat = BoardSteps.table_seat(step.source.owner_seat, viewer)
 	if row_seat != 1:
 		return
 	var card: BoardCard = _opponent_card_at(step.slot)  # The slot, else the first back.
@@ -226,7 +229,7 @@ func control(step: BoardStep) -> void:
 		push_warning("Board: a control change found no card %d to move" % step.card)
 		return
 	move_card(card, _row_of(step.from_seat), _row_of(step.seat), step.duration, step.slot)
-	if step.seat == 0:
+	if step.seat == BoardSteps.OWN_SIDE:
 		player_cards[step.card] = card
 		committed_ids[step.card] = true
 	else:
@@ -238,7 +241,9 @@ func row_entry(seat: int, id: int) -> Dictionary:
 	var view: SeatView = _view()
 	if view == null:
 		return {}
-	return BoardCard.entry_in(view.own_row if seat == 0 else view.opponent_row, id)
+	return BoardCard.entry_in(
+		view.own_row if seat == BoardSteps.OWN_SIDE else view.opponent_row, id
+	)
 
 
 ## Marks the opponent's face-down cards the viewer has looked at (SeatView.looked: row slot to
@@ -333,7 +338,7 @@ func unreveal(step: BoardStep) -> void:
 	if card == null:
 		push_warning("Board: an unreveal found no card on seat %d's row" % step.seat)
 		return
-	if step.seat == 0:
+	if step.seat == BoardSteps.OWN_SIDE:
 		flip_down(card, step.duration)
 		face_down_ids[step.card] = true
 		return
@@ -349,7 +354,7 @@ func return_card(step: BoardStep) -> void:
 		return
 	var hand: CardCollection3D = _hand_of(step.seat)
 	move_card(card, _row_of(row_seat), hand, step.duration)
-	if step.seat == 0:
+	if step.seat == BoardSteps.OWN_SIDE:
 		_forget_flags(card.instance_id)
 		return
 	# The opponent's copy is a back again; forget which card it was.
@@ -368,7 +373,7 @@ func discard(step: BoardStep) -> void:
 		return
 	var hand: CardCollection3D = _hand_of(step.seat)
 	var card: BoardCard = null
-	if step.seat == 0:
+	if step.seat == BoardSteps.OWN_SIDE:
 		card = _player_card(step.card)
 	elif not hand.cards.is_empty():
 		card = hand.cards[hand.cards.size() - 1] as BoardCard
@@ -404,11 +409,11 @@ func _glow_choice(step: BoardStep, index: int) -> void:
 
 
 func _row_of(seat: int) -> CardCollection3D:
-	return player_row if seat == 0 else opponent_row
+	return player_row if seat == BoardSteps.OWN_SIDE else opponent_row
 
 
 func _hand_of(seat: int) -> CardCollection3D:
-	return player_hand if seat == 0 else opponent_hand
+	return player_hand if seat == BoardSteps.OWN_SIDE else opponent_hand
 
 
 ## Seat 0's card with this instance id, or null.
@@ -450,7 +455,7 @@ func _find_on_any_row(id: int) -> BoardCard:
 
 ## The opponent's copy is a back again: forget which card it was once the move ends.
 func _hide_if_opponent(card: BoardCard, seat: int, duration: float) -> void:
-	if seat == 0:
+	if seat == BoardSteps.OWN_SIDE:
 		return
 	card.instance_id = -1
 	flip_down(card, duration)

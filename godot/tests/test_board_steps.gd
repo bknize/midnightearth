@@ -8,33 +8,39 @@ const EPSILON: float = 0.0001
 
 
 func _scored(card: int, total: int, bonus_value: int = 10000, pass_number: int = 1) -> MatchEvent:
-	return BoardEvents.make(
-		"CARD_SCORED",
-		{
-			"seat": 0,
-			"card": card,
-			"slot": 1,
-			"power": 4,
-			"bonus_value": bonus_value,
-			"total": total,
-			"pass": pass_number,
-		}
+	return (
+		BoardEvents
+		. make(
+			"CARD_SCORED",
+			{
+				"seat": 0,
+				"card": card,
+				"slot": 1,
+				"power": 4,
+				"bonus_value": bonus_value,
+				"total": total,
+				"pass": pass_number,
+			}
+		)
 	)
 
 
 func _revealed(card: int, seat: int = 0) -> MatchEvent:
-	return BoardEvents.make(
-		"CARD_REVEALED",
-		{
-			"seat": seat,
-			"card": card,
-			"slot": 1,
-			"power": 4,
-			"mult": 125,
-			"add": 0,
-			"statuses": ["muted"],
-			"order": 0,
-		}
+	return (
+		BoardEvents
+		. make(
+			"CARD_REVEALED",
+			{
+				"seat": seat,
+				"card": card,
+				"slot": 1,
+				"power": 4,
+				"mult": 125,
+				"add": 0,
+				"statuses": ["muted"],
+				"order": 0,
+			}
+		)
 	)
 
 
@@ -157,23 +163,26 @@ func test_energy_granted_yields_an_energy_grant_step() -> void:
 
 
 func _prompt(seat: int, exact: int) -> MatchEvent:
-	return BoardEvents.make(
-		"PROMPT_OPENED",
-		{
-			"seat": seat,
-			"card": -1,
-			"crew": "",
-			"verb": "discard_down",
-			"zone": "own_hand",
-			"options": [0, 1, 2],
-			"multi": true,
-			"exact": exact,
-			"min": 0,
-			"optional": false,
-			"resume": "commit",
-			"step": "D4",
-			"text": "Discard 2",
-		}
+	return (
+		BoardEvents
+		. make(
+			"PROMPT_OPENED",
+			{
+				"seat": seat,
+				"card": -1,
+				"crew": "",
+				"verb": "discard_down",
+				"zone": "own_hand",
+				"options": [0, 1, 2],
+				"multi": true,
+				"exact": exact,
+				"min": 0,
+				"optional": false,
+				"resume": "commit",
+				"step": "D4",
+				"text": "Discard 2",
+			}
+		)
 	)
 
 
@@ -237,17 +246,20 @@ func test_a_trigger_fired_lifts_the_card_and_a_crew_trigger_has_no_step() -> voi
 ## C14: a public hand trigger. The opponent's (seat 1) yields the TELEGRAPH step naming the
 ## card; the viewer's own yields the EFFECT pulse in its fan (`from_hand`).
 func test_a_public_hand_trigger_telegraphs_the_opponents_card_and_pulses_your_own() -> void:
-	var theirs: MatchEvent = BoardEvents.make(
-		"TRIGGER_FIRED",
-		{
-			"seat": 1,
-			"card": 47,
-			"crew": "",
-			"moment": "on_commit",
-			"verb": "cost_down_self",
-			"resolution": 1,
-			"from_hand": true,
-		}
+	var theirs: MatchEvent = (
+		BoardEvents
+		. make(
+			"TRIGGER_FIRED",
+			{
+				"seat": 1,
+				"card": 47,
+				"crew": "",
+				"moment": "on_commit",
+				"verb": "cost_down_self",
+				"resolution": 1,
+				"from_hand": true,
+			}
+		)
 	)
 	var telegraph: BoardStep = BoardEvents.one(theirs.redacted_for(0))
 	assert_int(telegraph.kind).is_equal(BoardStep.Kind.TELEGRAPH)
@@ -255,17 +267,20 @@ func test_a_public_hand_trigger_telegraphs_the_opponents_card_and_pulses_your_ow
 	assert_int(telegraph.seat).is_equal(1)
 	assert_str(telegraph.verb).is_equal("cost_down_self")
 	assert_float(telegraph.duration).is_equal_approx(BoardSteps.TELEGRAPH_TIME, EPSILON)
-	var own: MatchEvent = BoardEvents.make(
-		"TRIGGER_FIRED",
-		{
-			"seat": 0,
-			"card": 7,
-			"crew": "",
-			"moment": "on_commit",
-			"verb": "cost_down_self",
-			"resolution": 1,
-			"from_hand": true,
-		}
+	var own: MatchEvent = (
+		BoardEvents
+		. make(
+			"TRIGGER_FIRED",
+			{
+				"seat": 0,
+				"card": 7,
+				"crew": "",
+				"moment": "on_commit",
+				"verb": "cost_down_self",
+				"resolution": 1,
+				"from_hand": true,
+			}
+		)
 	)
 	var pulse: BoardStep = BoardEvents.one(own)
 	assert_int(pulse.kind).is_equal(BoardStep.Kind.EFFECT)
@@ -394,3 +409,90 @@ func test_a_private_card_looked_is_a_look_step_for_the_looking_seat_only() -> vo
 	assert_int(mine.from_seat).is_equal(1)
 	var looked: Array[MatchEvent] = [event]
 	assert_int(BoardEvents.steps(looked, 1.0, 1).size()).is_equal(0)
+
+
+# --- The viewer's table seats (cycle 12 P6): viewer 1 sees itself as seat 0 -----------------
+
+
+func test_table_seat_turns_an_engine_seat_into_the_viewers_side() -> void:
+	assert_int(BoardSteps.table_seat(0, 0)).is_equal(0)
+	assert_int(BoardSteps.table_seat(1, 0)).is_equal(1)
+	assert_int(BoardSteps.table_seat(0, 1)).is_equal(1)
+	assert_int(BoardSteps.table_seat(1, 1)).is_equal(0)
+	assert_int(BoardSteps.table_seat(-1, 1)).is_equal(-1)
+
+
+func test_by_table_seat_swaps_a_seat_indexed_pair_for_viewer_1() -> void:
+	var pair: Array[int] = [4, 16]
+	assert_array(BoardSteps.by_table_seat(pair, 0)).is_equal([4, 16])
+	assert_array(BoardSteps.by_table_seat(pair, 1)).is_equal([16, 4])
+
+
+func test_a_grant_to_the_viewers_own_seat_is_table_seat_0() -> void:
+	var event: MatchEvent = BoardEvents.make("ENERGY_GRANTED", {"seat": 1, "amount": 2})
+	assert_int(BoardEvents.one(event, 1.0, 0).seat).is_equal(1)
+	assert_int(BoardEvents.one(event, 1.0, 1).seat).is_equal(0)
+
+
+func test_walk_ended_is_re_indexed_for_viewer_1() -> void:
+	var event: MatchEvent = BoardEvents.make(
+		"WALK_ENDED", {"totals": [43750, 160000], "scores": [4, 16], "dross": [1, 0]}
+	)
+	var step: BoardStep = BoardEvents.one(event, 1.0, 1)
+	assert_array(step.totals).is_equal([160000, 43750])
+	assert_array(step.scores).is_equal([16, 4])
+	assert_array(step.dross).is_equal([0, 1])
+
+
+func test_turn_and_match_ends_name_the_winner_by_table_seat_for_viewer_1() -> void:
+	var turn: MatchEvent = BoardEvents.make(
+		"TURN_ENDED", {"scores": [4, 16], "winner": 1, "wins": [0, 1]}
+	)
+	var turn_step: BoardStep = BoardEvents.one(turn, 1.0, 1)
+	assert_int(turn_step.seat).is_equal(0)
+	assert_array(turn_step.scores).is_equal([16, 4])
+	assert_array(turn_step.wins).is_equal([1, 0])
+	var done: MatchEvent = BoardEvents.make(
+		"MATCH_ENDED", {"winner": 0, "wins": [4, 3], "reason": "wins", "rounds_played": 7}
+	)
+	var done_step: BoardStep = BoardEvents.one(done, 1.0, 1)
+	assert_int(done_step.seat).is_equal(1)
+	assert_array(done_step.wins).is_equal([3, 4])
+
+
+func test_a_tie_stays_a_tie_for_viewer_1() -> void:
+	var event: MatchEvent = BoardEvents.make(
+		"TURN_ENDED", {"scores": [5, 5], "winner": -1, "wins": [0, 0]}
+	)
+	assert_int(BoardEvents.one(event, 1.0, 1).seat).is_equal(-1)
+
+
+func test_viewer_1s_commit_is_the_player_commit_and_seat_0s_is_the_opponents() -> void:
+	var own: MatchEvent = BoardEvents.make(
+		"COMMITTED", {"seat": 1, "cards": [3, 4], "slots": [0, 1], "cost": 2, "pass": false}, 1
+	)
+	var own_events: Array[MatchEvent] = [own]
+	var own_steps: Array[BoardStep] = BoardEvents.steps(own_events, 1.0, 1)
+	assert_int(own_steps.size()).is_equal(1)
+	assert_int(own_steps[0].kind).is_equal(BoardStep.Kind.PLAYER_COMMIT)
+	assert_int(own_steps[0].seat).is_equal(0)
+	var theirs: MatchEvent = BoardEvents.make(
+		"COMMITTED", {"seat": 0, "cards": [-1, -1], "slots": [0, 1], "cost": 2, "pass": false}, 0
+	)
+	var their_events: Array[MatchEvent] = [theirs]
+	var their_steps: Array[BoardStep] = BoardEvents.steps(their_events, 1.0, 1)
+	assert_int(their_steps.size()).is_equal(2)
+	assert_int(their_steps[1].kind).is_equal(BoardStep.Kind.OPPONENT_COMMIT)
+	assert_int(their_steps[1].seat).is_equal(1)
+
+
+func test_only_the_viewers_own_prompt_opens_and_it_sits_on_table_seat_0() -> void:
+	var event: MatchEvent = BoardEvents.make(
+		"PROMPT_OPENED", {"seat": 1, "card": 5, "verb": "quorum", "zone": "own_board"}
+	)
+	var events: Array[MatchEvent] = [event]
+	assert_array(BoardEvents.steps(events, 1.0, 0)).is_empty()
+	var steps: Array[BoardStep] = BoardEvents.steps(events, 1.0, 1)
+	assert_int(steps.size()).is_equal(1)
+	assert_int(steps[0].kind).is_equal(BoardStep.Kind.PROMPT)
+	assert_int(steps[0].seat).is_equal(0)

@@ -48,3 +48,27 @@ func test_a_refused_pick_changes_nothing() -> void:
 	assert_bool(state.pick(0, "nope")).is_false()
 	assert_bool(state.pick(2, "ruin")).is_false()
 	assert_array(state.deck_ids()).contains_exactly(["ruin", "drift"])
+
+
+func test_default_is_two_columns() -> void:
+	var state: DeckPickState = _state([])
+	assert_int(state.column_count()).is_equal(2)
+
+
+func test_one_column_starts_with_one_pick() -> void:
+	var state: DeckPickState = DeckPickState.new()
+	var available: Array[String] = ["ruin", "drift"]
+	state.setup(available, [], 1)
+	assert_int(state.column_count()).is_equal(1)
+	assert_bool(state.can_start()).is_false()
+	assert_bool(state.pick(0, "ruin")).is_true()
+	assert_bool(state.can_start()).is_true()
+	assert_array(state.deck_ids()).contains_exactly(["ruin"])
+
+
+func test_one_column_refuses_a_second_column() -> void:
+	var state: DeckPickState = DeckPickState.new()
+	var available: Array[String] = ["ruin", "drift"]
+	state.setup(available, ["drift", "ruin"], 1)
+	assert_bool(state.pick(1, "ruin")).is_false()
+	assert_array(state.deck_ids()).contains_exactly(["drift"])

@@ -12,6 +12,8 @@ const COLUMN_TITLES: Array[String] = ["You", "Bot"]
 const TILE_MIN_WIDTH: float = 240.0
 
 var _state: DeckPickState = DeckPickState.new()
+var _columns_count: int = DeckPickState.COLUMNS
+var _titles: Array[String] = COLUMN_TITLES
 var _decks: DeckList = null
 ## Tile buttons by column, then in deck order.
 var _tiles: Array[Array] = [[], []]
@@ -27,14 +29,27 @@ func _ready() -> void:
 
 
 ## Builds the tiles for `decks` and preselects `preselected` (You, Bot). Call once, with the
-## picker in the tree.
-func setup(decks: DeckList, preselected: Array[String]) -> void:
+## picker in the tree. `columns` defaults to the two PVE columns; PVP passes one column, its
+## title ("Your deck") and its start label ("Host" or "Join"). A missing title falls back to
+## "Deck".
+func setup(
+	decks: DeckList,
+	preselected: Array[String],
+	columns: int = DeckPickState.COLUMNS,
+	titles: Array[String] = COLUMN_TITLES,
+	start_label: String = "Start"
+) -> void:
 	_decks = decks
-	_state.setup(decks.ids(), preselected)
+	_columns_count = maxi(columns, 1)
+	_titles = titles
+	_start_button.text = start_label
+	_state.setup(decks.ids(), preselected, _columns_count)
 	for child: Node in _columns.get_children():
 		child.queue_free()
-	_tiles = [[], []]
-	for column: int in range(DeckPickState.COLUMNS):
+	_tiles = []
+	for _i: int in range(_columns_count):
+		_tiles.append([])
+	for column: int in range(_columns_count):
 		_build_column(column)
 	_refresh()
 
@@ -51,11 +66,12 @@ func current_picks() -> Array[String]:
 
 func _build_column(column: int) -> void:
 	var box: VBoxContainer = VBoxContainer.new()
-	box.name = COLUMN_TITLES[column]
+	var column_title: String = _titles[column] if column < _titles.size() else "Deck"
+	box.name = column_title
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_theme_constant_override("separation", 12)
 	var title: Label = Label.new()
-	title.text = COLUMN_TITLES[column]
+	title.text = column_title
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 32)
 	box.add_child(title)
@@ -88,7 +104,7 @@ func _on_tile_pressed(column: int, deck_id: String) -> void:
 ## Marks each column's picked tile and enables Start.
 func _refresh() -> void:
 	var ids: Array[String] = _decks.ids()
-	for column: int in range(DeckPickState.COLUMNS):
+	for column: int in range(_columns_count):
 		var column_tiles: Array = _tiles[column]
 		for i: int in range(column_tiles.size()):
 			var tile: Button = column_tiles[i]

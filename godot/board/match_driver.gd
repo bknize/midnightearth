@@ -1,12 +1,15 @@
+# gdlint: ignore=max-public-methods
 class_name MatchDriver
-extends RefCounted
-## Owns one match for the board (R2, R5, R6): the card data, the engine, the bots, the seed,
-## both deck ids (DC-07 P14) and the MATCH_ENDED payload. Seat 1 is always the named bot
-## (BotRegistry); seat 0 is too under autoplay.
+extends MatchSource
+## The local MatchSource (cycle 12 P5), owning one match for the board (R2, R5, R6): the card
+## data, the engine, the bots, the seed, both deck ids (DC-07 P14) and the MATCH_ENDED payload.
+## Seat 1 is always the named bot (BotRegistry); seat 0 is too under autoplay.
 ##
 ## Bots are seeded BotRegistry.seed_for(seed, seat), exactly as main.gd's smoke run, so the
 ## seed-1 autoplay match is the smoke match under the same bot. Only seat 0's redacted
 ## events leave the driver (R6); only the bots read another seat's view, and only their own.
+## The board plays against it through the MatchSource calls; the older apply-style calls
+## (begin, submit_player, apply_choice, apply_set, play_bot, last_events) stay for the suites.
 
 ## The human's seat.
 const PLAYER_SEAT: int = 0
@@ -23,7 +26,6 @@ var autoplay: bool:
 
 var _seed: int = 0
 var _autoplay: bool = false
-var _cards: CardDb = null
 var _engine: MatchEngine = null
 ## One entry per seat; null for a seat a human drives.
 var _bots: Array[BotPlayer] = []
@@ -53,9 +55,9 @@ static func create(
 ) -> MatchDriver:
 	var driver: MatchDriver = MatchDriver.new()
 	driver._seed = p_seed
+	driver.player_seat = PLAYER_SEAT
 	driver._autoplay = p_autoplay
 	driver._bot_name = p_bot_name
-	driver._cards = cards
 	driver._engine = MatchEngine.create(p_seed, cards, decks, ids, crew)
 	var defs: MatchCards = driver._engine.match_cards()
 	for seat: int in MatchEngine.SEATS:
@@ -67,11 +69,6 @@ static func create(
 			return null
 		driver._bots.append(bot)
 	return driver
-
-
-## The card pool the match was created with.
-func card_db() -> CardDb:
-	return _cards
 
 
 ## The match's definitions by instance id (DC-07 P3): read a card through its origin's
@@ -88,10 +85,60 @@ func deck_ids() -> Array[String]:
 
 ## Starts the engine and returns seat 0's redacted events. Empty if the start was rejected
 ## (failed card data, or already started).
-func start() -> Array[MatchEvent]:
+func begin() -> Array[MatchEvent]:
 	var result: ApplyResult = _engine.start()
 	_take(result)
 	return _last_events
+
+
+## MatchSource: starts the match and emits seat 0's opening events (none if the start was
+## rejected).
+func start() -> void:
+	var opening: Array[MatchEvent] = begin()
+	if not opening.is_empty():
+		events_ready.emit(opening)
+
+
+## MatchSource: applies the player's action; `events_ready` carries its events, or
+## `action_rejected` its error. A bot's reply is not played here: the board asks advance().
+func submit(action: EngineAction) -> void:
+	var result: ApplyResult = submit_player(action)
+	if not result.ok:
+		action_rejected.emit(result.error)
+		return
+	events_ready.emit(_last_events)
+
+
+## MatchSource: answers the open prompt through submit().
+func submit_choice(zone: int, index: int) -> void:
+	submit(EngineAction.choose(PLAYER_SEAT, zone, index))
+
+
+## MatchSource: answers the open multi-select prompt through submit().
+func submit_set(zone: int, indices: Array[int]) -> void:
+	submit(EngineAction.choose_set(PLAYER_SEAT, zone, indices))
+
+
+## MatchSource: declines the open optional prompt through submit().
+func submit_decline() -> void:
+	submit(EngineAction.decline(PLAYER_SEAT))
+
+
+## MatchSource: plays the next due bot action and emits its events. False when no bot is due,
+## or when the engine rejected the bot's action (reported with push_error).
+func advance() -> bool:
+	if not bot_turn_due():
+		return false
+	var result: ApplyResult = play_bot()
+	if not result.ok:
+		push_error("Board: the bot's action was rejected (code %d)" % result.error)
+		return false
+	events_ready.emit(_last_events)
+	return true
+
+
+func allows_rematch() -> bool:
+	return true
 
 
 ## Applies a seat-0 action. The caller reads `events_for(0)` of the result, or
@@ -105,7 +152,7 @@ func submit_player(action: EngineAction) -> ApplyResult:
 ## Answers seat 0's open prompt with option `index` of `zone` (a `Choice.Zone` value), as
 ## the plan's CHOOSE action (P3, P19). Rejected like any action when no prompt is open for
 ## seat 0 or the option is not eligible; the caller reads `events_for(0)` of the result.
-func submit_choice(zone: int, index: int) -> ApplyResult:
+func apply_choice(zone: int, index: int) -> ApplyResult:
 	return submit_player(EngineAction.choose(PLAYER_SEAT, zone, index))
 
 
@@ -114,19 +161,13 @@ func submit_choice(zone: int, index: int) -> ApplyResult:
 ## Rejected like any action: NO_PROMPT with no prompt open, NOT_ELIGIBLE for a single-target
 ## prompt, BAD_SET for a repeated or non-offered index; the caller reads `events_for(0)` of
 ## the result.
-func submit_set(zone: int, indices: Array[int]) -> ApplyResult:
+func apply_set(zone: int, indices: Array[int]) -> ApplyResult:
 	return submit_player(EngineAction.choose_set(PLAYER_SEAT, zone, indices))
-
-
-## Declines seat 0's open optional prompt (cycle 8 R52, P10): the Skip button. Rejected like
-## any action when no prompt is open or the prompt is not optional.
-func submit_decline() -> ApplyResult:
-	return submit_player(EngineAction.decline(PLAYER_SEAT))
 
 
 ## Seat 0's open prompt (`{seat, card, verb, zone, options, multi}`), or `{}` when none is
 ## open for seat 0. Options are positions in the zone, never hidden ids (R34); `multi` is
-## true when the prompt takes a set (submit_set) rather than one position (submit_choice).
+## true when the prompt takes a set (apply_set) rather than one position (apply_choice).
 func open_prompt() -> Dictionary:
 	var prompt: Dictionary = _engine.open_prompt()
 	if prompt.is_empty():
