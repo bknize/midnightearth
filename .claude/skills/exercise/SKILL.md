@@ -29,9 +29,10 @@ Read `CLAUDE.md` first. Requires the Linear MCP (connected in this repo's `.mcp.
 2. **Project.** `save_project` with the spec's title, team `NSC`, lead `me`, `state`
    `planned`, description = the spec's Intent paragraph, then a `## Spec` section with:
    `obsidian://adv-uri?vault=docs&uid=<spec uid>` and the GitHub blob URLs for spec, plan
-   and tasks on the cycle branch (`blob/<slug>/docs/specs/<slug>/…`). Add `links` for
-   spec.md and tasks.md. Every GitHub link this skill writes points at the cycle branch;
-   `/cycle test` rewrites them to `master` after the merge.
+   and tasks on `master` (`blob/master/docs/specs/<slug>/…`). Add `links` for spec.md and
+   tasks.md. Every GitHub link this skill writes points at `master` and resolves once
+   `/cycle test` has merged the cycle and Ben has pushed; until then the vault link is the
+   live one (ADR 0006).
 3. **Issues.** For each task row, `save_issue` with:
    - title `Tnn <task>` (two-digit nn),
    - team `NSC`, project from step 2, labels from step 1,
@@ -46,10 +47,8 @@ Read `CLAUDE.md` first. Requires the Linear MCP (connected in this repo's `.mcp.
    `## Linear (exercised <date>)` section to tasks.md with the project link and the
    row → identifier mapping. Do not commit unless Ben asks; when he does, commit on the
    cycle branch as `exercise: <slug>`. Do not merge.
-5. **Push question.** The GitHub links resolve only once the cycle branch is on GitHub.
-   Ask Ben whether to push it (`git push -u origin <slug>`); never push unasked.
-6. **Report** in a short table: issue identifier, title, blockers. Say the next verb is
-   `/cycle plan DC-NN` and that the project is in `planned` until a cycle picks it up.
+5. **Report** in a short table: issue identifier, title, blockers. Say the next verb is
+   `/cycle plan DC-NN`, in a new session (ADR 0006), and that the project is in `planned` until a cycle picks it up.
 
 ## Rules
 

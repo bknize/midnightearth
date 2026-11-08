@@ -7,7 +7,7 @@ description: >
   change a rule, scene, shader, tool, skill or convention in Midnight Earth. Prevents
   agent drift by capturing intent, constraints (in EARS) and done-criteria up front
   instead of generating from a vague prompt.
-allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, WebSearch, Agent, SendMessage]
+allowed-tools: [Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch]
 license: MIT
 ---
 
@@ -20,32 +20,26 @@ cycle lifecycle: `/spec <slug>` then `/exercise <slug>` then `/cycle plan|run|te
 
 ## Who runs it
 
-Two roles split this skill (`CLAUDE.md`, Roles):
+**The session Ben invoked `/spec` in, on Fable 5.1** (`CLAUDE.md`, Roles; ADR 0006). It
+does every step itself, step 0 to the commit, with no subagent and no relay: a subagent's
+cache lasts 5 minutes, so each answer Ben took longer over rewrote its whole Fable context.
 
-- **The orchestrator** (the session Ben invoked `/spec` in) does step 0, dispatches the
-  interrogator, relays every message between it and Ben, and commits after sign-off. It
-  does not interview, write the notes or answer for Ben.
-- **The interrogator** (`.claude/agents/interrogator.md`, Fable) does steps 1 to 7.2 and
-  the link audit: it reads the context, asks the rounds, writes spec, plan and tasks,
-  and sets `status: approved` on sign-off.
+Start of every `/spec`, before reading anything else: if this session is not on Fable 5.1,
+stop and ask Ben to start a new session on Fable 5.1 and run `/spec` there. If this
+session already holds other work, ask for a new session too. Never interview on another
+model without Ben saying so.
 
-The relay, because a subagent cannot talk to Ben:
+Rules for the session while it runs this skill:
 
-1. After step 0, dispatch with `Agent`, `subagent_type` `interrogator`, no worktree
-   isolation (it writes in the main checkout on the cycle branch, so the vault shows
-   the notes). The prompt carries the slug, the change type, Ben's request in his own
-   words and anything this conversation already settled (with who settled it).
-2. The interrogator ends every message with a `ROUND n`, `SIGN-OFF` or `DONE` block
-   (see its agent file). Show Ben a `ROUND` or `SIGN-OFF` block word for word, as plain
-   text with no widget, adding at most one line of your own above it. Do not reword,
-   drop or answer its questions.
-3. Send Ben's reply back unchanged with `SendMessage` to the interrogator's agent id,
-   prefixed `Ben:`. A question of your own to the interrogator goes prefixed
-   `Orchestrator:`; never present it as Ben's. Never send a reply Ben did not give.
-4. On `DONE`, read the three notes before reporting: frontmatter complete, `status:
-   approved`, a task table ending in verification. Then step 7.3.
-5. If the interrogator cannot be dispatched or stops answering, tell Ben and ask whether
-   to run the interview in this session instead; do not switch silently.
+- Never write code, and never touch `godot/`, `scripts/` or `.claude/` under this skill.
+  Git is limited to step 0 and the commit in step 7.3. Linear and Godot wait for later verbs.
+- Never answer your own questions or assume an answer. End each round and wait for Ben.
+- Record every answer in the spec's Clarifications table with the date, quoting Ben's own
+  words when he wrote more than a letter.
+- Ground facts before asking: read the planning notes, the cycles log, existing specs and
+  the code you are specifying against. Check the archive at `../midnightearth-archive`
+  only for reusable patterns, never to port code.
+- You may append decisions to notes under `docs/planning/` or `docs/decisions/` when asked.
 
 ## Why this exists
 
@@ -90,7 +84,7 @@ Round 1 of the interview (3 questions)
 
 ## Workflow (specify -> clarify -> plan -> tasks -> analyze)
 
-### 0. Frame (orchestrator)
+### 0. Frame
 Pick the slug (kebab-case, e.g. `committed-reveal`; cycle-wide sets use
 `cycle-N-<theme>`) and the change type: `engine`, `scene`, `shader`, `tooling` or
 `vault`. All types land in `docs/specs/<slug>/`; the plan records which areas the work
@@ -102,7 +96,7 @@ named for the slug and is the cycle branch: it carries the spec, the `/exercise`
 write-back and the whole dev cycle, and merges into `master` only at `/cycle test`.
 `git switch -c <slug> master` from a clean `master` (or `git switch <slug>` when updating
 a set whose cycle has not merged yet). Every note this skill writes lands on that
-branch. Then dispatch the interrogator (Who runs it); steps 1 to 7.2 are its work.
+branch.
 
 ### 1. Interrogate
 Do NOT skip to drafting. Ask the batteries in `reference/interview-batteries.md`,
@@ -164,17 +158,22 @@ check and who does it: `implementer`, `implementer-engine` (anything under
 1. Write the three notes to `docs/specs/<slug>/spec.md`, `plan.md`, `tasks.md`, each
    with the P5 frontmatter (below). Generate a fresh `uid` per file with
    `uuidgen | tr A-Z a-z`. Set `created` and `updated` to today.
-2. Present a short summary and ask for Ben's sign-off (the interrogator's `SIGN-OFF`
-   block, relayed). On sign-off set `status: approved` on all three.
-3. **The skill stops at Ben's sign-off.** The orchestrator commits only when Ben says to, on the
+2. Present a short summary (what the cycle delivers, task count and waves, anything
+   notable in the plan, the three paths) and ask for Ben's sign-off. On sign-off set
+   `status: approved` on all three.
+3. **The skill stops at Ben's sign-off.** Commit only when Ben says to, on the
    `<slug>` branch cut in step 0, never on `master`: `git add docs/specs/<slug>`
    (plus the specs MOC row if you added one), `git commit -m "spec: <slug>"` with the
    Co-Authored-By line the session provides. Stay on the branch: `/exercise` runs on it
    next. Do not merge it; the cycle branch merges into `master` only at `/cycle test`
    (`docs/decisions/0002-one-branch-per-cycle.md`). Never push.
-4. Tell Ben the next verb is `/exercise <slug>`, which turns the tasks into Linear
-   issues. Implementation is a separate step.
-5. Final link audit (the interrogator, before `DONE`): if `obsidian-cli` is on PATH
+4. Tell Ben the next verb is `/exercise <slug>`, which turns the tasks into Linear issues,
+   and offer to start it. Implementation is a separate step. Once the spec is committed and
+   Ben says yes, start it with `mcp__ccd_session__start_session`: `initiation` `user_asked`,
+   `context` `fresh`, `model` `claude-opus-5-5`, `use_worktree` `false` (`/exercise` needs
+   this checkout on the cycle branch), with a prompt to run `/exercise <slug>` and background
+   naming the three notes. If the tool is refused or missing, ask Ben to start the session.
+5. Final link audit, before reporting: if `obsidian-cli` is on PATH
    (`command -v obsidian-cli`), run `obsidian-cli vault=docs unresolved` and
    `obsidian-cli vault=docs orphans` (the `vault=` flag goes before the command; skip
    `unresolved` if this CLI build lacks it) and fix any broken link in the three new

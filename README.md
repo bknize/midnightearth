@@ -69,7 +69,7 @@ subagents (`.claude/agents/`) to do the work, and is the only role that tests.
 | Role | Model | Does | Never |
 |---|---|---|---|
 | Orchestrator | Opus 5.5 (the session) | Plans cycles, cuts branches, dispatches implementers, commits and merges, runs `make check` and the Godot MCP, moves Linear issues | Hands testing to a subagent |
-| Interrogator | Fable 5.1 | Interviews Ben, writes `spec.md`, `plan.md`, `tasks.md` | Writes code |
+| Interrogator | Fable 5.1 (its own session) | Interviews Ben, writes `spec.md`, `plan.md`, `tasks.md` | Writes code |
 | Implementer | Sonnet 5.5 (`implementer-engine`: Opus 5.5 for `godot/engine/`) | Implements one Linear issue in its own worktree | Runs Godot, the game or `make check` |
 | Reviewer | Sonnet 5.5 | Ranks findings on a diff before the gate | Edits |
 
@@ -80,7 +80,7 @@ done only when it is buildable and testable.
 
 ### The interrogator pattern
 
-Before anything is built, `/spec <slug>` hands the feature to the interrogator. It reads
+Before anything is built, `/spec <slug>` opens a Fable session as the interrogator. It reads
 the planning notes and existing specs, then questions Ben in short rounds of numbered
 plain-text questions with lettered options, its recommendation first and costed where
 options differ. It stops asking once answers stop changing the design, then writes:

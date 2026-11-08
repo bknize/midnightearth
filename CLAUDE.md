@@ -18,7 +18,7 @@ R1–R9). This file is the short version every agent must obey.
 | `godot/tests/` | gdUnit4 suites | One suite per engine module |
 | `godot/art/` | Approved art (`/art approve`) | Git LFS; every image has an entry in `art/manifest.json` (ADR 0003) |
 | `art/` | `manifest.json` (tracked); `candidates/` and `ledger.jsonl` (gitignored) | Written only by the artist and `scripts/art-*` |
-| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees), `art-fetch.sh` / `art-approve.sh` / `art-sheet.py` (art pipeline), `replicate-mcp.sh` (starts the Replicate MCP with the `.env` token) | Bash, `set -uo pipefail`; `art-sheet.py` is Python (Pillow) |
+| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees), `art-fetch.sh` / `art-approve.sh` / `art-sheet.py` (art pipeline), `replicate-mcp.sh` (starts the Replicate MCP with the `.env` token), `cycle-land.sh` (commit, merge and gate one issue), `linear-move.sh` (bulk Linear status moves) | Bash, `set -uo pipefail`; `art-sheet.py` is Python (Pillow) |
 | `.claude/` | Agents, skills, hook settings | The orchestrator pattern lives here |
 
 ## The build gate: `make check`
@@ -43,19 +43,19 @@ warnings to errors, so every project `.gd` is fully typed; test suites are exemp
 ## Roles (P1)
 
 - **Orchestrator** — the Claude Code session (Opus 5.5). Owns a dev cycle, dispatches
-  the interrogator and implementers, runs `make check`, drives the Godot MCP, posts to
-  Linear, runs `/code-review` and `/simplify` at `/cycle test`. At `/spec` it relays the
-  interview word for word and never answers for Ben.
-- **Interrogator** (`.claude/agents/interrogator.md`, Fable 5.1) — dispatched by every
-  `/spec`; interviews Ben in plain-text rounds (relayed through the orchestrator) and
-  writes spec/plan/tasks. Never writes code.
+  implementers, runs `make check`, drives the Godot MCP, posts to Linear, runs
+  `/code-review` and `/simplify` at `/cycle test`. Each verb starts in a new session, and
+  `/cycle run` starts another at a wave boundary past about 250k of context (ADR 0006).
+- **Interrogator** — a top-level session on Fable 5.1, one per `/spec` (ADR 0006);
+  interviews Ben in plain-text rounds and writes spec/plan/tasks. Never writes code and
+  never answers for Ben.
 - **Implementer** (`implementer.md` Sonnet 5.5; `implementer-engine.md` Opus 5.5 for
   `godot/engine/`) — edits code in a worktree. **Never runs the game, Godot, or
   `make check`.** Its only feedback is the PostToolUse hook (gdlint + parse). It reports
   what it changed and what it could not verify.
 - **Reviewer** (`reviewer.md`, Sonnet 5.5) — read-only findings.
 - **Artist** (`artist.md`, Fable 5.1) — dispatched by `/art`; interviews Ben on art
-  direction (relayed like the interrogator), generates candidates through the Replicate
+  direction (relayed through the orchestrator), generates candidates through the Replicate
   MCP within the image cap in its brief, and shows contact sheets. Never edits code or
   imports art; the orchestrator approves picks with `scripts/art-approve.sh`.
 
@@ -76,8 +76,8 @@ After writing notes run `obsidian-cli vault=docs unresolved` and `… orphans`
 
 One team (key `NSC`), a project per spec, a milestone per dev
 cycle (`DC-NN <theme>`), labels `area/*`, `type/*`, `spec/<slug>`. Every issue carries a
-`## Spec` section with the vault uid link and the GitHub blob URL (on the cycle branch
-until `/cycle test` merges it, then rewritten to `master`). The orchestrator pulls
+`## Spec` section with the vault uid link and the GitHub blob URL (always on `master`,
+resolving once the cycle is merged and pushed; ADR 0006). The orchestrator pulls
 issues through the Linear MCP; nothing is pushed from Linear.
 
 Issue status is the orchestrator's job, moved when the event actually happens, never
@@ -87,7 +87,8 @@ or re-dispatch keeps it here, with a comment quoting the failure) → **In Revie
 into the cycle branch on a green gate; comment names the merge commit) → **Done** (the
 cycle branch is merged into `master` at `/cycle test`). An issue dropped from a cycle goes
 back to Backlog with its milestone removed and a comment saying why. Subagents have no
-Linear access; they report, and the orchestrator updates Linear.
+Linear access; they report, and the orchestrator updates Linear. Status moves go through
+`scripts/linear-move.sh`, falling back to the MCP when `.env` has no `LINEAR_API_KEY`.
 
 ## Git
 

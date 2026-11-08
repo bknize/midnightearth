@@ -68,7 +68,7 @@ gitignored candidates in the checkout it runs in). The prompt carries:
 
 ## The relay
 
-Same contract as `/spec` (`.claude/skills/spec/SKILL.md`, The relay):
+The artist is a subagent and cannot reach Ben, so the orchestrator relays:
 
 1. The artist ends every message with `ROUND n`, `REVIEW` or `DONE` (its agent file).
 2. Show Ben a `ROUND` or `REVIEW` block word for word, plain text, no widget, adding at
