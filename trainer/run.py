@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from trainer.config import RunConfig
 from trainer.farm import REPO_ROOT, Farm, FarmError, RequestFailed, godot_bin, worker_command
 from trainer.seeds import label_seed, play_seed, position_pick_seed, wire
-from trainer.store import Store
+from trainer.store import Store, weights_path
 
 DECKS_JSON = REPO_ROOT / "godot" / "engine" / "data" / "decks.json"
 Progress = Callable[[Dict[str, Any]], None]
@@ -47,12 +47,14 @@ def _checked(reply: Dict[str, Any], stamp: str, what: str) -> Dict[str, Any]:
 
 
 def label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int,
-                   pairings: List[List[str]]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+                   pairings: List[List[str]], rollout_path: str = "",
+                   generator_path: str = "") -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Play one match, choose a commit decision, label it. Returns (position, labels)."""
     decks = decks_for(cfg, index, pairings)
     seed = play_seed(cfg.run_seed, index)
     try:
-        return _label_position(farm, cfg, stamp, index, decks, seed)
+        return _label_position(farm, cfg, stamp, index, decks, seed, rollout_path,
+                               generator_path)
     except RequestFailed as e:
         # Only this request failed (timed out twice, crashed its worker 3 times): the
         # position is committed as skipped, with no labels, and the run carries on.
@@ -63,7 +65,8 @@ def label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int,
 
 
 def _label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int, decks: List[str],
-                    seed: int) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+                    seed: int, rollout_path: str,
+                    generator_path: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     what = "position %d" % index
 
     def ask(req: Dict[str, Any]) -> Dict[str, Any]:
@@ -73,9 +76,11 @@ def _label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int, decks: L
             e.kind = str(req["kind"])
             raise
 
-    played = _checked(ask({
-        "kind": "play", "seed": wire(seed), "decks": decks, "generator": cfg.generator}),
-        stamp, what + " play")
+    play_req: Dict[str, Any] = {
+        "kind": "play", "seed": wire(seed), "decks": decks, "generator": cfg.generator}
+    if generator_path:
+        play_req["generator_weights"] = generator_path
+    played = _checked(ask(play_req), stamp, what + " play")
     commits = played["commits"]
     flat = [(seat, int(i)) for seat in range(2) for i in commits[seat]]
     if not flat:
@@ -83,15 +88,18 @@ def _label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int, decks: L
     seat, prefix_len = flat[(position_pick_seed(cfg.run_seed, index) & ((1 << 64) - 1))
                             % len(flat)]
     actions = played["log"]["actions"][:prefix_len]
-    lab = _checked(ask({
+    label_req: Dict[str, Any] = {
         "kind": "label", "seed": wire(seed), "decks": decks, "actions": actions,
         "seat": seat, "k": cfg.k, "determinizations": cfg.determinizations,
-        "rollout": cfg.rollout, "label_seed": wire(label_seed(cfg.run_seed, index))}),
-        stamp, what + " label")
-    seen = _checked(ask({
-        "kind": "inspect", "seed": wire(seed), "decks": decks, "actions": actions,
-        "seat": seat}), stamp, what + " inspect")
-    info = {"round": seen.get("round"), "turn": seen.get("turn"), "hand": seen.get("hand", [])}
+        "rollout": cfg.rollout, "label_seed": wire(label_seed(cfg.run_seed, index))}
+    if rollout_path:
+        label_req["rollout_weights"] = rollout_path
+    lab = _checked(ask(label_req), stamp, what + " label")
+    features = lab.get("features", [])
+    if len(features) != len(lab["candidates"]):
+        raise RunError("%s label: %d feature lists for %d candidates"
+                       % (what, len(features), len(lab["candidates"])))
+    info = {"round": lab.get("round"), "turn": lab.get("turn"), "hand": lab.get("hand", [])}
     position = {"index": index, "seed": seed, "decks": decks, "prefix_len": prefix_len,
                 "seat": seat, "info": info}
     labels = []
@@ -100,7 +108,8 @@ def _label_position(farm: Farm, cfg: RunConfig, stamp: str, index: int, decks: L
             "position_index": index, "candidate_index": c, "action": action,
             "mean": value["mean"], "spread": value["spread"], "n": value["n"],
             "wins": value["wins"], "draws": value["draws"], "losses": value["losses"],
-            "capped": value["capped"], "us": lab.get("us", 0)})
+            "capped": value["capped"], "features": features[c],
+            "us": lab.get("us", 0)})
     return position, labels
 
 
@@ -143,6 +152,16 @@ def _execute(store: Store, run_id: str, farm: Farm, cfg: RunConfig, stamp: str,
     try:
         if farm.stamp != stamp:
             raise RunError("workers are at stamp %r, the run is at %r" % (farm.stamp, stamp))
+        stored = store.get_run(run_id)
+        have = str(stored["feature_set"]) if stored else ""
+        fs = str(getattr(farm, "feature_set", ""))
+        if not have:
+            store.set_feature_set(run_id, fs)
+        elif fs and fs != have:
+            raise RunError("workers use feature set %r, the run was labelled with %r"
+                           % (fs, have))
+        rollout_path = weights_path(store.data_dir, cfg.rollout_weights)
+        generator_path = weights_path(store.data_dir, cfg.generator_weights)
         start = store.resume_point(run_id)
         pool = ThreadPoolExecutor(max_workers=max(1, min(cfg.workers, cfg.batch)))
         try:
@@ -151,7 +170,8 @@ def _execute(store: Store, run_id: str, farm: Farm, cfg: RunConfig, stamp: str,
                     store.set_state(run_id, "stopped")
                     return "stopped"
                 end = min(start + cfg.batch, cfg.positions)
-                futures = [pool.submit(label_position, farm, cfg, stamp, i, pairings)
+                futures = [pool.submit(label_position, farm, cfg, stamp, i, pairings,
+                                       rollout_path, generator_path)
                            for i in range(start, end)]
                 results = [f.result() for f in futures]
                 store.commit_batch(run_id, start // cfg.batch, [r[0] for r in results],

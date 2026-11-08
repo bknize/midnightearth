@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +23,55 @@ def make_batch(start: int, count: int,
                            "spread": 1.0, "n": 16, "wins": 8, "draws": 0, "losses": 8,
                            "capped": False, "us": us})
     return positions, labels
+
+
+CYCLE_A_SCHEMA = """
+CREATE TABLE runs (
+  id TEXT PRIMARY KEY, state TEXT NOT NULL, config TEXT NOT NULL, run_seed INTEGER NOT NULL,
+  stamp TEXT NOT NULL, "commit" TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '', restarts INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE positions (
+  run_id TEXT NOT NULL, "index" INTEGER NOT NULL, seed INTEGER NOT NULL, decks TEXT NOT NULL,
+  prefix_len INTEGER NOT NULL, seat INTEGER NOT NULL, batch INTEGER NOT NULL,
+  PRIMARY KEY (run_id, "index"));
+CREATE TABLE labels (
+  run_id TEXT NOT NULL, position_index INTEGER NOT NULL, candidate_index INTEGER NOT NULL,
+  action TEXT NOT NULL, mean REAL NOT NULL, spread REAL NOT NULL, n INTEGER NOT NULL,
+  wins INTEGER NOT NULL, draws INTEGER NOT NULL, losses INTEGER NOT NULL,
+  capped INTEGER NOT NULL, PRIMARY KEY (run_id, position_index, candidate_index));
+"""
+
+
+class MigrationTest(unittest.TestCase):
+    def test_cycle_a_database_opens_and_migrates(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            db = sqlite3.connect(str(Path(d) / "trainer.db"))
+            db.executescript(CYCLE_A_SCHEMA)
+            db.execute("INSERT INTO runs VALUES ('old', 'done', '{\"run_seed\": 1}', 1, 's',"
+                       " 'c', 100.0, 160.0, '', 0)")
+            db.execute("INSERT INTO positions VALUES ('old', 0, 1, '[]', 3, 0, 0)")
+            db.execute("INSERT INTO labels VALUES ('old', 0, 0, '{}', 0.5, 1.0, 4, 2, 0, 2, 0)")
+            db.commit()
+            db.close()
+            store = Store(Path(d))
+            try:
+                run = store.get_run("old") or {}
+                self.assertEqual(run["feature_set"], "")
+                self.assertEqual(run["active_s"], 60.0)
+                row = store.db.execute("SELECT features FROM labels").fetchone()
+                self.assertEqual(row["features"], "[]")
+                self.assertEqual(store.counts("old")["labels"], 1)
+                self.assertIsNone(store.get_fit("nope"))
+                store.create_fit("f1", {"l2": 0.1}, "s", "fs1", ["old"])
+                self.assertEqual((store.get_fit("f1") or {})["runs"], ["old"])
+                store.create_run({"run_seed": 2}, "s", "c", run_id="new")
+                pos, labs = make_batch(0, 1)
+                labs[0]["features"] = [1, 2]
+                store.commit_batch("new", 0, pos, labs)
+            finally:
+                store.close()
+            again = Store(Path(d))  # opening a migrated database again is a no-op
+            again.close()
 
 
 class StoreTest(unittest.TestCase):
@@ -202,6 +252,36 @@ class StoreTest(unittest.TestCase):
             finally:
                 store.close()
 
+
+    def test_features_in_db_and_shard_lines(self) -> None:
+        rid = self.new_run()
+        self.store.set_feature_set(rid, "fs1")
+        pos, labs = make_batch(0, 2)
+        for lab in labs:
+            lab["features"] = [lab["candidate_index"], 7, -1]
+        path = self.store.commit_batch(rid, 0, pos, labs)
+        lines = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(lines[0]["feature_set"], "fs1")
+        self.assertEqual(lines[0]["candidates"][1]["features"], [1, 7, -1])
+        row = self.store.db.execute(
+            "SELECT features FROM labels WHERE position_index = 1 AND candidate_index = 1"
+        ).fetchone()
+        self.assertEqual(json.loads(row["features"]), [1, 7, -1])
+
+    def test_digest_ignores_us_but_not_features(self) -> None:
+        digests = []
+        for us, feats in ((10, [1]), (99, [1]), (10, [2])):
+            with tempfile.TemporaryDirectory() as d:
+                store = Store(Path(d))
+                store.create_run({"run_seed": 3}, STAMP, "abc", run_id="x")
+                pos, labs = make_batch(0, 1, us=us)
+                for lab in labs:
+                    lab["features"] = feats
+                store.commit_batch("x", 0, pos, labs)
+                digests.append(store.digest("x"))
+                store.close()
+        self.assertEqual(digests[0], digests[1])
+        self.assertNotEqual(digests[0], digests[2])
 
 if __name__ == "__main__":
     unittest.main()

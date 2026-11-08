@@ -22,7 +22,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 from trainer.config import RunConfig
 from trainer.farm import REPO_ROOT, Farm, FarmError, godot_bin, worker_command
 from trainer.run import execute, git_commit
-from trainer.store import Store, default_data_dir
+from trainer.store import Store, default_data_dir, weights_path
 from trainer.sync import RunFn, default_run, stamp_of, sync_code
 
 ACTIVE_STATES = ("queued", "running", "stopping")
@@ -252,7 +252,7 @@ class Service:
         now = time.time()
         return {
             "host": platform.node(), "python": platform.python_version(),
-            "mcp": mcp_version(), "godot": godot or "unavailable", "gpu": gpu or "none",
+            "mcp": mcp_version(), "numpy": numpy_version(), "godot": godot or "unavailable", "gpu": gpu or "none",
             "free_disk_gb": round(shutil.disk_usage(str(self.data_dir)).free / 1e9, 1),
             "commit": commit or "unknown", "service_commit": self.service_commit,
             "code_stamp": stamp,
@@ -319,6 +319,10 @@ class Service:
             cfg = RunConfig.from_dict(config)
         except ValueError as e:
             return {"error": str(e)}
+        for name in ("rollout_weights", "generator_weights"):
+            problem = self._check_fit(getattr(cfg, name), name)
+            if problem:
+                return {"error": problem}
         with self.lock:
             active = self._active()
             if active:
@@ -333,6 +337,20 @@ class Service:
             self._launch(run_id)
             return {"run_id": run_id, "state": "queued", "stamp": stamp,
                     "positions": cfg.positions}
+
+    def _check_fit(self, fit_id: str, field: str) -> str:
+        """"" when `fit_id` is empty or names a finished fit whose weights file exists, else
+        the error text (R21)."""
+        if not fit_id:
+            return ""
+        fit = self.store.get_fit(fit_id)
+        if fit is None:
+            return "%s: unknown fit %s" % (field, fit_id)
+        if fit["state"] != "done":
+            return "%s: fit %s is %s, not done" % (field, fit_id, fit["state"])
+        if not Path(weights_path(self.data_dir, fit_id)).is_file():
+            return "%s: fit %s has no weights file" % (field, fit_id)
+        return ""
 
     def _launch(self, run_id: str) -> None:
         self._stop_flag = threading.Event()
@@ -358,7 +376,7 @@ class Service:
                 execute(store, run_id, farm, should_stop=stop.is_set)
             finally:
                 farm.stop()
-            self._write_report(store, run_id)
+            self._write_report_safely(store, run_id)
         except Exception as e:  # keep the service alive whatever the run does
             try:
                 store.set_state(run_id, "failed", "%s: %s" % (type(e).__name__, e))
@@ -384,6 +402,17 @@ class Service:
                 store.set_state(run_id, "failed", "run thread ended while %s" % run["state"])
         except Exception:
             pass
+
+    def _write_report_safely(self, store: Store, run_id: str) -> None:
+        """A report that cannot be written never fails a run whose labels are committed: the
+        state stays, the error goes to `last_error`, and `get_report` rebuilds on demand."""
+        try:
+            self._write_report(store, run_id)
+        except Exception as e:
+            run = store.get_run(run_id)
+            if run is not None:
+                store.set_state(run_id, run["state"],
+                                "report not written: %s: %s" % (type(e).__name__, e))
 
     def _write_report(self, store: Store, run_id: str) -> None:
         report = self._report(store, run_id)
@@ -519,6 +548,11 @@ class Service:
             if "error" in run:
                 return run
             path = self.store.run_dir(run_id) / "report.json"
+            if not path.is_file() and run["state"] == "done":
+                try:  # the write failed (see last_error): rebuild it from the store
+                    return self._report(self.store, run_id)
+                except Exception as e:
+                    return {"error": "report unavailable: %s" % e}
             if not path.is_file():
                 return {"error": "no report yet: run %s is %s" % (run_id, run["state"])}
             try:
@@ -646,6 +680,15 @@ def mcp_version() -> str:
         return version("mcp")
     except Exception:
         return "unavailable"
+
+
+def numpy_version() -> str:
+    """numpy's version, or "none" when it is not installed (only the learner needs it)."""
+    try:
+        from importlib.metadata import version
+        return version("numpy")
+    except Exception:
+        return "none"
 
 
 def _opt(args: List[str], name: str, default: str) -> str:

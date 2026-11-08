@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 STATES = ("queued", "running", "stopping", "stopped", "interrupted", "done", "failed")
+FIT_STATES = ("queued", "running", "done", "failed")
 TIMING_FIELDS = ("us",)
 # Fields of a shard line that name the run rather than its data: the dataset digest drops
 # them, so two runs with the same config and run seed give the same digest (spec R36).
@@ -28,7 +29,8 @@ CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY, state TEXT NOT NULL, config TEXT NOT NULL, run_seed INTEGER NOT NULL,
   stamp TEXT NOT NULL, "commit" TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
   last_error TEXT NOT NULL DEFAULT '', restarts INTEGER NOT NULL DEFAULT 0,
-  checkpoint REAL NOT NULL DEFAULT 0, active_s REAL NOT NULL DEFAULT 0);
+  checkpoint REAL NOT NULL DEFAULT 0, active_s REAL NOT NULL DEFAULT 0,
+  feature_set TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS positions (
   run_id TEXT NOT NULL, "index" INTEGER NOT NULL, seed INTEGER NOT NULL, decks TEXT NOT NULL,
   prefix_len INTEGER NOT NULL, seat INTEGER NOT NULL, batch INTEGER NOT NULL,
@@ -38,13 +40,28 @@ CREATE TABLE IF NOT EXISTS labels (
   run_id TEXT NOT NULL, position_index INTEGER NOT NULL, candidate_index INTEGER NOT NULL,
   action TEXT NOT NULL, mean REAL NOT NULL, spread REAL NOT NULL, n INTEGER NOT NULL,
   wins INTEGER NOT NULL, draws INTEGER NOT NULL, losses INTEGER NOT NULL,
-  capped INTEGER NOT NULL, PRIMARY KEY (run_id, position_index, candidate_index));
+  capped INTEGER NOT NULL, features TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (run_id, position_index, candidate_index));
+CREATE TABLE IF NOT EXISTS fits (
+  id TEXT PRIMARY KEY, state TEXT NOT NULL, config TEXT NOT NULL, stamp TEXT NOT NULL,
+  feature_set TEXT NOT NULL, runs TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '', report TEXT NOT NULL DEFAULT '');
 """
 
 
 def default_data_dir() -> Path:
     env = os.environ.get("TRAINER_DATA")
     return Path(env) if env else Path.home() / "trainer-data"
+
+
+WEIGHTS_NAME = "linear_weights.json"
+
+
+def weights_path(data_dir: Path, fit_id: str) -> str:
+    """Where a fit's weights file lives (absolute, as the worker gets it); "" for no fit."""
+    if not fit_id:
+        return ""
+    return str((Path(data_dir) / "fits" / fit_id / WEIGHTS_NAME).resolve())
 
 
 def shard_name(batch: int) -> str:
@@ -76,6 +93,8 @@ class Store:
         for table, column, ddl in (
                 ("runs", "checkpoint", "REAL NOT NULL DEFAULT 0"),
                 ("runs", "active_s", "REAL NOT NULL DEFAULT 0"),
+                ("runs", "feature_set", "TEXT NOT NULL DEFAULT ''"),
+                ("labels", "features", "TEXT NOT NULL DEFAULT '[]'"),
                 ("positions", "info", "TEXT NOT NULL DEFAULT '{}'")):
             have = {r["name"] for r in self.db.execute("PRAGMA table_info(%s)" % table)}
             if column not in have:
@@ -121,6 +140,34 @@ class Store:
             run = self.get_run(i)
             if run is not None:
                 out.append(run)
+        return out
+
+    def set_feature_set(self, run_id: str, feature_set: str) -> None:
+        self.db.execute("UPDATE runs SET feature_set = ? WHERE id = ?", (feature_set, run_id))
+        self.db.commit()
+
+    # fits (T06 builds the job on these)
+
+    def create_fit(self, fit_id: str, config: Dict[str, Any], stamp: str, feature_set: str,
+                   runs: List[str], state: str = "queued") -> str:
+        if state not in FIT_STATES:
+            raise ValueError("unknown fit state %r" % (state,))
+        now = time.time()
+        self.db.execute(
+            "INSERT INTO fits (id, state, config, stamp, feature_set, runs, created, updated)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (fit_id, state, json.dumps(config, sort_keys=True), stamp, feature_set,
+             json.dumps(runs), now, now))
+        self.db.commit()
+        return fit_id
+
+    def get_fit(self, fit_id: str) -> Optional[Dict[str, Any]]:
+        row = self.db.execute("SELECT * FROM fits WHERE id = ?", (fit_id,)).fetchone()
+        if row is None:
+            return None
+        out: Dict[str, Any] = dict(row)
+        out["config"] = json.loads(out["config"])
+        out["runs"] = json.loads(out["runs"])
         return out
 
     def active_run_id(self) -> Optional[str]:
@@ -219,7 +266,8 @@ class Store:
         positions: dicts with index, seed, decks (JSON-able), prefix_len, seat, and optionally
         info (JSON-able: round, turn, hand; kept in the shard when non-empty).
         labels: dicts with position_index, candidate_index, action, mean, spread, n, wins,
-        draws, losses, capped, and optionally us (timing: kept in the shard, not digested).
+        draws, losses, capped, optionally features (the candidate's integer list) and us (timing:
+        kept in the shard, not digested).
         """
         run = self.get_run(run_id)
         if run is None:
@@ -235,7 +283,7 @@ class Store:
                 "run": run_id, "position": int(pos["index"]), "seed": str(int(pos["seed"])),
                 "decks": pos["decks"], "prefix_len": int(pos["prefix_len"]),
                 "seat": int(pos["seat"]), "stamp": run["stamp"], "commit": run["commit"],
-                "candidates": cands}
+                "feature_set": run["feature_set"], "candidates": cands}
             if pos.get("info"):
                 line["info"] = pos["info"]
             lines.append(json.dumps(line, sort_keys=True))
@@ -259,12 +307,14 @@ class Store:
                       json.dumps(p.get("info") or {}, sort_keys=True)) for p in positions])
                 self.db.executemany(
                     "INSERT INTO labels (run_id, position_index, candidate_index, action,"
-                    " mean, spread, n, wins, draws, losses, capped)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " mean, spread, n, wins, draws, losses, capped, features)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     [(run_id, int(lab["position_index"]), int(lab["candidate_index"]),
                       json.dumps(lab["action"], sort_keys=True), float(lab["mean"]),
                       float(lab["spread"]), int(lab["n"]), int(lab["wins"]), int(lab["draws"]),
-                      int(lab["losses"]), int(bool(lab["capped"]))) for lab in labels])
+                      int(lab["losses"]), int(bool(lab["capped"])),
+                      json.dumps([int(x) for x in lab.get("features", [])]))
+                     for lab in labels])
                 now = time.time()
                 self.db.execute("UPDATE runs SET updated = ?, checkpoint = ? WHERE id = ?",
                                 (now, now, run_id))

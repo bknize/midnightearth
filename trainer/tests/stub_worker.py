@@ -1,4 +1,4 @@
-"""A stand-in play-out worker that speaks the protocol (cycle 11 P9) with values derived from
+"""A stand-in play-out worker that speaks the protocol (protocol v2) with values derived from
 the request alone. Options: --stamp S, --banner, --crash-after N (exit without replying to
 request N+1), --hang-after N (never reply to request N+1), --reply-stamp S (reply with a
 stamp other than the hello's), --hang-seed S / --crash-seed S (hang, or exit, on every
@@ -30,27 +30,28 @@ def play(req: Dict[str, Any]) -> Dict[str, Any]:
             "commits": commits}
 
 
+FEATURE_SET = "stub-1"
+
+
 def label(req: Dict[str, Any]) -> Dict[str, Any]:
     ls = int(req["label_seed"])
+    seed = int(req["seed"])
     plen = len(req["actions"])
     legal = 2 + _h("l", ls) % 5
     count = min(int(req["k"]), legal)
     n = int(req["determinizations"])
     cands = [{"t": "commit", "card": c, "after": plen} for c in range(count)]
+    feats = [[_h("f", ls, c, j) % 7 for j in range(4)] for c in range(count)]
     vals = []
     for c in range(count):
         wins = _h("v", ls, plen, c, req["seat"]) % (n + 1)
         vals.append({"mean": wins / n, "spread": 0.5, "n": n, "wins": wins, "draws": 0,
                      "losses": n - wins, "capped": 0, "rejected": False})
-    return {"legal": legal, "candidates": cands, "values": vals, "rollouts": count * n}
-
-
-def inspect(req: Dict[str, Any]) -> Dict[str, Any]:
-    seed = int(req["seed"])
-    plen = len(req["actions"])
     hand = [{"instance": j, "card": "c%d" % (_h("c", seed, plen, j) % 50),
              "name": "Card %d" % (_h("c", seed, plen, j) % 50)} for j in range(5)]
-    return {"round": 1 + plen // 6, "turn": plen % 6, "hand": hand}
+    return {"feature_set": FEATURE_SET, "round": 1 + plen // 6, "turn": plen % 6,
+            "hand": hand, "legal": legal, "candidates": cands, "features": feats,
+            "values": vals, "rollouts": count * n}
 
 
 def main() -> int:
@@ -67,7 +68,8 @@ def main() -> int:
     crash_seed = opt("--crash-seed", "")
     if "--banner" in argv:
         print("Godot Engine v4.6.3.stable (stub)\n")
-    print(json.dumps({"hello": True, "stamp": stamp, "rules": "r", "format": 1,
+    print(json.dumps({"hello": True, "stamp": stamp, "feature_set": FEATURE_SET,
+                      "rules": "r", "format": 2,
                       "godot": "stub"}))
     sys.stdout.flush()
     served = 0
@@ -90,7 +92,11 @@ def main() -> int:
             return 0
         served += 1
         kind = req["kind"]
-        body = play(req) if kind == "play" else inspect(req) if kind == "inspect" else label(req)
+        if kind == "inspect":  # gone in protocol v2
+            print(json.dumps({"id": req["id"], "error": "unknown kind: inspect"}))
+            sys.stdout.flush()
+            continue
+        body = play(req) if kind == "play" else label(req)
         reply: Dict[str, Any] = {"id": req["id"], "stamp": reply_stamp}
         reply.update(body)
         reply["us"] = 1000 + served
