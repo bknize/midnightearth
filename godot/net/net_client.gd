@@ -26,6 +26,9 @@ const URL_SCHEME: String = "ws://"
 
 ## How long a connection may stay CONNECTING before it counts as unreachable (R15).
 var connect_timeout_ms: int = NetDefaults.CONNECT_TIMEOUT_MS
+## A suite's fake clock: when it is 0 or more, it is the clock `ticked` and the connect
+## timeout read instead of the monotonic one.
+var fake_now_ms: int = -1
 
 var _peer: WebSocketPeer = null
 var _opened_ms: int = 0
@@ -152,4 +155,6 @@ func _discard_peer() -> void:
 
 
 func _now_ms() -> int:
+	if fake_now_ms >= 0:
+		return fake_now_ms
 	return Time.get_ticks_msec()
