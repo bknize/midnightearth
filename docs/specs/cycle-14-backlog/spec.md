@@ -78,7 +78,9 @@ the stale documents.
   today; R4 changes which cards receive the levelled Power, not which cards supply it.
 - R6. When a card ability or a Crew with a `uses` count above 0 fires, the engine shall count
   that ability's uses down by one for the scope its data names, and once none is left shall
-  not fire it again within that scope (NSC-182, C4; cycle 8 R6 and R43 made good).
+  not fire it again within that scope; one firing counts one use however many prompts it
+  opens, and a declined ability counts none (NSC-182, C4; cycle 8 R6 and R43 made good;
+  T08 review, N8).
 - R7. If an ability's `uses` is 0 or absent, then the engine shall treat it as unlimited, as
   today, so no shipped card or Crew changes behaviour.
 - R8. The engine shall give every created card an Owner at the moment it is created (the
