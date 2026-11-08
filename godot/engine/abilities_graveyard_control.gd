@@ -100,8 +100,6 @@ const VERBS: Array[String] = [
 ]
 ## CardState.granted kind of a use counted until end of turn (Tithe, Reliquary).
 const KIND_USED: String = "used"
-const MOMENT_MOVED: String = "on_moved"
-const MOMENT_ONGOING: String = "ongoing"
 ## On discard context keys (TurnFlow.on_discard): where the card came from and why.
 const KEY_FROM: String = "from"
 const KEY_REASON: String = "reason"
@@ -276,6 +274,13 @@ static func fence_movers(
 # --- The reveal-stage hook (Skip) -------------------------------------------------------
 
 
+## A new Walk (ScoreWalk.begin): no Skip waits or is armed.
+static func clear_skip(walk: MatchState.WalkState) -> void:
+	walk.hook_pending = 0
+	walk.hook_card = -1
+	walk.hook_moves = 0
+
+
 ## At a reveal in the Walk (ScoreWalk.reveal_stage): the Skips waiting for the next reveal
 ## now apply to `card`, after its On reveal Batch drains (skip_hook()).
 static func arm_skip(state: MatchState, card: int) -> void:
@@ -301,7 +306,7 @@ static func skip_hook(state: MatchState, cards: MatchCards, rng: MatchRng, sink:
 		return
 	for _move: int in range(moves):
 		var seat: int = Statuses.row_seat(state, card)
-		if seat < 0 or Statuses.is_anchored(state, cards, card):
+		if seat < 0 or Statuses.is_anchored(state, cards, card, seat):
 			return
 		var free: Array[int] = Movement.free_slots(state, cards, seat)
 		var from: int = free.find(state.seats[seat].board.find(card))
@@ -311,7 +316,9 @@ static func skip_hook(state: MatchState, cards: MatchCards, rng: MatchRng, sink:
 		if pick >= from:
 			pick += 1
 		var moved: Array[int] = Movement.move_to(state, cards, card, pick, VERB_SKIP, sink)
-		if not moved.is_empty() and TriggerQueue.wake(state, cards, MOMENT_MOVED, moved).is_empty():
+		if moved.is_empty():
+			continue
+		if TriggerQueue.wake(state, cards, CardAbility.MOMENT_MOVED, moved).is_empty():
 			pass  # Nothing watches the move.
 
 
@@ -689,22 +696,28 @@ static func _use(state: MatchState, card: int) -> void:
 
 
 ## `card`'s own Ongoing ability with `verb` while it is read (a revealed row card, not
-## Squelched), or null.
+## Squelched), or null. `known_seat`: its row seat when the caller knows it.
 static func own_ongoing(
-	state: MatchState, cards: MatchCards, card: int, verb: String
+	state: MatchState,
+	cards: MatchCards,
+	card: int,
+	verb: String,
+	known_seat: int = Statuses.SEAT_UNKNOWN
 ) -> CardAbility:
 	if not cards.has_verb(verb):
 		return null
 	var def: CardDef = cards.def_of(card) if card >= 0 else null
 	if def == null or not def.has_verb(verb):
 		return null
-	var seat: int = Statuses.row_seat(state, card)
+	var seat: int = known_seat
+	if seat == Statuses.SEAT_UNKNOWN:
+		seat = Statuses.row_seat(state, card)
 	if seat < 0 or not state.seats[seat].is_revealed(card):
 		return null
 	if not Scoring.reads_ongoing(state, card):
 		return null
 	for ability: CardAbility in def.abilities:
-		if ability.moment == MOMENT_ONGOING and ability.verb == verb:
+		if ability.moment == CardAbility.MOMENT_ONGOING and ability.verb == verb:
 			return ability
 	return null
 

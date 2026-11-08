@@ -38,12 +38,12 @@ extends RefCounted
 
 const KIND_CARD: String = TriggerContext.KIND_CARD
 const KIND_CREW: String = TriggerContext.KIND_CREW
-const MOMENT_REVEAL: String = "on_reveal"
-const MOMENT_DISCARD: String = "on_discard"
 ## Moments with no subject and no seat: every eligible watcher wakes.
-const SEATLESS_MOMENTS: Array[String] = ["on_start", "at_turn_end_before", "at_turn_end_after"]
+const SEATLESS_MOMENTS: Array[String] = [
+	CardAbility.MOMENT_START, CardAbility.MOMENT_TURN_END_BEFORE, CardAbility.MOMENT_TURN_END_AFTER
+]
 ## Moments of a seat (On commit, On empty draw): watchers relate to the seat.
-const SEAT_MOMENTS: Array[String] = ["on_commit", "on_empty_draw"]
+const SEAT_MOMENTS: Array[String] = [CardAbility.MOMENT_COMMIT, CardAbility.MOMENT_EMPTY_DRAW]
 ## The Walk's two drains: they share the pulse's budget.
 const WALK_STEPS: Array[String] = ["D7", "D8"]
 ## What an answered prompt resumes, by the drain point it opened at (P12 `resume`).
@@ -185,7 +185,7 @@ static func watchers(
 				_card_entries(out, cards, event, card, watcher_seat, TriggerContext.ZONE_ROW)
 		for card: int in piles.hand:
 			_card_entries(out, cards, event, card, watcher_seat, TriggerContext.ZONE_HAND)
-	if moment == MOMENT_DISCARD:
+	if moment == CardAbility.MOMENT_DISCARD:
 		_pile_entries(out, state, cards, event)
 	for watcher_seat: int in order:
 		_crew_entries(out, cards, event, watcher_seat)
@@ -210,7 +210,7 @@ static func drain(
 	var queue: TriggerQueue = state.queue
 	queue.step = p_step
 	queue.seat = p_seat
-	if not WALK_STEPS.has(p_step):
+	if not _in_walk(state):
 		queue.resolutions = 0
 	return _run(state, cards, rng, sink)
 
@@ -264,7 +264,7 @@ static func answer(
 
 ## The resolutions counted so far in the pulse (in the Walk) or in the drain outside it.
 static func spent(state: MatchState) -> int:
-	if WALK_STEPS.has(state.queue.step):
+	if _in_walk(state):
 		return state.walk.resolutions
 	return state.queue.resolutions
 
@@ -285,12 +285,9 @@ static func _run(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Call
 			_exhaust(state, cards, sink)
 			return false
 		var entry: Dictionary = _pop(queue)
-		if entry.is_empty():
-			continue
 		# Each pop counts one (P11), a silent Muted one too.
 		_count(state)
-		var card: int = entry["card"]
-		if card >= 0 and not Statuses.fires(state, card):
+		if _is_silent(state, entry):
 			# Q2: Muted (or Silenced) when its trigger comes up: no event, no effect, no wakes.
 			_then_draw(state, sink, entry)
 			continue
@@ -399,7 +396,7 @@ static func _then_draw(state: MatchState, sink: Callable, entry: Dictionary) -> 
 ## seat's `walk.retrigger_on_reveal` other than its own card, for an On reveal of a card
 ## that is not itself an extra resolution.
 static func _retriggers(state: MatchState, ctx: TriggerContext) -> int:
-	if ctx.extra or ctx.is_crew() or ctx.moment != MOMENT_REVEAL:
+	if ctx.extra or ctx.is_crew() or ctx.moment != CardAbility.MOMENT_REVEAL:
 		return 0
 	if ctx.seat < 0 or ctx.seat >= state.walk.retrigger_on_reveal.size():
 		return 0
@@ -419,41 +416,44 @@ static func _retriggers(state: MatchState, ctx: TriggerContext) -> int:
 ## counts nothing against the budget.
 static func _exhaust(state: MatchState, cards: MatchCards, sink: Callable) -> void:
 	var queue: TriggerQueue = state.queue
-	var guard: int = queue.size()
-	while not queue.batches.is_empty() and guard >= 0:
-		guard -= 1
+	while not queue.batches.is_empty():
 		var entry: Dictionary = _pop(queue)
-		if entry.is_empty():
-			continue
-		var card: int = entry["card"]
 		# A Muted (or Silenced) entry stays silent, budget or not (Q2).
-		if card < 0 or Statuses.fires(state, card):
+		if not _is_silent(state, entry):
 			var ctx: TriggerContext = _context(state, cards, null, sink, entry, spent(state))
 			_fizzled(ctx, Abilities.REASON_EXHAUSTED)
 		_then_draw(state, sink, entry)
-	queue.batches.clear()
 
 
-## Takes the oldest entry off the queue (dropping an emptied Batch); {} when none.
+## Takes the oldest entry off the queue, which holds at least one: no Batch is ever queued
+## empty (wake() queues none, a retrigger's holds at least one entry) and an emptied one is
+## dropped here, its resumed draw (`then_draw`) passed to its last entry.
 static func _pop(queue: TriggerQueue) -> Dictionary:
-	while not queue.batches.is_empty():
-		var batch: Dictionary = queue.batches[0]
-		var entries: Array = batch["entries"]
-		if entries.is_empty():
-			queue.batches.remove_at(0)
-			continue
-		var entry: Dictionary = entries.pop_front()
-		if entries.is_empty():
-			queue.batches.remove_at(0)
-			if batch.has(KEY_THEN_DRAW):
-				entry[KEY_THEN_DRAW] = batch[KEY_THEN_DRAW]
-		return entry
-	return {}
+	var batch: Dictionary = queue.batches[0]
+	var entries: Array = batch["entries"]
+	var entry: Dictionary = entries.pop_front()
+	if entries.is_empty():
+		queue.batches.remove_at(0)
+		if batch.has(KEY_THEN_DRAW):
+			entry[KEY_THEN_DRAW] = batch[KEY_THEN_DRAW]
+	return entry
+
+
+## Whether `entry`'s card is Muted (or Silenced) now, so its pop is silent (Q2). A Crew
+## entry never is.
+static func _is_silent(state: MatchState, entry: Dictionary) -> bool:
+	var card: int = entry["card"]
+	return card >= 0 and not Statuses.fires(state, card)
+
+
+## Whether the drain in progress is one of the Walk's (D7, D8), on the pulse's budget.
+static func _in_walk(state: MatchState) -> bool:
+	return WALK_STEPS.has(state.queue.step)
 
 
 ## Counts one resolution against the budget of the drain in progress.
 static func _count(state: MatchState) -> void:
-	if WALK_STEPS.has(state.queue.step):
+	if _in_walk(state):
 		state.walk.resolutions += 1
 	else:
 		state.queue.resolutions += 1
@@ -525,29 +525,32 @@ static func _apply(ctx: TriggerContext) -> void:
 ## its hand is public too (C14, the telegraph) and adds `from_hand: true`; a card firing from
 ## its Deck stays private to its seat (_owner).
 static func _fired(ctx: TriggerContext) -> void:
-	var fired: Dictionary = {
-		"seat": ctx.seat,
-		"card": ctx.card,
-		"crew": ctx.crew.id if ctx.crew != null else "",
-		"moment": ctx.moment,
-		"verb": ctx.verb,
-		"resolution": ctx.resolution,
-	}
-	_mark_hand(ctx, fired)
-	ctx.emit(MatchEvent.Kind.TRIGGER_FIRED, fired, _owner(ctx))
+	var fired: Dictionary = _trigger_payload(ctx)
+	fired["moment"] = ctx.moment
+	fired["verb"] = ctx.verb
+	fired["resolution"] = ctx.resolution
+	_announce(ctx, MatchEvent.Kind.TRIGGER_FIRED, fired)
 
 
 ## TRIGGER_FIZZLED {seat, card, crew, verb, reason}: public, except as _fired().
 static func _fizzled(ctx: TriggerContext, reason: String) -> void:
-	var fizzled: Dictionary = {
-		"seat": ctx.seat,
-		"card": ctx.card,
-		"crew": ctx.crew.id if ctx.crew != null else "",
-		"verb": ctx.verb,
-		"reason": reason,
-	}
-	_mark_hand(ctx, fizzled)
-	ctx.emit(MatchEvent.Kind.TRIGGER_FIZZLED, fizzled, _owner(ctx))
+	var fizzled: Dictionary = _trigger_payload(ctx)
+	fizzled["verb"] = ctx.verb
+	fizzled["reason"] = reason
+	_announce(ctx, MatchEvent.Kind.TRIGGER_FIZZLED, fizzled)
+
+
+## The keys every trigger event starts with, in this order: {seat, card, crew}.
+static func _trigger_payload(ctx: TriggerContext) -> Dictionary:
+	var crew_id: String = ctx.crew.id if ctx.crew != null else ""
+	return {"seat": ctx.seat, "card": ctx.card, "crew": crew_id}
+
+
+## Emits the trigger event `payload` of `kind`: `from_hand` added (_mark_hand()), routed by
+## _owner().
+static func _announce(ctx: TriggerContext, kind: int, payload: Dictionary) -> void:
+	_mark_hand(ctx, payload)
+	ctx.emit(kind, payload, _owner(ctx))
 
 
 ## One pick of `ctx`'s fired trigger that missed (Fuse's or Immolator's random Condemn on a
@@ -623,6 +626,7 @@ static func _card_entries(
 static func _pile_entries(
 	out: Array[Dictionary], state: MatchState, cards: MatchCards, event: Dictionary
 ) -> void:
+	var moment: String = CardAbility.MOMENT_DISCARD
 	var subjects: Array[int] = event["subjects"]
 	var subject_seats: Array[int] = event["seats"]
 	for at: int in range(subjects.size()):
@@ -635,10 +639,8 @@ static func _pile_entries(
 			continue
 		for index: int in range(def.abilities.size()):
 			var ability: CardAbility = def.abilities[index]
-			if ability.moment == MOMENT_DISCARD and ability.watch == CardAbility.WATCH_SELF:
-				out.append(
-					_entry(KIND_CARD, holder, subject, -1, index, MOMENT_DISCARD, subject, holder)
-				)
+			if ability.moment == moment and ability.watch == CardAbility.WATCH_SELF:
+				out.append(_entry(KIND_CARD, holder, subject, -1, index, moment, subject, holder))
 
 
 ## Appends the entries of `seat`'s Crew for `event`, by Crew slot: a seatless event wakes

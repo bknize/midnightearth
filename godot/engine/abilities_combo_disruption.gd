@@ -107,7 +107,6 @@ const TO_HAND: String = "hand"
 ## and the cards kept so far.
 const DATA_STAGE: String = "stage"
 const DATA_KEPT: String = "kept"
-const MOMENT_ONGOING: String = "ongoing"
 
 # --- The dispatch -------------------------------------------------------------------------
 
@@ -280,9 +279,10 @@ static func _choose_opposing(ctx: TriggerContext) -> void:
 
 ## Saboteur can move: it is on a row and not Anchored.
 static func _can_cross(ctx: TriggerContext) -> bool:
-	if Statuses.row_seat(ctx.state, ctx.card) < 0:
+	var seat: int = Statuses.row_seat(ctx.state, ctx.card)
+	if seat < 0:
 		return false
-	return not Statuses.is_anchored(ctx.state, ctx.cards, ctx.card)
+	return not Statuses.is_anchored(ctx.state, ctx.cards, ctx.card, seat)
 
 
 ## Jam's N, capped by the opposing row: 0 when there is nothing to Mute.
@@ -589,7 +589,7 @@ static func _dross_amounts(state: MatchState, cards: MatchCards, seat: int) -> A
 			continue
 		for ability: CardAbility in def.abilities:
 			if (
-				ability.moment == MOMENT_ONGOING
+				ability.moment == CardAbility.MOMENT_ONGOING
 				and ability.verb == VERB_DROSS
 				and ability.zone == TriggerContext.ZONE_HAND
 			):

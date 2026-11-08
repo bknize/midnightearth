@@ -29,7 +29,6 @@ const COST_ON_TURN_VERB: String = "cost_on_turn"
 const HAND_SIZE_ADD_VERB: String = "hand_size_add"
 ## The verb of an Ongoing "each of your cards with no rules text has Power +N" (Banner).
 const PLAIN_POWER_VERB: String = "plain_power"
-const MOMENT_ONGOING: String = "ongoing"
 
 
 ## round_half_up(x / d) for ints and d > 0: floor((x + d / 2) / d), so a half rounds toward
@@ -208,7 +207,7 @@ static func ongoing_on_row(
 		if def == null:
 			continue
 		for ability: CardAbility in def.abilities:
-			if ability.moment == MOMENT_ONGOING and ability.verb == verb:
+			if ability.moment == CardAbility.MOMENT_ONGOING and ability.verb == verb:
 				out.append(ability)
 	return out
 
