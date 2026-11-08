@@ -283,5 +283,30 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(digests[0], digests[1])
         self.assertNotEqual(digests[0], digests[2])
 
+class FitStateTest(unittest.TestCase):
+    def test_fit_states_active_and_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = Store(Path(d))
+            try:
+                store.create_fit("f1", {"k": 1}, STAMP, "f1", ["r"])
+                store.create_fit("f2", {}, STAMP, "f1", ["r"], state="done")
+                self.assertEqual(store.active_fit_id(), "f1")
+                store.set_fit_state("f1", "running")
+                store.set_fit_state("f1", "done", "", '{"pairs": {"total": 3}}')
+                self.assertIsNone(store.active_fit_id())
+                self.assertEqual((store.get_fit("f1") or {})["report"],
+                                 '{"pairs": {"total": 3}}')
+                self.assertEqual([f["id"] for f in store.list_fits()], ["f1", "f2"])
+                store.create_fit("f3", {}, STAMP, "f1", ["r"], state="running")
+                self.assertEqual(store.fail_live_fits("gone"), ["f3"])
+                self.assertEqual((store.get_fit("f3") or {})["last_error"], "gone")
+                with self.assertRaises(KeyError):
+                    store.set_fit_state("nope", "done")
+                with self.assertRaises(ValueError):
+                    store.set_fit_state("f1", "stopped")
+            finally:
+                store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -146,7 +146,7 @@ class Store:
         self.db.execute("UPDATE runs SET feature_set = ? WHERE id = ?", (feature_set, run_id))
         self.db.commit()
 
-    # fits (T06 builds the job on these)
+    # fits
 
     def create_fit(self, fit_id: str, config: Dict[str, Any], stamp: str, feature_set: str,
                    runs: List[str], state: str = "queued") -> str:
@@ -169,6 +169,43 @@ class Store:
         out["config"] = json.loads(out["config"])
         out["runs"] = json.loads(out["runs"])
         return out
+
+    def list_fits(self) -> List[Dict[str, Any]]:
+        ids = [r["id"] for r in self.db.execute("SELECT id FROM fits ORDER BY created, id")]
+        out: List[Dict[str, Any]] = []
+        for i in ids:
+            fit = self.get_fit(i)
+            if fit is not None:
+                out.append(fit)
+        return out
+
+    def active_fit_id(self) -> Optional[str]:
+        row = self.db.execute("SELECT id FROM fits WHERE state IN ('queued', 'running')"
+                              " ORDER BY created, id LIMIT 1").fetchone()
+        return None if row is None else str(row["id"])
+
+    def set_fit_state(self, fit_id: str, state: str, last_error: Optional[str] = None,
+                      report: Optional[str] = None) -> None:
+        if state not in FIT_STATES:
+            raise ValueError("unknown fit state %r" % (state,))
+        cur = self.db.execute(
+            "UPDATE fits SET state = ?, last_error = COALESCE(?, last_error),"
+            " report = COALESCE(?, report), updated = ? WHERE id = ?",
+            (state, last_error, report, time.time(), fit_id))
+        if cur.rowcount == 0:
+            raise KeyError(fit_id)
+        self.db.commit()
+
+    def fail_live_fits(self, reason: str) -> List[str]:
+        """Every queued or running fit becomes failed (a fit has no resume, and its thread
+        died with the service that started it). Returns their ids."""
+        live = "('queued', 'running')"
+        ids = [r["id"] for r in self.db.execute(
+            "SELECT id FROM fits WHERE state IN %s ORDER BY id" % live)]
+        self.db.execute("UPDATE fits SET state = 'failed', last_error = ?, updated = ?"
+                        " WHERE state IN %s" % live, (reason, time.time()))
+        self.db.commit()
+        return ids
 
     def active_run_id(self) -> Optional[str]:
         """Id of the first run (by creation) in a live state, or None."""
