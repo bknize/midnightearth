@@ -4,7 +4,7 @@ tags: [system, game-loop, engine]
 status: growing
 related: ["[[systems/systems-moc]]", "[[systems/cards-crew-decks]]", "[[systems/bot-training]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[rules/rules-v2]]", "[[rules/resolution]]", "[[planning/cycles]]", "[[planning/phase-3-game-loop]]"]
 created: 2026-11-05
-updated: 2026-11-06
+updated: 2026-11-08
 uid: 50267112-4326-429c-b245-ff481bd6da6b
 linear: https://linear.app/night-science-llc/issue/NSC-160
 supersedes:
@@ -62,7 +62,7 @@ Going first is a real cost. The first seat commits blind. The second seat knows 
 
 `TURN_STARTED` reports the Round, the Turn, the first seat and both Budgets. Each seat then draws one card, the first seat first (`TurnFlow.draw()`).
 
-- **Empty Deck.** A draw from an empty Deck draws nothing and fires `DRAW_EMPTY`. The seat's On empty draw Batch then drains (D1): every such trigger fires, in any Crew slot order, **with no re-check that the Deck is still empty** (spec C29). Then the **resumed draw** (Q11) happens once: if the Deck is no longer empty, the denied card is drawn; if it still is, nothing is drawn and no second On empty draw wakes. This holds for any draw, including a draw made by an effect.
+- **Empty Deck.** A draw from an empty Deck draws nothing and fires `DRAW_EMPTY`. The seat's On empty draw Batch then drains (D1): every such trigger fires, in any Crew slot order, **with no re-check that the Deck is still empty** (spec C29). Then the **resumed draw** (Q11) happens once: if the Deck is no longer empty, the denied card is drawn; if it still is, nothing is drawn and no second On empty draw wakes. This holds for any draw, including a draw made by an effect. The resumed draw is a game step, not a trigger: it still happens when the Batch ended because the Budget (trigger) is spent, and it does not count against the Budget.
 - Then the On start Batch of revealed cards and Crew drains (D2). Quorum, Hex and Dynamo act here, and a prompt here pauses the Turn before anyone Commits.
 
 ### Energy, Budget and Cost
@@ -338,14 +338,14 @@ These are places where the code reads the canon in a particular way. The code is
 - **Stalemate** (spec C12) is not in [[rules/rules-v2]]. It ends a Match that can no longer progress, on the Match's summed Walk Scores.
 - **Muted triggers and the budget.** A Muted card's trigger is dropped silently when it comes up, but the pop still counts one against the 50 (the canon says only that every taken trigger counts). After the budget is spent a Muted entry stays silent.
 - **Hand triggers** are public (spec C14); [[rules/rules-v2]] section 8 was amended to say so.
-- **Dross** sits in `cards.json` as a created-only definition (`"created": true`), so the pool file holds 91 entries: 90 cards and Dross. It is never in a Deck.
+- **Dross** sits in `cards.json` as a created-only definition (`"created": true`), so the pool file holds 91 entries: 90 cards and Dross. It is never in a Deck. A created card has an Owner from creation and a lifetime: by default (`until_piled`) it expires when it is sent to the Pile; a few last the whole Match (`match`).
 - **Void** grants stack per empty draw and end at turn end if no card Scored.
 - **Readings where the canon is silent** (spec C15, accepted as built):
   - **Tithe's cap** of +3 applies per Tithe, per turn end.
   - **Chooser order.** In Cull the Controller chooses first, in Quorum the first committer; the second chooser sees the first's public picks.
   - **Fence's "wrap"** is stepping off the ring of non-Anchored slots. On a row with no ring (fewer than two non-Anchored slots) a step changes nothing, so Fence does nothing.
   - **Skip** moves the card to a random other slot among the non-Anchored slots of its row.
-  - **Fuse** Condemns itself and a random opposing card each time it fires at Power 5 or more, so a Fuse that keeps growing Condemns again.
+  - **Fuse** Condemns itself and a random opposing card each time it fires at Power 5 or more, so a Fuse that keeps growing Condemns again. Its random pick, like Immolator's, is from the whole opposing row: a pick that lands on a protected (Bastion) or already Condemned card misses, visibly, and still uses its RNG draw.
   - **Exhume** asks once, "choose up to two" over both Piles (an "up to N" prompt), not once per card.
 - **Stale comments.** `turn_flow.gd` still names T-numbers in places; the code is current.
 

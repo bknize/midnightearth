@@ -4,7 +4,7 @@ tags: [reference, rules-v2, resolution]
 status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[systems/game-loop]]", "[[cards/Cards]]", "[[rules/rules-v2]]", "[[rules/crew-v2]]", "[[specs/cycle-5-walk-cursor/spec]]", "[[specs/cycle-8-ramp-bounce-crew/spec]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-08
 uid: 9c79b710-60a3-417d-9318-688d5cc19439
 linear: https://linear.app/night-science-llc/issue/NSC-139/t03-resolution-chart
 supersedes:
@@ -88,7 +88,9 @@ card still Scores, and still fires its triggers, this Walk.
 woken (Q1). Immediately after the last trigger of that Batch has resolved, if the Deck is no
 longer empty the seat makes the draw it was denied, once; if the Deck is still empty,
 nothing is drawn and no second On empty draw Batch wakes. This applies to any draw: the one
-at turn start, and one made by an effect in the Walk or elsewhere.
+at turn start, and one made by an effect in the Walk or elsewhere. The resumed draw is a game
+step, not a trigger: it still happens when the Batch ended because the Budget (trigger) of Q4
+is spent, and it does not count against the Budget.
 
 ## 2. A Turn, step by step
 
