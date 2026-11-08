@@ -99,10 +99,9 @@ func _read() -> bool:
 	if not FileAccess.file_exists(_path):
 		return false
 	var text: String = FileAccess.get_file_as_string(_path)
+	# JSON.new().parse() reports a malformed file without logging an error (parse_string would).
 	var json: JSON = JSON.new()
-	if json.parse(text) != OK:
-		return false  # Malformed: JSON.new().parse() reports it without logging an error.
-	var parsed: Variant = json.data
+	var parsed: Variant = json.data if json.parse(text) == OK else null
 	if not parsed is Dictionary:
 		return false
 	var data: Dictionary = parsed
