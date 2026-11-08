@@ -5,28 +5,42 @@ extends RefCounted
 ## and static, so a suite checks it without a process. One JSON object per line each way.
 ##
 ## Requests (parse_request):
-##   {"id", "kind": "play", "seed", "decks": [a, b] | [], "generator"}
+##   {"id", "kind": "play", "seed", "decks": [a, b] | [], "generator", "generator_weights"?}
 ##   {"id", "kind": "label", "seed", "decks", "actions": [prefix], "seat",
-##    "k" | "candidates": [action dicts], "determinizations", "rollout", "label_seed"}
-##   {"id", "kind": "inspect", "seed", "decks", "actions": [prefix], "seat"}
+##    "k" | "candidates": [action dicts], "determinizations", "rollout", "label_seed",
+##    "rollout_weights"?}
 ##   {"kind": "quit"}
+## Protocol v2 (cycle 13 R13, R14, plan P5): `inspect` is gone (an `inspect` line gets an
+## unknown-kind error; the label reply carries the position's Round, Turn and hand), and the
+## optional `*_weights` members are weights file paths ("" or absent: the committed file),
+## used when the named bot is `linear`.
 ## `seed` and `label_seed` are whole numbers or decimal strings (a 64-bit seed does not
-## survive a JSON float, so the trainer may send it as text). `id` is a number or a string,
-## echoed back as given.
+## survive a JSON float, so the trainer sends it as text; a numeric seed of magnitude 2^53 or
+## more is refused, NSC-207). `id` is a number or a string, echoed back as given.
+## A request line is at most MAX_REQUEST_BYTES long (NSC-208); a longer one gets an error.
 ##
 ## parse_request returns {"error": text, "id": the id when readable, else null} for a bad
 ## line, otherwise the request with typed members: kind, and for play id, seed, decks
 ## (Array[String], empty or two), generator; for label id, seed, decks, actions
 ## (Array[EngineAction]), seat, k (0 when candidates are given), candidates
-## (Array[EngineAction], empty when k is given), determinizations, rollout, label_seed.
+## (Array[EngineAction], empty when k is given), determinizations, rollout, label_seed,
+## rollout_weights (String); play also has generator_weights (String).
 ##
 ## Replies keep the field order of the builders, and encode() does not sort keys, so equal
 ## replies are equal strings. digest() drops the timing fields `us` and `godot`.
 
 const KIND_PLAY: String = "play"
 const KIND_LABEL: String = "label"
-const KIND_INSPECT: String = "inspect"
 const KIND_QUIT: String = "quit"
+## The longest request line, in bytes (NSC-208): ten times a 2000-action prefix (about 150 KB)
+## with headroom. The worker reads each line with a buffer of this size. OS.read_string_from_stdin
+## returns a longer line in pieces of MAX_REQUEST_BYTES - 1 bytes with no marker, so a line
+## of that many bytes or more is taken as over-long (is_over_long), never parsed.
+const MAX_REQUEST_BYTES: int = 1048576
+## The error text for an over-long line.
+const TOO_LONG_MESSAGE: String = "request line is longer than the %d byte limit"
+## The least magnitude at which a JSON number can no longer hold a whole number exactly.
+const SEED_FLOAT_LIMIT: float = 9007199254740992.0
 ## The fields a digest ignores: the time spent and the Godot version of the reply's worker.
 const TIMING_FIELDS: Array[String] = ["us", "godot"]
 
@@ -35,6 +49,8 @@ const TIMING_FIELDS: Array[String] = ["us", "godot"]
 
 ## Parses one request line; see the class comment for the shapes.
 static func parse_request(line: String) -> Dictionary:
+	if is_over_long(line.to_utf8_buffer().size()):
+		return _bad(null, TOO_LONG_MESSAGE % MAX_REQUEST_BYTES)
 	var json: JSON = JSON.new()
 	if json.parse(line) != OK:
 		return _bad(null, "request is not JSON")
@@ -57,15 +73,14 @@ static func parse_request(line: String) -> Dictionary:
 		return _parse_play(d, request_id)
 	if kind == KIND_LABEL:
 		return _parse_label(d, request_id)
-	if kind == KIND_INSPECT:
-		return _parse_inspect(d, request_id)
 	return _bad(request_id, "unknown kind: %s" % kind)
 
 
 static func _parse_play(d: Dictionary, request_id: Variant) -> Dictionary:
 	var seed_out: Array[int] = []
-	if not _read_seed(d.get("seed", null), seed_out):
-		return _bad(request_id, "seed is missing or not a whole number")
+	var seed_problem: String = _read_seed("seed", d.get("seed", null), seed_out)
+	if seed_problem != "":
+		return _bad(request_id, seed_problem)
 	var decks: Array[String] = []
 	if not _read_decks(d.get("decks", null), decks):
 		return _bad(request_id, "decks must be a list of two deck ids or an empty list")
@@ -75,50 +90,28 @@ static func _parse_play(d: Dictionary, request_id: Variant) -> Dictionary:
 	var generator: String = generator_raw
 	if not BotRegistry.NAMES.has(generator):
 		return _bad(request_id, "unknown generator bot: %s" % generator)
+	var weights: Array[String] = []
+	if not _read_weights_path(d, "generator_weights", weights):
+		return _bad(request_id, "generator_weights is not a string")
 	return {
 		"id": request_id,
 		"kind": KIND_PLAY,
 		"seed": seed_out[0],
 		"decks": decks,
 		"generator": generator,
-	}
-
-
-## An inspect request: the position a label request names (seed, decks, prefix, seat), with
-## no labelling fields. It reports what the seat sees there (round, turn, hand).
-static func _parse_inspect(d: Dictionary, request_id: Variant) -> Dictionary:
-	var seed_out: Array[int] = []
-	if not _read_seed(d.get("seed", null), seed_out):
-		return _bad(request_id, "seed is missing or not a whole number")
-	var decks: Array[String] = []
-	if not _read_decks(d.get("decks", null), decks):
-		return _bad(request_id, "decks must be a list of two deck ids or an empty list")
-	var seat_raw: Variant = d.get("seat", null)
-	if not EngineAction.is_whole_number(seat_raw):
-		return _bad(request_id, "seat is missing or not a whole number")
-	var seat: int = EngineAction.as_int(seat_raw)
-	if seat < 0 or seat >= MatchEngine.SEATS:
-		return _bad(request_id, "seat must be 0 or 1")
-	var prefix: Array[EngineAction] = []
-	if not _read_actions(d.get("actions", null), prefix):
-		return _bad(request_id, "actions is missing or holds a malformed action")
-	return {
-		"id": request_id,
-		"kind": KIND_INSPECT,
-		"seed": seed_out[0],
-		"decks": decks,
-		"actions": prefix,
-		"seat": seat,
+		"generator_weights": weights[0],
 	}
 
 
 static func _parse_label(d: Dictionary, request_id: Variant) -> Dictionary:
 	var seed_out: Array[int] = []
-	if not _read_seed(d.get("seed", null), seed_out):
-		return _bad(request_id, "seed is missing or not a whole number")
+	var seed_problem: String = _read_seed("seed", d.get("seed", null), seed_out)
+	if seed_problem != "":
+		return _bad(request_id, seed_problem)
 	var label_out: Array[int] = []
-	if not _read_seed(d.get("label_seed", null), label_out):
-		return _bad(request_id, "label_seed is missing or not a whole number")
+	var label_problem: String = _read_seed("label_seed", d.get("label_seed", null), label_out)
+	if label_problem != "":
+		return _bad(request_id, label_problem)
 	var decks: Array[String] = []
 	if not _read_decks(d.get("decks", null), decks):
 		return _bad(request_id, "decks must be a list of two deck ids or an empty list")
@@ -140,6 +133,9 @@ static func _parse_label(d: Dictionary, request_id: Variant) -> Dictionary:
 	var rollout: String = rollout_raw
 	if not BotRegistry.NAMES.has(rollout):
 		return _bad(request_id, "unknown rollout bot: %s" % rollout)
+	var weights: Array[String] = []
+	if not _read_weights_path(d, "rollout_weights", weights):
+		return _bad(request_id, "rollout_weights is not a string")
 	var prefix: Array[EngineAction] = []
 	if not _read_actions(d.get("actions", null), prefix):
 		return _bad(request_id, "actions is missing or holds a malformed action")
@@ -174,6 +170,7 @@ static func _parse_label(d: Dictionary, request_id: Variant) -> Dictionary:
 		"determinizations": determinizations,
 		"rollout": rollout,
 		"label_seed": label_out[0],
+		"rollout_weights": weights[0],
 	}
 
 
@@ -182,17 +179,34 @@ static func _bad(request_id: Variant, message: String) -> Dictionary:
 	return {"error": message, "id": request_id}
 
 
-## Reads a seed, a whole number or a decimal string, into `out`; false when it is neither.
-static func _read_seed(value: Variant, out: Array[int]) -> bool:
+## Reads the seed `name` (a whole number or a decimal string) into `out`; the problem, or "".
+## A numeric seed of magnitude 2^53 or more is refused: a JSON number is a float and would
+## round it (NSC-207), so the client sends such a seed as a string.
+static func _read_seed(name: String, value: Variant, out: Array[int]) -> String:
+	if value is float:
+		var number: float = value
+		if is_finite(number) and absf(number) >= SEED_FLOAT_LIMIT:
+			return "%s is a number of magnitude 2^53 or more, send it as a string" % name
 	if EngineAction.is_whole_number(value):
 		out.append(EngineAction.as_int(value))
-		return true
+		return ""
 	if value is String:
 		var text: String = value
 		if text.is_valid_int():
 			out.append(text.to_int())
-			return true
-	return false
+			return ""
+	return "%s is missing or not a whole number" % name
+
+
+## Reads the optional weights path `name` into `out` ("" when absent); false when it is
+## present and not a string.
+static func _read_weights_path(d: Dictionary, name: String, out: Array[String]) -> bool:
+	var raw: Variant = d.get(name, "")
+	if not raw is String:
+		return false
+	var path: String = raw
+	out.append(path)
+	return true
 
 
 ## Reads a deck list (empty, or two strings) into `out`.
@@ -229,8 +243,17 @@ static func _read_actions(value: Variant, out: Array[EngineAction]) -> bool:
 # --- Replies --------------------------------------------------------------------------
 
 
-static func hello_reply(stamp: String, rules: int, format: int, godot: String) -> Dictionary:
-	return {"hello": true, "stamp": stamp, "rules": rules, "format": format, "godot": godot}
+static func hello_reply(
+	stamp: String, feature_set: String, rules: int, format: int, godot: String
+) -> Dictionary:
+	return {
+		"hello": true,
+		"stamp": stamp,
+		"feature_set": feature_set,
+		"rules": rules,
+		"format": format,
+		"godot": godot,
+	}
 
 
 static func play_reply(
@@ -246,11 +269,20 @@ static func play_reply(
 	}
 
 
+## The label reply (protocol v2): the position's Round, Turn and the seat's `hand` ([{instance,
+## card, name}]), the number of `legal` commits (-1 when not enumerated), the `candidates`
+## and, per candidate in the same order, its `features` (an integer list laid out as
+## BotFeatures.names(), under `feature_set`), then `values`.
 static func label_reply(
 	request_id: Variant,
 	stamp: String,
+	feature_set: String,
+	round_number: int,
+	turn: int,
+	hand: Array,
 	legal: int,
 	candidates: Array,
+	features: Array,
 	values: Array,
 	rollouts: int,
 	us: int
@@ -258,23 +290,15 @@ static func label_reply(
 	return {
 		"id": request_id,
 		"stamp": stamp,
-		"legal": legal,
-		"candidates": candidates,
-		"values": values,
-		"rollouts": rollouts,
-		"us": us,
-	}
-
-
-static func inspect_reply(
-	request_id: Variant, stamp: String, round_number: int, turn: int, hand: Array, us: int
-) -> Dictionary:
-	return {
-		"id": request_id,
-		"stamp": stamp,
+		"feature_set": feature_set,
 		"round": round_number,
 		"turn": turn,
 		"hand": hand,
+		"legal": legal,
+		"candidates": candidates,
+		"features": features,
+		"values": values,
+		"rollouts": rollouts,
 		"us": us,
 	}
 
@@ -308,6 +332,12 @@ static func log_object(log: ActionLog) -> Dictionary:
 ## One reply as its output line (keys in insertion order, no indent).
 static func encode(reply: Dictionary) -> String:
 	return JSON.stringify(reply, "", false)
+
+
+## Whether a line of `byte_count` bytes is over-long: a longer line reaches the worker in
+## pieces of MAX_REQUEST_BYTES - 1 bytes, so that length already counts as over (NSC-208).
+static func is_over_long(byte_count: int) -> bool:
+	return byte_count >= MAX_REQUEST_BYTES - 1
 
 
 # --- Digest ---------------------------------------------------------------------------

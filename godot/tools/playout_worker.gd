@@ -13,11 +13,13 @@ extends SceneTree
 
 const EXIT_OK: int = 0
 const EXIT_STARTUP: int = 2
-## The longest request line one read takes. Godot 4.6's OS.read_string_from_stdin returns
-## one line without its newline, but splits a line longer than this into unmarked pieces,
-## so it is far above the largest request (a label prefix of at most 2000 actions is about
-## 150 KB).
-const READ_CHUNK: int = 16777216
+## The buffer of one read, PlayoutProtocol.MAX_REQUEST_BYTES (1 MiB: the largest request, a
+## label prefix of at most 2000 actions, is about 150 KB; NSC-208). Godot 4.6's
+## OS.read_string_from_stdin returns one line without its newline, but splits a line longer
+## than the buffer into unmarked pieces of at most buffer - 1 bytes. A read of that length
+## is therefore taken as the start of an over-long request: _run drains the rest of the line
+## and answers with one error reply. A line of exactly buffer - 1 bytes is refused too.
+const READ_CHUNK: int = PlayoutProtocol.MAX_REQUEST_BYTES
 ## Empty reads in a row taken as the end of input. At the end of input every read returns ""
 ## at once; a client never sends this many blank lines in a row.
 const EMPTY_READS_AT_EOF: int = 64
@@ -35,7 +37,17 @@ func _run() -> int:
 	_emit(handler.hello())
 	var empty_reads: int = 0
 	while true:
-		var line: String = _read_line().strip_edges()
+		var raw: String = _read_line()
+		if PlayoutProtocol.is_over_long(raw.to_utf8_buffer().size()):
+			_drain_long_line(raw)
+			_emit(
+				PlayoutProtocol.error_reply(
+					null, PlayoutProtocol.TOO_LONG_MESSAGE % PlayoutProtocol.MAX_REQUEST_BYTES
+				)
+			)
+			empty_reads = 0
+			continue
+		var line: String = raw.strip_edges()
 		if line == "":
 			# A blank request line and the end of input both read as "": a blank line is
 			# skipped (R29), and only EMPTY_READS_AT_EOF empty reads in a row end the worker.
@@ -54,6 +66,14 @@ func _run() -> int:
 ## of input (see _run).
 func _read_line() -> String:
 	return OS.read_string_from_stdin(READ_CHUNK)
+
+
+## Reads and drops the rest of an over-long line, starting from its first piece `piece`: the
+## following pieces until one that is short (the end of the line) or empty (the end of input).
+func _drain_long_line(piece: String) -> void:
+	var last: String = piece
+	while PlayoutProtocol.is_over_long(last.to_utf8_buffer().size()):
+		last = _read_line()
 
 
 ## Prints one reply as a line; the stdout buffer is flushed by print.
