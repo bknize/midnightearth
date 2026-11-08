@@ -96,6 +96,11 @@ func take_closed() -> Array[MatchRoom]:
 	return out
 
 
+## Forgets the rooms that left the registry (a take_closed() whose result is not wanted).
+func clear_closed() -> void:
+	_closed.clear()
+
+
 ## Live rooms (closed ones not yet swept excluded).
 func room_count() -> int:
 	var count: int = 0

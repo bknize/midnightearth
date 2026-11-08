@@ -13,11 +13,7 @@ const CODE: String = "K7QX"
 var _sample_cache: Array[Dictionary] = []
 
 
-## The dictionary as JSON text with sorted keys, so two forms compare key order aside.
-func _text(d: Dictionary) -> String:
-	return JSON.stringify(d, "", true)
-
-
+## Kept apart from NetCodec.dicts_of(): it is the codec's independent oracle.
 func _plain(events: Array[MatchEvent]) -> Array:
 	var out: Array = []
 	for event: MatchEvent in events:
@@ -215,7 +211,7 @@ func test_every_kind_round_trips() -> void:
 		if back.is_empty():
 			problems.append("%s: decode gave {} (%d bytes)" % [kind, text.to_utf8_buffer().size()])
 			continue
-		if _text(_canon(back)) != _text(_canon(message)):
+		if PvpTable.sorted_json(_canon(back)) != PvpTable.sorted_json(_canon(message)):
 			problems.append("%s: round trip differs" % kind)
 	_assert_none(problems, "round trips")
 	var missing: Array[String] = []
@@ -252,7 +248,8 @@ func test_whole_floats_read_as_ints() -> void:
 
 func test_extra_keys_are_dropped() -> void:
 	var back: Dictionary = NetCodec.decode('{"t": "leave", "x": 1}')
-	assert_str(_text(back)).is_equal(_text({NetProtocol.KEY_T: NetProtocol.T_LEAVE}))
+	var leave: Dictionary = {NetProtocol.KEY_T: NetProtocol.T_LEAVE}
+	assert_str(PvpTable.sorted_json(back)).is_equal(PvpTable.sorted_json(leave))
 
 
 func test_protocol_names_its_constants() -> void:
@@ -414,9 +411,9 @@ func test_action_of_rebuilds_every_action_kind() -> void:
 		}
 		var back: EngineAction = NetCodec.action_of(NetCodec.decode(NetCodec.encode(message)))
 		if back == null:
-			problems.append("%s: null" % _text(action.to_dict()))
-		elif _text(back.to_dict()) != _text(action.to_dict()):
-			problems.append("%s: differs" % _text(action.to_dict()))
+			problems.append("%s: null" % PvpTable.sorted_json(action.to_dict()))
+		elif PvpTable.sorted_json(back.to_dict()) != PvpTable.sorted_json(action.to_dict()):
+			problems.append("%s: differs" % PvpTable.sorted_json(action.to_dict()))
 	_assert_none(problems, "actions")
 
 
@@ -441,7 +438,7 @@ func test_view_of_rebuilds_every_seed_1_view() -> void:
 		var back: SeatView = NetCodec.view_of(NetCodec.decode(NetCodec.encode(message)))
 		if back == null:
 			problems.append("view %d: null" % at)
-		elif _text(back.to_dict()) != _text(view.to_dict()):
+		elif PvpTable.sorted_json(back.to_dict()) != PvpTable.sorted_json(view.to_dict()):
 			problems.append("view %d: differs" % at)
 	_assert_none(problems, "seed 1 views")
 
@@ -479,7 +476,7 @@ func test_events_of_rebuilds_both_seats_histories() -> void:
 			var got: MatchEvent = back[at]
 			if got.kind != event.kind or got.owner_seat != event.owner_seat:
 				problems.append("seat %d event %d: kind or owner differs" % [seat, at])
-			elif _text(got.to_dict()) != _text(event.to_dict()):
+			elif PvpTable.sorted_json(got.to_dict()) != PvpTable.sorted_json(event.to_dict()):
 				problems.append("seat %d event %d: differs" % [seat, at])
 	_assert_none(problems, "histories")
 

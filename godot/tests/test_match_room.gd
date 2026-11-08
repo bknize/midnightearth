@@ -50,10 +50,6 @@ func _kinds(entries: Array[PvpTable.Sent]) -> Array[String]:
 	return out
 
 
-func _text(value: Variant) -> String:
-	return JSON.stringify(value, "", true)
-
-
 func _event_kinds(entry: PvpTable.Sent) -> Array[int]:
 	var out: Array[int] = []
 	for event: MatchEvent in NetCodec.events_of(entry.message):
@@ -175,7 +171,7 @@ func test_a_full_random_bot_match_ends_and_each_history_is_its_redactions() -> v
 	assert_int(table.awaited_seat()).is_equal(-1)
 	for seat: int in range(MatchEngine.SEATS):
 		var history: Array[Dictionary] = table.room.history_of(seat)
-		assert_str(_text(table.events[seat])).is_equal(_text(history))
+		assert_str(PvpTable.sorted_json(table.events[seat])).is_equal(PvpTable.sorted_json(history))
 	var record: Dictionary = table.room.log_record()
 	assert_bool(record["complete"]).is_true()
 	var end: Dictionary = record["end"]
@@ -271,7 +267,8 @@ func test_reconnect_with_the_right_install_id_resyncs_the_seat() -> void:
 	assert_str(back[0].message[NetProtocol.KEY_STATE]).is_equal(NetProtocol.STATE_BACK)
 	assert_int(back[1].conn).is_equal(LATE_CONN)
 	var history: Array[Dictionary] = table.room.history_of(1)
-	assert_str(_text(back[1].message[NetProtocol.KEY_EVENTS])).is_equal(_text(history))
+	var sent_events: String = PvpTable.sorted_json(back[1].message[NetProtocol.KEY_EVENTS])
+	assert_str(sent_events).is_equal(PvpTable.sorted_json(history))
 	assert_int(NetCodec.view_of(back[1].message).seat).is_equal(1)
 	assert_int(table.room.seat_of(LATE_CONN)).is_equal(1)
 	assert_int(table.room.seat_of(PvpTable.JOIN_CONN)).is_equal(-1)
@@ -455,8 +452,8 @@ func test_the_log_record_carries_the_data_model_fields() -> void:
 	assert_array(record["decks"]).is_equal(["greed", "ramp"])
 	var players: Array = record["players"]
 	var host: Dictionary = players[0]
-	assert_str(_text(host)).is_equal(
-		_text({"seat": 0, "name": "Ana", "install_id": "install-ana", "kind": "human"})
+	assert_str(PvpTable.sorted_json(host)).is_equal(
+		PvpTable.sorted_json({"seat": 0, "name": "Ana", "install_id": "install-ana", "kind": "human"})
 	)
 	var joiner: Dictionary = players[1]
 	assert_str(joiner["kind"]).is_equal("bot")

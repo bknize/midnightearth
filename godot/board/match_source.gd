@@ -18,6 +18,9 @@ signal action_rejected(code: int)
 signal connection_changed(state: String, detail: String)
 ## The match is closed from outside the rules: `reason` is one of the CLOSED_* names.
 signal match_closed(reason: String)
+## A reconnect's whole redacted history and the current view (a remote source only, P8:
+## MatchDriver never emits it).
+signal catch_up(events: Array[MatchEvent], view: SeatView)
 
 ## connection_changed states.
 const STATE_RECONNECTING: String = "reconnecting"

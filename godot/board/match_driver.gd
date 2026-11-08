@@ -9,7 +9,7 @@ extends MatchSource
 ## seed-1 autoplay match is the smoke match under the same bot. Only seat 0's redacted
 ## events leave the driver (R6); only the bots read another seat's view, and only their own.
 ## The board plays against it through the MatchSource calls; the older apply-style calls
-## (begin, submit_player, apply_choice, play_bot, last_events) stay for the suites and tools.
+## (begin, submit_player, apply_choice, apply_set, play_bot, last_events) stay for the suites.
 
 ## The human's seat.
 const PLAYER_SEAT: int = 0
@@ -26,7 +26,6 @@ var autoplay: bool:
 
 var _seed: int = 0
 var _autoplay: bool = false
-var _cards: CardDb = null
 var _engine: MatchEngine = null
 ## One entry per seat; null for a seat a human drives.
 var _bots: Array[BotPlayer] = []
@@ -59,7 +58,6 @@ static func create(
 	driver.player_seat = PLAYER_SEAT
 	driver._autoplay = p_autoplay
 	driver._bot_name = p_bot_name
-	driver._cards = cards
 	driver._engine = MatchEngine.create(p_seed, cards, decks, ids, crew)
 	var defs: MatchCards = driver._engine.match_cards()
 	for seat: int in MatchEngine.SEATS:
@@ -71,11 +69,6 @@ static func create(
 			return null
 		driver._bots.append(bot)
 	return driver
-
-
-## The card pool the match was created with.
-func card_db() -> CardDb:
-	return _cards
 
 
 ## The match's definitions by instance id (DC-07 P3): read a card through its origin's
@@ -144,10 +137,6 @@ func advance() -> bool:
 	return true
 
 
-func opponent_name() -> String:
-	return "Opponent"
-
-
 func allows_rematch() -> bool:
 	return true
 
@@ -174,12 +163,6 @@ func apply_choice(zone: int, index: int) -> ApplyResult:
 ## the result.
 func apply_set(zone: int, indices: Array[int]) -> ApplyResult:
 	return submit_player(EngineAction.choose_set(PLAYER_SEAT, zone, indices))
-
-
-## Declines seat 0's open optional prompt (cycle 8 R52, P10): the Skip button. Rejected like
-## any action when no prompt is open or the prompt is not optional.
-func apply_decline() -> ApplyResult:
-	return submit_player(EngineAction.decline(PLAYER_SEAT))
 
 
 ## Seat 0's open prompt (`{seat, card, verb, zone, options, multi}`), or `{}` when none is

@@ -5,11 +5,7 @@ extends FullMatchHarness
 ## text (numbers as floats, `looked` keys as text), and every malformed shape reads as null.
 
 const SEED: int = 1
-
-
-## The dictionary as JSON text with sorted keys, so two forms compare key order aside.
-func _text(d: Dictionary) -> String:
-	return JSON.stringify(d, "", true)
+# Two forms compare as PvpTable.sorted_json() text, key order aside.
 
 
 ## The seed-1 start view of seat 0, as to_dict() gives it: the base of the malformed cases.
@@ -46,7 +42,7 @@ func test_every_seed_1_view_round_trips() -> void:
 		if back == null:
 			problems.append("view %d: from_dict gave null" % at)
 			continue
-		if _text(back.to_dict()) != _text(dict):
+		if PvpTable.sorted_json(back.to_dict()) != PvpTable.sorted_json(dict):
 			problems.append("view %d: round trip differs" % at)
 	_assert_none(problems, "seed 1 views")
 
@@ -66,7 +62,7 @@ func test_every_seed_1_view_round_trips_through_json() -> void:
 		if back == null:
 			problems.append("view %d: from_dict gave null" % at)
 			continue
-		if _text(back.to_dict()) != _text(dict):
+		if PvpTable.sorted_json(back.to_dict()) != PvpTable.sorted_json(dict):
 			problems.append("view %d: JSON round trip differs" % at)
 	_assert_none(problems, "seed 1 views through JSON")
 

@@ -34,22 +34,22 @@ static func encode(message: Dictionary) -> String:
 	var checked: Dictionary = _checked(message)
 	if checked.is_empty():
 		return ""
-	var text: String = JSON.stringify(checked)
-	if not _fits(text.to_utf8_buffer().size(), checked):
+	var encoded: String = JSON.stringify(checked)
+	if not _fits(encoded.to_utf8_buffer().size(), checked):
 		return ""
-	return text
+	return encoded
 
 
-## The message `text` holds, its fields checked and normalised; {} when malformed or too
-## large.
-static func decode(text: String) -> Dictionary:
-	if text.length() > NetProtocol.MAX_SERVER_MESSAGE_BYTES:
+## The message `json_text` holds, its fields checked and normalised; {} when malformed or
+## too large.
+static func decode(json_text: String) -> Dictionary:
+	if json_text.length() > NetProtocol.MAX_SERVER_MESSAGE_BYTES:
 		return {}
-	var size: int = text.to_utf8_buffer().size()
+	var size: int = json_text.to_utf8_buffer().size()
 	if size > NetProtocol.MAX_SERVER_MESSAGE_BYTES:
 		return {}
 	var json: JSON = JSON.new()
-	if json.parse(text) != OK:
+	if json.parse(json_text) != OK:
 		return {}
 	var data: Variant = json.data
 	if not data is Dictionary:
@@ -103,6 +103,67 @@ static func error_of(message: Dictionary) -> int:
 		return -1
 	var error_name: String = raw
 	return _error_code(error_name)
+
+
+## The to_dict() of each of `events`, in order: a message's `events` field as the server
+## builds it.
+static func dicts_of(events: Array[MatchEvent]) -> Array:
+	var out: Array = []
+	for event: MatchEvent in events:
+		out.append(event.to_dict())
+	return out
+
+
+# --- Typed reads of decoded values ------------------------------------------------------
+
+
+## `value` as a String; "" when it is not text.
+static func text(value: Variant) -> String:
+	if typeof(value) != TYPE_STRING:
+		return ""
+	var out: String = value
+	return out
+
+
+## `value` as an int (a whole float, as JSON parses numbers, counts); -1 otherwise.
+static func whole(value: Variant) -> int:
+	var normalized: Variant = MatchEvent.whole_numbers(value)
+	if typeof(normalized) != TYPE_INT:
+		return -1
+	var out: int = normalized
+	return out
+
+
+## text() of the value under `key` in `d`.
+static func text_at(d: Dictionary, key: String) -> String:
+	return text(d.get(key))
+
+
+## whole() of the value under `key` in `d`.
+static func int_at(d: Dictionary, key: String) -> int:
+	return whole(d.get(key))
+
+
+## whole() of each item of `value`; empty when it is not an Array.
+static func ints(value: Variant) -> Array[int]:
+	var out: Array[int] = []
+	if typeof(value) != TYPE_ARRAY:
+		return out
+	var items: Array = value
+	for item: Variant in items:
+		out.append(whole(item))
+	return out
+
+
+## text() of each item of `value`; empty when it is not an Array.
+static func strings(value: Variant) -> Array[String]:
+	var out: Array[String] = []
+	if typeof(value) != TYPE_ARRAY:
+		return out
+	var items: Array = value
+	for item: Variant in items:
+		out.append(text(item))
+	return out
 
 
 # --- Untrusted text (NSC-226 S4) --------------------------------------------------------
@@ -284,8 +345,8 @@ static func _field(type: int, raw: Variant) -> Variant:
 static func _one_of(value: Variant, allowed: Array[String]) -> bool:
 	if not value is String:
 		return false
-	var text: String = value
-	return allowed.has(text)
+	var chosen: String = value
+	return allowed.has(chosen)
 
 
 ## The EngineError code named `error_name`; -1 when it names none.

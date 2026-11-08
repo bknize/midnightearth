@@ -371,11 +371,12 @@ func _idle_too_long(conn: Connection, now_ms: int) -> bool:
 ## any earlier, the frame would reach a client still finishing the HTTP upgrade, which
 ## drops it. One that never speaks meets the handshake deadline.
 func _receive(conn: Connection, packet: PackedByteArray, is_text: bool, now_ms: int) -> void:
+	if conn.refusal != "":
+		_refuse_close(conn, conn.refusal, "", now_ms)
+		return
 	var problem: String = ""
 	var message: Dictionary = {}
-	if conn.refusal != "":
-		problem = conn.refusal
-	elif not _take_token(conn, now_ms):
+	if not _take_token(conn, now_ms):
 		problem = NetProtocol.REASON_TOO_MANY_MESSAGES
 	elif packet.size() > NetProtocol.MAX_MESSAGE_BYTES:
 		problem = NetProtocol.REASON_MESSAGE_TOO_LARGE
@@ -383,12 +384,12 @@ func _receive(conn: Connection, packet: PackedByteArray, is_text: bool, now_ms: 
 		problem = NetProtocol.REASON_BAD_MESSAGE
 	else:
 		message = NetCodec.decode(packet.get_string_from_utf8())
-		if not NetProtocol.is_client_kind(_text_of(message, NetProtocol.KEY_T)):
+		if not NetProtocol.is_client_kind(NetCodec.text_at(message, NetProtocol.KEY_T)):
 			problem = NetProtocol.REASON_BAD_MESSAGE
 	if problem != "":
 		_refuse_close(conn, problem, "", now_ms)
 		return
-	_handle(conn, _text_of(message, NetProtocol.KEY_T), message, now_ms)
+	_handle(conn, NetCodec.text_at(message, NetProtocol.KEY_T), message, now_ms)
 
 
 func _handle(conn: Connection, kind: String, message: Dictionary, now_ms: int) -> void:
@@ -426,23 +427,23 @@ func _on_hello(conn: Connection, message: Dictionary, now_ms: int) -> void:
 	if conn.welcomed:
 		_refuse_close(conn, NetProtocol.REASON_BAD_MESSAGE, "second hello", now_ms)
 		return
-	if _int_of(message, NetProtocol.KEY_PROTOCOL) != NetProtocol.VERSION:
+	if NetCodec.int_at(message, NetProtocol.KEY_PROTOCOL) != NetProtocol.VERSION:
 		var detail: String = "server protocol %d" % NetProtocol.VERSION
 		_refuse_close(conn, NetProtocol.REASON_PROTOCOL_MISMATCH, detail, now_ms)
 		return
-	if _text_of(message, NetProtocol.KEY_STAMP) != stamp:
+	if NetCodec.text_at(message, NetProtocol.KEY_STAMP) != stamp:
 		_refuse_close(conn, NetProtocol.REASON_STAMP_MISMATCH, stamp, now_ms)
 		return
-	var install_id: String = _text_of(message, NetProtocol.KEY_INSTALL_ID)
+	var install_id: String = NetCodec.text_at(message, NetProtocol.KEY_INSTALL_ID)
 	if not NetCodec.is_install_id(install_id):
 		_refuse_close(conn, NetProtocol.REASON_BAD_MESSAGE, "install_id", now_ms)
 		return
 	conn.welcomed = true
 	conn.idle_since_ms = now_ms
 	conn.identity = {
-		NetProtocol.KEY_NAME: NetCodec.clean_name(_text_of(message, NetProtocol.KEY_NAME)),
+		NetProtocol.KEY_NAME: NetCodec.clean_name(NetCodec.text_at(message, NetProtocol.KEY_NAME)),
 		NetProtocol.KEY_INSTALL_ID: install_id,
-		NetProtocol.KEY_KIND: _text_of(message, NetProtocol.KEY_KIND),
+		NetProtocol.KEY_KIND: NetCodec.text_at(message, NetProtocol.KEY_KIND),
 	}
 	_send(
 		conn,
@@ -460,7 +461,7 @@ func _on_host(conn: Connection, message: Dictionary, now_ms: int) -> void:
 	if room == null:
 		_send(conn, _refused(NetProtocol.REASON_SERVER_FULL, ""))
 		return
-	var deck: String = _text_of(message, NetProtocol.KEY_DECK)
+	var deck: String = NetCodec.text_at(message, NetProtocol.KEY_DECK)
 	var out: Array[MatchRoom.Outbound] = room.host(conn.id, conn.identity, deck, now_ms)
 	if room.seat_of(conn.id) < 0:
 		# Refused (an unknown deck): the empty room must not hold a place under the cap.
@@ -477,14 +478,14 @@ func _on_host(conn: Connection, message: Dictionary, now_ms: int) -> void:
 ## `join` or `rejoin` (R11, R46): the room under the code takes `conn` on a seat.
 func _on_join(conn: Connection, kind: String, message: Dictionary, now_ms: int) -> void:
 	# A code off the alphabet is never looked up or echoed (S4).
-	var code: String = NetCodec.room_code(_text_of(message, NetProtocol.KEY_CODE))
+	var code: String = NetCodec.room_code(NetCodec.text_at(message, NetProtocol.KEY_CODE))
 	var room: MatchRoom = null if code == "" else registry.room_of(code)
 	if room == null:
 		_send(conn, _refused(NetProtocol.REASON_UNKNOWN_ROOM, code))
 		return
 	var out: Array[MatchRoom.Outbound] = []
 	if kind == NetProtocol.T_JOIN:
-		var deck: String = _text_of(message, NetProtocol.KEY_DECK)
+		var deck: String = NetCodec.text_at(message, NetProtocol.KEY_DECK)
 		out = room.join(conn.id, conn.identity, deck, now_ms)
 	else:
 		out = room.rejoin(conn.id, conn.identity, now_ms)
@@ -503,10 +504,10 @@ func _route(out: Array[MatchRoom.Outbound], now_ms: int) -> void:
 			continue
 		var conn: Connection = _conns[outbound.connection_id]
 		_send(conn, outbound.message)
-		var kind: String = _text_of(outbound.message, NetProtocol.KEY_T)
+		var kind: String = NetCodec.text_at(outbound.message, NetProtocol.KEY_T)
 		if ENDING_KINDS.has(kind):
 			conn.room = null
-			var reason: String = _text_of(outbound.message, NetProtocol.KEY_REASON)
+			var reason: String = NetCodec.text_at(outbound.message, NetProtocol.KEY_REASON)
 			_close_conn(conn, reason if reason != "" else kind, CLOSE_NORMAL, close_grace_ms, now_ms)
 
 
@@ -516,14 +517,14 @@ func _send(conn: Connection, message: Dictionary) -> void:
 		return
 	var text: String = NetCodec.encode(message)
 	if text == "":
-		push_warning("MatchServer: a '%s' message did not encode" % _text_of(message, "t"))
+		push_warning("MatchServer: a '%s' message did not encode" % NetCodec.text_at(message, "t"))
 		return
 	if conn.peer.send_text(text) != OK:
 		push_warning("MatchServer: conn %d send failed" % conn.id)
 		return
-	if _text_of(message, NetProtocol.KEY_T) == NetProtocol.T_REFUSED:
-		var reason: String = _text_of(message, NetProtocol.KEY_REASON)
-		var detail: String = _text_of(message, NetProtocol.KEY_DETAIL)
+	if NetCodec.text_at(message, NetProtocol.KEY_T) == NetProtocol.T_REFUSED:
+		var reason: String = NetCodec.text_at(message, NetProtocol.KEY_REASON)
+		var detail: String = NetCodec.text_at(message, NetProtocol.KEY_DETAIL)
 		_say("conn %d refused reason=%s detail=%s" % [conn.id, reason, NetCodec.printable(detail)])
 
 
@@ -552,17 +553,16 @@ func _flush_rooms() -> void:
 		if conn.room != null and conn.room.is_closed():
 			conn.room = null
 	# The registry's closed rooms were written above; drain its list.
-	registry.take_closed().clear()
+	registry.clear_closed()
 
 
 ## Writes the room's log; whether it is on disk (a room with no record yet counts as
 ## written). A failure warns once until a write succeeds again.
 func _write_log(tracked: TrackedRoom) -> bool:
 	var room: MatchRoom = tracked.room
-	var record: Dictionary = room.log_record()
-	if record.is_empty():
+	if not room.has_record():
 		return true
-	var err: int = PvpLog.write(logs_dir, record)
+	var err: int = PvpLog.write(logs_dir, room.log_record())
 	if err == OK:
 		tracked.write_failed = false
 		return true
@@ -592,24 +592,6 @@ static func _refused(reason: String, detail: String) -> Dictionary:
 		NetProtocol.KEY_REASON: reason,
 		NetProtocol.KEY_DETAIL: detail,
 	}
-
-
-## The String under `key`; "" when absent or not text.
-static func _text_of(message: Dictionary, key: String) -> String:
-	var raw: Variant = message.get(key)
-	if typeof(raw) == TYPE_STRING:
-		var text: String = raw
-		return text
-	return ""
-
-
-## The int under `key`; -1 when absent or not an int.
-static func _int_of(message: Dictionary, key: String) -> int:
-	var raw: Variant = message.get(key)
-	if typeof(raw) == TYPE_INT:
-		var value: int = raw
-		return value
-	return -1
 
 
 ## One peer: its socket, handshake, message window and room.

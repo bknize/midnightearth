@@ -11,7 +11,7 @@ extends MatchSource
 ## (the caller then hands this source to the board, whose start() releases the opening
 ## events), `refused` ends it before a match. After a drop mid-match it retries the
 ## connection every RETRY_MS for RECONNECT_WINDOW_MS (R45) and sends `rejoin`; the
-## server's `resync` comes out as `catch_up`. Past the window it closes with
+## server's `resync` comes out as MatchSource's `catch_up`. Past the window it closes with
 ## CLOSED_CONNECTION_LOST (R51). The retry schedule runs on tick(now_ms), which the client
 ## drives every frame; nothing here reads a clock.
 
@@ -20,8 +20,6 @@ signal hosted(code: String)
 ## The server, or the network, refused the request (R14 to R16): `reason` is a
 ## NetProtocol.REASON_* name or REFUSED_UNREACHABLE (`detail` then the address).
 signal refused(reason: String, detail: String)
-## A reconnect's whole redacted history and the current view (P8).
-signal catch_up(events: Array[MatchEvent], view: SeatView)
 ## The server started the match: player_seat, deck_ids(), view() and match_cards() hold.
 signal match_started
 
@@ -262,7 +260,7 @@ func is_player_awaited() -> bool:
 func result_line() -> String:
 	if _end_payload.is_empty():
 		return ""
-	var wins: Array[int] = _ints(_end_payload.get("wins", []))
+	var wins: Array[int] = NetCodec.ints(_end_payload.get("wins", []))
 	if wins.size() != SEATS:
 		wins = [0, 0]
 	return (
@@ -270,11 +268,11 @@ func result_line() -> String:
 		% [
 			_code,
 			player_seat,
-			_int(_end_payload.get("winner", -1)),
+			NetCodec.int_at(_end_payload, "winner"),
 			wins[0],
 			wins[1],
-			_int(_end_payload.get("rounds_played", 0)),
-			_text(_end_payload.get("reason", "")),
+			NetCodec.whole(_end_payload.get("rounds_played", 0)),
+			NetCodec.text_at(_end_payload, "reason"),
 			_actions_seen,
 		]
 	)
@@ -311,18 +309,18 @@ func _on_connected() -> void:
 func _on_message(message: Dictionary) -> void:
 	if _phase == Phase.IDLE or _phase == Phase.CLOSED:
 		return
-	var kind: String = _text(message.get(NetProtocol.KEY_T, ""))
+	var kind: String = NetCodec.text_at(message, NetProtocol.KEY_T)
 	match kind:
 		NetProtocol.T_WELCOME:
 			_on_welcome()
 		NetProtocol.T_REFUSED:
 			_close()
 			refused.emit(
-				_text(message.get(NetProtocol.KEY_REASON, "")),
-				_text(message.get(NetProtocol.KEY_DETAIL, ""))
+				NetCodec.text_at(message, NetProtocol.KEY_REASON),
+				NetCodec.text_at(message, NetProtocol.KEY_DETAIL)
 			)
 		NetProtocol.T_HOSTED:
-			_code = _text(message.get(NetProtocol.KEY_CODE, ""))
+			_code = NetCodec.text_at(message, NetProtocol.KEY_CODE)
 			hosted.emit(_code)
 		NetProtocol.T_STARTED:
 			_on_started(message)
@@ -389,7 +387,7 @@ func _on_room_ended(kind: String, message: Dictionary) -> void:
 	if kind == NetProtocol.T_EXPIRED:
 		match_closed.emit(CLOSED_EXPIRED)
 	else:
-		match_closed.emit(_text(message.get(NetProtocol.KEY_REASON, "")))
+		match_closed.emit(NetCodec.text_at(message, NetProtocol.KEY_REASON))
 
 
 func _on_welcome() -> void:
@@ -406,13 +404,13 @@ func _on_started(message: Dictionary) -> void:
 	var seat_view: SeatView = NetCodec.view_of(message)
 	if seat_view == null:
 		return
-	player_seat = _int(message.get(NetProtocol.KEY_SEAT, 0))
-	_deck_ids = _strings(message.get(NetProtocol.KEY_DECKS, []))
+	player_seat = NetCodec.whole(message.get(NetProtocol.KEY_SEAT, 0))
+	_deck_ids = NetCodec.strings(message.get(NetProtocol.KEY_DECKS, []))
 	var opponent: Variant = message.get(NetProtocol.KEY_OPPONENT, {})
 	if opponent is Dictionary:
 		var who: Dictionary = opponent
-		_opponent_name = _text(who.get(NetProtocol.KEY_NAME, DEFAULT_OPPONENT))
-		_opponent_deck = _text(who.get(NetProtocol.KEY_DECK, ""))
+		_opponent_name = NetCodec.text(who.get(NetProtocol.KEY_NAME, DEFAULT_OPPONENT))
+		_opponent_deck = NetCodec.text_at(who, NetProtocol.KEY_DECK)
 	_view = seat_view
 	_cards = _build_cards(_deck_ids)
 	_phase = Phase.PLAYING
@@ -462,8 +460,8 @@ func _on_resync(message: Dictionary) -> void:
 
 
 func _on_opponent(message: Dictionary) -> void:
-	var state: String = _text(message.get(NetProtocol.KEY_STATE, ""))
-	var who: String = _text(message.get(NetProtocol.KEY_NAME, _opponent_name))
+	var state: String = NetCodec.text_at(message, NetProtocol.KEY_STATE)
+	var who: String = NetCodec.text(message.get(NetProtocol.KEY_NAME, _opponent_name))
 	if state == NetProtocol.STATE_LOST:
 		connection_changed.emit(MatchSource.STATE_OPPONENT_LOST, who)
 	elif state == NetProtocol.STATE_BACK:
@@ -483,9 +481,9 @@ func _take(events: Array[MatchEvent]) -> void:
 func _record_created(payload: Dictionary) -> void:
 	if _cards == null:
 		return
-	var card: int = _int(payload.get("card", -1))
-	var owner: int = _int(payload.get("owner", -1))
-	var def: CardDef = _cards.pool_def(_text(payload.get("def", "")))
+	var card: int = NetCodec.int_at(payload, "card")
+	var owner: int = NetCodec.int_at(payload, "owner")
+	var def: CardDef = _cards.pool_def(NetCodec.text_at(payload, "def"))
 	if card < 0 or def == null:
 		return
 	var recorded: bool = _cards.record_created(card, def, owner)
@@ -530,40 +528,3 @@ static func _build_cards(ids: Array[String]) -> MatchCards:
 	return MatchCards.build(
 		CardDb.load_default(), DeckList.load_default(), ids, CrewPool.load_default()
 	)
-
-
-# --- Typed reads of decoded values -------------------------------------------------------
-
-
-static func _int(value: Variant) -> int:
-	if typeof(value) != TYPE_INT:
-		return -1
-	var out: int = value
-	return out
-
-
-static func _text(value: Variant) -> String:
-	if typeof(value) != TYPE_STRING:
-		return ""
-	var out: String = value
-	return out
-
-
-static func _ints(value: Variant) -> Array[int]:
-	var out: Array[int] = []
-	if typeof(value) != TYPE_ARRAY:
-		return out
-	var items: Array = value
-	for item: Variant in items:
-		out.append(_int(item))
-	return out
-
-
-static func _strings(value: Variant) -> Array[String]:
-	var out: Array[String] = []
-	if typeof(value) != TYPE_ARRAY:
-		return out
-	var items: Array = value
-	for item: Variant in items:
-		out.append(_text(item))
-	return out

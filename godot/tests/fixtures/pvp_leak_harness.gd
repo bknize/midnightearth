@@ -57,7 +57,8 @@ func _play_and_scan(match_seed: int, decks: Array[String]) -> void:
 	table.join(decks[1])
 	var result: ApplyResult = twin.start()
 	assert_bool(result.ok).override_failure_message(label + "twin start").is_true()
-	_scan_step(run, table, before, result, mark, history)
+	# Each step's `after` is the next step's `before`: nothing between them moves the twin.
+	before = _scan_step(run, table, before, result, mark, history)
 	var resynced: bool = false
 	while run.actions < MAX_ACTIONS:
 		var seat: int = table.awaited_seat()
@@ -65,11 +66,10 @@ func _play_and_scan(match_seed: int, decks: Array[String]) -> void:
 			break
 		if run.actions == RESYNC_AT and not resynced:
 			resynced = true
-			_scan_resync(run, table, history)
+			_scan_resync(run, table, before, history)
 		var action: EngineAction = table.bot_action(seat)
 		var forced: EngineAction = action.copy()
 		forced.seat = seat
-		before = twin.full_state()
 		run.sets_before = run.sets_after
 		run.sets_after = null
 		mark = table.sent.size()
@@ -79,7 +79,7 @@ func _play_and_scan(match_seed: int, decks: Array[String]) -> void:
 			run.rejections.append("action %d rejected by the twin" % run.actions)
 			break
 		run.actions += 1
-		_scan_step(run, table, before, result, mark, history)
+		before = _scan_step(run, table, before, result, mark, history)
 	assert_bool(resynced).override_failure_message(label + "no resync").is_true()
 	assert_array(table.unencodable).override_failure_message(label + "unencodable").is_empty()
 	_assert_none(run.rejections, label + "rejected")
@@ -92,7 +92,8 @@ func _play_and_scan(match_seed: int, decks: Array[String]) -> void:
 	assert_int(run.face_down_seen).is_greater(0)
 
 
-## Every message the step sent (table.sent from `mark` on) against the twin's step.
+## Every message the step sent (table.sent from `mark` on) against the twin's step; returns
+## the twin's full state after it.
 func _scan_step(
 	run: FullMatchRun,
 	table: PvpTable,
@@ -100,13 +101,16 @@ func _scan_step(
 	result: ApplyResult,
 	mark: int,
 	history: Array[Array]
-) -> void:
+) -> Dictionary:
 	var after: Dictionary = run.engine.full_state()
 	if run.sets_before == null:
 		run.sets_before = _sets_of(before)
 	run.sets_after = _sets_of(after)
 	run.steps_scanned += 1
 	var windows: FullMatchHarness.PublicWindows = _public_windows(before, after, result)
+	var expects: Array[SeatExpect] = []
+	for seat: int in range(MatchEngine.SEATS):
+		expects.append(SeatExpect.of(run, seat, result))
 	var received: Array[int] = [0, 0]
 	for at: int in range(mark, table.sent.size()):
 		var entry: PvpTable.Sent = table.sent[at]
@@ -117,15 +121,15 @@ func _scan_step(
 			run.leaks.append(where + ": sent to a connection with no seat")
 			continue
 		received[seat] += 1
-		var expected: Array = _plain(result.events_for(seat))
-		history[seat].append_array(expected)
-		_scan_events(run, entry, seat, expected, windows, where)
+		history[seat].append_array(expects[seat].events)
+		_scan_events(run, entry, seat, expects[seat], windows, where)
 		_scan_view(run, entry, seat, after, where)
 	for seat: int in range(MatchEngine.SEATS):
 		if received[seat] != 1:
 			run.leaks.append(
 				"after action %d: seat %d got %d messages" % [run.actions, seat, received[seat]]
 			)
+	return after
 
 
 ## The text carries no seed: not the match seed's digits, not a seed or RNG key.
@@ -142,18 +146,16 @@ func _scan_events(
 	run: FullMatchRun,
 	entry: PvpTable.Sent,
 	seat: int,
-	expected: Array,
+	expect: SeatExpect,
 	windows: FullMatchHarness.PublicWindows,
 	where: String
 ) -> void:
 	var seen: Array[MatchEvent] = NetCodec.events_of(entry.message)
-	if _text(_plain(seen)) != _text(expected):
+	if PvpTable.sorted_json(NetCodec.dicts_of(seen)) != expect.json:
 		run.leaks.append(where + ": events differ from the seat's redaction")
 	var opp: int = 1 - seat
-	var hidden_during: Dictionary = run.sets_before.hidden[opp].duplicate()
-	hidden_during.merge(run.sets_after.hidden[opp])
-	var own_known: Dictionary = run.sets_before.own[seat].duplicate()
-	own_known.merge(run.sets_after.own[seat])
+	var hidden_during: Dictionary = expect.hidden_during
+	var own_known: Dictionary = expect.own_known
 	for at: int in range(seen.size()):
 		var event: MatchEvent = seen[at]
 		if event.is_private() and event.owner_seat == opp:
@@ -195,9 +197,11 @@ func _scan_view(
 
 ## Seat 1 drops and rejoins: its `resync` holds exactly its scanned history and a view
 ## that passes the view scans; the host hears `opponent lost` then `back`.
-func _scan_resync(run: FullMatchRun, table: PvpTable, history: Array[Array]) -> void:
+## `after` is the twin's full state now.
+func _scan_resync(
+	run: FullMatchRun, table: PvpTable, after: Dictionary, history: Array[Array]
+) -> void:
 	var where: String = "resync at action %d" % run.actions
-	var after: Dictionary = run.engine.full_state()
 	var mark: int = table.sent.size()
 	table.take(table.room.connection_lost(table.conns[1], table.now_ms))
 	table.conns[1] = RECONNECT_CONN
@@ -212,7 +216,7 @@ func _scan_resync(run: FullMatchRun, table: PvpTable, history: Array[Array]) -> 
 		if entry.conn != RECONNECT_CONN:
 			run.leaks.append(where + ": resync sent to %d" % entry.conn)
 		var sent_events: Array = entry.message.get(NetProtocol.KEY_EVENTS, [])
-		if _text(sent_events) != _text(history[1]):
+		if PvpTable.sorted_json(sent_events) != PvpTable.sorted_json(history[1]):
 			run.leaks.append(where + ": resync history differs from the scanned history")
 		_scan_view(run, entry, 1, after, where)
 	var expected: Array[String] = [
@@ -222,13 +226,24 @@ func _scan_resync(run: FullMatchRun, table: PvpTable, history: Array[Array]) -> 
 		run.leaks.append(where + ": sent %s" % [kinds])
 
 
-func _plain(events: Array[MatchEvent]) -> Array:
-	var out: Array = []
-	for event: MatchEvent in events:
-		out.append(event.to_dict())
-	return out
+## What one seat should receive in one step, built once per step: its redacted events (as
+## to_dict() forms and as sorted JSON), the opponent's cards hidden before or after the
+## step, and the seat's own known cards before or after it.
+class SeatExpect:
+	extends RefCounted
 
+	var events: Array = []
+	var json: String = ""
+	var hidden_during: Dictionary = {}
+	var own_known: Dictionary = {}
 
-## JSON text with sorted keys, so a to_dict() form and its decoded copy compare equal.
-func _text(value: Variant) -> String:
-	return JSON.stringify(value, "", true)
+	static func of(run: FullMatchRun, seat: int, result: ApplyResult) -> SeatExpect:
+		var out: SeatExpect = SeatExpect.new()
+		out.events = NetCodec.dicts_of(result.events_for(seat))
+		out.json = PvpTable.sorted_json(out.events)
+		var opp: int = 1 - seat
+		out.hidden_during = run.sets_before.hidden[opp].duplicate()
+		out.hidden_during.merge(run.sets_after.hidden[opp])
+		out.own_known = run.sets_before.own[seat].duplicate()
+		out.own_known.merge(run.sets_after.own[seat])
+		return out

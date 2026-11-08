@@ -76,25 +76,26 @@ static func wanted(args: PackedStringArray) -> bool:
 	return false
 
 
-## The bot client's result line for a MATCH_ENDED `payload` (R30).
+## The bot client's result line for a MATCH_ENDED `payload` (R30), read through NetCodec's
+## typed reads.
 static func result_line(seat: int, room: String, payload: Dictionary, actions: int) -> String:
 	var wins: Array[int] = [0, 0]
 	var raw_wins: Variant = payload.get("wins", [])
 	if typeof(raw_wins) == TYPE_ARRAY:
 		var items: Array = raw_wins
 		if items.size() == SEATS:
-			wins = [_int(items[0]), _int(items[1])]
+			wins = [NetCodec.whole(items[0]), NetCodec.whole(items[1])]
 	return (
 		"%sseat=%d code=%s winner=%d wins=%d-%d rounds=%d end=%s actions=%d"
 		% [
 			LINE_PREFIX,
 			seat,
 			room,
-			_int(payload.get("winner", -1)),
+			NetCodec.int_at(payload, "winner"),
 			wins[0],
 			wins[1],
-			_int(payload.get("rounds_played", 0)),
-			_text(payload.get("reason", "")),
+			NetCodec.whole(payload.get("rounds_played", 0)),
+			NetCodec.text_at(payload, "reason"),
 			actions,
 		]
 	)
@@ -293,17 +294,3 @@ func _finish(exit_code: int, text: String) -> void:
 static func _seed_of(text: String) -> int:
 	var value: int = text.hash() & 0x7FFFFFFF
 	return value if value != 0 else 1
-
-
-static func _int(value: Variant) -> int:
-	if typeof(value) != TYPE_INT:
-		return -1
-	var out: int = value
-	return out
-
-
-static func _text(value: Variant) -> String:
-	if typeof(value) != TYPE_STRING:
-		return ""
-	var out: String = value
-	return out

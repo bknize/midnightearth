@@ -6,11 +6,7 @@ extends FullMatchHarness
 ## reads as null; name_of() names each code and gives "" out of range.
 
 const SEED: int = 1
-
-
-## The dictionary as JSON text with sorted keys, so two forms compare key order aside.
-func _text(d: Dictionary) -> String:
-	return JSON.stringify(d, "", true)
+# Two forms compare as PvpTable.sorted_json() text, key order aside.
 
 
 func _assert_null(d: Dictionary, what: String) -> void:
@@ -35,7 +31,7 @@ func test_every_seed_1_event_round_trips() -> void:
 			continue
 		if back.kind != event.kind or back.owner_seat != event.owner_seat:
 			problems.append("event %d: kind or owner differs" % at)
-		if _text(back.to_dict()) != _text(dict):
+		if PvpTable.sorted_json(back.to_dict()) != PvpTable.sorted_json(dict):
 			problems.append("event %d: round trip differs" % at)
 	_assert_none(problems, "seed 1 events")
 
@@ -68,7 +64,7 @@ func test_json_floats_read_as_ints() -> void:
 		return
 	assert_int(back.kind).is_equal(MatchEvent.Kind.COMMITTED)
 	assert_int(back.owner_seat).is_equal(1)
-	assert_str(_text(back.to_dict())).is_equal(_text(event.to_dict()))
+	assert_str(PvpTable.sorted_json(back.to_dict())).is_equal(PvpTable.sorted_json(event.to_dict()))
 	var cards: Array = back.payload["cards"]
 	assert_int(typeof(cards[0])).is_equal(TYPE_INT)
 	var nested: Dictionary = back.payload["nested"]

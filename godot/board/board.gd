@@ -254,8 +254,7 @@ func _begin_source(new_source: MatchSource) -> void:
 	events_err += source.action_rejected.connect(_on_action_rejected)
 	events_err += source.connection_changed.connect(_on_connection_changed)
 	events_err += source.match_closed.connect(_on_match_closed)
-	if source.has_signal("catch_up"):
-		events_err += source.connect("catch_up", _on_catch_up)
+	events_err += source.catch_up.connect(_on_catch_up)  # A remote source's resync (P8).
 	if events_err != OK:
 		push_warning("Board: could not connect the match source's signals")
 	_fx.view_source = source.view
@@ -285,8 +284,8 @@ func _release_source() -> void:
 		source.connection_changed.disconnect(_on_connection_changed)
 	if source.match_closed.is_connected(_on_match_closed):
 		source.match_closed.disconnect(_on_match_closed)
-	if source.has_signal("catch_up") and source.is_connected("catch_up", _on_catch_up):
-		source.disconnect("catch_up", _on_catch_up)
+	if source.catch_up.is_connected(_on_catch_up):
+		source.catch_up.disconnect(_on_catch_up)
 
 
 ## Takes the deck ids and the card definitions from the source once it holds them.

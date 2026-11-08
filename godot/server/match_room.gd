@@ -27,7 +27,8 @@ extends RefCounted
 enum Phase { WAITING, RUNNING, FINISHED, CLOSED }
 
 const ROOM_EXPIRY_MS: int = 600000
-const RECONNECT_WINDOW_MS: int = 120000
+## The client's reconnect window (R45, R51): one value for both ends.
+const RECONNECT_WINDOW_MS: int = NetDefaults.RECONNECT_WINDOW_MS
 const FINISHED_LINGER_MS: int = 300000
 const HOST_SEAT: int = 0
 const JOIN_SEAT: int = 1
@@ -116,7 +117,7 @@ func join(conn: int, identity: Dictionary, deck: String, now_ms: int) -> Array[O
 		out.append(_refused(conn, NetProtocol.REASON_UNKNOWN_ROOM, code))
 		return out
 	# Two seats under one install id could not be told apart on a rejoin (_rejoin_seat).
-	var joiner_id: String = _text_of(identity, NetProtocol.KEY_INSTALL_ID)
+	var joiner_id: String = NetCodec.text_at(identity, NetProtocol.KEY_INSTALL_ID)
 	if joiner_id != "" and joiner_id == _seats[HOST_SEAT].install_id:
 		out.append(_refused(conn, NetProtocol.REASON_SAME_INSTALL, code))
 		return out
@@ -137,7 +138,7 @@ func rejoin(conn: int, identity: Dictionary, _now_ms: int) -> Array[Outbound]:
 	if _phase != Phase.RUNNING and _phase != Phase.FINISHED:
 		out.append(_refused(conn, NetProtocol.REASON_UNKNOWN_ROOM, code))
 		return out
-	var seat: int = _rejoin_seat(_text_of(identity, NetProtocol.KEY_INSTALL_ID))
+	var seat: int = _rejoin_seat(NetCodec.text_at(identity, NetProtocol.KEY_INSTALL_ID))
 	if seat < 0:
 		out.append(_refused(conn, NetProtocol.REASON_WRONG_INSTALL_ID, code))
 		return out
@@ -152,7 +153,8 @@ func rejoin(conn: int, identity: Dictionary, _now_ms: int) -> Array[Outbound]:
 		_revision += 1
 		_tell_other(out, seat, _opponent_state(NetProtocol.STATE_BACK, 0, slot.name))
 	var message: Dictionary = _message(NetProtocol.T_RESYNC)
-	message[NetProtocol.KEY_EVENTS] = slot.history.duplicate(true)
+	# Shared, not copied: every caller encodes the Outbound before the room's next call.
+	message[NetProtocol.KEY_EVENTS] = slot.history
 	message[NetProtocol.KEY_VIEW] = _engine.view_for(seat).to_dict()
 	out.append(Outbound.to(conn, message))
 	return out
@@ -304,6 +306,11 @@ func history_of(seat: int) -> Array[Dictionary]:
 	return out
 
 
+## True once the match started: log_record() is then not {}.
+func has_record() -> bool:
+	return _started_ms >= 0 and _engine != null
+
+
 ## Grows whenever log_record() would read differently.
 func revision() -> int:
 	return _revision
@@ -318,7 +325,7 @@ func revision() -> int:
 ## ActionLog.from_json(JSON.stringify(record.log)) replays it. The only hidden data the
 ## room hands out (the seed is in `log`): for the log writer alone (P19).
 func log_record() -> Dictionary:
-	if _started_ms < 0 or _engine == null:
+	if not has_record():
 		return {}
 	var players: Array[Dictionary] = []
 	for seat: int in range(_seats.size()):
@@ -364,7 +371,7 @@ func _start(now_ms: int) -> Array[Outbound]:
 	for seat: int in range(MatchEngine.SEATS):
 		var slot: SeatSlot = _seats[seat]
 		var other: int = 1 - seat
-		var events: Array = _plain(result.events_for(seat))
+		var events: Array = NetCodec.dicts_of(result.events_for(seat))
 		slot.history.append_array(events)
 		var message: Dictionary = _message(NetProtocol.T_STARTED)
 		message[NetProtocol.KEY_SEAT] = seat
@@ -385,7 +392,7 @@ func _accepted(result: ApplyResult, now_ms: int, out: Array[Outbound]) -> void:
 	_revision += 1
 	for seat: int in range(MatchEngine.SEATS):
 		var slot: SeatSlot = _seats[seat]
-		var events: Array = _plain(result.events_for(seat))
+		var events: Array = NetCodec.dicts_of(result.events_for(seat))
 		slot.history.append_array(events)
 		if slot.connection_id < 0:
 			continue
@@ -514,22 +521,6 @@ static func _opponent_state(state: String, seconds_left: int, who: String) -> Di
 	return message
 
 
-static func _plain(events: Array[MatchEvent]) -> Array:
-	var out: Array = []
-	for event: MatchEvent in events:
-		out.append(event.to_dict())
-	return out
-
-
-## The String under `key` of `identity`; "" when absent or not text.
-static func _text_of(identity: Dictionary, key: String) -> String:
-	var raw: Variant = identity.get(key)
-	if raw is String:
-		var text: String = raw
-		return text
-	return ""
-
-
 ## Whole seconds of `ms` (Unix ms to the Unix seconds PvpLog takes).
 static func _seconds(ms: int) -> int:
 	return floori(float(ms) / 1000.0)
@@ -570,7 +561,7 @@ class SeatSlot:
 	func seat_with(conn: int, identity: Dictionary, p_deck: String) -> void:
 		taken = true
 		connection_id = conn
-		name = MatchRoom._text_of(identity, NetProtocol.KEY_NAME)
-		install_id = MatchRoom._text_of(identity, NetProtocol.KEY_INSTALL_ID)
-		kind = MatchRoom._text_of(identity, NetProtocol.KEY_KIND)
+		name = NetCodec.text_at(identity, NetProtocol.KEY_NAME)
+		install_id = NetCodec.text_at(identity, NetProtocol.KEY_INSTALL_ID)
+		kind = NetCodec.text_at(identity, NetProtocol.KEY_KIND)
 		deck = p_deck

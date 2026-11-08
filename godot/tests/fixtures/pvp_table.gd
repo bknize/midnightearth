@@ -39,6 +39,12 @@ static func create(match_seed: int) -> PvpTable:
 	return table
 
 
+## `value` as JSON text with sorted keys, so a to_dict() form and its decoded copy compare
+## key order aside (shared by the PVP and dict suites).
+static func sorted_json(value: Variant) -> String:
+	return JSON.stringify(value, "", true)
+
+
 func host(deck: String = "greed") -> Array[Sent]:
 	return take(room.host(HOST_CONN, HOST_ID, deck, now_ms))
 

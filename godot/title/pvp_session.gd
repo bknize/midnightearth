@@ -19,9 +19,6 @@ signal started
 ## The attempt or the match ended under the player: show the title with `message`.
 signal ended(message: String)
 
-## RemoteMatchSource's (MatchSource's) abandonment reason: the board handles it (R49).
-const CLOSED_ABANDONED: String = "abandoned"
-
 var _client: NetClient = null
 var _source: RemoteMatchSource = null
 var _address: String = ""
@@ -102,11 +99,6 @@ func leave() -> void:
 		_source.leave()
 
 
-## The server address in use.
-func address() -> String:
-	return _address
-
-
 func _open(identity: Identity, deck: String, client: NetClient) -> void:
 	_address = identity.server
 	_client = client
@@ -137,7 +129,8 @@ func _on_refused(reason: String, detail: String) -> void:
 
 
 func _on_closed(reason: String) -> void:
-	if reason == CLOSED_ABANDONED:
+	# The abandonment (RemoteMatchSource inherits it from MatchSource): the board shows it (R49).
+	if reason == RemoteMatchSource.CLOSED_ABANDONED:
 		return
 	_end(closed_message(reason))
 
