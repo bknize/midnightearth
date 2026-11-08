@@ -1,3 +1,4 @@
+# gdlint: disable=max-file-lines
 class_name Board
 extends Node3D
 ## The table (R3-R8, R31-R39, R44): a fixed camera on four card collections, a HUD, and the
@@ -103,8 +104,12 @@ var _free_first: bool = false
 var _committed_ids: Dictionary[int, bool] = {}
 ## Seat 0's instance ids lying face down on the row; the walk's flip pulse turns them up.
 var _face_down_ids: Dictionary[int, bool] = {}
-## The player's staging, drag feedback and card pick-up (BoardPlayerSide).
-var _side: BoardPlayerSide = null
+## The drag in progress: the card, where it started, and whether the pointer was over the
+## row's drop zone (R14).
+var _drag_card: BoardCard = null
+var _drag_from_hand: bool = false
+var _over_row: bool = false
+var _drag_cancelled: bool = false
 var _last_error: int = EngineError.Code.NONE
 ## True from an action being sent until the source answers it (events or a rejection), so a
 ## remote answer in flight keeps input locked.
@@ -142,11 +147,10 @@ var _connection_left: float = 0.0
 
 
 func _ready() -> void:
-	_side = BoardPlayerSide.new(self)
-	player_hand.drag_strategy = _side.make_strategy(BoardDragStrategy.Role.PLAYER_HAND)
-	player_row.drag_strategy = _side.make_strategy(BoardDragStrategy.Role.PLAYER_ROW)
-	opponent_row.drag_strategy = _side.make_strategy(BoardDragStrategy.Role.OPPONENT)
-	opponent_hand.drag_strategy = _side.make_strategy(BoardDragStrategy.Role.OPPONENT)
+	player_hand.drag_strategy = _make_strategy(BoardDragStrategy.Role.PLAYER_HAND)
+	player_row.drag_strategy = _make_strategy(BoardDragStrategy.Role.PLAYER_ROW)
+	opponent_row.drag_strategy = _make_strategy(BoardDragStrategy.Role.OPPONENT)
+	opponent_hand.drag_strategy = _make_strategy(BoardDragStrategy.Role.OPPONENT)
 	hud.set_commit_enabled(false)
 	_tally.place(0, player_row.global_position + TALLY_OFFSET)
 	_tally.place(1, opponent_row.global_position + TALLY_OFFSET)
@@ -296,7 +300,7 @@ func _begin_source(new_source: MatchSource) -> void:
 	hud.set_opponent_name(source.opponent_name())
 	hud.set_waiting("")
 	hud.show_connection("", "")
-	_side.refresh_staging_ui()
+	_refresh_staging_ui()
 	_crew_pending = true
 	source.start()
 
@@ -838,7 +842,9 @@ func _clear_table_now() -> void:
 	_turn_energy = 0
 	staging.reset(0)
 	_hide_glows()
-	_side.reset_drag()
+	_drag_card = null
+	_drag_from_hand = false
+	_over_row = false
 	_tracker.reset()
 	_tally.hide_all()
 	_chips.clear()
@@ -858,73 +864,269 @@ func _refresh_commit_enabled() -> void:
 	hud.set_commit_enabled(may_act() and not _prompt.is_open())
 
 
-# --- The player's side lives in BoardPlayerSide; these are its signal entry points ----------
+# --- Staging, drag feedback and card pick-up (R1-R20, R26) ---------------------------------
 
 
-func _unstage_all() -> void:
-	_side.unstage_all()
+func _make_strategy(role: BoardDragStrategy.Role) -> BoardDragStrategy:
+	var strategy: BoardDragStrategy = BoardDragStrategy.new()
+	strategy.role = role
+	strategy.can_act = may_act
+	strategy.is_locked = _is_locked
+	strategy.can_afford = _card_affordable
+	strategy.is_staged = _card_staged
+	strategy.is_played = _card_played
+	return strategy
 
 
-func _place_of(card: Card3D) -> int:
-	return _side.place_of(card)
+func _is_locked() -> bool:
+	return _input_locked or card_lift.is_holding()
 
 
+## True when the card (a seat-0 BoardCard; anything else is false) fits in the energy left
+## this turn (R14).
+func _card_affordable(card: Object) -> bool:
+	var board_card: BoardCard = card as BoardCard
+	if board_card == null:
+		return false
+	return staging.can_afford(_cost_of(board_card.instance_id))
+
+
+func _card_staged(card: Object) -> bool:
+	var board_card: BoardCard = card as BoardCard
+	if board_card == null:
+		return false
+	return staging.has(board_card.instance_id)
+
+
+## True for a seat-0 card already played this round (committed): it never drags (R44).
+func _card_played(card: Object) -> bool:
+	var board_card: BoardCard = card as BoardCard
+	if board_card == null:
+		return false
+	return _committed_ids.has(board_card.instance_id)
+
+
+## The cost of a card instance, from the match's own definitions (the seats' decks differ).
+func _cost_of(id: int) -> int:
+	var def: CardDef = source.match_cards().def_of(id)
+	return staging.cached_cost(id, source.view, 0 if def == null else def.cost)
+
+
+func _refresh_staging_ui() -> void:
+	hud.set_energy(staging.energy_left(), _turn_energy, _free_first)
+	hud.set_commit_label(not staging.cards().is_empty())
+	_refresh_commit_enabled()
+
+
+## The uncommitted cards on the player's row, in row order.
+func _staged_cards() -> Array[BoardCard]:
+	var out: Array[BoardCard] = []
+	for card: Card3D in player_row.cards:
+		var board_card: BoardCard = card as BoardCard
+		if board_card != null and not _committed_ids.has(board_card.instance_id):
+			out.append(board_card)
+	return out
+
+
+## The instance ids of the player's row, in row order.
 func _row_ids() -> Array[int]:
-	return _side.row_ids()
+	var out: Array[int] = []
+	for card: Card3D in player_row.cards:
+		var board_card: BoardCard = card as BoardCard
+		out.append(board_card.instance_id if board_card != null else -1)
+	return out
 
 
-func _hide_glows() -> void:
-	_side.hide_glows()
+## How many played (committed) cards sit on the player's row: the first staged slot.
+func _played_count() -> int:
+	return player_row.cards.size() - _staged_cards().size()
 
 
+## Index of a staged card among the staged cards only: the staged cards before it on the row,
+## wherever the played cards sit (R43).
+func _staged_index(card: BoardCard) -> int:
+	return RowSlots.staged_before(_row_ids(), _committed_ids, card.instance_id)
+
+
+## Rebuilds staging from the row if it ever differs from it; any staged card that no longer
+## fits goes back to the hand (R14). Then refreshes the energy readout and the button.
+func _resync_staging() -> void:
+	var staged: Array[BoardCard] = _staged_cards()
+	var expected: Array[int] = []
+	for card: BoardCard in staged:
+		expected.append(card.instance_id)
+	if expected != staging.cards():
+		staging.reset(_turn_energy, player_row.cards.size() - staged.size(), _free_first)
+		var rejected: Array[BoardCard] = []
+		var at_end: int = 0
+		for card: BoardCard in staged:
+			if staging.insert(card.instance_id, _cost_of(card.instance_id), at_end):
+				at_end += 1
+			else:
+				rejected.append(card)
+		for card: BoardCard in rejected:
+			_fx.move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
+	staging.set_row(_row_ids())
+	_refresh_staging_ui()
+
+
+## Sends every staged card back to the hand and empties staging for this turn's energy.
+func _unstage_all() -> void:
+	for card: BoardCard in _staged_cards():
+		_fx.move_card(card, player_row, player_hand, UNSTAGE_TIME / speed)
+	staging.reset(_turn_energy, _played_count(), _free_first)
+	_refresh_staging_ui()
+
+
+## The DragController moved a card (R12, R13). Staging follows the row.
 func _on_drag_card_moved(
 	card: Card3D,
 	from_collection: CardCollection3D,
 	to_collection: CardCollection3D,
-	from_index: int,
-	to_index: int
+	_from_index: int,
+	_to_index: int
 ) -> void:
-	_side.on_drag_card_moved(card, from_collection, to_collection, from_index, to_index)
+	var board_card: BoardCard = card as BoardCard
+	if board_card == null:
+		return
+	var id: int = board_card.instance_id
+	if from_collection == player_hand and to_collection == player_row:
+		var inserted: bool = staging.insert(id, _cost_of(id), _staged_index(board_card))
+		if not inserted:
+			push_warning("Board: staging refused card %d dropped on the row" % id)
+	elif from_collection == player_row and to_collection == player_hand:
+		staging.remove(id)
+	elif from_collection == player_row and to_collection == player_row:
+		staging.move(id, _staged_index(board_card))
+	_resync_staging()
 
 
 func _on_drag_started(card: Card3D) -> void:
-	_side.on_drag_started(card)
+	_drag_card = card as BoardCard
+	_drag_from_hand = player_hand.cards.has(card)
+	_over_row = false
+	_drag_cancelled = false
+	# The row refuses an unaffordable card, so its drop zone would stay off; switch it on
+	# so the release over the row can be told apart from a release elsewhere (R14).
+	if _drag_from_hand and may_act() and not _card_affordable(card):
+		player_row.enable_drop_zone()
+	if _drag_card != null and may_act():
+		BoardGlow.show(_hand_glow, BoardGlow.Look.IDLE)
+		BoardGlow.show(_row_glow, _row_look(false))
 
 
+## After every drag, refused or cancelled or not: flash on a refused drop (R14) and make
+## sure staging matches the row (R26).
 func _on_drag_stopped(card: Card3D) -> void:
-	_side.on_drag_stopped(card)
+	var refused: bool = (
+		_drag_from_hand
+		and _over_row
+		and not _drag_cancelled
+		and player_hand.cards.has(card)
+		and may_act()
+		and not _card_affordable(card)
+	)
+	if refused:
+		hud.flash_energy()
+	_hide_glows()
+	_drag_card = null
+	_drag_from_hand = false
+	_over_row = false
+	_drag_cancelled = false
+	_resync_staging()
 
 
 func _on_row_zone_entered() -> void:
-	_side.on_row_zone_entered()
+	_over_row = true
+	if _row_glow.visible:
+		BoardGlow.show(_row_glow, _row_look(true))
 
 
 func _on_row_zone_exited() -> void:
-	_side.on_row_zone_exited()
+	_over_row = false
+	if _row_glow.visible:
+		BoardGlow.show(_row_glow, _row_look(false))
 
 
 func _on_hand_zone_entered() -> void:
-	_side.on_hand_zone_entered()
+	if _hand_glow.visible:
+		BoardGlow.show(_hand_glow, BoardGlow.Look.HOVER)
 
 
 func _on_hand_zone_exited() -> void:
-	_side.on_hand_zone_exited()
+	if _hand_glow.visible:
+		BoardGlow.show(_hand_glow, BoardGlow.Look.IDLE)
+
+
+## The row panel's look: red when it would refuse the dragged card (R14), else idle/hover.
+func _row_look(hovered: bool) -> BoardGlow.Look:
+	if _drag_from_hand and _drag_card != null and not _card_affordable(_drag_card):
+		return BoardGlow.Look.REFUSE
+	return BoardGlow.Look.HOVER if hovered else BoardGlow.Look.IDLE
+
+
+func _hide_glows() -> void:
+	_hand_glow.visible = false
+	_row_glow.visible = false
 
 
 func _on_pointer_cancelled() -> void:
-	_side.on_pointer_cancelled()
+	_drag_cancelled = true
 
 
-func _on_pointer_tapped(tap_at: Vector2, hit: Object) -> void:
-	_side.on_pointer_tapped(tap_at, hit)
+# --- Card pick-up (R1-R11) -----------------------------------------------------------------
 
 
-func _on_card_lifted(card: BoardCard) -> void:
-	_side.on_card_lifted(card)
+## The LiftRules.Place of a card, or -1 if it is in no collection.
+func _place_of(card: Card3D) -> int:
+	if _crew_line.has_card(card):
+		return LiftRules.Place.CREW
+	if player_hand.cards.has(card):
+		return LiftRules.Place.HAND
+	if player_row.cards.has(card):
+		return LiftRules.Place.ROW
+	if opponent_row.cards.has(card):
+		return LiftRules.Place.OPPONENT_ROW
+	if opponent_hand.cards.has(card):
+		return LiftRules.Place.OPPONENT_HAND
+	return -1
 
 
-func _on_card_put_down(card: BoardCard) -> void:
-	_side.on_card_put_down(card)
+## A tap puts a held card down and does nothing else (R5); otherwise it lifts the card under
+## it if the rules allow (R1, R2), never during a drag or a pause (R7).
+func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
+	if _prompt.is_open() and not _paused:
+		_prompt.handle_tap(LiftRules.card_from_hit(hit))
+		return
+	if card_lift.is_holding():
+		card_lift.put_down()
+		return
+	if _paused or _drag_card != null:
+		return
+	var card: BoardCard = LiftRules.card_from_hit(hit)
+	if card == null:
+		return
+	var place: int = _place_of(card)
+	if place < 0:
+		return
+	if LiftRules.may_lift(place as LiftRules.Place, not card.face_down):
+		card_lift.lift(card)
+
+
+func _on_card_lifted(_card: BoardCard) -> void:
+	# The prompt's banner and the action button live in the HUD, so it stays up (R40).
+	hud.visible = _prompt.is_open()
+	player_hand.hover_disabled = true
+	player_row.hover_disabled = true
+	_refresh_commit_enabled()
+
+
+func _on_card_put_down(_card: BoardCard) -> void:
+	_prompt.lift_ended()
+	hud.visible = true
+	player_hand.hover_disabled = false
+	player_row.hover_disabled = false
+	_refresh_commit_enabled()
 
 
 # --- Commit, pause, concede, rematch (R16, R17, R40-R43) -----------------------------------
