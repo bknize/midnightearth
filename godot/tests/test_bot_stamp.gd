@@ -17,14 +17,14 @@ const CHANGED_CREW: String = "user://test_bot_stamp_crew.json"
 const MISSING: String = "res://engine/data/none.json"
 
 
-func test_shape_is_r7_and_16_lowercase_hex() -> void:
+func test_shape_is_r8_and_16_lowercase_hex() -> void:
 	var stamp: String = BotStamp.current()
 	var shape: RegEx = RegEx.create_from_string("^r(\\d+)-[0-9a-f]{16}$")
 	var found: RegExMatch = shape.search(stamp)
 	assert_object(found).is_not_null()
 	if found != null:
 		assert_str(found.get_string(1)).is_equal(str(MatchRules.RULES_VERSION))
-	assert_str(stamp.substr(0, 3)).is_equal("r7-")
+	assert_str(stamp.substr(0, 3)).is_equal("r8-")
 
 
 func test_fixture_stamp_equals_the_pinned_digest() -> void:

@@ -512,8 +512,9 @@ func _turn_over() -> void:
 ## - a won sudden-death Round ends the match, reason sudden_death;
 ## - a seat on 4 wins ends it, reason wins;
 ## - after Round 7, the seat with more wins takes it, reason rounds;
-## - a tied sudden-death Round with both Decks and hands empty ends it, reason stalemate:
-##   the higher Match total Score wins, equal totals draw (winner -1, spec C12).
+## - a tied sudden-death Round ends it, reason stalemate, when both Decks and hands are
+##   empty (spec C12) or when neither seat committed a card all Round (rules 8, cycle 13 C9
+##   (Ben, 2026-11-08)): the higher Match total Score wins, equal totals draw (winner -1).
 ## Otherwise the next Round starts; past Round 7 it is a sudden-death Round. A match end
 ## leaves the table as it stands.
 func _after_round(winner: int) -> void:
@@ -536,11 +537,17 @@ func _after_round(winner: int) -> void:
 	_begin_round()
 
 
-## Stalemate (Ben, spec C12): both Decks and both hands are empty and no seat can refill
-## (review 3a: a seat whose Crew shuffles its Pile in on an empty draw, with a non-empty
-## Pile, can still play), so no later Round can be won. The higher Match total Score
-## (`match_scores`) takes the Match; equal totals draw.
+## Stalemate after a tied sudden-death Round, when either:
+## - (Ben, spec C12) both Decks and both hands are empty and no seat can refill (review 3a:
+##   a seat whose Crew shuffles its Pile in on an empty draw, with a non-empty Pile, can
+##   still play); or
+## - (rules 8, cycle 13 C9 (Ben, 2026-11-08)) neither seat committed a card all Round
+##   (`round_committed` 0), whatever the seats still hold. A tied Round with any card
+##   committed goes on to the next Round.
+## The higher Match total Score (`match_scores`) takes the Match; equal totals draw.
 func _stalled() -> bool:
+	if _state.round_committed == 0:
+		return true
 	for seat: int in range(_state.seats.size()):
 		var held: MatchState.SeatPiles = _state.seats[seat]
 		if not held.deck.is_empty() or not held.hand.is_empty():
