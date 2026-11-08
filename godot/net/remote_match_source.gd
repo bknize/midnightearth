@@ -96,9 +96,9 @@ func host() -> void:
 	_connect()
 
 
-## Asks to join the room `code`, typed in any case (R11, R12).
-func join(code: String) -> void:
-	_code = code.strip_edges().to_upper()
+## Asks to join the room `room_code`, typed in any case (R11, R12).
+func join(room_code: String) -> void:
+	_code = room_code.strip_edges().to_upper()
 	_request = {
 		NetProtocol.KEY_T: NetProtocol.T_JOIN,
 		NetProtocol.KEY_CODE: _code,
@@ -110,8 +110,8 @@ func join(code: String) -> void:
 ## Asks to retake this install id's seat in the running room `code` (a restarted client,
 ## R46): the server's `resync` comes out as `catch_up` (no `match_started`), a refusal as
 ## `refused`. A drop before the resync retries like a reconnect (R45).
-func rejoin(code: String) -> void:
-	_code = code.strip_edges().to_upper()
+func rejoin(room_code: String) -> void:
+	_code = room_code.strip_edges().to_upper()
 	_request = {NetProtocol.KEY_T: NetProtocol.T_REJOIN, NetProtocol.KEY_CODE: _code}
 	_rejoining = true
 	_dropped_at = _now
