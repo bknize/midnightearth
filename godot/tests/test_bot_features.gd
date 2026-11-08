@@ -22,7 +22,16 @@ const PREFIX_CAP: int = 600
 ## The vector at the seed-1 position, in names() order.
 ## PIN: filled by the orchestrator from the `BotFeatures pin: [...]` line of the gate output;
 ## re-pin the same way after a rules, pool or feature-set change.
-const PINNED: Array[int] = []
+const PINNED: Array[int] = [
+	1, 0, 0, 1, 0, 0, 0, 0, 0, 4, 11, 16, 0, 0, 0, 0,
+	0, 0, 0, 0, -2, 4, 2, 3, 1, 12, 0, 11, 15, 25, 18, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+]
 
 var _cached_defs: MatchCards = null
 
