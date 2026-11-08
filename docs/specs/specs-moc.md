@@ -4,7 +4,7 @@ tags: [moc, specs]
 status: evergreen
 related: ["[[home]]"]
 created: 2026-11-02
-updated: 2026-11-07
+updated: 2026-11-08
 uid: 99ef0f47-bcd6-4654-ad1f-ab1f1db9df29
 linear:
 supersedes:
@@ -32,3 +32,4 @@ written by `/spec <slug>` and exercised into Linear by `/exercise <slug>`.
 | [[specs/cycle-11-bot-trainer/spec|cycle-11-bot-trainer]] ([[specs/cycle-11-bot-trainer/plan|plan]], [[specs/cycle-11-bot-trainer/tasks|tasks]]) | approved | [P-NSC-13](https://linear.app/night-science-llc/project/cycle-11-bot-trainer-cycle-a-play-outs-ladder-from-random-trainer-11ab3927f350) (bot trainer cycle A: milestone A1 the stamp, match and play-out workers, rollout entry, ladder rung 0; milestone A2 `trainer/`, run store, MCP server with bearer token, Windows runner) |
 | [[specs/cycle-12-multiplayer/spec|cycle-12-multiplayer]] ([[specs/cycle-12-multiplayer/plan|plan]], [[specs/cycle-12-multiplayer/tasks|tasks]]) | approved | [P-NSC-14](https://linear.app/night-science-llc/project/cycle-12-pvp-through-a-match-server-on-the-testing-pc-130cdbdf69c0), DC-19: a title screen with Play vs Bot / Host / Join, PVP through a server-authoritative headless Godot process on the testing PC (room codes, plain `ws://`, port forward), every PVP match logged for the trainer; ADR 0005 amends D4 for PVP |
 | [[specs/cycle-13-bot-trainer-b/spec|cycle-13-bot-trainer-b]] ([[specs/cycle-13-bot-trainer-b/plan|plan]], [[specs/cycle-13-bot-trainer-b/tasks|tasks]]) | approved | [P-NSC-15](https://linear.app/night-science-llc/project/cycle-13-bot-trainer-cycle-b-the-learner-the-linear-bot-rung-1-64d41cbb8498) (bot trainer cycle B: features and the `linear` bot, the play-out worker's protocol v2, the numpy learner with `fit` and `get_artifact` on the PC, expert iteration over three PC nights, rung 1 if it passes R4) |
+| [[specs/cycle-14-backlog/spec|cycle-14-backlog]] ([[specs/cycle-14-backlog/plan|plan]], [[specs/cycle-14-backlog/tasks|tasks]]) | approved | [P-NSC-16](https://linear.app/night-science-llc/project/cycle-14-backlog-sweep-1f4a4af95173), DC-20: the backlog sweep; six rules rulings and rules version 9 first (resumed draw after exhaust, random Condemn misses, Level on revealed cards only, `uses` enforced, created cards Owned with a lifetime, CREW_FIRED), then the board bugs, the cleanups, the PVP polish, the trainer items between nights, the tooling nits and the stale docs; the PC-night trainer work stays under its own milestone |
