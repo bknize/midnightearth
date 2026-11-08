@@ -13,8 +13,14 @@
 #     have <branch> itself checked out;
 #   - it is not locked (Claude Code locks an agent worktree while its agent runs);
 #   - no running process (a Godot editor, an agent shell) has its path on the command line;
-#   - its HEAD is a strict ancestor of <branch> (merged, and not a fresh cut at the tip);
+#   - it is ours: an agent worktree (branch `worktree-agent-*` under <main>/.claude/worktrees/)
+#     or a cycle worktree (branch `cycle-*`, wherever it lives, e.g. a scratchpad). Anything
+#     else (docs-*, tooling-*, detached, another session's worktree) is foreign and kept;
+#   - its branch tip is a strict ancestor of <branch> (merged, and not a fresh cut at the
+#     tip); an unmerged branch is always kept;
 #   - `git status` shows nothing but untracked *.uid files (Godot regenerates those).
+# Before a worktree is removed, every *.png under its godot/reports/ (gitignored, so never in
+# `git status`) is moved to <main>/reports/screenshots/<branch>/ (gitignored too).
 # Its branch is deleted too when it is a `worktree-agent-*` branch; cycle, tooling and docs
 # branches are kept. Agent branches with no worktree left that are merged into <branch>
 # are deleted as well. Finishes with `git worktree prune`.
@@ -28,7 +34,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --apply) apply=1 ;;
     --into) shift; into="${1:-}" ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "worktree-sweep: unknown argument '$1'" >&2; exit 2 ;;
   esac
   shift
@@ -84,7 +90,16 @@ for rec in "${records[@]}"; do
   if printf '%s\n' "$procs" | grep -Fq -- "$path"; then
     keep "$label" "a running process uses it"; continue
   fi
-  head_sha="$(git -C "$path" rev-parse HEAD 2>/dev/null || true)"
+  case "$branch" in
+    worktree-agent-*)
+      case "$path" in
+        "$main_wt"/.claude/worktrees/*) ;;
+        *) keep "$label" "foreign: agent branch outside this repo's .claude/worktrees"; continue ;;
+      esac ;;
+    cycle-*) ;;
+    *) keep "$label" "foreign: not an agent or cycle worktree"; continue ;;
+  esac
+  head_sha="$(git -C "$path" rev-parse "refs/heads/$branch" 2>/dev/null || true)"
   if [ -z "$head_sha" ]; then keep "$label" "cannot read HEAD"; continue; fi
   if [ "$head_sha" = "$target_sha" ]; then keep "$label" "at the tip of $into: nothing merged yet"; continue; fi
   if ! git merge-base --is-ancestor "$head_sha" "$target_sha"; then
@@ -96,6 +111,17 @@ for rec in "${records[@]}"; do
     continue
   fi
   echo "remove  $label"
+  shots="$path/godot/reports"
+  if [ -d "$shots" ]; then
+    dest="$main_wt/reports/screenshots/$branch"
+    while IFS= read -r -d '' png; do
+      rel="${png#"$shots"/}"
+      echo "    screenshot $rel -> reports/screenshots/$branch/"
+      if [ "$apply" -eq 1 ]; then
+        mkdir -p "$dest/$(dirname "$rel")" && mv "$png" "$dest/$rel" || status=1
+      fi
+    done < <(find "$shots" -type f -name '*.png' -print0)
+  fi
   if act git worktree remove --force "$path"; then
     removed=$((removed + 1))
     case "$branch" in

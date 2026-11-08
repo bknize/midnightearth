@@ -11,6 +11,7 @@
 # never blocks an edit by accident.
 set -uo pipefail
 
+export PATH="$HOME/.local/bin:$PATH"   # pipx/pip --user installs gdlint here (R42)
 input="$(cat)"
 if command -v jq >/dev/null 2>&1; then
   file="$(jq -r '.tool_input.file_path // empty' <<<"$input" 2>/dev/null)"
@@ -51,7 +52,7 @@ findings=""
 if command -v gdlint >/dev/null 2>&1; then
   out="$(gdlint "$file" 2>&1)" || findings+="gdlint:"$'\n'"$out"$'\n'
 else
-  echo "gd-edit-gate: gdlint not on PATH; run scripts/bootstrap.sh (skipping lint)" >&2
+  echo "edit hook: gdlint not found, lint skipped" >&2
 fi
 
 if [ ! -x "$GODOT_BIN" ]; then
