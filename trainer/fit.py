@@ -226,7 +226,7 @@ def run_fit(store: Store, fit_id: str, config: FitConfig, out_dir: Path, repo_ro
     x_all, group, positions = _load_pairs(store, run_ids)
     width = int(x_all.shape[1])
     feature_names = list(names) if names is not None else engine_feature_names(
-        repo_root, feature_set)
+        repo_root, feature_set, stamp=stamp)
     if len(feature_names) != width:
         raise FitError("the labels hold %d features, the feature set names %d"
                        % (width, len(feature_names)))

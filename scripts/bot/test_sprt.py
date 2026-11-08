@@ -232,6 +232,37 @@ class DriverTest(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertIn("engine stamp", err.getvalue())
 
+    def test_engine_stamp_mismatch_stops_at_the_first_batch(self) -> None:
+        # a stale worker fails fast: the first batch's end record stops the eval, so no
+        # second batch is started and no report is written
+        script = ("import sys, json\n"
+                  "rows = [{'t': 'p', 'seed': i, 'decks': 'x', 'points_a': 1.0} "
+                  "for i in range(25)]\n"
+                  "rows.append({'t': 'end', 'games': 50, 'rejected': 0, 'overruns': 0, "
+                  "'replay_mismatches': 0, 'stamp': 'r4-0123456789abcdef'})\n"
+                  "open(sys.argv[1], 'w').write('\\n'.join(json.dumps(r) for r in rows) + '\\n')\n")
+        calls: List[Tuple[int, int]] = []
+
+        def factory(a: str, b: str, s: int, e: int, out: str) -> List[str]:
+            calls.append((s, e))
+            return [sys.executable, "-c", script, out]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = driver.build_parser().parse_args(
+                ["eval", "--a", "x", "--b", "y", "--seeds", "1-5000", "--reports-dir", tmp])
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code, report = driver.eval_report(args, factory, workers=1)
+            reports = [r for r, _, f in os.walk(tmp) if "report.json" in f]
+        self.assertEqual(code, driver.EXIT_ERROR)
+        self.assertEqual(report, {})
+        self.assertEqual(calls, [(1, 25)])
+        self.assertEqual(reports, [])
+        self.assertIn("engine stamp r4-0123456789abcdef differs", err.getvalue())
+        self.assertEqual(driver.batch_stamp_mismatch(
+            [{"t": "end", "stamp": records.current_stamp()}, {"t": "p"}],
+            records.current_stamp()), "")
+
     def test_gainer_overruns_alone_do_not_block(self) -> None:
         code, text = self.gainer_run(us=2000, overruns_a=300)
         self.assertEqual(code, 0)

@@ -136,7 +136,7 @@ static func names(cards: MatchCards) -> Array[String]:
 
 ## The feature vector of the candidate `action` for the seat of `view`, laid out as names().
 static func of(view: SeatView, action: EngineAction, cards: MatchCards) -> PackedInt64Array:
-	var pool_size: int = 0 if cards == null else cards.pool_ids().size()
+	var pool_size: int = 0 if cards == null else cards.pool_size()
 	var out: PackedInt64Array = PackedInt64Array()
 	if out.resize(COMPACT.size() + pool_size) != OK:
 		return out

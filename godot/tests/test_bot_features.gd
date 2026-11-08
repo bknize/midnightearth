@@ -390,3 +390,60 @@ func test_seed_1_pin() -> void:
 	assert_bool(vector == BotFeatures.of(view, candidate, engine.match_cards())).is_true()
 	var expected: PackedInt64Array = PackedInt64Array(PINNED)
 	assert_bool(vector == expected).override_failure_message(seen).is_true()
+
+
+## The labelling hot path's caches change nothing: over the first commits of seed 1 (two
+## `random` bots), every candidate's vector is as long as names() over pool_ids(), and its
+## score under the committed weights' memoized vector (vector_for, on the match's cards and
+## on a copy sharing their pool) equals its score under vector(names()) built afresh; a
+## second pool rebuilds the memo, and the first pool's vector comes back unchanged.
+func test_the_cached_pool_size_and_weight_vector_match_the_uncached() -> void:
+	var engine: MatchEngine = MatchEngine.create(
+		POSITION_SEED,
+		CardDb.load_default(),
+		DeckList.load_default(),
+		_typed_strings(["", ""]),
+		CrewPool.load_default()
+	)
+	assert_bool(engine.start().ok).is_true()
+	var cards: MatchCards = engine.match_cards()
+	var copy: MatchCards = cards.copy()
+	assert_int(MatchCards.pool_key(copy)).is_equal(MatchCards.pool_key(cards))
+	assert_int(MatchCards.pool_key(null)).is_equal(0)
+	assert_int(cards.pool_size()).is_equal(cards.pool_ids().size())
+	var weights: BotWeights = BotWeights.load(BotWeights.DEFAULT_PATH)
+	var names: Array[String] = BotFeatures.names(cards)
+	var uncached: PackedInt64Array = weights.vector(names)
+	var cached: PackedInt64Array = weights.vector_for(cards)
+	assert_bool(cached == uncached).is_true()
+	assert_bool(weights.vector_for(copy) == uncached).is_true()
+	var bots: Array[BotPlayer] = []
+	for seat: int in range(MatchEngine.SEATS):
+		var bot_seed: int = BotRegistry.seed_for(POSITION_SEED, seat)
+		bots.append(BotRegistry.make(POLICY, bot_seed, cards))
+	var commits: int = 0
+	var actions: int = 0
+	while not engine.is_over() and actions < PREFIX_CAP and commits < 12:
+		var seat: int = engine.awaited_seat()
+		var view: SeatView = engine.view_for(seat)
+		if engine.open_prompt().is_empty():
+			commits += 1
+			for candidate: EngineAction in RandomBot.candidates_for(view, cards):
+				var vector: PackedInt64Array = BotFeatures.of(view, candidate, cards)
+				assert_int(vector.size()).is_equal(names.size())
+				assert_bool(vector == BotFeatures.of(view, candidate, copy)).is_true()
+				var fresh: int = LinearBot.score(vector, uncached)
+				assert_int(LinearBot.score(vector, weights.vector_for(copy))).is_equal(fresh)
+		assert_bool(engine.apply(bots[seat].choose(view, engine)).ok).is_true()
+		actions += 1
+	assert_int(commits).is_equal(12)
+	var other: MatchCards = MatchCards.build(
+		CardDb.load_default(),
+		DeckList.load_default(),
+		_typed_strings(["greed", "greed"]),
+		CrewPool.load_default()
+	)
+	assert_int(MatchCards.pool_key(other)).is_not_equal(MatchCards.pool_key(cards))
+	assert_bool(weights.vector_for(other) == weights.vector(BotFeatures.names(other))).is_true()
+	assert_bool(weights.vector_for(cards) == uncached).is_true()
+	assert_int(BotWeights.defaults().vector_for(null).size()).is_equal(BotFeatures.COMPACT.size())
