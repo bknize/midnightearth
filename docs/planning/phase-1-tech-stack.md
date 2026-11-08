@@ -4,7 +4,7 @@ tags: [planning, phase-1]
 status: closed
 related: ["[[planning/planning-moc]]"]
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-07
 uid: 0f3968e1-885c-4732-941f-388209e92578
 linear:
 supersedes:
@@ -171,6 +171,8 @@ Effort is a rough size for one dev cycle of the planned orchestrator flow.
 | D2 | **Godot 4.6.3, Mobile renderer, Compatibility-clean shaders.** Stay on the installed 4.6.3; move to 4.7 later as a point upgrade. | Project features `4.6`, `Mobile`; shader rule: mediump-safe math, no SCREEN_TEXTURE, test under Compatibility in the iOS Simulator; gdUnit4 stays on the 6.2.x line |
 | D3 | **Art via Replicate + Recraft, $30/month target.** Replicate's official MCP with an API token is the primary image service; a FLUX LoRA is trained once 15–30 reference cards are approved; Recraft's HTTP API handles icons, UI and vector. | Tokens live in `.env` (gitignored), never in `.mcp.json`; Phase 2 wires the MCP; no Claude spend on art |
 | D4 | **No backend for the MVP; engine stays deterministic and action-serializable.** Bot opponents only. Online PvP is not planned but must not require a rewrite. | Match engine is pure GDScript with seeded RNG and a replayable action log; no network-dependent scene; no Docker/AWS provisioning |
+
+Amended for PVP by ADR 0005 ([[decisions/0005-match-server-for-pvp]], 2026-11-07): PVE stays local; PVP is served by a headless process on the testing PC.
 
 ### Round 2 (Ben, 2026-11-02; 3c chosen explicitly, 1a/2a/4a accepted by default)
 
