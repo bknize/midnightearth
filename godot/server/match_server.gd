@@ -20,9 +20,10 @@ extends Node
 ## client reads it first.
 ##
 ## Capacity (NSC-226 S5): at most `max_connections` open connections and `max_per_ip` from
-## one address; a connection past either completes the WebSocket handshake, is refused
-## `too_many_connections` or `too_many_from_address` (the client reads the server is full,
-## R38) and closed. Past REFUSAL_SLOTS such connections at once, a new one is dropped as it
+## one address; a connection past either completes the WebSocket handshake and its first
+## message (normally `hello`) is answered `refused too_many_connections` or
+## `too_many_from_address` (the client reads the server is full, R38), then it is closed.
+## Past REFUSAL_SLOTS such connections at once, a new one is dropped as it
 ## arrives. A welcomed connection in no room for `idle_ms` is refused `idle_timeout` and
 ## closed.
 ##
@@ -61,6 +62,8 @@ const REASON_RECEIVE_TIMEOUT: String = "receive_timeout"
 const IDLE_MS: int = 60000
 ## How long a connection a room is done with stays open after its last message.
 const CLOSE_GRACE_MS: int = 1000
+## How long a refused connection stays open after its `refused` (long enough to be read).
+const REFUSAL_GRACE_MS: int = 100
 ## How long a requested close may take before the socket is dropped regardless.
 const CLOSE_FORCE_MS: int = 2000
 ## The hard socket limit on one inbound frame (P10); the 16 KiB rule is checked per message.
@@ -90,6 +93,7 @@ var idle_ms: int = IDLE_MS
 ## 0 turns the receive timeout off.
 var receive_timeout_ms: int = RECEIVE_TIMEOUT_MS
 var close_grace_ms: int = CLOSE_GRACE_MS
+var refusal_grace_ms: int = REFUSAL_GRACE_MS
 ## No stdout lines (the suites).
 var quiet: bool = false
 ## func(deck_ids: Array[String]) -> MatchEngine for every room, set before listen(); the
@@ -231,9 +235,6 @@ func _poll_conn(conn: Connection, now_ms: int) -> void:
 			conn.stream.disconnect_from_host()
 			_drop(conn, now_ms)
 	elif state == WebSocketPeer.STATE_OPEN:
-		if conn.refusal != "":
-			_refuse_close(conn, conn.refusal, "", now_ms)
-			return
 		if not conn.welcomed and now_ms - conn.opened_ms >= handshake_ms:
 			_refuse_close(conn, NetProtocol.REASON_HANDSHAKE_TIMEOUT, "", now_ms)
 			return
@@ -309,7 +310,9 @@ func _request_close(conn: Connection, now_ms: int) -> void:
 ## `refused {reason, detail}` to `conn`, then it is closed with `reason` (R35 to R37).
 func _refuse_close(conn: Connection, reason: String, detail: String, now_ms: int) -> void:
 	_send(conn, _refused(reason, detail))
-	_close_conn(conn, reason, CLOSE_POLICY, 0, now_ms)
+	# A close sent with the refusal empties the client's unread frames, so it would never
+	# read why (R14 to R16): the close follows refusal_grace_ms later, input ignored meanwhile.
+	_close_conn(conn, reason, CLOSE_POLICY, refusal_grace_ms, now_ms)
 
 
 ## One more message from `conn` at `now_ms`; false when it would be past `max_per_s` within
@@ -363,11 +366,16 @@ func _idle_too_long(conn: Connection, now_ms: int) -> bool:
 # --- Messages ---------------------------------------------------------------------------
 
 
-## One frame from `conn`: rate, size, kind and shape checked, then handled.
+## One frame from `conn`: rate, size, kind and shape checked, then handled. A connection
+## over a capacity cap answers its first frame (normally `hello`) with its refusal: sent
+## any earlier, the frame would reach a client still finishing the HTTP upgrade, which
+## drops it. One that never speaks meets the handshake deadline.
 func _receive(conn: Connection, packet: PackedByteArray, is_text: bool, now_ms: int) -> void:
 	var problem: String = ""
 	var message: Dictionary = {}
-	if not _take_token(conn, now_ms):
+	if conn.refusal != "":
+		problem = conn.refusal
+	elif not _take_token(conn, now_ms):
 		problem = NetProtocol.REASON_TOO_MANY_MESSAGES
 	elif packet.size() > NetProtocol.MAX_MESSAGE_BYTES:
 		problem = NetProtocol.REASON_MESSAGE_TOO_LARGE

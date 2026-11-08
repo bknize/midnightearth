@@ -40,6 +40,8 @@ func before_test() -> void:
 	_server = MatchServer.new()
 	_server.quiet = true
 	_server.stamp = STAMP
+	# A few fake milliseconds: enough for the refusal to be read before the close.
+	_server.refusal_grace_ms = 5
 	_server.build = "test-build"
 	_server.logs_dir = TEMP_DIR
 	_server.engine_factory = _maker.make
@@ -343,9 +345,12 @@ func _expect_closed(client: Client, reason: String) -> void:
 	assert_bool(gone).is_true()
 
 
-## `client` was refused `reason` once the WebSocket handshake was done, then closed with
-## it (code 1008), and the server forgot it.
+## `client`, over a capacity cap, opens and says `hello`: it is refused `reason`, then
+## closed with it (code 1008), and the server forgot it.
 func _expect_refused(client: Client, reason: String) -> void:
+	var up: bool = await _pump_until(func() -> bool: return client.is_open())
+	assert_bool(up).is_true()
+	client.send(_hello("Eve", "install-eve"))
 	var closed: bool = await _pump_until(func() -> bool: return client.is_closed())
 	assert_bool(closed).is_true()
 	assert_str(client.last(NetProtocol.T_REFUSED).get("reason", "")).is_equal(reason)
