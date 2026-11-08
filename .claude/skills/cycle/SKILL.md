@@ -15,6 +15,14 @@ slug (`CLAUDE.md`, Git; `docs/decisions/0002-one-branch-per-cycle.md`). It alrea
 the spec and the `/exercise` write-back, takes every task merge, and merges into
 `master` only at `/cycle test`.
 
+## Sessions (ADR 0006)
+
+Each verb starts in a new session, and `/cycle run` starts a new one at a wave boundary
+once the context passes about 250k. Do not split more often: below about 150k a new
+session costs more than it saves. Nothing is lost, because the state lives outside the
+session. To pick a cycle up, read the milestone's issues (`list_issues`), the plan row in
+`docs/planning/cycles.md`, `git log` on the cycle branch and `git worktree list`.
+
 ## /cycle plan DC-NN <theme>
 
 1. List candidate issues: `list_issues` with state `Todo` or `Backlog`, team `NSC`,
@@ -48,24 +56,37 @@ the spec and the `/exercise` write-back, takes every task merge, and merges into
    `godot/engine/`), `isolation: "worktree"`, prompt = the issue's full description plus
    the spec section it points at plus: "Agent worktrees are cut from `master`: first run
    `git merge --ff-only <cycle branch>`. Do not run Godot or make. Never commit. Report
-   files changed and anything unverified." Every brief also lists the typed-strict traps:
+   files changed and anything unverified." When the plan or the issue says where the work
+   is, the brief names those files with their functions or line ranges, so the agent does
+   not rediscover them. Every brief also lists the typed-strict traps:
    no `:=`; typed loop variables; never pass a Variant into `int()`, `str()` or a typed
    parameter (assign to a typed local first); use the return values of `resize()`,
    `Dictionary.erase()` and `pop_back()` outside tests; no `.uid` files. Three or more
    independent issues in a wave may go through the Workflow tool instead, if Ben has
-   opted in. Move each issue to `In Progress` in Linear in the same message as its
-   dispatch.
-3. When a wave returns: commit each worktree as `dc-NN: <issue id or Tnn> <title>`, then
-   merge it from the cycle worktree into `<cycle branch>` (`--no-ff`, message
-   `cycle-NN: <issue id> <title>`); on conflict, resolve or re-dispatch with the
-   conflict in the brief. Run `scripts/check.sh` there after every merge; after a green
-   gate fold any generated `.uid` files into the merge commit. A red gate stops the
-   wave: open the report, either fix a one-line problem yourself or re-dispatch the
-   issue with the gate output; the issue stays `In Progress` with a comment quoting the
-   failing stage. Run planted-failure checks under `timeout 120`. On a green gate move
-   the issue to `In Review` in Linear with a one-line comment naming the merge commit.
-   An issue dropped from the cycle goes back to `Backlog`, milestone removed, with a
-   comment saying why.
+   opted in. In the same message as the dispatch, move the wave's issues in one call:
+   `scripts/linear-move.sh --state "In Progress" NSC-a NSC-b ...` (exit 3 means no API key:
+   use the MCP's `save_issue`).
+   **Routing trial (ADR 0006):** the first time a wave under `godot/engine/` is only data
+   or tests, dispatch it with `implementer` instead, and record its cost and gate results
+   in the cycle's row. Remove this trial once a row records the outcome.
+3. When a wave returns, land each issue in one call from anywhere:
+   `scripts/cycle-land.sh --co-author "<the session's Co-Authored-By name and email>"
+   <agent worktree> <cycle worktree> <NN> <issue id> "<title>"`, in the background (the gate
+   runs longer than two minutes). It commits the worktree as `dc-NN: <issue id> <title>`,
+   merges with `--no-ff` as `cycle-NN: <issue id> <title>`, runs `scripts/check.sh` in the
+   cycle worktree and folds generated `.uid` files into the merge commit. Land the wave's
+   issues one at a time, and act on the exit code:
+   - `0`: green. Move the issue:
+     `scripts/linear-move.sh --state "In Review" --comment "Merged as <commit>" <issue id>`.
+   - `1`: a red gate stops the wave, and the merge stays. Read the printed gate output, then
+     fix a one-line problem yourself or re-dispatch the issue with that output. The issue
+     stays `In Progress` with a comment quoting the failing stage. Run planted-failure
+     checks under `timeout 120`.
+   - `3`: conflict, merge left in progress. Resolve it, or `git merge --abort` and
+     re-dispatch with the conflict in the brief.
+   - `4`: nothing landed; it says why.
+   An issue dropped from the cycle goes back to `Backlog`, milestone removed, with a comment
+   saying why.
 4. Optional: dispatch `reviewer` on the wave's diff before merging when the wave touches
    `godot/engine/`.
 5. When every issue in the wave is merged on a green gate, remove the wave's agent
@@ -126,12 +147,13 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
    `scripts/worktree-sweep.sh --apply`. The cycle branch itself is kept. Do not push
    unless Ben asks.
 5. Linear: `save_status_update` on each touched project ("DC-NN done": gate summary,
-   screenshots, what was verified, what was left out); move every DC-NN issue to
-   `Done` (only after the step 4 merge); create follow-up issues in `Backlog` (`type/bug`
+   screenshots, what was verified, what was left out); move every DC-NN issue to `Done`
+   in one call, only after the step 4 merge (`scripts/linear-move.sh --state Done ...`);
+   create follow-up issues in `Backlog` (`type/bug`
    or `type/chore`, label `spec/<slug>`) for anything that failed or was skipped.
-   After the step 4 merge, rewrite the GitHub links: in the project description and in
-   every issue of the project, replace `blob/<cycle branch>/` with `blob/master/` (they
-   resolve once Ben has `master` pushed; ask whether to push).
+   Issues already point at `blob/master/` (ADR 0006), so they resolve once Ben has
+   `master` pushed; ask whether to push. A project exercised before ADR 0006 still has
+   `blob/<cycle branch>/` links: rewrite those this once.
    Optionally `save_document` with the full test note.
 6. Report to Ben with the screenshot paths, the follow-ups and the sweep's last line. Ben's manual
    click-through happens only at milestones; say whether this cycle is one.

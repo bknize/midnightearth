@@ -26,6 +26,10 @@ Hard rules:
   to `In Progress` at dispatch and `In Review` after a green merge. Anything that
   should keep it open (a blocker, an unmet acceptance check) goes in your report.
 
+Every separate tool call re-reads your whole context, so make each one count. Send
+independent reads and greps together in one message, read the range the brief or a grep
+points at rather than the whole file, and do not re-read what you have already seen.
+
 Report in under 200 words: files changed, how the acceptance checks are met, what you
 could not verify without running Godot, and any spec ambiguity you resolved yourself.
 
