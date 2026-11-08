@@ -1,13 +1,17 @@
 import json
+import os
 import random
+import re
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List
 
 from trainer.config import FitConfig
+from trainer import fit as fit_module
 from trainer.fit import (FitError, engine_feature_names, run_fit, validate_runs,
                          weights_text)
+from trainer.sync import stamp_of
 from trainer.store import Store
 
 try:
@@ -96,6 +100,30 @@ class NamesTest(unittest.TestCase):
         with self.assertRaises(FitError):
             engine_feature_names(ROOT, "f0")
 
+    def test_weight_scale_mirrors_the_loaders_limit(self) -> None:
+        gd = (ROOT / "godot" / "engine" / "bot" / "bot_weights.gd").read_text(encoding="utf-8")
+        found = re.search(r"^const MAX_WEIGHT: int = (\d+)", gd, re.M)
+        self.assertIsNotNone(found)
+        self.assertEqual(fit_module.WEIGHT_SCALE, int(found.group(1)) if found else -1)
+
+    def test_checkout_stamp_must_equal_the_runs(self) -> None:
+        names = engine_feature_names(ROOT, "f1", stamp_of(ROOT))
+        self.assertEqual(names, engine_feature_names(ROOT, "f1"))
+        with self.assertRaises(FitError) as ctx:
+            engine_feature_names(ROOT, "f1", "r7-other")
+        self.assertIn("code stamp", str(ctx.exception))
+
+    def test_blas_is_pinned_to_one_thread_before_numpy_loads(self) -> None:
+        if HAVE_NUMPY:
+            self.skipTest("numpy is installed; the pin is covered by the first import")
+        for var in fit_module.BLAS_THREAD_VARS:
+            os.environ.pop(var, None)
+        with self.assertRaises(FitError):  # numpy missing, but the pin comes first
+            fit_module._numpy()
+        for var in fit_module.BLAS_THREAD_VARS:
+            self.assertEqual(os.environ[var], "1")
+        self.assertTrue(fit_module.BLAS_PINNED)
+
     def test_missing_numpy_is_a_clear_error(self) -> None:
         if HAVE_NUMPY:
             self.skipTest("numpy is installed")
@@ -138,7 +166,8 @@ class LearnerTest(unittest.TestCase):
         weights = doc["weights"]
         for index in sorted(range(WIDTH), key=lambda i: -abs(TRUE[i]))[:4]:
             self.assertEqual(weights[NAMES[index]] > 0, TRUE[index] > 0, NAMES[index])
-        self.assertEqual(max(abs(v) for v in weights.values()), 10000)
+        self.assertEqual(max(abs(v) for v in weights.values()),
+                         fit_module.WEIGHT_SCALE)
         self.assertTrue(all(isinstance(v, int) for v in weights.values()))
         top = report["top_weights"]
         self.assertLessEqual(len(top), 10)

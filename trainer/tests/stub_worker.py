@@ -2,7 +2,7 @@
 the request alone. Options: --stamp S, --banner, --crash-after N (exit without replying to
 request N+1), --hang-after N (never reply to request N+1), --reply-stamp S (reply with a
 stamp other than the hello's), --hang-seed S / --crash-seed S (hang, or exit, on every
-request whose seed is S)."""
+request whose seed is S), --error-label (answer every label request with an error reply)."""
 import hashlib
 import json
 import sys
@@ -66,6 +66,7 @@ def main() -> int:
     hang_after = int(opt("--hang-after", "-1"))
     hang_seed = opt("--hang-seed", "")
     crash_seed = opt("--crash-seed", "")
+    error_label = "--error-label" in argv
     if "--banner" in argv:
         print("Godot Engine v4.6.3.stable (stub)\n")
     print(json.dumps({"hello": True, "stamp": stamp, "feature_set": FEATURE_SET,
@@ -94,6 +95,10 @@ def main() -> int:
         kind = req["kind"]
         if kind == "inspect":  # gone in protocol v2
             print(json.dumps({"id": req["id"], "error": "unknown kind: inspect"}))
+            sys.stdout.flush()
+            continue
+        if error_label and kind == "label":
+            print(json.dumps({"id": req["id"], "error": "rollout_weights: weights file unusable"}))
             sys.stdout.flush()
             continue
         body = play(req) if kind == "play" else label(req)

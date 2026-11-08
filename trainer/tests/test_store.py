@@ -302,6 +302,16 @@ class FitStateTest(unittest.TestCase):
                 self.assertEqual((store.get_fit("f3") or {})["last_error"], "gone")
                 with self.assertRaises(KeyError):
                     store.set_fit_state("nope", "done")
+                with self.assertRaises(KeyError):
+                    store.set_fit_state("nope", "done", only_from=("running",))
+                # compare-and-set: a failed fit is not overwritten by a late done
+                self.assertFalse(store.set_fit_state("f3", "done", "", "{}",
+                                                     only_from=("queued", "running")))
+                self.assertEqual((store.get_fit("f3") or {})["state"], "failed")
+                self.assertEqual((store.get_fit("f3") or {})["last_error"], "gone")
+                store.create_fit("f4", {}, STAMP, "f1", ["r"], state="running")
+                self.assertTrue(store.set_fit_state("f4", "done", "", "{}",
+                                                    only_from=("queued", "running")))
                 with self.assertRaises(ValueError):
                     store.set_fit_state("f1", "stopped")
             finally:

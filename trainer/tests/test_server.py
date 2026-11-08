@@ -194,6 +194,17 @@ class ServiceTest(unittest.TestCase):
             self.assertIn("unknown fit", r["error"])
         self.svc.store.create_fit("f1", {}, STAMP, "stub-1", [], state="running")
         self.assertIn("not done", self.svc.start_run(cfg_dict(rollout_weights="f1"))["error"])
+        # a finished fit under another stamp is refused
+        old = self.root / "data" / "fits" / "f1"
+        old.mkdir(parents=True)
+        (old / "linear_weights.json").write_text("{}", encoding="utf-8")
+        self.svc.store.db.execute("UPDATE fits SET state = 'done', stamp = 'r7-old'")
+        self.svc.store.db.commit()
+        self.assertIn("stamp", self.svc.start_run(cfg_dict(rollout_weights="f1"))["error"])
+        (old / "linear_weights.json").unlink()
+        old.rmdir()
+        self.svc.store.db.execute("UPDATE fits SET state = 'running', stamp = ?", (STAMP,))
+        self.svc.store.db.commit()
         self.svc.store.db.execute("UPDATE fits SET state = 'done'")
         self.svc.store.db.commit()
         self.assertIn("no weights file",
@@ -326,6 +337,42 @@ class ServiceTest(unittest.TestCase):
         self.assertNotIn("error", svc.fit({"runs": [rid]}))
         svc.join_fit(30)
         self.wait(second_run["run_id"], svc=svc)
+
+    def test_resume_is_refused_while_a_live_fit_reads_the_run(self) -> None:
+        gate = threading.Event()
+        svc = self.fit_service(gate=gate)
+        rid = self.done_run(svc)
+        fid = svc.fit({"runs": [rid]})["fit_id"]
+        svc.store.set_state(rid, "stopped")  # as if the run had been stopped before the fit
+        err = svc.resume_run(rid)["error"]
+        self.assertIn("fit %s" % fid, err)
+        gate.set()
+        self.assertEqual(self.wait_fit(svc, fid)["state"], "done")
+        self.assertNotIn("error", svc.resume_run(rid))
+        svc.join(30)
+
+    def test_a_late_fit_finish_does_not_overwrite_a_failed_fit(self) -> None:
+        started = threading.Event()
+        released = threading.Event()
+
+        def late_fit(store: Store, fit_id: str, cfg: Any, out_dir: Path, repo_root: Path,
+                     should_stop: Any = None) -> Dict[str, Any]:
+            started.set()
+            released.wait(30)  # ignores should_stop: a stuck learner that finishes late
+            return {"fit_id": fit_id, "pairs": {"total": 1}}
+        svc = Service(self.root / "data2", self.root / "me", farm_factory=stub_farm,
+                      stamp_fn=lambda: STAMP, fit_fn=late_fit)
+        self.addCleanup(svc.close)
+        rid = self.done_run(svc)
+        fid = svc.fit({"runs": [rid]})["fit_id"]
+        self.assertTrue(started.wait(30))
+        svc.store.fail_live_fits("service shut down mid-fit")
+        released.set()
+        svc.join_fit(30)
+        row = svc.store.get_fit(fid) or {}
+        self.assertEqual(row["state"], "failed")
+        self.assertEqual(row["last_error"], "service shut down mid-fit")
+        self.assertFalse(row["report"])
 
     def test_failed_fit_records_the_error_and_serves_nothing(self) -> None:
         svc = self.fit_service(fail=True)

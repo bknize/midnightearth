@@ -287,6 +287,16 @@ class RunTest(unittest.TestCase):
         self.assertIn("stamp", run["last_error"])
         self.assertEqual(store.committed_batches(rid), [])
 
+    def test_worker_error_reply_fails_the_run_not_the_position(self) -> None:
+        store = self.store("a")
+        rid = self.new_run(store, positions=20)
+        with make_farm(2, 30.0, "--error-label") as farm:
+            state = execute(store, rid, farm)
+        self.assertEqual(state, "failed")
+        run = store.get_run(rid) or {}
+        self.assertIn("worker error", run["last_error"])
+        self.assertEqual(store.committed_batches(rid), [])
+
     def test_run_stamp_differs_from_workers(self) -> None:
         store = self.store("a")
         rid = store.create_run(config(positions=20), "r7-old", "abc", run_id="r1")

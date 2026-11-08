@@ -14,7 +14,7 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 STATES = ("queued", "running", "stopping", "stopped", "interrupted", "done", "failed")
 FIT_STATES = ("queued", "running", "done", "failed")
@@ -185,16 +185,26 @@ class Store:
         return None if row is None else str(row["id"])
 
     def set_fit_state(self, fit_id: str, state: str, last_error: Optional[str] = None,
-                      report: Optional[str] = None) -> None:
+                      report: Optional[str] = None,
+                      only_from: Optional[Sequence[str]] = None) -> bool:
+        """Move a fit to `state`. With `only_from` the update is a compare-and-set: it applies
+        only while the fit's current state is one of those, and returns False (changing
+        nothing) otherwise, so a late finisher cannot overwrite a fit already failed by
+        `fail_live_fits`. KeyError for an unknown fit; True when the update applied."""
         if state not in FIT_STATES:
             raise ValueError("unknown fit state %r" % (state,))
-        cur = self.db.execute(
-            "UPDATE fits SET state = ?, last_error = COALESCE(?, last_error),"
-            " report = COALESCE(?, report), updated = ? WHERE id = ?",
-            (state, last_error, report, time.time(), fit_id))
-        if cur.rowcount == 0:
+        sql = ("UPDATE fits SET state = ?, last_error = COALESCE(?, last_error),"
+               " report = COALESCE(?, report), updated = ? WHERE id = ?")
+        args: List[Any] = [state, last_error, report, time.time(), fit_id]
+        if only_from is not None:
+            sql += " AND state IN (%s)" % ", ".join("?" for _ in only_from)
+            args.extend(only_from)
+        cur = self.db.execute(sql, args)
+        applied = cur.rowcount > 0
+        if not applied and (only_from is None or self.get_fit(fit_id) is None):
             raise KeyError(fit_id)
         self.db.commit()
+        return applied
 
     def fail_live_fits(self, reason: str) -> List[str]:
         """Every queued or running fit becomes failed (a fit has no resume, and its thread
