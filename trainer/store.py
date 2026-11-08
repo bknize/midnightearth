@@ -14,9 +14,12 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 STATES = ("queued", "running", "stopping", "stopped", "interrupted", "done", "failed")
+FIT_STATES = ("queued", "running", "done", "failed")
+# The fit states of a fit still in flight (queued or running).
+LIVE_FIT = ("queued", "running")
 TIMING_FIELDS = ("us",)
 # Fields of a shard line that name the run rather than its data: the dataset digest drops
 # them, so two runs with the same config and run seed give the same digest (spec R36).
@@ -28,7 +31,8 @@ CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY, state TEXT NOT NULL, config TEXT NOT NULL, run_seed INTEGER NOT NULL,
   stamp TEXT NOT NULL, "commit" TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
   last_error TEXT NOT NULL DEFAULT '', restarts INTEGER NOT NULL DEFAULT 0,
-  checkpoint REAL NOT NULL DEFAULT 0, active_s REAL NOT NULL DEFAULT 0);
+  checkpoint REAL NOT NULL DEFAULT 0, active_s REAL NOT NULL DEFAULT 0,
+  feature_set TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS positions (
   run_id TEXT NOT NULL, "index" INTEGER NOT NULL, seed INTEGER NOT NULL, decks TEXT NOT NULL,
   prefix_len INTEGER NOT NULL, seat INTEGER NOT NULL, batch INTEGER NOT NULL,
@@ -38,13 +42,40 @@ CREATE TABLE IF NOT EXISTS labels (
   run_id TEXT NOT NULL, position_index INTEGER NOT NULL, candidate_index INTEGER NOT NULL,
   action TEXT NOT NULL, mean REAL NOT NULL, spread REAL NOT NULL, n INTEGER NOT NULL,
   wins INTEGER NOT NULL, draws INTEGER NOT NULL, losses INTEGER NOT NULL,
-  capped INTEGER NOT NULL, PRIMARY KEY (run_id, position_index, candidate_index));
+  capped INTEGER NOT NULL, features TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (run_id, position_index, candidate_index));
+CREATE TABLE IF NOT EXISTS fits (
+  id TEXT PRIMARY KEY, state TEXT NOT NULL, config TEXT NOT NULL, stamp TEXT NOT NULL,
+  feature_set TEXT NOT NULL, runs TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '', report TEXT NOT NULL DEFAULT '');
 """
 
 
 def default_data_dir() -> Path:
     env = os.environ.get("TRAINER_DATA")
     return Path(env) if env else Path.home() / "trainer-data"
+
+
+WEIGHTS_NAME = "linear_weights.json"
+
+
+def weights_path(data_dir: Path, fit_id: str) -> str:
+    """Where a fit's weights file lives (absolute, as the worker gets it); "" for no fit."""
+    if not fit_id:
+        return ""
+    return str((Path(data_dir) / "fits" / fit_id / WEIGHTS_NAME).resolve())
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Write `text` to `path` through `<name>.tmp` (flushed and fsynced, then renamed over
+    `path`), so a reader never sees half a file."""
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
 
 
 def shard_name(batch: int) -> str:
@@ -76,6 +107,8 @@ class Store:
         for table, column, ddl in (
                 ("runs", "checkpoint", "REAL NOT NULL DEFAULT 0"),
                 ("runs", "active_s", "REAL NOT NULL DEFAULT 0"),
+                ("runs", "feature_set", "TEXT NOT NULL DEFAULT ''"),
+                ("labels", "features", "TEXT NOT NULL DEFAULT '[]'"),
                 ("positions", "info", "TEXT NOT NULL DEFAULT '{}'")):
             have = {r["name"] for r in self.db.execute("PRAGMA table_info(%s)" % table)}
             if column not in have:
@@ -122,6 +155,80 @@ class Store:
             if run is not None:
                 out.append(run)
         return out
+
+    def set_feature_set(self, run_id: str, feature_set: str) -> None:
+        self.db.execute("UPDATE runs SET feature_set = ? WHERE id = ?", (feature_set, run_id))
+        self.db.commit()
+
+    # fits
+
+    def create_fit(self, fit_id: str, config: Dict[str, Any], stamp: str, feature_set: str,
+                   runs: List[str], state: str = "queued") -> str:
+        if state not in FIT_STATES:
+            raise ValueError("unknown fit state %r" % (state,))
+        now = time.time()
+        self.db.execute(
+            "INSERT INTO fits (id, state, config, stamp, feature_set, runs, created, updated)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (fit_id, state, json.dumps(config, sort_keys=True), stamp, feature_set,
+             json.dumps(runs), now, now))
+        self.db.commit()
+        return fit_id
+
+    @staticmethod
+    def _fit_from_row(row: sqlite3.Row) -> Dict[str, Any]:
+        out: Dict[str, Any] = dict(row)
+        out["config"] = json.loads(out["config"])
+        out["runs"] = json.loads(out["runs"])
+        return out
+
+    def get_fit(self, fit_id: str) -> Optional[Dict[str, Any]]:
+        row = self.db.execute("SELECT * FROM fits WHERE id = ?", (fit_id,)).fetchone()
+        if row is None:
+            return None
+        return self._fit_from_row(row)
+
+    def list_fits(self) -> List[Dict[str, Any]]:
+        return [self._fit_from_row(row)
+                for row in self.db.execute("SELECT * FROM fits ORDER BY created, id")]
+
+    def active_fit_id(self) -> Optional[str]:
+        row = self.db.execute("SELECT id FROM fits WHERE state IN ('queued', 'running')"
+                              " ORDER BY created, id LIMIT 1").fetchone()
+        return None if row is None else str(row["id"])
+
+    def set_fit_state(self, fit_id: str, state: str, last_error: Optional[str] = None,
+                      report: Optional[str] = None,
+                      only_from: Optional[Sequence[str]] = None) -> bool:
+        """Move a fit to `state`. With `only_from` the update is a compare-and-set: it applies
+        only while the fit's current state is one of those, and returns False (changing
+        nothing) otherwise, so a late finisher cannot overwrite a fit already failed by
+        `fail_live_fits`. KeyError for an unknown fit; True when the update applied."""
+        if state not in FIT_STATES:
+            raise ValueError("unknown fit state %r" % (state,))
+        sql = ("UPDATE fits SET state = ?, last_error = COALESCE(?, last_error),"
+               " report = COALESCE(?, report), updated = ? WHERE id = ?")
+        args: List[Any] = [state, last_error, report, time.time(), fit_id]
+        if only_from is not None:
+            sql += " AND state IN (%s)" % ", ".join("?" for _ in only_from)
+            args.extend(only_from)
+        cur = self.db.execute(sql, args)
+        applied = cur.rowcount > 0
+        if not applied and (only_from is None or self.get_fit(fit_id) is None):
+            raise KeyError(fit_id)
+        self.db.commit()
+        return applied
+
+    def fail_live_fits(self, reason: str) -> List[str]:
+        """Every queued or running fit becomes failed (a fit has no resume, and its thread
+        died with the service that started it). Returns their ids."""
+        live = "('queued', 'running')"
+        ids = [r["id"] for r in self.db.execute(
+            "SELECT id FROM fits WHERE state IN %s ORDER BY id" % live)]
+        self.db.execute("UPDATE fits SET state = 'failed', last_error = ?, updated = ?"
+                        " WHERE state IN %s" % live, (reason, time.time()))
+        self.db.commit()
+        return ids
 
     def active_run_id(self) -> Optional[str]:
         """Id of the first run (by creation) in a live state, or None."""
@@ -219,7 +326,8 @@ class Store:
         positions: dicts with index, seed, decks (JSON-able), prefix_len, seat, and optionally
         info (JSON-able: round, turn, hand; kept in the shard when non-empty).
         labels: dicts with position_index, candidate_index, action, mean, spread, n, wins,
-        draws, losses, capped, and optionally us (timing: kept in the shard, not digested).
+        draws, losses, capped, optionally features (the candidate's integer list) and us (timing:
+        kept in the shard, not digested).
         """
         run = self.get_run(run_id)
         if run is None:
@@ -235,19 +343,14 @@ class Store:
                 "run": run_id, "position": int(pos["index"]), "seed": str(int(pos["seed"])),
                 "decks": pos["decks"], "prefix_len": int(pos["prefix_len"]),
                 "seat": int(pos["seat"]), "stamp": run["stamp"], "commit": run["commit"],
-                "candidates": cands}
+                "feature_set": run["feature_set"], "candidates": cands}
             if pos.get("info"):
                 line["info"] = pos["info"]
             lines.append(json.dumps(line, sort_keys=True))
         directory = self.run_dir(run_id)
         directory.mkdir(parents=True, exist_ok=True)
         final = directory / shard_name(batch_index)
-        tmp = directory / (shard_name(batch_index) + ".tmp")
-        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write("".join(line + "\n" for line in lines))
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, final)
+        write_atomic(final, "".join(line + "\n" for line in lines))
         # A crash here leaves the shard without rows; recover() removes it.
         try:
             with self.db:
@@ -259,12 +362,14 @@ class Store:
                       json.dumps(p.get("info") or {}, sort_keys=True)) for p in positions])
                 self.db.executemany(
                     "INSERT INTO labels (run_id, position_index, candidate_index, action,"
-                    " mean, spread, n, wins, draws, losses, capped)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    " mean, spread, n, wins, draws, losses, capped, features)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     [(run_id, int(lab["position_index"]), int(lab["candidate_index"]),
                       json.dumps(lab["action"], sort_keys=True), float(lab["mean"]),
                       float(lab["spread"]), int(lab["n"]), int(lab["wins"]), int(lab["draws"]),
-                      int(lab["losses"]), int(bool(lab["capped"]))) for lab in labels])
+                      int(lab["losses"]), int(bool(lab["capped"])),
+                      json.dumps([int(x) for x in lab.get("features", [])]))
+                     for lab in labels])
                 now = time.time()
                 self.db.execute("UPDATE runs SET updated = ?, checkpoint = ? WHERE id = ?",
                                 (now, now, run_id))
@@ -304,18 +409,23 @@ class Store:
     def digest(self, run_id: str) -> str:
         """SHA-256 over the committed shards' lines in batch order, timing fields and the run
         id removed."""
-        h = hashlib.sha256()
-        for path in self.shard_paths(run_id):
-            with open(path, "r", encoding="utf-8", newline="") as fh:
-                for line in fh:
-                    line = line.rstrip("\r\n")
-                    if not line:
-                        continue
-                    record = _strip_timing(json.loads(line))
-                    if isinstance(record, dict):
-                        for key in IDENTITY_FIELDS:
-                            record.pop(key, None)
-                    canon = json.dumps(record, sort_keys=True, separators=(",", ":"))
-                    h.update(canon.encode("utf-8"))
-                    h.update(b"\n")
-        return h.hexdigest()
+        return digest_shards(self.shard_paths(run_id))
+
+
+def digest_shards(paths: Sequence[Path]) -> str:
+    """Store.digest over the shards `paths`, in order; reads only the files, not the DB."""
+    h = hashlib.sha256()
+    for path in paths:
+        with open(path, "r", encoding="utf-8", newline="") as fh:
+            for line in fh:
+                line = line.rstrip("\r\n")
+                if not line:
+                    continue
+                record = _strip_timing(json.loads(line))
+                if isinstance(record, dict):
+                    for key in IDENTITY_FIELDS:
+                        record.pop(key, None)
+                canon = json.dumps(record, sort_keys=True, separators=(",", ":"))
+                h.update(canon.encode("utf-8"))
+                h.update(b"\n")
+    return h.hexdigest()

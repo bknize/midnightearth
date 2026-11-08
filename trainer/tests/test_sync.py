@@ -81,7 +81,7 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(out["stamp"], stamp_of(self.root / "work"))
         self.assertTrue(out["stamp"].startswith("r7-"))
         self.assertIn("import_s", out)
-        self.assertEqual(len(list((self.root / "inbox").glob("*.bundle"))), 1)
+        self.assertEqual(list((self.root / "inbox").glob("*.bundle")), [])  # NSC-228
         self.assertEqual(fake.envs[-1]["GIT_LFS_SKIP_SMUDGE"], "1")
         self.assertIn("--import", fake.calls[-1])
         # second sync checks out in the existing worktree
@@ -108,6 +108,19 @@ class SyncTest(unittest.TestCase):
         self.assertIn("verify", out["error"])
         self.assertFalse((self.root / "repo").exists())
         self.assertFalse((self.root / "work").exists())
+
+    def test_pushed_bundle_kept_on_failure_for_diagnosis(self) -> None:
+        self.sync(Fake(), commit="deadbeef" + "0" * 32)
+        self.assertEqual(len(list((self.root / "inbox").glob("*.bundle"))), 1)
+        self.sync(Fake(), data=b"bad")
+        self.assertEqual(len(list((self.root / "inbox").glob("*.bundle"))), 2)
+
+    def test_inbox_file_is_not_deleted(self) -> None:
+        (self.root / "inbox").mkdir(parents=True)
+        (self.root / "inbox" / "x.bundle").write_bytes(b"pack")
+        sync_code(GOOD, inbox_file="x.bundle", root=self.root, godot_bin="godot",
+                  run=Fake(), runner_dest=self.dest)
+        self.assertTrue((self.root / "inbox" / "x.bundle").is_file())
 
     def test_unknown_commit(self) -> None:
         out = self.sync(Fake(), commit="deadbeef" + "0" * 32)

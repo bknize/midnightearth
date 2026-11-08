@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import hashlib
 import threading
 import json
 import os
@@ -7,14 +9,16 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 from typing import Any, Dict, List
 
 from trainer.config import RunConfig
 from trainer.farm import Farm
+from trainer.fit import FitError
 from trainer.store import Store
 from trainer.server import (BearerMiddleware, Service, TokenError, acquire_serve_lock,
-                            build_app, build_mcp, check_bearer, load_token)
+                            build_app, build_mcp, check_bearer, load_token, numpy_version)
 
 STUB = str(Path(__file__).resolve().parent / "stub_worker.py")
 STAMP = "r7-stub"
@@ -142,12 +146,14 @@ class ServiceTest(unittest.TestCase):
         self.addCleanup(s.close)
         return s
 
-    def wait(self, run_id: str, states: Any = ("done", "stopped", "failed")) -> Dict[str, Any]:
+    def wait(self, run_id: str, states: Any = ("done", "stopped", "failed"),
+             svc: Any = None) -> Dict[str, Any]:
+        svc = svc or self.svc
         for _ in range(600):
-            st = self.svc.run_status(run_id)
+            st = svc.run_status(run_id)
             if st["state"] in states:
-                self.svc.join(30)
-                return self.svc.run_status(run_id)
+                svc.join(30)
+                return svc.run_status(run_id)
             time.sleep(0.1)
         self.fail("run did not finish")
         return {}
@@ -181,6 +187,247 @@ class ServiceTest(unittest.TestCase):
             self.assertEqual(set(p["hand"][0]), {"instance", "card", "name"})
             means = [c["mean"] for c in p["candidates"]]
             self.assertEqual(means, sorted(means, reverse=True))
+
+    def test_start_run_resolves_fit_ids_and_refuses_unknown(self) -> None:
+        for field in ("rollout_weights", "generator_weights"):
+            r = self.svc.start_run(cfg_dict(**{field: "nofit"}))
+            self.assertIn("unknown fit", r["error"])
+        self.svc.store.create_fit("f1", {}, STAMP, "stub-1", [], state="running")
+        self.assertIn("not done", self.svc.start_run(cfg_dict(rollout_weights="f1"))["error"])
+        # a finished fit under another stamp is refused
+        old = self.root / "data" / "fits" / "f1"
+        old.mkdir(parents=True)
+        (old / "linear_weights.json").write_text("{}", encoding="utf-8")
+        self.svc.store.db.execute("UPDATE fits SET state = 'done', stamp = 'r7-old'")
+        self.svc.store.db.commit()
+        self.assertIn("stamp", self.svc.start_run(cfg_dict(rollout_weights="f1"))["error"])
+        (old / "linear_weights.json").unlink()
+        old.rmdir()
+        self.svc.store.db.execute("UPDATE fits SET state = 'running', stamp = ?", (STAMP,))
+        self.svc.store.db.commit()
+        self.svc.store.db.execute("UPDATE fits SET state = 'done'")
+        self.svc.store.db.commit()
+        self.assertIn("no weights file",
+                      self.svc.start_run(cfg_dict(rollout_weights="f1"))["error"])
+        fits = self.root / "data" / "fits" / "f1"
+        fits.mkdir(parents=True)
+        (fits / "linear_weights.json").write_text("{}", encoding="utf-8")
+        r = self.svc.start_run(cfg_dict(positions=20, rollout_weights="f1"))
+        self.assertNotIn("error", r)
+        self.assertEqual(self.wait(r["run_id"])["state"], "done")
+
+    # fits
+
+    def fit_service(self, gate: Any = None, fail: bool = False) -> Service:
+        """A service whose learner is a stand-in that writes the two files (no numpy)."""
+        def fake_fit(store: Store, fit_id: str, cfg: Any, out_dir: Path, repo_root: Path,
+                     should_stop: Any = None) -> Dict[str, Any]:
+            while gate is not None and not gate.wait(0.05):
+                if should_stop is not None and should_stop():
+                    raise FitError("fit stopped")
+            if fail:
+                raise FitError("numpy missing")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "linear_weights.json").write_text(
+                json.dumps({"fit": {"id": fit_id}, "weights": {"a": 1}}), encoding="utf-8")
+            report = {"fit_id": fit_id, "pairs": {"total": 7}}
+            (out_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
+            return report
+        s = Service(self.root / "data2", self.root / "me", farm_factory=stub_farm,
+                    stamp_fn=lambda: STAMP, fit_fn=fake_fit)
+        self.addCleanup(s.close)
+        return s
+
+    def done_run(self, svc: Service, **over: Any) -> str:
+        rid = svc.start_run(cfg_dict(positions=20, **over))["run_id"]
+        for _ in range(600):
+            if svc.run_status(rid)["state"] == "done":
+                svc.join(30)
+                return rid
+            time.sleep(0.1)
+        self.fail("run did not finish")
+        return rid
+
+    def wait_fit(self, svc: Service, fit_id: str) -> Dict[str, Any]:
+        for _ in range(600):
+            st = svc.run_status(fit_id)
+            if st["state"] in ("done", "failed"):
+                svc.join_fit(30)
+                return st
+            time.sleep(0.05)
+        self.fail("fit did not finish")
+        return {}
+
+    def test_fit_job_status_list_report_and_artifacts(self) -> None:
+        svc = self.fit_service()
+        rid = self.done_run(svc)
+        r = svc.fit({"runs": [rid], "iterations": 10})
+        self.assertNotIn("error", r, r)
+        fid = r["fit_id"]
+        st = self.wait_fit(svc, fid)
+        self.assertEqual((st["kind"], st["state"], st["runs"], st["pairs"]),
+                         ("fit", "done", [rid], 7))
+        self.assertEqual(st["last_error"], "")
+        self.assertEqual(svc.get_report(fid), {"fit_id": fid, "pairs": {"total": 7}})
+        listed = {x["run_id"]: x for x in svc.list_runs()["runs"]}
+        self.assertEqual(listed[fid]["kind"], "fit")
+        self.assertEqual(listed[fid]["state"], "done")
+        self.assertIn(rid, listed)
+        art = svc.get_artifact(fid, "weights")
+        raw = base64.b64decode(art["base64"])
+        path = self.root / "data2" / "fits" / fid / "linear_weights.json"
+        self.assertEqual(raw, path.read_bytes())
+        self.assertEqual(art["bytes"], len(raw))
+        self.assertEqual(art["sha256"], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(svc.get_artifact(fid)["sha256"], art["sha256"])
+        rep = svc.get_artifact(fid, "report")
+        self.assertEqual(json.loads(base64.b64decode(rep["base64"]))["fit_id"], fid)
+        # a finished fit can be named by a run
+        self.assertNotIn("error", svc.start_run(cfg_dict(positions=20, rollout_weights=fid)))
+
+    def test_get_artifact_errors_and_no_traversal(self) -> None:
+        svc = self.fit_service()
+        rid = self.done_run(svc)
+        fid = svc.fit({"runs": [rid]})["fit_id"]
+        self.wait_fit(svc, fid)
+        secret = self.root / "data2" / "secret.txt"
+        secret.write_text("x", encoding="utf-8")
+        for bad_id in ("nofit", "", "..", "../x", fid + "/..", "a/b", "..\\x", rid):
+            self.assertIn("error", svc.get_artifact(bad_id, "weights"), bad_id)
+        for bad_name in ("nope", "../../secret.txt", "linear_weights.json", "", "report.json"):
+            self.assertIn("error", svc.get_artifact(fid, bad_name), bad_name)
+        self.assertNotIn("error", svc.get_artifact(fid, "report"))
+        (self.root / "data2" / "fits" / fid / "report.json").unlink()
+        self.assertIn("no report file", svc.get_artifact(fid, "report")["error"])
+
+    def test_fit_refusals(self) -> None:
+        svc = self.fit_service()
+        rid = self.done_run(svc)
+        self.assertIn("no such run", svc.fit({"runs": ["nope"]})["error"])
+        self.assertIn("runs", svc.fit({"runs": []})["error"])
+        self.assertIn("holdout", svc.fit({"runs": [rid], "holdout": 0.5})["error"])
+        self.assertIn("unknown field", svc.fit({"runs": [rid], "bogus": 1})["error"])
+        self.assertIn("iterations", svc.fit({"runs": [rid], "iterations": 0})["error"])
+        slow = svc.start_run(cfg_dict(positions=2000, workers=1, batch=1))["run_id"]
+        self.assertIn("only done or stopped", svc.fit({"runs": [slow]})["error"])
+        svc.stop_run(slow)
+        self.wait(slow, ("stopped", "done", "failed"), svc)
+
+    def test_mixed_stamps_are_refused_by_name(self) -> None:
+        svc = self.fit_service()
+        rid = self.done_run(svc)
+        other = svc.store.create_run({"positions": 1}, "r7-other", "c", state="done")
+        svc.store.set_feature_set(other, "stub-1")
+        err = svc.fit({"runs": [rid, other]})["error"]
+        self.assertIn(other, err)
+        self.assertIn("stamp", err)
+
+    def test_one_fit_at_a_time_and_a_run_may_start_meanwhile(self) -> None:
+        gate = threading.Event()
+        svc = self.fit_service(gate=gate)
+        rid = self.done_run(svc)
+        first = svc.fit({"runs": [rid]})
+        self.assertNotIn("error", first)
+        self.assertIn(svc.run_status(first["fit_id"])["state"], ("queued", "running"))
+        self.assertIn("is active", svc.fit({"runs": [rid]})["error"])
+        second_run = svc.start_run(cfg_dict(positions=20))
+        self.assertNotIn("error", second_run)
+        gate.set()
+        self.assertEqual(self.wait_fit(svc, first["fit_id"])["state"], "done")
+        self.assertNotIn("error", svc.fit({"runs": [rid]}))
+        svc.join_fit(30)
+        self.wait(second_run["run_id"], svc=svc)
+
+    def test_resume_is_refused_while_a_live_fit_reads_the_run(self) -> None:
+        gate = threading.Event()
+        svc = self.fit_service(gate=gate)
+        rid = self.done_run(svc)
+        fid = svc.fit({"runs": [rid]})["fit_id"]
+        svc.store.set_state(rid, "stopped")  # as if the run had been stopped before the fit
+        err = svc.resume_run(rid)["error"]
+        self.assertIn("fit %s" % fid, err)
+        gate.set()
+        self.assertEqual(self.wait_fit(svc, fid)["state"], "done")
+        self.assertNotIn("error", svc.resume_run(rid))
+        svc.join(30)
+
+    def test_a_late_fit_finish_does_not_overwrite_a_failed_fit(self) -> None:
+        started = threading.Event()
+        released = threading.Event()
+
+        def late_fit(store: Store, fit_id: str, cfg: Any, out_dir: Path, repo_root: Path,
+                     should_stop: Any = None) -> Dict[str, Any]:
+            started.set()
+            released.wait(30)  # ignores should_stop: a stuck learner that finishes late
+            return {"fit_id": fit_id, "pairs": {"total": 1}}
+        svc = Service(self.root / "data2", self.root / "me", farm_factory=stub_farm,
+                      stamp_fn=lambda: STAMP, fit_fn=late_fit)
+        self.addCleanup(svc.close)
+        rid = self.done_run(svc)
+        fid = svc.fit({"runs": [rid]})["fit_id"]
+        self.assertTrue(started.wait(30))
+        svc.store.fail_live_fits("service shut down mid-fit")
+        released.set()
+        svc.join_fit(30)
+        row = svc.store.get_fit(fid) or {}
+        self.assertEqual(row["state"], "failed")
+        self.assertEqual(row["last_error"], "service shut down mid-fit")
+        self.assertFalse(row["report"])
+
+    def test_failed_fit_records_the_error_and_serves_nothing(self) -> None:
+        svc = self.fit_service(fail=True)
+        rid = self.done_run(svc)
+        fid = svc.fit({"runs": [rid]})["fit_id"]
+        st = self.wait_fit(svc, fid)
+        self.assertEqual(st["state"], "failed")
+        self.assertIn("numpy missing", st["last_error"])
+        self.assertIn("error", svc.get_report(fid))
+        self.assertIn("not done", svc.get_artifact(fid)["error"])
+        self.assertIn("not done", svc.start_run(cfg_dict(rollout_weights=fid))["error"])
+
+    def test_live_fit_is_failed_at_start(self) -> None:
+        svc = self.fit_service()
+        svc.store.create_fit("stale", {}, STAMP, "stub-1", [], state="running")
+        svc.close()
+        again = Service(self.root / "data2", self.root / "me", farm_factory=stub_farm,
+                        stamp_fn=lambda: STAMP)
+        self.addCleanup(again.close)
+        st = again.run_status("stale")
+        self.assertEqual(st["state"], "failed")
+        self.assertIn("restarted", st["last_error"])
+        self.assertIsNone(again.store.active_fit_id())
+
+    def test_close_stops_a_hung_fit(self) -> None:
+        gate = threading.Event()
+        svc = self.fit_service(gate=gate)
+        rid = self.done_run(svc)
+        fid = svc.fit({"runs": [rid]})["fit_id"]
+        t0 = time.time()
+        svc.close(timeout=1.0)
+        self.assertLess(time.time() - t0, 25)
+        svc.join_fit(30)
+        check = Store(self.root / "data2")
+        self.addCleanup(check.close)
+        fit = check.get_fit(fid) or {}
+        self.assertEqual(fit["state"], "failed")
+        self.assertIsNone(check.active_fit_id())
+
+    def test_health_reports_numpy_or_none(self) -> None:
+        self.assertIsInstance(self.svc.health()["numpy"], str)
+        with mock.patch("importlib.metadata.version", side_effect=Exception("absent")):
+            self.assertEqual(numpy_version(), "none")
+
+    def test_report_failure_keeps_run_done_and_report_is_rebuilt(self) -> None:
+        with mock.patch.object(Service, "_write_report", side_effect=OSError("disk full")):
+            rid = self.svc.start_run(cfg_dict())["run_id"]
+            st = self.wait(rid)
+        self.assertEqual(st["state"], "done", st)
+        self.assertIn("report not written", st["last_error"])
+        self.assertIn("disk full", st["last_error"])
+        self.assertFalse((self.root / "data" / "runs" / rid / "report.json").exists())
+        rep = self.svc.get_report(rid)
+        self.assertEqual(rep["digest"], st["digest"])
+        self.assertEqual(rep["positions"], 40)
 
     def test_start_refused_while_active_and_bad_config(self) -> None:
         self.assertIn("error", self.svc.start_run({"positions": 0}))
@@ -452,7 +699,7 @@ class ProbeAndRateTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_MCP, "mcp is not installed")
 class McpTest(unittest.TestCase):
-    def test_nine_tools_registered(self) -> None:
+    def test_eleven_tools_registered(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             svc = Service(Path(d) / "data", Path(d) / "me", farm_factory=stub_farm,
                           stamp_fn=lambda: STAMP)
@@ -462,7 +709,7 @@ class McpTest(unittest.TestCase):
                 names = {t.name for t in getattr(tools, "tools", tools)}
                 self.assertEqual(names, {
                     "health", "sync_code", "start_run", "run_status", "stop_run", "resume_run",
-                    "list_runs", "get_report", "sample_positions"})
+                    "list_runs", "get_report", "sample_positions", "fit", "get_artifact"})
             finally:
                 svc.close()
 

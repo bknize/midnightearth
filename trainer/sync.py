@@ -77,6 +77,7 @@ def sync_code(commit: str, bundle_b64: str = "", inbox_file: str = "", *, root: 
     env["GIT_LFS_SKIP_SMUDGE"] = "1"
     env["GIT_TERMINAL_PROMPT"] = "0"
 
+    pushed = bool(bundle_b64)  # a bundle this call wrote: it goes once the fetch succeeds
     if bundle_b64:
         try:
             raw = base64.b64decode(bundle_b64, validate=True)
@@ -112,6 +113,8 @@ def sync_code(commit: str, bundle_b64: str = "", inbox_file: str = "", *, root: 
     if rc != 0:
         abandon_repo()
         return {"error": "fetch failed (commit not in bundle?): %s" % _tail(out)}
+    if pushed:  # kept on any failure above, for diagnosis
+        bundle.unlink(missing_ok=True)
 
     previous = ""
     had_work = (work / ".git").exists()

@@ -105,4 +105,7 @@ def aggregate(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "overruns_b": sum(int(e.get("overruns_b", 0)) for e in ends),
         "replay_mismatches": sum(int(e.get("replay_mismatches", 0)) for e in ends),
         "stamps": sorted({str(e["stamp"]) for e in ends if "stamp" in e}),
+        # the weights files' stamp check (cycle 13 R15): match, MISMATCH or none
+        "weights_stamps": sorted({str(e["weights_stamp"]) for e in ends
+                                  if "weights_stamp" in e}),
     }

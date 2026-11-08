@@ -4,7 +4,13 @@ extends SceneTree
 ##
 ##   godot --headless --path godot -s res://tools/match_worker.gd -- --a=<bot> --b=<bot>
 ##     --seeds=<from>-<to> --decks=seeded|<id>/<id> --out=<file>.jsonl --label=<text>
-##     [--budget-us=10000]
+##     [--budget-us=10000] [--weights-a=<path>] [--weights-b=<path>] [--legal]
+##
+## `--weights-a` and `--weights-b` give a `linear` side its weights file (the committed file
+## when absent); the end record's `weights_stamp` says whether every file given carries the
+## current stamp ("match"), not ("MISMATCH"), or no side has a file ("none"). The decision
+## record's `legal` is -1 unless `--legal` is given: counting the legal commits at every
+## decision is work nothing in scripts/bot reads (NSC-212).
 ##
 ## Per seed: the deck pair is DeckList.seeded_pick (or the flag); the games are (a@0, b@1)
 ## and (b@0, a@1), and when the two decks differ the same two with the decks swapped (two
@@ -29,6 +35,8 @@ var _seed_to: int = 0
 var _deck_flag: String = "seeded"
 var _out_path: String = ""
 var _budget_us: int = DEFAULT_BUDGET_US
+var _weights: Array[String] = ["", ""]
+var _count_legal: bool = false
 var _cards: CardDb = null
 var _decks: DeckList = null
 var _crew: CrewPool = null  # Each deck's three Crew (cycle 8 R42).
@@ -109,12 +117,17 @@ func _configure(args: Dictionary) -> String:
 			"out",
 			"label",
 			"budget-us",
+			"weights-a",
+			"weights-b",
+			"legal",
 		]
 		if not known.has(str(key)):
 			return "unknown argument --%s" % str(key)
 	_bot_names = [_arg(args, "a", ""), _arg(args, "b", "")]
 	if _bot_names[0] == "" or _bot_names[1] == "":
 		return "--a and --b are required"
+	_weights = [_arg(args, "weights-a", ""), _arg(args, "weights-b", "")]
+	_count_legal = args.has("legal")
 	var budget: String = _arg(args, "budget-us", str(DEFAULT_BUDGET_US))
 	if not budget.is_valid_int():
 		return "--budget-us must be a whole number"
@@ -217,8 +230,11 @@ func _play_game(
 		var side: int = seat if a_seat == 0 else 1 - seat
 		names[seat] = _bot_names[side]
 		bots.append(
-			BotRegistry.make(
-				_bot_names[side], _bot_seed(match_seed, seat, side), engine.match_cards()
+			BotRegistry.make_with(
+				_bot_names[side],
+				_bot_seed(match_seed, seat, side),
+				engine.match_cards(),
+				_weights[side]
 			)
 		)
 	var first_seat: int = engine.view_for(0).first_seat
@@ -231,7 +247,9 @@ func _play_game(
 	while not engine.is_over():
 		var seat: int = engine.awaited_seat()
 		var view: SeatView = engine.view_for(seat)
-		var legal: int = _legal_count(view, engine.match_cards())
+		var legal: int = MatchWorkerRecords.UNKNOWN
+		if _count_legal:
+			legal = _legal_count(view, engine.match_cards())
 		var began: int = Time.get_ticks_usec()
 		var action: EngineAction = bots[seat].choose(view, engine)
 		var us: int = Time.get_ticks_usec() - began
@@ -360,6 +378,22 @@ func _write_end() -> void:
 			_mismatches,
 			p95,
 			_slowest_us,
-			BotStamp.current()
+			BotStamp.current(),
+			_weights_stamp()
 		)
 	)
+
+
+## The end record's `weights_stamp`: "none" when neither side has a weights file, "match" when
+## every file given has the current stamp, else "MISMATCH".
+func _weights_stamp() -> String:
+	var used: int = 0
+	for path: String in _weights:
+		if path == "":
+			continue
+		used += 1
+		if not BotWeights.cached(path).stamp_matches():
+			return MatchWorkerRecords.WEIGHTS_MISMATCH
+	if used == 0:
+		return MatchWorkerRecords.WEIGHTS_NONE
+	return MatchWorkerRecords.WEIGHTS_MATCH

@@ -167,6 +167,76 @@ class RunTest(unittest.TestCase):
         for x in lines:
             self.assertTrue(1 <= len(x["candidates"]) <= 3)
 
+    def test_shard_lines_carry_features_and_feature_set(self) -> None:
+        store = self.store("a")
+        rid = self.new_run(store, positions=20)
+        with make_farm(2) as farm:
+            self.assertEqual(execute(store, rid, farm), "done")
+        self.assertEqual((store.get_run(rid) or {})["feature_set"], "stub-1")
+        lines = [json.loads(x) for p in store.shard_paths(rid)
+                 for x in p.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(lines), 20)
+        for x in lines:
+            self.assertEqual(x["feature_set"], "stub-1")
+            self.assertEqual(set(x["info"]), {"round", "turn", "hand"})
+            self.assertEqual(len(x["info"]["hand"]), 5)
+            for c in x["candidates"]:
+                self.assertEqual(len(c["features"]), 4)
+                self.assertTrue(all(isinstance(v, int) for v in c["features"]))
+        row = store.db.execute("SELECT features FROM labels LIMIT 1").fetchone()
+        self.assertEqual(len(json.loads(row["features"])), 4)
+
+    def test_no_inspect_request_and_weights_in_requests(self) -> None:
+        store = self.store("a")
+        rid = self.new_run(store, positions=20, rollout_weights="fa", generator_weights="fb")
+        seen: List[Dict[str, Any]] = []
+        with make_farm(1) as farm:
+            real = farm.request
+
+            def spy(req: Dict[str, Any]) -> Dict[str, Any]:
+                seen.append(req)
+                return real(req)
+
+            farm.request = spy  # type: ignore[method-assign]
+            self.assertEqual(execute(store, rid, farm), "done")
+        kinds = [r["kind"] for r in seen]
+        self.assertEqual(set(kinds), {"play", "label"})
+        self.assertEqual(kinds.count("play"), kinds.count("label"))
+        want_roll = str((self.root / "a" / "fits" / "fa" / "linear_weights.json").resolve())
+        want_gen = str((self.root / "a" / "fits" / "fb" / "linear_weights.json").resolve())
+        for r in seen:
+            if r["kind"] == "label":
+                self.assertEqual(r["rollout_weights"], want_roll)
+                self.assertNotIn("generator_weights", r)
+            else:
+                self.assertEqual(r["generator_weights"], want_gen)
+                self.assertNotIn("rollout_weights", r)
+
+    def test_no_weights_sends_no_weights_members(self) -> None:
+        store = self.store("a")
+        rid = self.new_run(store, positions=20)
+        seen: List[Dict[str, Any]] = []
+        with make_farm(1) as farm:
+            real = farm.request
+
+            def spy(req: Dict[str, Any]) -> Dict[str, Any]:
+                seen.append(req)
+                return real(req)
+
+            farm.request = spy  # type: ignore[method-assign]
+            execute(store, rid, farm)
+        for r in seen:
+            self.assertNotIn("rollout_weights", r)
+            self.assertNotIn("generator_weights", r)
+
+    def test_feature_set_mismatch_on_resume_fails(self) -> None:
+        store = self.store("a")
+        rid = self.new_run(store, positions=20)
+        store.set_feature_set(rid, "other-set")
+        with make_farm(1) as farm:
+            self.assertEqual(execute(store, rid, farm), "failed")
+        self.assertIn("feature set", (store.get_run(rid) or {})["last_error"])
+
     def test_stop_at_40_resume_matches_uninterrupted(self) -> None:
         whole = self.store("whole")
         rid = self.new_run(whole)
@@ -215,6 +285,16 @@ class RunTest(unittest.TestCase):
         run = store.get_run(rid) or {}
         self.assertEqual(run["state"], "failed")
         self.assertIn("stamp", run["last_error"])
+        self.assertEqual(store.committed_batches(rid), [])
+
+    def test_worker_error_reply_fails_the_run_not_the_position(self) -> None:
+        store = self.store("a")
+        rid = self.new_run(store, positions=20)
+        with make_farm(2, 30.0, "--error-label") as farm:
+            state = execute(store, rid, farm)
+        self.assertEqual(state, "failed")
+        run = store.get_run(rid) or {}
+        self.assertIn("worker error", run["last_error"])
         self.assertEqual(store.committed_batches(rid), [])
 
     def test_run_stamp_differs_from_workers(self) -> None:

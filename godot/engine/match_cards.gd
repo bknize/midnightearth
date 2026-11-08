@@ -170,6 +170,40 @@ func pool_def(card_id: String) -> CardDef:
 	return _pool.card_by_id(card_id)
 
 
+## The ids of every card of the pool the match was built from, in CardDb (file) order, a
+## created-only card included (BotFeatures' card indicators); empty after a failed build.
+func pool_ids() -> Array[String]:
+	var out: Array[String] = []
+	if _pool == null:
+		return out
+	for def: CardDef in _pool.cards():
+		out.append(def.id)
+	return out
+
+
+## pool_ids().size() without building the ids; 0 after a failed build.
+func pool_size() -> int:
+	if _pool == null:
+		return 0
+	return _pool.size()
+
+
+## Names the pool `cards` was built from, shared by every copy(): its instance id, 0 for a
+## null `cards` or after a failed build. Two MatchCards with one key share pool_ids().
+static func pool_key(cards: MatchCards) -> int:
+	if cards == null or cards._pool == null:
+		return 0
+	return cards._pool.get_instance_id()
+
+
+## The pool position of `card_id` (CardDb.index_of), or -1 when unknown or after a failed
+## build.
+func pool_index(card_id: String) -> int:
+	if _pool == null:
+		return -1
+	return _pool.index_of(card_id)
+
+
 ## Whether any definition of the match carries an ability with the verb `verb`, on either
 ## seat's deck or a created card's (record_created). False after a failed build.
 func has_verb(verb: String) -> bool:

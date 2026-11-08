@@ -67,14 +67,17 @@ static func determinize(engine: MatchEngine, seat: int, det_seed: int) -> MatchE
 ## {value, result, wins: [seat 0's, seat 1's], actions, capped, rejected}. `copy` is
 ## changed; build a fresh one per play-out. A bot the registry cannot build, a decision no
 ## bot can take, or a bot action the copy refuses ends the play-out as `rejected` (no value,
-## not counted in `n`): a broken rollout policy, never a draw (T06 review).
+## not counted in `n`): a broken rollout policy, never a draw (T06 review). Both seats' bots
+## come from BotRegistry.make_with(policy, …, `weights_path`): a `linear` policy plays the
+## weights file there (the committed file when empty); `random` ignores it (cycle 13 P5).
 static func play(
 	copy: MatchEngine,
 	seat: int,
 	candidate: EngineAction,
 	policy: String,
 	det_seed: int,
-	cap: int = DEFAULT_CAP
+	cap: int = DEFAULT_CAP,
+	weights_path: String = ""
 ) -> Dictionary:
 	if seat < 0 or seat >= MatchEngine.SEATS or candidate == null or candidate.seat != seat:
 		return _rejected(copy)
@@ -84,7 +87,7 @@ static func play(
 	for bot_seat: int in range(MatchEngine.SEATS):
 		var parts: Array[int] = [bot_seat]
 		var bot_seed: int = MatchRng.derive_seed(det_seed, parts)
-		bots.append(BotRegistry.make(policy, bot_seed, copy.match_cards()))
+		bots.append(BotRegistry.make_with(policy, bot_seed, copy.match_cards(), weights_path))
 	var actions: int = 1
 	var capped: bool = false
 	while not copy.is_over():
@@ -112,13 +115,15 @@ static func play(
 ## floor of their population standard deviation, both 0 when `n` is 0; `wins`, `draws`
 ## and `losses` count their results (a capped play-out is a draw, also counted in
 ## `capped`); `rejected` counts the rejected play-outs. `engine` is only read (R19).
+## `weights_path` goes to every play() (cycle 13 P5).
 static func label(
 	engine: MatchEngine,
 	seat: int,
 	candidates: Array[EngineAction],
 	determinizations: int,
 	policy: String,
-	label_seed: int
+	label_seed: int,
+	weights_path: String = ""
 ) -> Array[Dictionary]:
 	# The view and the hidden sets are the same for every play-out of the position, and so
 	# is each determinization's mapping for every candidate (NSC-210): work them out once.
@@ -145,7 +150,9 @@ static func label(
 				# _mapping_of's typed dictionary, read without a copy: _relabel only reads it.
 				var mapping: Dictionary[int, int] = mappings[det]
 				var copy: MatchEngine = _built(engine, engine.state_copy(), mapping, det_seed)
-				played = play(copy, seat, candidates[index], policy, det_seed)
+				played = play(
+					copy, seat, candidates[index], policy, det_seed, DEFAULT_CAP, weights_path
+				)
 			_count(played, values, counts)
 		out.append(_summary(values, counts))
 	return out

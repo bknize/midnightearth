@@ -249,6 +249,12 @@ func _bot_name() -> String:
 	return BotRegistry.default_name()
 
 
+## The weights file the bots play (cycle 13 P6): "" is the committed file. The sweep suite
+## overrides it.
+func _weights_path() -> String:
+	return ""
+
+
 ## One bot per seat on the match's own definitions, as main.gd's smoke builds them:
 ## _bot_name() from the registry. An entry is null when the registry cannot build the bot.
 func _new_bots(match_seed: int, engine: MatchEngine) -> Array[BotPlayer]:
@@ -257,16 +263,14 @@ func _new_bots(match_seed: int, engine: MatchEngine) -> Array[BotPlayer]:
 	var cards: MatchCards = engine.match_cards()
 	for seat: int in range(MatchEngine.SEATS):
 		var bot_seed: int = BotRegistry.seed_for(match_seed, seat)
-		bots.append(BotRegistry.make(bot_name, bot_seed, cards))
+		bots.append(BotRegistry.make_with(bot_name, bot_seed, cards, _weights_path()))
 	return bots
 
 
 ## Plays `match_seed` bot against bot to the end or the cap, checking every invariant at
 ## every step. `scan_every_step` false leak-scans only the start and turn-ending steps.
 ## `deck_ids` names both seats' decks; empty plays the seed's own pairing (_new_engine()).
-func _play(
-	match_seed: int, scan_every_step: bool, deck_ids: Array[String] = []
-) -> FullMatchRun:
+func _play(match_seed: int, scan_every_step: bool, deck_ids: Array[String] = []) -> FullMatchRun:
 	var run: FullMatchRun = FullMatchRun.new()
 	run.match_seed = match_seed
 	var engine: MatchEngine = null
@@ -453,9 +457,13 @@ func _scan_leaks(
 					continue
 				if hidden_during.has(card) and not own_known.has(card):
 					run.leaks.append(
-						where + ": event %s names hidden card %d" % [
-							MatchEvent.kind_name(event.kind), card
-						]
+						(
+							where
+							+ (
+								": event %s names hidden card %d"
+								% [MatchEvent.kind_name(event.kind), card]
+							)
+						)
 					)
 
 
@@ -570,7 +578,9 @@ func _scan_piles(run: FullMatchRun, view: SeatView, after: Dictionary, where: St
 	if view.own_pile != own:
 		run.leaks.append(where + ": own Pile shows %s, holds %s" % [view.own_pile, own])
 	if view.opponent_pile != theirs:
-		run.leaks.append(where + ": opponent Pile shows %s, holds %s" % [view.opponent_pile, theirs])
+		run.leaks.append(
+			where + ": opponent Pile shows %s, holds %s" % [view.opponent_pile, theirs]
+		)
 	run.pile_seen += theirs.size()
 	for card: int in own + theirs:
 		if not view.pile_entries.has(card):

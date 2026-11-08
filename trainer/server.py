@@ -6,23 +6,29 @@ answers 401 before any MCP handling. `build_mcp` and `build_app` are the only pl
 import `mcp`; `serve` ties them together with uvicorn. Auth uses the middleware path (P15's
 fallback): a static bearer token is a poor fit for the OAuth-shaped verifier hook.
 """
+import base64
+import hashlib
 import hmac
 import json
 import os
 import platform
 import random
+import re
 import shutil
 import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from trainer.config import RunConfig
+from trainer.config import FitConfig, RunConfig
 from trainer.farm import REPO_ROOT, Farm, FarmError, godot_bin, worker_command
+from trainer.fit import REPORT_NAME, FitError, run_fit, validate_runs
 from trainer.run import execute, git_commit
-from trainer.store import Store, default_data_dir
+from trainer.store import (LIVE_FIT, WEIGHTS_NAME, Store, default_data_dir, digest_shards,
+                           weights_path, write_atomic)
 from trainer.sync import RunFn, default_run, stamp_of, sync_code
 
 ACTIVE_STATES = ("queued", "running", "stopping")
@@ -31,6 +37,10 @@ LOCK_NAME = "serve.lock"
 WINDOWS_TOKEN = r"C:\Users\trainer\.trainer\token"
 START_CMD = "start-mcp.cmd"
 Reply = Dict[str, Any]
+FitFn = Callable[..., Dict[str, Any]]
+# get_artifact serves exactly these files of a fit's own folder (plan P12).
+ARTIFACTS = {"weights": WEIGHTS_NAME, "report": REPORT_NAME}
+ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class TokenError(Exception):
@@ -140,16 +150,23 @@ class Service:
                  sync_fn: Optional[Callable[..., Reply]] = None,
                  queue_dir: Optional[Path] = None, run_fn: Optional[RunFn] = None,
                  commit_fn: Optional[Callable[[], str]] = None,
-                 is_windows: Optional[bool] = None) -> None:
+                 is_windows: Optional[bool] = None,
+                 fit_fn: Optional[FitFn] = None) -> None:
         self.root = Path(root) if root is not None else default_root()
         self.store = Store(data_dir)
         self.data_dir = self.store.data_dir
         self.lock = threading.RLock()
         self.started_at = time.time()
         self.interrupted = self.store.mark_interrupted()
+        self.store.fail_live_fits("service restarted mid-fit")
+        self._fit_fn: FitFn = fit_fn or run_fit
+        self._fit_thread: Optional[threading.Thread] = None
+        self._fit_stop = threading.Event()
         self._syncing = False
         self._farm: Optional[Farm] = None
         self._probes: Dict[str, str] = {}
+        # Digests of done runs by run id: a done run never changes (it cannot resume).
+        self._digests: Dict[str, str] = {}
         self._farm_factory = farm_factory or self._default_farm
         self._stamp_fn = stamp_fn or self._default_stamp
         self._sync_fn = sync_fn or sync_code
@@ -168,6 +185,12 @@ class Service:
         """Signal stop, wait up to `timeout` for the run thread, then stop the farm (which
         fails the run's requests so the thread ends) and wait a little more."""
         self._stop_flag.set()
+        self._fit_stop.set()
+        ft = self._fit_thread
+        if ft is not None:
+            ft.join(min(timeout, 15.0))
+            if ft.is_alive():  # a stuck fit: leave no live state behind
+                self.store.fail_live_fits("service shut down mid-fit")
         self.join(timeout)
         t = self._thread
         if t is not None and t.is_alive():
@@ -183,6 +206,11 @@ class Service:
 
     def join(self, timeout: Optional[float] = None) -> None:
         t = self._thread
+        if t is not None:
+            t.join(timeout)
+
+    def join_fit(self, timeout: Optional[float] = None) -> None:
+        t = self._fit_thread
         if t is not None:
             t.join(timeout)
 
@@ -252,7 +280,7 @@ class Service:
         now = time.time()
         return {
             "host": platform.node(), "python": platform.python_version(),
-            "mcp": mcp_version(), "godot": godot or "unavailable", "gpu": gpu or "none",
+            "mcp": mcp_version(), "numpy": numpy_version(), "godot": godot or "unavailable", "gpu": gpu or "none",
             "free_disk_gb": round(shutil.disk_usage(str(self.data_dir)).free / 1e9, 1),
             "commit": commit or "unknown", "service_commit": self.service_commit,
             "code_stamp": stamp,
@@ -319,6 +347,10 @@ class Service:
             cfg = RunConfig.from_dict(config)
         except ValueError as e:
             return {"error": str(e)}
+        for name in ("rollout_weights", "generator_weights"):
+            problem = self._check_fit(getattr(cfg, name), name)
+            if problem:
+                return {"error": problem}
         with self.lock:
             active = self._active()
             if active:
@@ -333,6 +365,27 @@ class Service:
             self._launch(run_id)
             return {"run_id": run_id, "state": "queued", "stamp": stamp,
                     "positions": cfg.positions}
+
+    def _check_fit(self, fit_id: str, field: str) -> str:
+        """"" when `fit_id` is empty or names a finished fit whose weights file exists, else
+        the error text (R21)."""
+        if not fit_id:
+            return ""
+        fit = self.store.get_fit(fit_id)
+        if fit is None:
+            return "%s: unknown fit %s" % (field, fit_id)
+        if fit["state"] != "done":
+            return "%s: fit %s is %s, not done" % (field, fit_id, fit["state"])
+        if not Path(weights_path(self.data_dir, fit_id)).is_file():
+            return "%s: fit %s has no weights file" % (field, fit_id)
+        try:  # the workers refuse a weights file of another stamp, so refuse it up front
+            current = self._stamp_fn()
+        except (OSError, ValueError) as e:
+            return "%s: stamp: %s" % (field, e)
+        if fit["stamp"] != current:
+            return ("%s: fit %s is under stamp %s, the code is at %s"
+                    % (field, fit_id, fit["stamp"], current))
+        return ""
 
     def _launch(self, run_id: str) -> None:
         self._stop_flag = threading.Event()
@@ -358,7 +411,7 @@ class Service:
                 execute(store, run_id, farm, should_stop=stop.is_set)
             finally:
                 farm.stop()
-            self._write_report(store, run_id)
+            self._write_report_safely(store, run_id)
         except Exception as e:  # keep the service alive whatever the run does
             try:
                 store.set_state(run_id, "failed", "%s: %s" % (type(e).__name__, e))
@@ -385,12 +438,21 @@ class Service:
         except Exception:
             pass
 
+    def _write_report_safely(self, store: Store, run_id: str) -> None:
+        """A report that cannot be written never fails a run whose labels are committed: the
+        state stays, the error goes to `last_error`, and `get_report` rebuilds on demand."""
+        try:
+            self._write_report(store, run_id)
+        except Exception as e:
+            run = store.get_run(run_id)
+            if run is not None:
+                store.set_state(run_id, run["state"],
+                                "report not written: %s: %s" % (type(e).__name__, e))
+
     def _write_report(self, store: Store, run_id: str) -> None:
         report = self._report(store, run_id)
-        path = store.run_dir(run_id) / "report.json"
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(report, sort_keys=True, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        write_atomic(store.run_dir(run_id) / "report.json",
+                     json.dumps(report, sort_keys=True, indent=1))
 
     def _report(self, store: Store, run_id: str) -> Reply:
         run = store.get_run(run_id) or {}
@@ -411,11 +473,16 @@ class Service:
             "rollouts_per_s": round(rollouts / wall, 2) if wall > 0 else 0.0,
             "restarts": run.get("restarts", 0), "candidate_count_histogram": hist,
             "mean_value_spread": round(sum(spreads) / len(spreads), 4) if spreads else 0.0,
-            "digest": store.digest(run_id),
+            "digest": (self._done_digest(run_id, store.shard_paths(run_id))
+                       if run.get("state") == "done" else store.digest(run_id)),
             "shards": [str(p) for p in store.shard_paths(run_id)]}
 
     def run_status(self, run_id: str) -> Reply:
         with self.lock:
+            if isinstance(run_id, str) and self.store.get_run(run_id) is None:
+                fit = self.store.get_fit(run_id)
+                if fit is not None:
+                    return self._fit_status(fit)
             run = self._need_run(run_id)
             if "error" in run:
                 return run
@@ -449,9 +516,20 @@ class Service:
                 "last_checkpoint": checkpoint if checkpoint > 0 else None,
                 "elapsed_s": round(elapsed, 1), "eta_s": eta,
                 "last_error": run["last_error"]}
-            if run["state"] == "done":
-                out["digest"] = self.store.digest(run_id)
-            return out
+            done = run["state"] == "done"
+            paths = self.store.shard_paths(run_id) if done and run_id not in self._digests else []
+        if done:  # hashed outside the lock: the shards of a done run never change
+            out["digest"] = self._done_digest(run_id, paths)
+        return out
+
+    def _done_digest(self, run_id: str, paths: List[Path]) -> str:
+        """The digest of the done run `run_id` over its shards `paths`, memoised (the paths
+        are not read once it is known)."""
+        digest = self._digests.get(run_id)
+        if digest is None:
+            digest = digest_shards(paths)
+            self._digests[run_id] = digest
+        return digest
 
     def stop_run(self, run_id: str) -> Reply:
         with self.lock:
@@ -491,6 +569,10 @@ class Service:
                 return {"error": "run %s is active" % active}
             if self._syncing:
                 return {"error": "a sync is in progress"}
+            for live in self.store.list_fits():  # its labels must not change under a fit
+                if live["state"] in LIVE_FIT and run_id in live["runs"]:
+                    return {"error": "fit %s is %s and reads run %s; resume after it ends"
+                            % (live["id"], live["state"], run_id)}
             try:
                 now_stamp = self._stamp_fn()
             except (OSError, ValueError) as e:
@@ -511,20 +593,140 @@ class Service:
                              "commit": r["commit"], "created": r["created"],
                              "positions_done": r["done"],
                              "positions_total": r["config"].get("positions")})
+            for f in self.store.list_fits():
+                runs.append({"run_id": f["id"], "fit_id": f["id"], "kind": "fit",
+                             "state": f["state"], "stamp": f["stamp"],
+                             "feature_set": f["feature_set"], "created": f["created"],
+                             "runs": f["runs"]})
             return {"runs": runs}
 
     def get_report(self, run_id: str) -> Reply:
         with self.lock:
+            if isinstance(run_id, str) and self.store.get_run(run_id) is None:
+                fit = self.store.get_fit(run_id)
+                if fit is not None:
+                    return self._fit_report(fit)
             run = self._need_run(run_id)
             if "error" in run:
                 return run
             path = self.store.run_dir(run_id) / "report.json"
+            if not path.is_file() and run["state"] == "done":
+                try:  # the write failed (see last_error): rebuild it from the store
+                    return self._report(self.store, run_id)
+                except Exception as e:
+                    return {"error": "report unavailable: %s" % e}
             if not path.is_file():
                 return {"error": "no report yet: run %s is %s" % (run_id, run["state"])}
             try:
                 return json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as e:
                 return {"error": "report unreadable: %s" % e}
+
+    # fits (spec R23 to R28, R30; plan P11, P12)
+
+    def fit_dir(self, fit_id: str) -> Path:
+        return self.data_dir / "fits" / fit_id
+
+    def fit(self, config: Dict[str, Any]) -> Reply:
+        """Validate a fit config and start the learner job; one fit at a time, and a labelling
+        run may be active (the fit reads only finished runs)."""
+        try:
+            cfg = FitConfig.from_dict(config)
+            stamp, feature_set = validate_runs(self.store, cfg.runs)
+        except (ValueError, FitError) as e:
+            return {"error": str(e)}
+        with self.lock:
+            active = self.store.active_fit_id()
+            if active:
+                return {"error": "fit %s is active" % active}
+            fit_id = uuid.uuid4().hex[:12]
+            self.store.create_fit(fit_id, cfg.to_dict(), stamp, feature_set, sorted(cfg.runs))
+            self._fit_stop = threading.Event()
+            self._fit_thread = threading.Thread(
+                target=self._fit_job, args=(fit_id, cfg, self._fit_stop), daemon=True)
+            self._fit_thread.start()
+            return {"fit_id": fit_id, "state": "queued", "stamp": stamp,
+                    "feature_set": feature_set, "runs": sorted(cfg.runs)}
+
+    def _fit_job(self, fit_id: str, cfg: FitConfig, stop: threading.Event) -> None:
+        store = Store(self.data_dir, recover_on_open=False)
+        try:
+            # Compare-and-set throughout: a fit failed meanwhile (Service.close on a stuck
+            # fit) stays failed, whatever this thread does late.
+            if not store.set_fit_state(fit_id, "running", only_from=("queued",)):
+                return
+            report = self._fit_fn(store, fit_id, cfg, self.fit_dir(fit_id), self._work(),
+                                  should_stop=stop.is_set)
+            store.set_fit_state(fit_id, "done", "", json.dumps(report, sort_keys=True),
+                                only_from=LIVE_FIT)
+        except Exception as e:  # a failed fit never takes the service with it
+            try:
+                store.set_fit_state(fit_id, "failed", "%s: %s" % (type(e).__name__, e),
+                                    only_from=LIVE_FIT)
+            except Exception:
+                pass
+        finally:
+            try:  # never end with the fit in a live state
+                row = store.get_fit(fit_id)
+                if row is not None and row["state"] in LIVE_FIT:
+                    store.set_fit_state(fit_id, "failed",
+                                        "fit thread ended while %s" % row["state"],
+                                        only_from=LIVE_FIT)
+            except Exception:
+                pass
+            store.close()
+
+    def _fit_status(self, fit: Dict[str, Any]) -> Reply:
+        live = fit["state"] in LIVE_FIT
+        end = time.time() if live else float(fit["updated"])
+        pairs = 0
+        if fit["report"]:
+            try:
+                pairs = int(json.loads(fit["report"])["pairs"]["total"])
+            except (ValueError, KeyError, TypeError):
+                pairs = 0
+        return {"kind": "fit", "fit_id": fit["id"], "state": fit["state"],
+                "runs": fit["runs"], "stamp": fit["stamp"], "feature_set": fit["feature_set"],
+                "pairs": pairs, "elapsed_s": round(max(0.0, end - float(fit["created"])), 1),
+                "last_error": fit["last_error"]}
+
+    def _fit_report(self, fit: Dict[str, Any]) -> Reply:
+        if fit["state"] != "done":
+            return {"error": "no report yet: fit %s is %s" % (fit["id"], fit["state"])}
+        try:
+            text = (self.fit_dir(fit["id"]) / REPORT_NAME).read_text(encoding="utf-8")
+            return json.loads(text)
+        except (OSError, ValueError):
+            pass
+        try:
+            return json.loads(fit["report"])
+        except ValueError as e:
+            return {"error": "report unreadable: %s" % e}
+
+    def get_artifact(self, fit_id: str, name: str = "weights") -> Reply:
+        """A finished fit's weights file or report, inline as base64 with its length and
+        SHA-256. Only the two whitelisted files of the fit's own folder are ever read."""
+        if not isinstance(fit_id, str) or not ID_PATTERN.match(fit_id):
+            return {"error": "fit_id must be a fit id"}
+        if not isinstance(name, str) or name not in ARTIFACTS:
+            return {"error": "unknown artifact %r; one of %s"
+                    % (name, ", ".join(sorted(ARTIFACTS)))}
+        fit = self.store.get_fit(fit_id)
+        if fit is None:
+            return {"error": "no such fit: %s" % fit_id}
+        if fit["state"] != "done":
+            return {"error": "fit %s is %s, not done" % (fit_id, fit["state"])}
+        folder = self.fit_dir(fit_id).resolve()
+        path = (folder / ARTIFACTS[name]).resolve()
+        if path.parent != folder or not path.is_file():
+            return {"error": "fit %s has no %s file" % (fit_id, name)}
+        try:
+            data = path.read_bytes()
+        except OSError as e:
+            return {"error": "artifact unreadable: %s" % e}
+        return {"fit_id": fit_id, "name": name, "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "base64": base64.b64encode(data).decode("ascii")}
 
     def sample_positions(self, run_id: str, n: int = 5, seed: int = 0) -> Reply:
         with self.lock:
@@ -590,8 +792,18 @@ def build_mcp(service: Service) -> Any:
         return guarded(service.start_run)(config)
 
     @mcp.tool()
+    def fit(config: Dict[str, Any]) -> Dict[str, Any]:
+        """Learn a weights file from finished runs (one fit at a time); returns the fit id."""
+        return guarded(service.fit)(config)
+
+    @mcp.tool()
+    def get_artifact(fit_id: str, name: str = "weights") -> Dict[str, Any]:
+        """A fit's weights file or report (name: weights or report) as base64 with sha256."""
+        return guarded(service.get_artifact)(fit_id, name)
+
+    @mcp.tool()
     def run_status(run_id: str) -> Dict[str, Any]:
-        """State, progress, restarts, rate, elapsed, eta and last error of a run."""
+        """State, progress, restarts, rate, elapsed, eta and last error of a run or a fit."""
         return guarded(service.run_status)(run_id)
 
     @mcp.tool()
@@ -646,6 +858,15 @@ def mcp_version() -> str:
         return version("mcp")
     except Exception:
         return "unavailable"
+
+
+def numpy_version() -> str:
+    """numpy's version, or "none" when it is not installed (only the learner needs it)."""
+    try:
+        from importlib.metadata import version
+        return version("numpy")
+    except Exception:
+        return "none"
 
 
 def _opt(args: List[str], name: str, default: str) -> str:

@@ -14,6 +14,9 @@ extends MatchSource
 ## The human's seat.
 const PLAYER_SEAT: int = 0
 
+## The `Bot weights:` faults already printed this process (report_weights).
+static var _weights_reported: Dictionary = {}
+
 ## The match seed (read-only).
 var match_seed: int:
 	get:
@@ -68,7 +71,20 @@ static func create(
 		if bot == null:
 			return null
 		driver._bots.append(bot)
+	report_weights(p_bot_name, "")
 	return driver
+
+
+## Prints the launcher's one `Bot weights:` line (cycle 13 R9, plan P4) when bot `bot_name`
+## would play its built-in defaults because the weights file at `weights_path` (the committed
+## file when empty) is broken; at most once per fault per process, so the smoke (main.gd)
+## and the board's match together print it once. The engine itself prints nothing.
+static func report_weights(bot_name: String, weights_path: String) -> void:
+	var fault: String = BotRegistry.weights_error(bot_name, weights_path)
+	if fault == "" or _weights_reported.has(fault):
+		return
+	_weights_reported[fault] = true
+	print("Bot weights: %s; using defaults" % fault)
 
 
 ## The match's definitions by instance id (DC-07 P3): read a card through its origin's

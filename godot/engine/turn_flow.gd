@@ -97,14 +97,16 @@ static func start_match(
 				sink.call(MatchEvent.Kind.CARD_DEALT, {"seat": seat, "card": card}, seat)
 
 
-## Round start: the Round counter, sudden death past MatchRules.ROUNDS, Turn 0, both Scores
-## and walking totals 0, the first committer (R3), ROUND_STARTED {round, sudden_death}. The
-## rows are empty (end_round()); hands, Decks and Piles stay as they are (R17). The coin
-## flip of Round 1 is the stream's only coin.
+## Round start: the Round counter, sudden death past MatchRules.ROUNDS, Turn 0, the Round's
+## committed-card count (`round_committed`) 0, both Scores and walking totals 0, the first
+## committer (R3), ROUND_STARTED {round, sudden_death}. The rows are empty (end_round());
+## hands, Decks and Piles stay as they are (R17). The coin flip of Round 1 is the stream's
+## only coin.
 static func begin_round(state: MatchState, rng: MatchRng, sink: Callable) -> void:
 	state.round_number += 1
 	state.sudden_death = state.round_number > MatchRules.ROUNDS
 	state.turn = 0
+	state.round_committed = 0
 	for seat: int in range(SEATS):
 		state.scores[seat] = 0
 		state.totals[seat] = 0
@@ -232,9 +234,10 @@ static func hand_size(state: MatchState, cards: MatchCards, seat: int) -> int:
 ## Accepts `seat`'s validated Commit of `picked` at `slots` (R4, R8, R9): the cards leave
 ## the hand, the cost (Scoring.effective_cost each, less the leftmost card's with the free
 ## first card, which a Commit of a card uses up) is spent, `committed_count[seat]` is the
-## card count (0 for a Pass), then COMMITTED {seat, cards, slots, cost, pass, count}, its
-## cards private to the seat. The first Commit waits face down in `pending`; the second
-## merges both into their rows face down, first seat's first. The phase is the caller's.
+## card count (0 for a Pass) and is added to `round_committed`, then COMMITTED {seat, cards,
+## slots, cost, pass, count}, its cards private to the seat. The first Commit waits face
+## down in `pending`; the second merges both into their rows face down, first seat's first.
+## The phase is the caller's.
 static func accept_commit(
 	state: MatchState,
 	cards: MatchCards,
@@ -252,6 +255,7 @@ static func accept_commit(
 	if not picked.is_empty():
 		state.energy.free_first[seat] = false
 	state.committed_count[seat] = picked.size()
+	state.round_committed += picked.size()
 	var committed: Dictionary = {
 		"seat": seat,
 		"cards": MatchState.plain(picked),

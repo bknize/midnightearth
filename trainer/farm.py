@@ -163,6 +163,7 @@ class Farm:
         self.start_timeout = start_timeout
         self.log_dir = log_dir
         self.stamp = ""
+        self.feature_set = ""
         self.restarts = 0
         self.error = ""
         self._lock = threading.Lock()
@@ -295,6 +296,7 @@ class Farm:
         with self._lock:
             if not self.stamp:
                 self.stamp = stamp
+                self.feature_set = str(hello.get("feature_set", ""))
             mismatch = stamp != self.stamp
         if mismatch:
             proc.kill()

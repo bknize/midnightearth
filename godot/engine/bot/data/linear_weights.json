@@ -1,0 +1,15 @@
+{
+	"version": 2,
+	"bot": "linear",
+	"stamp": "r8-857b165d5a5d755e",
+	"features": "f1",
+	"k": 64,
+	"fit": {
+		"id": "",
+		"runs": [],
+		"digest": ""
+	},
+	"weights": {
+		"committed_power": 100
+	}
+}
