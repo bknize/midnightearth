@@ -43,8 +43,8 @@ extends RefCounted
 ## engine resumes the step after it once the answer has finished the drain
 ## (continue_turn_start(), open_discard_down(), continue_end_turn(), award_round()).
 ## crew_budget_bonus() is Engineer's (CrewAbilities, T07). exit_pass() and end_statuses() are T04's.
+## The seat count is MatchEngine.SEATS (its one owner, NSC-177).
 
-const SEATS: int = 2
 ## The verb of the discard-down prompt.
 const VERB_DISCARD_DOWN: String = "discard_down"
 ## CARD_DISCARDED `from` and `reason` (plan event table).
@@ -84,13 +84,13 @@ static func start_match(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable
 ) -> void:
 	state.reset_crew_uses(cards)
-	for seat: int in range(SEATS):
+	for seat: int in range(MatchEngine.SEATS):
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		piles.deck.clear()
 		for index: int in range(MatchRules.DECK_SIZE):
 			piles.deck.append(seat * MatchRules.DECK_SIZE + index)
 		rng.shuffle_in_place(piles.deck)
-	for seat: int in range(SEATS):
+	for seat: int in range(MatchEngine.SEATS):
 		for _deal: int in range(MatchRules.OPENING_HAND):
 			var card: int = _take_top(state, seat)
 			if card >= 0:
@@ -107,7 +107,7 @@ static func begin_round(state: MatchState, rng: MatchRng, sink: Callable) -> voi
 	state.sudden_death = state.round_number > MatchRules.ROUNDS
 	state.turn = 0
 	state.round_committed = 0
-	for seat: int in range(SEATS):
+	for seat: int in range(MatchEngine.SEATS):
 		state.scores[seat] = 0
 		state.totals[seat] = 0
 		state.turn_wins[seat] = 0
@@ -138,7 +138,7 @@ static func begin_turn(state: MatchState, cards: MatchCards, rng: MatchRng, sink
 	if state.turn > 1 and state.last_turn_winner >= 0:
 		state.first_seat = state.last_turn_winner
 	state.phase = MatchState.Phase.AWAIT_FIRST
-	for seat: int in range(SEATS):
+	for seat: int in range(MatchEngine.SEATS):
 		state.energy.spent[seat] = 0
 		state.committed_count[seat] = 0
 	var started: Dictionary = {
@@ -208,7 +208,7 @@ static func resumed_draw(state: MatchState, sink: Callable, seat: int) -> bool:
 ## `seat`'s Budget this Turn (R6, R7): the Turn number plus the Energy granted for this
 ## Turn, plus a Crew's bonus (crew_budget_bonus()). Nothing carries between Turns.
 static func budget(state: MatchState, cards: MatchCards, seat: int) -> int:
-	if seat < 0 or seat >= SEATS:
+	if seat < 0 or seat >= MatchEngine.SEATS:
 		return 0
 	return state.turn + state.energy.grants[seat] + crew_budget_bonus(state, cards, seat)
 
@@ -218,7 +218,7 @@ static func budget(state: MatchState, cards: MatchCards, seat: int) -> int:
 ## amount of every "your Hand size is +N" Ongoing its revealed row cards make apply (Pantry):
 ## Quartermaster with one Pantry is 7 + 2 = 9.
 static func hand_size(state: MatchState, cards: MatchCards, seat: int) -> int:
-	if seat < 0 or seat >= SEATS:
+	if seat < 0 or seat >= MatchEngine.SEATS:
 		return MatchRules.HAND_SIZE
 	var size: int = CrewAbilities.hand_size_set(cards, seat)
 	if size <= 0:
@@ -446,7 +446,7 @@ static func settle_turn(state: MatchState, sink: Callable) -> void:
 	end_statuses(state, sink)
 	state.walk.clear_turn_effects()
 	CrewAbilities.end_turn(state)  # Void grants no card used end (T07).
-	for seat: int in range(SEATS):
+	for seat: int in range(MatchEngine.SEATS):
 		state.energy.grants[seat] = state.energy.next_turn_grants[seat]
 		state.energy.next_turn_grants[seat] = 0
 		state.energy.spent[seat] = 0

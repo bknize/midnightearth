@@ -22,12 +22,14 @@ extends RefCounted
 ## resolve.
 ##
 ## An illegal action returns a failure code and changes nothing: no state, no events, no
-## accepted action (R9). Nothing here prints, asserts or pushes an error.
+## accepted action (R9). Nothing here prints, asserts or pushes an error, except an engine
+## fault that would otherwise hang the match (_resume_after).
 ##
 ## Commits are positional. A commit with cards and no slots takes the compatibility default
 ## (EngineAction): its slots resolve to the row's right end when it is validated, and the
 ## resolved slots are what the state, the COMMITTED event and the action log hold.
 
+## The seat count, owned here only (TurnFlow, SeatView and the tools read it; NSC-177).
 const SEATS: int = 2
 const REASON_WINS: String = "wins"
 const REASON_ROUNDS: String = "rounds"
@@ -314,14 +316,17 @@ func _check_set(action: EngineAction) -> int:
 	return EngineError.Code.NONE
 
 
-## A well-formed decline: _check_prompted and the prompt is optional (NOT_OPTIONAL).
+## A well-formed decline: _check_prompted and the prompt is optional (NOT_OPTIONAL), or a
+## single-target prompt that offers nothing, which no choice could answer (NSC-177).
 func _check_decline(action: EngineAction) -> int:
 	var code: int = _check_prompted(action)
 	if code != EngineError.Code.NONE:
 		return code
-	if not Choice.is_optional_prompt(_state.prompt):
-		return EngineError.Code.NOT_OPTIONAL
-	return EngineError.Code.NONE
+	if Choice.is_optional_prompt(_state.prompt):
+		return EngineError.Code.NONE
+	if not Choice.is_multi_prompt(_state.prompt) and Choice.options_of(_state.prompt).is_empty():
+		return EngineError.Code.NONE
+	return EngineError.Code.NOT_OPTIONAL
 
 
 ## A well-formed commit: the awaited committer (while a prompt is open every commit fails
@@ -414,11 +419,12 @@ func _run_walk() -> void:
 
 ## An accepted answer to the open prompt: positions `indices` of `zone`, or the decline.
 ## The discard-down is TurnFlow's and resumes its Commit (unless its D4 or D6 drain paused);
-## a prompt a drain paused on resumes that drain at the same entry (TriggerQueue.answer),
-## then the step after its drain point (_resume_after); any other prompt closes through
-## Abilities (CHOICE_MADE or CHOICE_DECLINED) and resumes per its `resume`.
+## a prompt a drain paused on resumes that drain at the same entry (TriggerQueue.answer).
+## Any other prompt (none in play: every ability prompt is a paused drain's; the tests open
+## one by hand) closes through Abilities (CHOICE_MADE or CHOICE_DECLINED). Either way the
+## match then goes on through _resume_after: the step after the drain point, or the
+## prompt's own `resume` and `step` (NSC-177).
 func _answer(zone: int, indices: Array[int], declined: bool) -> void:
-	var resume: String = Choice.resume_of(_state.prompt)
 	if TurnFlow.is_discard_down(_state.prompt):
 		var seat: int = _prompt_seat()
 		if TurnFlow.answer_discard_down(_state, _cards, _rng, _emit, indices):
@@ -431,25 +437,28 @@ func _answer(zone: int, indices: Array[int], declined: bool) -> void:
 		if TriggerQueue.answer(_state, _cards, _rng, _emit, zone, indices, declined):
 			_state.phase = MatchState.Phase.AWAIT_CHOICE
 			return
-		_resume_after(_state.queue.step, _state.queue.seat)
+		var drain_step: String = _state.queue.step
+		var resume: String = TriggerQueue.RESUME_OF_STEP.get(drain_step, "")
+		_resume_after(resume, drain_step, _state.queue.seat)
 		return
+	var own_resume: String = Choice.resume_of(_state.prompt)
+	var own_step: String = Choice.step_of(_state.prompt)
+	var asked: int = _prompt_seat()
 	if declined:
 		_events.append_array(Abilities.decline(_state))
 	else:
 		_events.append_array(Abilities.answer(_state, zone, indices))
-	if resume == Choice.RESUME_TURN_START:
-		_state.phase = MatchState.Phase.AWAIT_FIRST
-	elif resume == Choice.RESUME_WALK:
-		_run_walk()
+	_resume_after(own_resume, own_step, asked)
 
 
-## Resumes the match after the drain at `step` (for `seat`), paused on a prompt, has
-## finished (DC-13 T05, plan P12 `resume`): turn start goes on with its draws and On start,
-## a Commit with its discard-down, the Walk with the pulse's score stage after a D7 and the
-## next pulse, turn end with its next step, Round end with the award. A drain that pauses
-## again leaves the phase AWAIT_CHOICE.
-func _resume_after(step: String, seat: int) -> void:
-	var resume: String = TriggerQueue.RESUME_OF_STEP.get(step, "")
+## Resumes the match per `resume` once the prompt at drain point `step` (for `seat`) is
+## answered and its drain, if any, has finished (DC-13 T05, plan P12 `resume`): turn start
+## goes on with its draws and On start, a Commit with its discard-down, the Walk with the
+## pulse's score stage after a D7 and the next pulse, turn end with its next step, Round end
+## with the award. A drain that pauses again leaves the phase AWAIT_CHOICE. A `resume` none
+## of these (a drain point outside D1 to D12) is an engine fault: it is reported with
+## push_error rather than leaving the match silently awaiting nobody (NSC-177).
+func _resume_after(resume: String, step: String, seat: int) -> void:
 	if resume == Choice.RESUME_TURN_START:
 		_state.phase = MatchState.Phase.AWAIT_FIRST
 		if TurnFlow.continue_turn_start(_state, _cards, _rng, _emit, step, seat):
@@ -474,6 +483,8 @@ func _resume_after(step: String, seat: int) -> void:
 			_turn_over()
 	elif resume == Choice.RESUME_ROUND_END:
 		_after_round(TurnFlow.award_round(_state, _emit))
+	else:
+		push_error("MatchEngine: no step resumes after drain point '%s'" % step)
 
 
 ## The open prompt's seat, or -1 when none is open.

@@ -27,7 +27,7 @@ extends RefCounted
 ##   (`walk.resolutions`, reset by ScoreWalk at each pulse), and per drain outside the Walk
 ##   (`resolutions`, reset by each drain() at D1 to D6 and D9 to D12). When it is spent,
 ##   every entry still queued fizzles `exhausted` (one public TRIGGER_FIZZLED each) and the
-##   queue empties.
+##   queue empties; a Batch's resumed draw (Q11) is still made (_exhaust()).
 ## - Retrigger (Q6): `walk.retrigger_on_reveal[seat]` lists the cards whose "trigger your
 ##   other On reveals twice" applies this Turn (add_retrigger()); each one other than the
 ##   card adds one extra resolution of that card's On reveal right after it, never to an
@@ -413,7 +413,10 @@ static func _retriggers(state: MatchState, ctx: TriggerContext) -> int:
 
 
 ## The budget is spent: every queued entry fizzles `exhausted`, in queue order (a Muted or
-## Silenced one silently drops), and the queue empties (Q4).
+## Silenced one silently drops), and the queue empties (Q4). A Batch's resumed draw (Q11,
+## `then_draw`, carried by its last entry) is a game step, not a trigger (R1, R2; cycle 14
+## C1): it is still made after that entry, exactly as at the end of a normal drain, and
+## counts nothing against the budget.
 static func _exhaust(state: MatchState, cards: MatchCards, sink: Callable) -> void:
 	var queue: TriggerQueue = state.queue
 	var guard: int = queue.size()
@@ -423,10 +426,11 @@ static func _exhaust(state: MatchState, cards: MatchCards, sink: Callable) -> vo
 		if entry.is_empty():
 			continue
 		var card: int = entry["card"]
-		if card >= 0 and not Statuses.fires(state, card):
-			continue  # A Muted (or Silenced) entry stays silent, budget or not (Q2).
-		var ctx: TriggerContext = _context(state, cards, null, sink, entry, spent(state))
-		_fizzled(ctx, Abilities.REASON_EXHAUSTED)
+		# A Muted (or Silenced) entry stays silent, budget or not (Q2).
+		if card < 0 or Statuses.fires(state, card):
+			var ctx: TriggerContext = _context(state, cards, null, sink, entry, spent(state))
+			_fizzled(ctx, Abilities.REASON_EXHAUSTED)
+		_then_draw(state, sink, entry)
 	queue.batches.clear()
 
 
