@@ -90,6 +90,31 @@ Ben, round 2 Q3 and round 3 Q2b):
 - [ ] The cycle's row in [[planning/cycles]]; `obsidian-cli vault=docs unresolved` and
       `orphans` report nothing new.
 
+## Review and deployment decisions (DC-19, 2026-11-07)
+
+- T13 review (NSC-226): one blocker (B1, the joiner's prompts read the engine seat as a
+  table side), six should-fixes (S2 the joiner's Crew lines; S3 a failed log write never
+  retried and a lone `.tmp` ignored by the orphan scan; S4 client strings echoed to
+  `server.log` unclamped; S5 no connection cap or idle timeout; S6 the token bucket admits
+  about 40 messages in the first second, against R36; S7 two clients sharing an install
+  id), eight nits. Ben 1a: B1 and S2 to S7 fixed in one `implementer-engine` dispatch,
+  with a seat-1 board test; the nits filed as NSC-246 (Backlog).
+- R69, gdUnit at 35.3 s against 30 s: Ben 2a: the leak scan runs 2 matches in the gate and
+  all 10 under `make sweep`.
+- The bot client gains `--install-id=` so T14's reconnect check can restart it into its
+  seat (T09 made its install id in-memory per run).
+- Persistence (R64): Ben 3a: `start-server.cmd` goes in the live runner's
+  `C:\Users\trainer\trainer\autostart\` (run at every runner start, which is at boot)
+  instead of an admin-registered `pvp-server` scheduled task, so checklist step 4 drops.
+  The runner moved from `spike\queue` to `C:\Users\trainer\trainer\queue` at the cycle 11
+  C11 swap; plan P13's queue path is stale.
+- T12 (orchestrator part, 2026-11-07): cycle head f39cb07 cloned to
+  `C:\Users\trainer\pvp\repo`; import, boot and the 76 gate suites pass on the PC (the
+  `Engine smoke:` line identical to the Mac's; `test_pvp_log`'s rename over an existing
+  file works on Windows); first start through the runner queue; `server.log`: `PVP server
+  ready port=8766 stamp=r7-857b165d5a5d755e protocol=1 logs=C:\Users\trainer\pvp-logs`,
+  the Mac's stamp. TCP 8766 from the Mac is blocked until Ben's firewall rule (step 1).
+
 ## Linear (exercised 2026-11-07)
 
 - Project: [Cycle 12 — PVP through a match server on the testing PC](https://linear.app/night-science-llc/project/cycle-12-pvp-through-a-match-server-on-the-testing-pc-130cdbdf69c0) (`planned`)
