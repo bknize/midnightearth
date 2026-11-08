@@ -19,6 +19,8 @@ const STEP_MS: int = 1
 ## Steps without traffic before one frame is yielded.
 const SPIN: int = 40
 const STEP_BUDGET: int = 60000
+## Frames yielded in a row with no message before a wait gives up (a broken suite fails fast).
+const STALL_FRAMES: int = 30
 const SEED: int = 7
 const ALMOST_UNLIMITED: float = 1000000.0
 const ABANDON_WINDOW_MS: int = 5000
@@ -226,6 +228,8 @@ func _new_player(player_name: String, install_id: String, deck: String, at: int)
 	identity.server = "%s:%d" % [LOCALHOST, _server.get_local_port()]
 	var player: Player = Player.new()
 	player.client = NetClient.new()
+	# Before open(): its connect timeout must read the fake clock from the first call.
+	player.client.fake_now_ms = _now
 	player.source = RemoteMatchSource.create(player.client, identity, deck, NetProtocol.PLAYER_BOT)
 	player.bot_seed = BotRegistry.seed_for(SEED, at)
 	player.attach()
@@ -247,6 +251,7 @@ func _logged_actions(record: Dictionary) -> int:
 ## received yields one frame.
 func _pump_until(done: Callable, budget: int = STEP_BUDGET) -> bool:
 	var idle: int = 0
+	var stalled: int = 0
 	var seen: int = _traffic()
 	for _step_no: int in range(budget):
 		_step()
@@ -257,10 +262,14 @@ func _pump_until(done: Callable, budget: int = STEP_BUDGET) -> bool:
 		if traffic != seen:
 			seen = traffic
 			idle = 0
+			stalled = 0
 			continue
 		idle += 1
 		if idle >= SPIN:
 			idle = 0
+			stalled += 1
+			if stalled > STALL_FRAMES:
+				return false
 			await get_tree().process_frame
 	return false
 
