@@ -759,6 +759,17 @@ func test_engine_source_never_prints_asserts_or_pushes_errors() -> void:
 	assert_array(scripts).contains([BOT_SCRIPT])
 
 
+## NSC-177: every resume a prompt can carry has a branch in MatchEngine._resume_after, so an
+## answered prompt never leaves the match awaiting nobody (no engine error path, R27).
+func test_every_resume_has_a_branch_in_the_engine() -> void:
+	var text: String = FileAccess.get_file_as_string("res://engine/match_engine.gd")
+	var names: Array[String] = [
+		"RESUME_WALK", "RESUME_TURN_START", "RESUME_COMMIT", "RESUME_TURN_END", "RESUME_ROUND_END"
+	]
+	assert_int(Choice.RESUMES.size()).is_equal(names.size())
+	for name: String in names:
+		assert_bool(text.contains("resume == Choice.%s" % name)).override_failure_message(name).is_true()
+
 ## Every .gd path under `dir`, subdirectories included, in a stable order.
 func _engine_scripts(dir: String) -> Array[String]:
 	var out: Array[String] = []

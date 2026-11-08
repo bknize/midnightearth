@@ -22,8 +22,7 @@ extends RefCounted
 ## resolve.
 ##
 ## An illegal action returns a failure code and changes nothing: no state, no events, no
-## accepted action (R9). Nothing here prints, asserts or pushes an error, except an engine
-## fault that would otherwise hang the match (_resume_after).
+## accepted action (R9). Nothing here prints, asserts or pushes an error.
 ##
 ## Commits are positional. A commit with cards and no slots takes the compatibility default
 ## (EngineAction): its slots resolve to the row's right end when it is validated, and the
@@ -455,9 +454,9 @@ func _answer(zone: int, indices: Array[int], declined: bool) -> void:
 ## answered and its drain, if any, has finished (DC-13 T05, plan P12 `resume`): turn start
 ## goes on with its draws and On start, a Commit with its discard-down, the Walk with the
 ## pulse's score stage after a D7 and the next pulse, turn end with its next step, Round end
-## with the award. A drain that pauses again leaves the phase AWAIT_CHOICE. A `resume` none
-## of these (a drain point outside D1 to D12) is an engine fault: it is reported with
-## push_error rather than leaving the match silently awaiting nobody (NSC-177).
+## with the award. A drain that pauses again leaves the phase AWAIT_CHOICE. Every
+## Choice.RESUMES value has a branch (test_engine.gd pins it, NSC-177), and Choice.resume_of
+## maps an unknown `resume` to RESUME_WALK, so no answered prompt is left awaiting nobody.
 func _resume_after(resume: String, step: String, seat: int) -> void:
 	if resume == Choice.RESUME_TURN_START:
 		_state.phase = MatchState.Phase.AWAIT_FIRST
@@ -483,8 +482,6 @@ func _resume_after(resume: String, step: String, seat: int) -> void:
 			_turn_over()
 	elif resume == Choice.RESUME_ROUND_END:
 		_after_round(TurnFlow.award_round(_state, _emit))
-	else:
-		push_error("MatchEngine: no step resumes after drain point '%s'" % step)
 
 
 ## The open prompt's seat, or -1 when none is open.
