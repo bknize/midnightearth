@@ -55,9 +55,10 @@ extends RefCounted
 ##   CARD_PLACED {seat, card, from: pile, slot} (Revive: a Pile card put on a row);
 ##   CONTROL_CHANGED {card, owner, controller, from_seat, slot} (Saboteur: the card moves to
 ##   the controller's row at `slot`; the Owner is kept)
-## - Rules 9 (DC-20 T03, public): CARD_EXPIRED {owner, card, from: hand|row, reason} (a
-##   created `until_piled` card sent to a Pile leaves the Match instead: no Pile entry;
-##   `reason` is the Discard's, as CARD_DISCARDED's)
+## - Rules 9 (DC-20 T03, C13, public): DROSS_EXPIRED {owner, card, from:
+##   hand|row|pile|deck|pending, reason: round_end} (a Dross card of lifetime `round` leaves
+##   the Match at the end of the Round, after ROUND_ENDED, one per card in ascending id;
+##   TurnFlow.expire_dross)
 
 enum Kind {
 	MATCH_STARTED,
@@ -96,7 +97,7 @@ enum Kind {
 	CARD_CREATED,
 	CARD_PLACED,
 	CONTROL_CHANGED,
-	CARD_EXPIRED,
+	DROSS_EXPIRED,
 }
 
 ## owner_seat of an event every seat may see in full.

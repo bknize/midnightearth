@@ -165,7 +165,7 @@ func test_litter_creates_three_dross_in_the_opponents_hand() -> void:
 	var state: MatchState = StubAbilities.table(_typed([litter]), false)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	var base: int = MatchCards.CREATED_BASE
+	var base: int = MatchCards.DROSS_BASE
 	assert_array(state.seats[1].hand).is_equal(_typed([base, base + 1, base + 2]))
 	assert_array(state.seats[0].hand).is_empty()
 	var created: Array[MatchEvent] = rec.of_kind(CREATED)
@@ -186,38 +186,37 @@ func test_litter_creates_three_dross_in_the_opponents_hand() -> void:
 	assert_array(held.own_hand).is_equal(_typed([base, base + 1, base + 2]))
 
 
-## Litter Flags (CREATE) under rules 9 (cycle 14 R10, C9): a created card is Owned by the
-## seat it is put in, and a Discarded Dross (lifetime `until_piled`) expires instead of
-## entering a Pile: one public CARD_EXPIRED {owner, card, from, reason}, no CARD_DISCARDED,
-## no Pile entry, its record gone; a later Dredger has no Pile to shuffle in.
-func test_a_discarded_dross_expires() -> void:
+## Litter Flags (CREATE) under rules 9 (cycle 14 R8, R10, C13): a Dross card is Owned by the
+## seat it is put in and, within the Round, moves like any card: a Discarded Dross goes to
+## that seat's Pile as a public CARD_DISCARDED (no DROSS_EXPIRED), its record kept, and a
+## later Dredger shuffles it back with the Pile.
+func test_a_discarded_dross_is_filed_and_can_be_shuffled_back() -> void:
 	var cards: MatchCards = StubAbilities.defs(StubAbilities.RAMP_CREW)
 	var state: MatchState = MatchState.new(SEED)
 	_dross_into(state, cards, 1, 1)
-	var dross: int = MatchCards.CREATED_BASE
-	assert_bool(cards.def_of(dross).expires_when_piled()).is_true()
+	var dross: int = MatchCards.DROSS_BASE
+	assert_bool(cards.def_of(dross).expires_at_round_end()).is_true()
 	state.seats[1].hand.erase(dross)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	TurnFlow.to_pile(
 		state, cards, rec.record, dross, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD_DOWN
 	)
-	assert_array(state.seats[1].pile).is_empty()
+	assert_array(state.seats[1].pile).is_equal(_typed([dross]))
 	assert_array(state.seats[0].pile).is_empty()
-	assert_array(rec.of_kind(MatchEvent.Kind.CARD_DISCARDED)).is_empty()
-	var expired: Array[MatchEvent] = rec.of_kind(MatchEvent.Kind.CARD_EXPIRED)
-	assert_int(expired.size()).is_equal(1)
-	assert_int(expired[0].owner_seat).is_equal(MatchEvent.PUBLIC)
-	assert_dict(expired[0].payload).is_equal(
-		{"owner": 1, "card": dross, "from": "hand", "reason": "discard_down"}
-	)
-	assert_object(cards.def_of(dross)).is_null()
-	assert_int(cards.origin_of(dross)).is_equal(-1)
-	# Seat 1's Deck is empty: its draw wakes Dredger, which finds no Pile and fizzles.
+	assert_array(rec.of_kind(MatchEvent.Kind.DROSS_EXPIRED)).is_empty()
+	var filed: Array[MatchEvent] = rec.of_kind(MatchEvent.Kind.CARD_DISCARDED)
+	assert_int(filed.size()).is_equal(1)
+	assert_int(filed[0].owner_seat).is_equal(MatchEvent.PUBLIC)
+	assert_int(_int_of(filed[0], "owner")).is_equal(1)
+	assert_str(cards.def_of(dross).id).is_equal(DROSS)
+	assert_int(cards.origin_of(dross)).is_equal(1)
+	# Seat 1's Deck is empty: its draw wakes Dredger, which shuffles the Dross back in (R10).
 	var dredge: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TurnFlow.draw(state, cards, MatchRng.new(SEED), dredge.record, 1)).is_false()
-	assert_array(dredge.of_kind(MatchEvent.Kind.PILE_SHUFFLED_IN)).is_empty()
-	assert_array(state.seats[1].deck).is_empty()
-	assert_bool(state.seats[1].hand.has(dross)).is_false()
+	assert_int(dredge.of_kind(MatchEvent.Kind.PILE_SHUFFLED_IN).size()).is_equal(1)
+	assert_array(state.seats[1].pile).is_empty()
+	var back: bool = state.seats[1].deck.has(dross) or state.seats[1].hand.has(dross)
+	assert_bool(back).is_true()
 
 
 ## Dross: at Walk end, before rounding, the holder's walking total is multiplied by ×0.75
@@ -258,7 +257,7 @@ func test_dross_costs_one_and_scores_zero() -> void:
 	var cards: MatchCards = _cards()
 	var state: MatchState = MatchState.new(SEED)
 	_dross_into(state, cards, 0, 1)
-	var dross: int = MatchCards.CREATED_BASE
+	var dross: int = MatchCards.DROSS_BASE
 	assert_int(Scoring.effective_cost(dross, state, cards)).is_equal(1)
 	var read: Scoring.Stats = Scoring.stats(dross, state, cards)
 	assert_int(read.power).is_equal(0)

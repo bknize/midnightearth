@@ -559,9 +559,10 @@ func test_a_full_state_taken_while_paused_replays_and_resumes_the_same_way() -> 
 	var current: Dictionary = queue["current"]
 	assert_dict(current).is_not_empty()
 	var copy: MatchState = engine._state.duplicate()
-	# full_state() adds `created` from MatchCards (NSC-179: one record); the rest is the state.
+	# full_state() adds `dross` (the Dross cards) from MatchCards (NSC-179: one record); the
+	# rest is the state.
 	var state_only: Dictionary = paused.duplicate(true)
-	state_only.erase("created")
+	state_only.erase("dross")
 	assert_dict(copy.to_dict()).is_equal(state_only)
 	var again_verbs: StubAbilities.StubVerbs = StubAbilities.StubVerbs.new()
 	var again: MatchEngine = _chooser_engine(again_verbs)

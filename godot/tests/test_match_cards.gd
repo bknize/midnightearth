@@ -2,9 +2,10 @@ class_name TestMatchCards
 extends GdUnitTestSuite
 ## MatchCards (DC-13 T02; cycle 9 plan P6, spec R69): instance `origin * DECK_SIZE + index`
 ## resolves to index `index` of its origin seat's deck, whichever decks the seats play, so
-## the two Decks take 0 .. 79; created cards take ids from CREATED_BASE (80) up and answer
-## def_of() and origin_of() once recorded, until forget_created() (rules 9: an expired
-## card). crew_for(seat) is that seat's deck's three Crew in slot order.
+## the two Decks take 0 .. 79; Dross cards (created by an ability) take ids from DROSS_BASE
+## (80) up and answer def_of() and origin_of() once recorded, until forget_dross() (rules 9:
+## a Dross card removed at the end of the Round). crew_for(seat) is that seat's deck's
+## three Crew in slot order.
 
 const CREW_A: Array[String] = ["tallyman", "void", "engineer"]
 const CREW_B: Array[String] = ["navigator", "captain", "dredger"]
@@ -115,91 +116,91 @@ func test_out_of_range_instances_have_no_definition() -> void:
 	assert_int(cards.origin_of(2 * MatchRules.DECK_SIZE)).is_equal(-1)
 
 
-# --- Created cards (P6) ---------------------------------------------------------------
+# --- Dross cards (P6, C13) -----------------------------------------------------------
 
 
-func test_created_ids_start_after_both_decks() -> void:
-	assert_int(MatchCards.CREATED_BASE).is_equal(2 * MatchRules.DECK_SIZE)
-	assert_int(MatchCards.CREATED_BASE).is_equal(80)
-	assert_bool(MatchCards.is_created(MatchCards.CREATED_BASE)).is_true()
-	assert_bool(MatchCards.is_created(MatchCards.CREATED_BASE - 1)).is_false()
+func test_dross_ids_start_after_both_decks() -> void:
+	assert_int(MatchCards.DROSS_BASE).is_equal(2 * MatchRules.DECK_SIZE)
+	assert_int(MatchCards.DROSS_BASE).is_equal(80)
+	assert_bool(MatchCards.is_dross(MatchCards.DROSS_BASE)).is_true()
+	assert_bool(MatchCards.is_dross(MatchCards.DROSS_BASE - 1)).is_false()
 
 
-## A created card answers def_of() and origin_of() (its Owner) once recorded, without
+## A Dross card answers def_of() and origin_of() (its Owner) once recorded, without
 ## touching a Deck card; a second record of the id, an id in the Deck range, no definition
 ## or no seat is refused.
-func test_a_recorded_created_card_resolves() -> void:
+func test_a_recorded_dross_card_resolves() -> void:
 	var cards: MatchCards = MatchCards.build(_cards(), _pair(), _seats("a", "b"), _crew())
-	var created: int = MatchCards.CREATED_BASE
-	assert_object(cards.def_of(created)).is_null()
-	assert_int(cards.origin_of(created)).is_equal(-1)
+	var made: int = MatchCards.DROSS_BASE
+	assert_object(cards.def_of(made)).is_null()
+	assert_int(cards.origin_of(made)).is_equal(-1)
 	var copy: CardDef = _cards().card_by_id("ev05")
-	assert_bool(cards.record_created(created, copy, 1)).is_true()
-	assert_object(cards.def_of(created)).is_same(copy)
-	assert_int(cards.origin_of(created)).is_equal(1)
-	assert_bool(cards.record_created(created, copy, 0)).is_false()
-	assert_int(cards.origin_of(created)).is_equal(1)
-	assert_bool(cards.record_created(5, copy, 0)).is_false()
+	assert_bool(cards.record_dross(made, copy, 1)).is_true()
+	assert_object(cards.def_of(made)).is_same(copy)
+	assert_int(cards.origin_of(made)).is_equal(1)
+	assert_bool(cards.record_dross(made, copy, 0)).is_false()
+	assert_int(cards.origin_of(made)).is_equal(1)
+	assert_bool(cards.record_dross(5, copy, 0)).is_false()
 	assert_str(cards.def_of(5).id).is_equal("ev06")
-	assert_bool(cards.record_created(created + 1, null, 0)).is_false()
-	assert_bool(cards.record_created(created + 1, copy, 2)).is_false()
-	assert_object(cards.def_of(created + 1)).is_null()
+	assert_bool(cards.record_dross(made + 1, null, 0)).is_false()
+	assert_bool(cards.record_dross(made + 1, copy, 2)).is_false()
+	assert_object(cards.def_of(made + 1)).is_null()
 	assert_int(cards.size()).is_equal(2 * MatchRules.DECK_SIZE)
 
 
-## forget_created() drops a recorded created card (rules 9 R10): def_of() null, origin_of()
+## forget_dross() drops a recorded Dross card (rules 9 R10): def_of() null, origin_of()
 ## -1; a Deck card or an unknown id is refused, changing nothing.
-func test_a_forgotten_created_card_resolves_no_more() -> void:
+func test_a_forgotten_dross_card_resolves_no_more() -> void:
 	var cards: MatchCards = MatchCards.build(_cards(), _pair(), _seats("a", "b"), _crew())
-	var created: int = MatchCards.CREATED_BASE
-	assert_bool(cards.record_created(created, _cards().card_by_id("ev05"), 0)).is_true()
-	assert_bool(cards.forget_created(created)).is_true()
-	assert_object(cards.def_of(created)).is_null()
-	assert_int(cards.origin_of(created)).is_equal(-1)
-	assert_bool(cards.forget_created(created)).is_false()
-	assert_bool(cards.forget_created(5)).is_false()
+	var made: int = MatchCards.DROSS_BASE
+	assert_bool(cards.record_dross(made, _cards().card_by_id("ev05"), 0)).is_true()
+	assert_bool(cards.forget_dross(made)).is_true()
+	assert_object(cards.def_of(made)).is_null()
+	assert_int(cards.origin_of(made)).is_equal(-1)
+	assert_bool(cards.forget_dross(made)).is_false()
+	assert_bool(cards.forget_dross(5)).is_false()
 	assert_str(cards.def_of(5).id).is_equal("ev06")
 
 
 ## AbilitiesComboDisruption.create() never takes an id for a card with no seat to own it
-## (rules 9 R8): -1 and next_created_id unchanged.
+## (rules 9 R8): -1 and next_dross_id unchanged.
 func test_create_refuses_an_ownerless_card() -> void:
 	var cards: MatchCards = MatchCards.build(_cards(), _pair(), _seats("a", "b"), _crew())
 	var state: MatchState = MatchState.new(1)
 	var def: CardDef = cards.pool_def("dross")
 	for owner: int in [-1, 2]:
 		assert_int(AbilitiesComboDisruption.create(state, cards, def, owner)).is_equal(-1)
-	assert_int(state.next_created_id).is_equal(MatchCards.CREATED_BASE)
-	assert_object(cards.def_of(MatchCards.CREATED_BASE)).is_null()
+	assert_int(state.next_dross_id).is_equal(MatchCards.DROSS_BASE)
+	assert_object(cards.def_of(MatchCards.DROSS_BASE)).is_null()
 
 
-## A fixture created card with `lifetime: match` (C9, R11) is filed in its Owner's Pile like
-## any card: CARD_DISCARDED, its definition kept; a Dross (`until_piled`) expires instead.
-func test_a_match_lifetime_created_card_is_filed_in_its_owners_pile() -> void:
+## Within the Round a Dross card is filed like any card (rules 9 R10, C13): a discarded
+## Dross (lifetime `round`) and a fixture `match` Dross both go to their Owner's Pile with
+## CARD_DISCARDED, their records kept; no DROSS_EXPIRED is emitted by a Discard.
+func test_a_discarded_dross_card_is_filed_in_its_owners_pile() -> void:
 	var cards: MatchCards = MatchCards.build(_cards(), _pair(), _seats("a", "b"), _crew())
 	var keeper: CardDef = CardDef.new("keeper", "Keeper", "evergreen", 1, 2)
-	keeper.created = true
+	keeper.dross = true
 	keeper.lifetime = CardDef.LIFETIME_MATCH
-	assert_bool(keeper.expires_when_piled()).is_false()
+	assert_bool(keeper.expires_at_round_end()).is_false()
 	var state: MatchState = MatchState.new(1)
-	var made: int = AbilitiesComboDisruption.create(state, cards, keeper, 1)
-	assert_int(made).is_equal(MatchCards.CREATED_BASE)
+	var kept: int = AbilitiesComboDisruption.create(state, cards, keeper, 1)
+	var dross: int = AbilitiesComboDisruption.create(state, cards, cards.pool_def("dross"), 1)
+	assert_int(kept).is_equal(MatchCards.DROSS_BASE)
+	assert_bool(cards.def_of(dross).expires_at_round_end()).is_true()
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	TurnFlow.to_pile(state, cards, rec.record, made, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD)
-	var filed_pile: Array[int] = [made]
+	for card: int in [kept, dross]:
+		TurnFlow.to_pile(state, cards, rec.record, card, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD)
+	var filed_pile: Array[int] = [kept, dross]
 	assert_array(state.seats[1].pile).is_equal(filed_pile)
 	assert_array(state.seats[0].pile).is_empty()
-	assert_array(rec.of_kind(MatchEvent.Kind.CARD_EXPIRED)).is_empty()
+	assert_array(rec.of_kind(MatchEvent.Kind.DROSS_EXPIRED)).is_empty()
 	var filed: Array[MatchEvent] = rec.of_kind(MatchEvent.Kind.CARD_DISCARDED)
-	assert_int(filed.size()).is_equal(1)
-	assert_int(filed[0].payload["owner"]).is_equal(1)
-	assert_object(cards.def_of(made)).is_same(keeper)
-	# A Dross of the same seat expires: no Pile entry, its record gone.
-	var dross: int = AbilitiesComboDisruption.create(state, cards, cards.pool_def("dross"), 1)
-	TurnFlow.to_pile(state, cards, rec.record, dross, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD)
-	assert_array(state.seats[1].pile).is_equal(filed_pile)
-	assert_int(rec.of_kind(MatchEvent.Kind.CARD_EXPIRED).size()).is_equal(1)
-	assert_object(cards.def_of(dross)).is_null()
+	assert_int(filed.size()).is_equal(2)
+	for event: MatchEvent in filed:
+		assert_int(event.payload["owner"]).is_equal(1)
+	assert_object(cards.def_of(kept)).is_same(keeper)
+	assert_str(cards.def_of(dross).id).is_equal("dross")
 
 
 ## An ownerless id has no fallback seat (R8): to_pile() files it in no Pile and names it in
@@ -208,7 +209,7 @@ func test_an_ownerless_id_is_filed_nowhere() -> void:
 	var cards: MatchCards = MatchCards.build(_cards(), _pair(), _seats("a", "b"), _crew())
 	var state: MatchState = MatchState.new(1)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	var unknown: int = MatchCards.CREATED_BASE + 3
+	var unknown: int = MatchCards.DROSS_BASE + 3
 	TurnFlow.to_pile(state, cards, rec.record, unknown, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD)
 	assert_array(state.seats[0].pile).is_empty()
 	assert_array(state.seats[1].pile).is_empty()

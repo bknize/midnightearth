@@ -338,6 +338,31 @@ func test_reliquary_grows_once_per_turn_from_hand_discards_to_two() -> void:
 	assert_array(_fizzles(rec, "reliquary_mult")).is_equal(reasons)
 
 
+## Rules 9 (cycle 14 R10, C13: "to make Reliquary useful"): a Dross card discarded from its
+## Owner's hand is filed in that Owner's Pile within the Round (CARD_DISCARDED, no
+## DROSS_EXPIRED), so Reliquary grows from it as from any hand Discard (×1.25 to ×1.5).
+func test_reliquary_grows_from_a_discarded_dross() -> void:
+	var cards: MatchCards = _cards()
+	var relic: int = 0
+	_put(cards, _typed([relic]), "gy03")
+	var state: MatchState = StubAbilities.table(_typed([relic]), true)
+	var dross: int = AbilitiesComboDisruption.create(state, cards, cards.pool_def("dross"), 0)
+	assert_int(dross).is_equal(MatchCards.DROSS_BASE)
+	state.seats[0].hand.assign(_typed([dross]))
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	state.seats[0].hand.erase(dross)
+	TurnFlow.to_pile(state, cards, rec.record, dross, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD)
+	assert_array(state.seats[0].pile).is_equal(_typed([dross]))
+	assert_array(rec.of_kind(MatchEvent.Kind.DROSS_EXPIRED)).is_empty()
+	assert_array(rec.cards_of(MatchEvent.Kind.CARD_DISCARDED)).is_equal(_typed([dross]))
+	var discarded: Array[int] = [dross]
+	var rng: MatchRng = MatchRng.new(SEED)
+	var step: String = TurnFlow.STEP_FIRST_DISCARD
+	assert_bool(TurnFlow.on_discard(state, cards, rng, rec.record, discarded, step, 0)).is_false()
+	assert_int(Scoring.stats(relic, state, cards).mult()).is_equal(150)
+	assert_array(_fizzles(rec, "reliquary_mult")).is_empty()
+
+
 # --- Boneyard -------------------------------------------------------------------------
 
 

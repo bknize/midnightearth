@@ -35,7 +35,7 @@ extends RefCounted
 ## - end_round(): every card on both rows to its Owner's Pile as a Discard, first seat's row
 ##   first, in slot order (R2, R20), On discard once (D12), then the Round is awarded to the
 ##   seat that won more of its Turns (`turn_wins`; equal Turn wins award none, C13),
-##   ROUND_ENDED.
+##   ROUND_ENDED, and every `round` Dross card leaves the Match (expire_dross(), rules 9).
 ##
 ## Drain points (DC-13 T05, TriggerQueue): on_empty_draw() (D1), on_start() (D2),
 ## on_commit() (D3, D5), on_discard() (D4, D6, D10, D12) and at_turn_end() (D9, D11) wake
@@ -50,6 +50,11 @@ const VERB_DISCARD_DOWN: String = "discard_down"
 ## CARD_DISCARDED `from` and `reason` (plan event table).
 const FROM_HAND: String = "hand"
 const FROM_ROW: String = "row"
+## DROSS_EXPIRED `from` of a Dross card leaving the Pile, the Deck or a waiting Commit
+## (expire_dross(); `hand` and `row` as above).
+const FROM_PILE: String = "pile"
+const FROM_DECK: String = "deck"
+const FROM_PENDING: String = "pending"
 const REASON_DISCARD: String = "discard"
 const REASON_DISCARD_DOWN: String = "discard_down"
 const REASON_CONDEMNED: String = "condemned"
@@ -369,26 +374,17 @@ static func answer_discard_down(
 
 ## Sends `card`, already taken from its hand or row, to its Owner's Pile as a Discard
 ## (R19, R20, R31): CARD_DISCARDED {owner, card, from, reason, pile_index}, public, since a
-## Pile entry is public (R24). Rules 9 (cycle 14 R8, R10, R11): a created card (Dross,
-## Twin's copy) whose lifetime is `until_piled` (CardDef.expires_when_piled) expires
-## instead: it leaves the Match (MatchCards.forget_created), enters no Pile, and
-## CARD_EXPIRED {owner, card, from, reason} is public; a `match` one is filed like any
-## card. Every card has an Owner
-## (origin_of(); a created one from its creation): there is no fallback seat, so an id
-## with none is a programming error, which a test surfaces (the engine never asserts): it
-## is filed nowhere and no event names it.
+## Pile entry is public (R24). A Dross card (Litter's Dross, Twin's copy) is filed like any
+## card within its Round (rules 9, cycle 14 R10, C13), so a Reliquary grows from it and a
+## Pile shuffle may put it back in a Deck; expire_dross() removes it at the Round's end.
+## Every card has an Owner (origin_of(); a Dross card from its creation, R8): there is no
+## fallback seat, so an id with none is a programming error, which a test surfaces (the
+## engine never asserts): it is filed nowhere and no event names it.
 static func to_pile(
 	state: MatchState, cards: MatchCards, sink: Callable, card: int, from: String, reason: String
 ) -> void:
 	var owner: int = cards.origin_of(card)
 	if owner < 0:
-		return
-	var def: CardDef = cards.def_of(card)
-	if MatchCards.is_created(card) and def != null and def.expires_when_piled():
-		if cards.forget_created(card):
-			pass  # It leaves the Match: no def_of() or origin_of() from now on.
-		var expired: Dictionary = {"owner": owner, "card": card, "from": from, "reason": reason}
-		sink.call(MatchEvent.Kind.CARD_EXPIRED, expired)
 		return
 	var pile: Array[int] = state.seats[owner].pile
 	pile.append(card)
@@ -500,12 +496,13 @@ static func end_round(state: MatchState, cards: MatchCards, rng: MatchRng, sink:
 			cleared.append(card)
 	if not cleared.is_empty() and on_discard(state, cards, rng, sink, cleared, STEP_ROUND_END):
 		return ROUND_PAUSED
-	return award_round(state, sink)
+	return award_round(state, cards, sink)
 
 
 ## The Round is awarded (the second half of end_round(), and what the engine resumes after
-## a D12 paused on a prompt): see end_round(). Returns the winner, or -1.
-static func award_round(state: MatchState, sink: Callable) -> int:
+## a D12 paused on a prompt): see end_round(); then the Round's Dross cards leave the Match
+## (expire_dross()). Returns the winner, or -1.
+static func award_round(state: MatchState, cards: MatchCards, sink: Callable) -> int:
 	var winner: int = leader(state.turn_wins)
 	if winner >= 0:
 		state.wins[winner] += 1
@@ -518,7 +515,79 @@ static func award_round(state: MatchState, sink: Callable) -> int:
 		"turn_wins": MatchState.plain(state.turn_wins),
 	}
 	sink.call(MatchEvent.Kind.ROUND_ENDED, ended)
+	expire_dross(state, cards, sink)
 	return winner
+
+
+## The end of the Round for Dross (rules 9, cycle 14 R10, R11, C13: "dross cards disappear
+## at the end of a round"), after ROUND_ENDED and before the next Round's draws, the final
+## Round of the Match included (so the Match-end checks read the hands without them): every
+## Dross card whose lifetime is `round` (CardDef.expires_at_round_end) leaves the Match from
+## wherever it is (hand, row, Pile, Deck or a waiting Commit), in ascending id, each
+## forgotten by MatchCards (forget_dross) with one public DROSS_EXPIRED {owner, card, from,
+## reason: round_end}. A `match` Dross card stays. The other cards of each zone keep their
+## order: nothing is shuffled and no random draw is made.
+static func expire_dross(state: MatchState, cards: MatchCards, sink: Callable) -> void:
+	if cards == null:
+		return
+	var expiring: Array[int] = []
+	for card: int in _all_cards(state):
+		var def: CardDef = cards.def_of(card)
+		if MatchCards.is_dross(card) and def != null and def.expires_at_round_end():
+			expiring.append(card)
+	expiring.sort()
+	for card: int in expiring:
+		var owner: int = cards.origin_of(card)
+		var from: String = _take_anywhere(state, card, sink)
+		if cards.forget_dross(card):
+			pass  # It leaves the Match: no def_of() or origin_of() from now on.
+		var expired: Dictionary = {
+			"owner": owner, "card": card, "from": from, "reason": REASON_ROUND_END
+		}
+		sink.call(MatchEvent.Kind.DROSS_EXPIRED, expired)
+
+
+## Every card in a zone of the Match: each seat's hand, row, Pile and Deck, then the waiting
+## Commit (`pending`). Order does not matter (expire_dross() sorts).
+static func _all_cards(state: MatchState) -> Array[int]:
+	var out: Array[int] = []
+	for piles: MatchState.SeatPiles in state.seats:
+		out.append_array(piles.hand)
+		out.append_array(piles.board)
+		out.append_array(piles.pile)
+		out.append_array(piles.deck)
+	out.append_array(state.pending)
+	return out
+
+
+## Takes `card` out of whichever zone holds it (a row through Statuses.take_from_row, so its
+## Board changes, reveal and looks end) and returns that zone's DROSS_EXPIRED `from`.
+static func _take_anywhere(state: MatchState, card: int, sink: Callable) -> String:
+	var at: int = state.pending.find(card)
+	if at >= 0:
+		state.pending.remove_at(at)
+		state.pending_slots.remove_at(at)
+		return FROM_PENDING
+	for seat: int in range(MatchEngine.SEATS):
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		if piles.board.has(card):
+			if Statuses.take_from_row(state, seat, card, sink):
+				pass  # Revealed or not, it leaves the row.
+			return FROM_ROW
+		for held: Array[int] in [piles.hand, piles.pile, piles.deck]:
+			if held.has(card):
+				held.erase(card)
+				return _zone_name(piles, held)
+	return ""
+
+
+## The DROSS_EXPIRED `from` of `held`, one of `piles`' hand, Pile or Deck.
+static func _zone_name(piles: MatchState.SeatPiles, held: Array[int]) -> String:
+	if is_same(held, piles.hand):
+		return FROM_HAND
+	if is_same(held, piles.pile):
+		return FROM_PILE
+	return FROM_DECK
 
 
 ## The seat with the higher of `values`, or -1 when they are equal.

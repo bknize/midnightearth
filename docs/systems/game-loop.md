@@ -113,7 +113,7 @@ An exit mark given by the D10 or D11 drain waits for the next turn end.
 
 ### Round end
 
-After Turn 7, `TurnFlow.end_round()` sends **every card on both rows to its Owner's Pile as a Discard** (first seat's row first, slot order; a Saboteur on the other row goes to its Owner, not its Controller), drains On discard once (D12), then awards the Round: the seat with more Turn wins takes it, equal Turn wins award none. `ROUND_ENDED` carries the winner, the wins, the Scores and `turn_wins`. Hands, Decks and Piles stay as they are. `turn_wins` is reset at Round start.
+After Turn 7, `TurnFlow.end_round()` sends **every card on both rows to its Owner's Pile as a Discard** (first seat's row first, slot order; a Saboteur on the other row goes to its Owner, not its Controller), drains On discard once (D12), then awards the Round: the seat with more Turn wins takes it, equal Turn wins award none. `ROUND_ENDED` carries the winner, the wins, the Scores and `turn_wins`. Then the Round's Dross cards leave the Match (`expire_dross()`, see Dross below; the final Round's too, so the Match-end checks read hands without them). Otherwise hands, Decks and Piles stay as they are. `turn_wins` is reset at Round start.
 
 ### Match end
 
@@ -249,6 +249,7 @@ A `MatchEvent` has a `kind`, a `payload` and an `owner_seat`. Public events have
 | The Fleeting event | A card sent to its Owner's hand in the exit pass (the event keeps a v6 name; see [[#Changed from v6]]) | Public when the card's identity already was |
 | `CARD_LOOKED` | Delve, Lookout | The looking seat only |
 | `CARD_CREATED`, `CARD_PLACED`, `CONTROL_CHANGED` | Litter's Dross, Twin's copy; Revive putting a Pile card on a row (`CARD_PLACED` is Revive's only); Saboteur changing row | Public |
+| `DROSS_EXPIRED` | A Dross card leaving the Match at the end of the Round: `{owner, card, from: hand/row/pile/deck/pending, reason: round_end}`, after `ROUND_ENDED`, in ascending id | Public |
 | `CREW_FIRED` | A Crew ability fires | Public |
 | `TURN_ENDED`, `ROUND_ENDED`, `CONCEDED`, `MATCH_ENDED` | The ends; `ROUND_ENDED` carries `turn_wins` | Public |
 
@@ -338,7 +339,7 @@ These are places where the code reads the canon in a particular way. The code is
 - **Stalemate** (spec C12) is not in [[rules/rules-v2]]. It ends a Match that can no longer progress, on the Match's summed Walk Scores.
 - **Muted triggers and the budget.** A Muted card's trigger is dropped silently when it comes up, but the pop still counts one against the 50 (the canon says only that every taken trigger counts). After the budget is spent a Muted entry stays silent.
 - **Hand triggers** are public (spec C14); [[rules/rules-v2]] section 8 was amended to say so.
-- **Dross** sits in `cards.json` as a created-only definition (`"created": true`), so the pool file holds 91 entries: 90 cards and Dross. It is never in a Deck. A created card has an Owner from creation and a lifetime: by default (`until_piled`) it expires when it is sent to the Pile; a few last the whole Match (`match`).
+- **Dross** is the term for every card an ability creates (Litter's Dross card, Twin's copies; C13). The Dross card sits in `cards.json` as a Dross definition (the pool key stays `"created": true`, `CardDef.dross`), so the pool file holds 91 entries: 90 cards and Dross. It is never in a Deck. A Dross card has an Owner from creation and moves like any card within the Round (a Discard files it in its Owner's Pile; a Pile shuffle may put it in a Deck). It lasts until the end of the Round: `TurnFlow.expire_dross()`, run by `award_round()` after `ROUND_ENDED` and before the next Round (the final Round included), removes every Dross card of lifetime `round` from hand, row, Pile, Deck or a waiting Commit, in ascending id, with one public `DROSS_EXPIRED {owner, card, from, reason: round_end}` each and no random draw. A few last the whole Match (lifetime `match`).
 - **Void** grants stack per empty draw and end at turn end if no card Scored.
 - **Readings where the canon is silent** (spec C15, accepted as built):
   - **Tithe's cap** of +3 applies per Tithe, per turn end.

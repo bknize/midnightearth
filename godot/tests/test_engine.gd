@@ -1141,9 +1141,10 @@ func test_crew_uses_are_filled_once_and_kept() -> void:
 	var all_unlimited: Array = [unlimited, unlimited, unlimited]
 	assert_array(_crew_uses(engine)).is_equal([all_unlimited, all_unlimited])
 	engine._state.crew_uses[0] = [0, unlimited, unlimited]
-	# full_state() adds `created` from MatchCards (NSC-179: one record); the rest is the state.
+	# full_state() adds `dross` from MatchCards (NSC-179: one record); the rest is the state.
 	var full: Dictionary = engine.full_state()
-	full.erase("created")
+	assert_bool(full.has("dross")).is_true()
+	full.erase("dross")
 	assert_dict(engine._state.duplicate().to_dict()).is_equal(full)
 	for _step: int in range(2 * MatchRules.TURNS + 2):
 		if _state_int(engine, "round") > 1 or engine.is_over():

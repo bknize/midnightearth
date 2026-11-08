@@ -206,12 +206,12 @@ func view_for(seat: int) -> SeatView:
 
 
 ## The full-state read, for tests and replay only: it includes hidden information,
-## everything view_for() omits (seed, stream state, Decks, hands, pending). Its `created`
-## lists the created cards still in the Match, instance id to {def, owner}, from their one
+## everything view_for() omits (seed, stream state, Decks, hands, pending). Its `dross`
+## lists the Dross cards still in the Match, instance id to {def, owner}, from their one
 ## record in MatchCards (DC-20 T03, NSC-179); an expired card is gone from it.
 func full_state() -> Dictionary:
 	var out: Dictionary = _state.to_dict()
-	out["created"] = _created_dict()
+	out["dross"] = _dross_dict()
 	return out
 
 
@@ -485,7 +485,7 @@ func _resume_after(resume: String, step: String, seat: int) -> void:
 		else:
 			_turn_over()
 	elif resume == Choice.RESUME_ROUND_END:
-		_after_round(TurnFlow.award_round(_state, _emit))
+		_after_round(TurnFlow.award_round(_state, _cards, _emit))
 
 
 ## The open prompt's seat, or -1 when none is open.
@@ -644,14 +644,14 @@ func _emit(kind: int, payload: Dictionary, owner: int = MatchEvent.PUBLIC) -> vo
 	_events.append(MatchEvent.new(kind, payload, owner))
 
 
-## The created cards still recorded (MatchCards.def_of() not null), ascending id up to the
-## state's next_created_id: instance id to {def: its pool id, owner: its Owner's seat}.
+## The Dross cards still recorded (MatchCards.def_of() not null), ascending id up to the
+## state's next_dross_id: instance id to {def: its pool id, owner: its Owner's seat}.
 ## Empty without definitions (a failed setup).
-func _created_dict() -> Dictionary:
+func _dross_dict() -> Dictionary:
 	var out: Dictionary = {}
 	if _cards == null:
 		return out
-	for card: int in range(MatchCards.CREATED_BASE, _state.next_created_id):
+	for card: int in range(MatchCards.DROSS_BASE, _state.next_dross_id):
 		var def: CardDef = _cards.def_of(card)
 		if def != null:
 			out[card] = {"def": def.id, "owner": _cards.origin_of(card)}

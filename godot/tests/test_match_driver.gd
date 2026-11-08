@@ -29,7 +29,7 @@ const NOT_AN_OPTION: int = 99
 ## Re-pinned at DC-14 T18 (six decks, 90 cards, ten Crew).
 const EXPECTED_LINE: String = (
 	"Board: match ended seed=1 decks=combo/graveyard bot=random winner=0 wins=4-1 rounds=5"
-	+ " end=wins actions=194"
+	+ " end=wins actions=191"
 )
 ## The bot the helpers build: the random bot, the only one (cycle 9 R70).
 const BOT: String = "random"

@@ -482,6 +482,84 @@ func test_round_end_sends_both_rows_to_their_owners_piles() -> void:
 	assert_array(state.wins).is_equal(_typed([0, 1]))
 
 
+## Rules 9 (cycle 14 R10, R11, C13): at Round end, after ROUND_ENDED, every Dross card of
+## lifetime `round` leaves the Match from wherever it is (hand, Pile, Deck, and a row card
+## by way of its Round-end Discard), one public DROSS_EXPIRED {owner, card, from, reason}
+## each in ascending id whatever the zone order, its record forgotten; a `match` Dross card
+## stays; the other cards keep their order (the Deck is not reshuffled) and no random draw
+## is made.
+func test_round_end_removes_every_round_dross_card() -> void:
+	var cards: MatchCards = StubAbilities.defs()
+	var dross: CardDef = cards.pool_def("dross")
+	var keeper: CardDef = CardDef.new("keeper", "Keeper", "evergreen", 1, 2)
+	keeper.dross = true
+	keeper.lifetime = CardDef.LIFETIME_MATCH
+	var state: MatchState = MatchState.new(SEED)
+	var in_deck: int = AbilitiesComboDisruption.create(state, cards, dross, 1)
+	var in_hand: int = AbilitiesComboDisruption.create(state, cards, dross, 0)
+	var kept: int = AbilitiesComboDisruption.create(state, cards, keeper, 0)
+	var in_pile: int = AbilitiesComboDisruption.create(state, cards, dross, 0)
+	var on_row: int = AbilitiesComboDisruption.create(state, cards, dross, 1)
+	assert_int(in_deck).is_equal(MatchCards.DROSS_BASE)
+	assert_int(on_row).is_equal(MatchCards.DROSS_BASE + 4)
+	var other: int = MatchRules.DECK_SIZE
+	state.first_seat = 0
+	state.seats[0].hand.assign(_typed([3, kept, in_hand]))
+	state.seats[0].pile.assign(_typed([in_pile, 4]))
+	state.seats[0].deck.assign(_typed([5, 6]))
+	state.seats[1].board.assign(_typed([on_row]))
+	state.seats[1].deck.assign(_typed([other + 1, in_deck, other + 2, other + 3]))
+	state.turn_wins.assign([1, 0])
+	var rng: MatchRng = MatchRng.new(SEED)
+	var stream_before: int = rng.state
+	var recorder: Recorder = _recorder()
+	assert_int(TurnFlow.end_round(state, cards, rng, recorder.record)).is_equal(0)
+	assert_int(rng.state).is_equal(stream_before)
+	var expired: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.DROSS_EXPIRED)
+	var order: Array[int] = []
+	for event: MatchEvent in expired:
+		order.append(_payload_int(event, "card"))
+		assert_int(event.owner_seat).is_equal(MatchEvent.PUBLIC)
+		assert_str(_payload_str(event, "reason")).is_equal(TurnFlow.REASON_ROUND_END)
+	assert_array(order).is_equal(_typed([in_deck, in_hand, in_pile, on_row]))
+	assert_dict(expired[0].payload).is_equal(
+		{"owner": 1, "card": in_deck, "from": "deck", "reason": "round_end"}
+	)
+	assert_str(_payload_str(expired[1], "from")).is_equal(TurnFlow.FROM_HAND)
+	assert_int(_payload_int(expired[1], "owner")).is_equal(0)
+	assert_str(_payload_str(expired[2], "from")).is_equal(TurnFlow.FROM_PILE)
+	# The row Dross was Discarded to its Owner's Pile first, then left it.
+	assert_str(_payload_str(expired[3], "from")).is_equal(TurnFlow.FROM_PILE)
+	# Every DROSS_EXPIRED comes after ROUND_ENDED, and they are the last events.
+	var ended_at: int = -1
+	for at: int in range(recorder.events.size()):
+		if recorder.events[at].kind == MatchEvent.Kind.ROUND_ENDED:
+			ended_at = at
+	assert_int(ended_at).is_equal(recorder.events.size() - 1 - expired.size())
+	assert_array(state.seats[0].hand).is_equal(_typed([3, kept]))
+	assert_array(state.seats[0].pile).is_equal(_typed([4]))
+	assert_array(state.seats[0].deck).is_equal(_typed([5, 6]))
+	assert_array(state.seats[1].board).is_empty()
+	assert_array(state.seats[1].pile).is_empty()
+	assert_array(state.seats[1].deck).is_equal(_typed([other + 1, other + 2, other + 3]))
+	for card: int in [in_deck, in_hand, in_pile, on_row]:
+		assert_object(cards.def_of(card)).is_null()
+		assert_int(cards.origin_of(card)).is_equal(-1)
+	assert_object(cards.def_of(kept)).is_same(keeper)
+	assert_int(state.next_dross_id).is_equal(MatchCards.DROSS_BASE + 5)
+
+
+## A Round with no Dross card ends exactly as before: no DROSS_EXPIRED, ROUND_ENDED last.
+func test_round_end_without_dross_emits_no_expiry() -> void:
+	var state: MatchState = MatchState.new(SEED)
+	state.seats[0].hand.assign(_typed([5]))
+	var recorder: Recorder = _recorder()
+	TurnFlow.end_round(state, _defs(), MatchRng.new(SEED), recorder.record)
+	assert_array(_of_kind(recorder.events, MatchEvent.Kind.DROSS_EXPIRED)).is_empty()
+	var last: MatchEvent = recorder.events[recorder.events.size() - 1]
+	assert_int(last.kind).is_equal(MatchEvent.Kind.ROUND_ENDED)
+
+
 # --- R6: Budget -------------------------------------------------------------------------
 
 

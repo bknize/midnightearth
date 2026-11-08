@@ -47,7 +47,7 @@ extends FullMatchHarness
 # orchestrator re-pins it at DC-14 T18 from the Golden print.
 # Re-pinned at DC-14 T18 (six decks, 90 cards, ten Crew, C15).
 const GOLDEN: String = (
-	"seed=1 decks=combo/graveyard bot=random winner=0 wins=4-1 rounds=5 end=wins actions=194"
+	"seed=1 decks=combo/graveyard bot=random winner=0 wins=4-1 rounds=5 end=wins actions=191"
 )
 # END GOLDEN
 

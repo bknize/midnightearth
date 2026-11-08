@@ -24,9 +24,10 @@ const CREW_SIZE: int = 3
 const TRIGGER_BUDGET: int = 50
 ## Rules 8 since cycle 13 C9 (Ben, 2026-11-08): a tied sudden-death Round with no card
 ## committed ends the Match in a stalemate (MatchEngine._stalled()). Rules 9 since DC-20 T03
-## (cycle 14 R12, C9): a created card expires when sent to a Pile (CardDef.lifetime), Level
-## skips face-down cards and a random Condemn pick that lands on a protected or Condemned
-## card is a visible miss, so a rules-8 log is refused at replay.
+## (cycle 14 R12, C13): a Dross card leaves the Match at the end of the Round
+## (CardDef.lifetime, TurnFlow.expire_dross), Level skips face-down cards and a random
+## Condemn pick that lands on a protected or Condemned card is a visible miss, so a rules-8
+## log is refused at replay.
 const RULES_VERSION: int = 9
 const LOG_FORMAT: int = 5
 ## Ten-thousandths: the unit of the walking total and of a Bonus value (plan P7).

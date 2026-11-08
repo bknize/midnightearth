@@ -10,12 +10,12 @@ extends RefCounted
 ## seat's hand, the other seat's face-down Commit (`pending` while the other seat is the
 ## first committer), face down on the other seat's row and not in the view's `looked`, in
 ## the other seat's Deck, or in `seat`'s own Deck and not in the view's `deck_top`. The
-## hidden cards are split by Owner (MatchCards.origin_of, created cards included: they are
+## hidden cards are split by Owner (MatchCards.origin_of, Dross cards included: they are
 ## hidden like any other), and each Owner's set is permuted with one MatchRng seeded by the
 ## determinization seed (owner 0's set first). The copy's zone arrays are rewritten through
 ## that mapping, so every zone keeps its count and every slot its position, and a card
 ## never changes Owner. What belongs to a card moves with its identity: its Memory and a
-## created card's definition stay keyed by its id, so they follow the card to wherever the
+## Dross card's definition stay keyed by its id, so they follow the card to wherever the
 ## permutation puts it. What belongs to a row slot stays with the slot: the Board changes
 ## (`card_states`) and the kept choices (`chosen`) are re-keyed through the mapping, so a
 ## status on a face-down slot stays on that slot whichever card now lies there. Cards a
@@ -319,7 +319,7 @@ static func _pin_value(value: Variant, out: Dictionary[int, bool]) -> void:
 
 ## Rewrites `state`'s zones through `mapping` (a card to the card that takes its place, a
 ## permutation within each hidden set) and re-keys the slot records (`card_states`,
-## `chosen`); Memory and created cards stay keyed by identity.
+## `chosen`); Memory and Dross cards stay keyed by identity.
 static func _relabel(state: MatchState, mapping: Dictionary[int, int]) -> void:
 	if mapping.is_empty():
 		return
