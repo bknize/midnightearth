@@ -143,6 +143,49 @@ func to_dict() -> Dictionary:
 	return {"kind": kind, "owner": owner_seat, "payload": payload.duplicate(true)}
 
 
+## The event that to_dict() (or its JSON form, whose numbers are floats) describes: whole
+## floats read as ints, at any depth of the payload. Null when `d` lacks `kind`, `owner`
+## or `payload`, when `kind` is not a Kind, when `owner` is not PUBLIC, 0 or 1, or when
+## `payload` is not a Dictionary (cycle 12 plan P3). Never errors.
+static func from_dict(d: Dictionary) -> MatchEvent:
+	var kind_raw: Variant = d.get("kind")
+	var owner_raw: Variant = d.get("owner")
+	var payload_raw: Variant = d.get("payload")
+	if not (EngineAction.is_whole_number(kind_raw) and EngineAction.is_whole_number(owner_raw)):
+		return null
+	if not payload_raw is Dictionary:
+		return null
+	var parsed_kind: int = EngineAction.as_int(kind_raw)
+	var parsed_owner: int = EngineAction.as_int(owner_raw)
+	if kind_name(parsed_kind) == "" or parsed_owner < PUBLIC or parsed_owner > 1:
+		return null
+	var parsed_payload: Dictionary = whole_numbers(payload_raw)
+	return MatchEvent.new(parsed_kind, parsed_payload, parsed_owner)
+
+
+## A deep copy of `value` with every whole float (as JSON parses numbers) turned back into
+## an int, inside Arrays and Dictionary values at any depth; keys are kept as they are.
+## Shared with SeatView.from_dict().
+static func whole_numbers(value: Variant) -> Variant:
+	if value is float:
+		if EngineAction.is_whole_number(value):
+			return EngineAction.as_int(value)
+		return value
+	if value is Array:
+		var items: Array = value
+		var out: Array = []
+		for item: Variant in items:
+			out.append(whole_numbers(item))
+		return out
+	if value is Dictionary:
+		var entries: Dictionary = value
+		var copied: Dictionary = {}
+		for key: Variant in entries:
+			copied[key] = whole_numbers(entries[key])
+		return copied
+	return value
+
+
 ## The copy of this event that `seat` may see (R29). Public events and the owner's own
 ## private events come back unchanged; for anyone else a private event keeps its kind,
 ## owner and `seat`, and every card id under `card` or `cards` becomes HIDDEN_CARD (the
