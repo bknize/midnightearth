@@ -1,171 +1,20 @@
 class_name TestRemoteMatchSource
 extends FullMatchHarness
 ## RemoteMatchSource and NetClient's codec path (cycle 12 plan P5, P8; T06) against a
-## scripted fake server at codec level: no sockets. FakeClient stands in for the socket
+## scripted fake server at codec level: no sockets. FakeNetClient stands in for the socket
 ## (open/send/close recorded, server text fed through NetClient.receive_text, so every
-## message crosses NetCodec both ways); FakeServer holds a real engine and sends one seat
+## message crosses NetCodec both ways); FakeMatchServer holds a real engine and sends one seat
 ## only its redacted events and view, as the match server does. Covered: the handshake,
 ## host and join, the start and its held opening, a whole match of events, a rejection, a
 ## resync after a drop, refusals, the 3 s retry schedule on a fake clock to the 120 s
-## give-up, Leave, and that the source holds no engine and nothing secret.
+## give-up, Leave, and that the source holds no engine and nothing secret. The two fakes
+## live in tests/fixtures/ since T09 (test_bot_client.gd shares them).
 
 const SEED: int = 1
 const CODE: String = "K7QX"
 const SERVER: String = "203.0.113.7:8766"
 const OPPONENT: String = "Ana"
 const BOT_SEED: int = 7
-
-
-## A NetClient with no socket: records what the source opens, sends and closes.
-class FakeClient:
-	extends NetClient
-
-	var opened: Array[String] = []
-	var sent: Array[String] = []
-	var closes: int = 0
-	var up: bool = false
-
-	func open(address: String) -> void:
-		opened.append(address)
-		up = false
-
-	func is_open() -> bool:
-		return up
-
-	func send(message: Dictionary) -> bool:
-		if not up:
-			return false
-		var text: String = NetCodec.encode(message)
-		if text == "":
-			return false
-		sent.append(text)
-		return true
-
-	func close() -> void:
-		closes += 1
-		up = false
-
-	## The connection comes up.
-	func accept() -> void:
-		up = true
-		connected.emit()
-
-	## The connection fails or closes under the source.
-	func drop(reason: String) -> void:
-		up = false
-		dropped.emit(reason)
-
-	## The last message the source sent, decoded; {} when none.
-	func last_sent() -> Dictionary:
-		if sent.is_empty():
-			return {}
-		return NetCodec.decode(sent[sent.size() - 1])
-
-	func last_kind() -> String:
-		var last: Dictionary = last_sent()
-		var kind: String = last.get(NetProtocol.KEY_T, "")
-		return kind
-
-
-## The match server reduced to one seat's wire: a real engine, the other seat played by a
-## random bot, and only `seat`'s redacted events and view sent.
-class FakeServer:
-	extends RefCounted
-
-	var engine: MatchEngine = null
-	var client: FakeClient = null
-	var seat: int = 0
-	var history: Array[MatchEvent] = []
-	var other_bot: BotPlayer = null
-	## False once a message failed to encode (the suite asserts it stays true).
-	var wire_ok: bool = true
-
-	func send(message: Dictionary) -> void:
-		var text: String = NetCodec.encode(message)
-		if text == "":
-			wire_ok = false
-			return
-		client.receive_text(text)
-
-	func welcome() -> void:
-		send(
-			{
-				NetProtocol.KEY_T: NetProtocol.T_WELCOME,
-				NetProtocol.KEY_PROTOCOL: NetProtocol.VERSION,
-				NetProtocol.KEY_STAMP: BotStamp.current(),
-			}
-		)
-
-	func start() -> void:
-		var result: ApplyResult = engine.start()
-		var events: Array[MatchEvent] = result.events_for(seat)
-		history.append_array(events)
-		var decks: Array[String] = engine.deck_ids()
-		send(
-			{
-				NetProtocol.KEY_T: NetProtocol.T_STARTED,
-				NetProtocol.KEY_SEAT: seat,
-				NetProtocol.KEY_OPPONENT:
-				{NetProtocol.KEY_NAME: "Ana", NetProtocol.KEY_DECK: decks[1 - seat]},
-				NetProtocol.KEY_DECKS: decks,
-				NetProtocol.KEY_VIEW: engine.view_for(seat).to_dict(),
-				NetProtocol.KEY_EVENTS: plain(events),
-			}
-		)
-
-	## Applies `action` with its seat forced to `from` (R34); sends `events` or `rejected`.
-	func apply(action: EngineAction, from: int) -> ApplyResult:
-		var forced: EngineAction = action.copy()
-		forced.seat = from
-		var result: ApplyResult = engine.apply(forced)
-		if not result.ok:
-			if from == seat:
-				send(
-					{
-						NetProtocol.KEY_T: NetProtocol.T_REJECTED,
-						NetProtocol.KEY_ERROR: EngineError.name_of(result.error),
-						NetProtocol.KEY_ACTION: forced.to_dict(),
-					}
-				)
-			return result
-		var events: Array[MatchEvent] = result.events_for(seat)
-		history.append_array(events)
-		send(
-			{
-				NetProtocol.KEY_T: NetProtocol.T_EVENTS,
-				NetProtocol.KEY_EVENTS: plain(events),
-				NetProtocol.KEY_VIEW: engine.view_for(seat).to_dict(),
-			}
-		)
-		return result
-
-	## The other seat's bot moves once.
-	func play_other() -> ApplyResult:
-		var other: int = 1 - seat
-		return apply(other_bot.choose(engine.view_for(other), engine), other)
-
-	## The act the client sent last, as an action; null when the last message was not one.
-	func take_act() -> EngineAction:
-		var last: Dictionary = client.last_sent()
-		var kind: String = last.get(NetProtocol.KEY_T, "")
-		if kind != NetProtocol.T_ACT:
-			return null
-		return NetCodec.action_of(last)
-
-	func resync() -> void:
-		send(
-			{
-				NetProtocol.KEY_T: NetProtocol.T_RESYNC,
-				NetProtocol.KEY_EVENTS: plain(history),
-				NetProtocol.KEY_VIEW: engine.view_for(seat).to_dict(),
-			}
-		)
-
-	static func plain(events: Array[MatchEvent]) -> Array:
-		var out: Array = []
-		for event: MatchEvent in events:
-			out.append(event.to_dict())
-		return out
 
 
 ## Everything the source emits, in order.
@@ -226,9 +75,9 @@ class Recorder:
 class Rig:
 	extends RefCounted
 
-	var client: FakeClient = null
+	var client: FakeNetClient = null
 	var source: RemoteMatchSource = null
-	var server: FakeServer = null
+	var server: FakeMatchServer = null
 	var record: Recorder = null
 
 
@@ -242,12 +91,12 @@ func _identity() -> Identity:
 
 func _rig(seat: int) -> Rig:
 	var rig: Rig = Rig.new()
-	rig.client = FakeClient.new()
+	rig.client = FakeNetClient.new()
 	auto_free(rig.client)
 	rig.source = RemoteMatchSource.create(rig.client, _identity(), "greed")
 	rig.record = Recorder.new()
 	rig.record.watch(rig.source)
-	rig.server = FakeServer.new()
+	rig.server = FakeMatchServer.new()
 	rig.server.client = rig.client
 	rig.server.seat = seat
 	rig.server.engine = _new_engine(SEED)
