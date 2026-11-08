@@ -32,9 +32,9 @@ const MAX_POWER: int = 40
 
 # Error prefixes, stable so tests and callers can match on them.
 const ERR_FILE: String = "card data file"
-const ERR_JSON: String = "bad JSON"
-const ERR_SHAPE: String = "bad shape"
-const ERR_VERSION: String = "unsupported version"
+const ERR_JSON: String = JsonLoad.ERR_JSON
+const ERR_SHAPE: String = JsonLoad.ERR_SHAPE
+const ERR_VERSION: String = JsonLoad.ERR_VERSION
 const ERR_DUPLICATE: String = "duplicate id"
 const ERR_TAG: String = "unknown tag"
 const ERR_COST: String = "cost out of range"
@@ -75,33 +75,20 @@ static func load_default() -> CardDb:
 
 ## Loads a card file from any path. Missing or unreadable files fail silently.
 static func load_from_path(path: String) -> CardDb:
-	if not FileAccess.file_exists(path):
-		return _failed("%s not found: %s" % [ERR_FILE, path])
-	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return _failed("%s unreadable: %s" % [ERR_FILE, path])
-	var text: String = file.get_as_text()
-	file.close()
-	return from_json(text)
+	var file: JsonLoad = JsonLoad.read(path, ERR_FILE)
+	if file.error != "":
+		return _failed(file.error)
+	return from_json(file.text)
 
 
 ## Loads a card pool from JSON text (used by tests with in-memory data).
 static func from_json(text: String) -> CardDb:
-	# JSON.new().parse() reports through its return code and get_error_message();
-	# unlike JSON.parse_string() it does not log an error on malformed input.
-	var json: JSON = JSON.new()
-	var parse_err: Error = json.parse(text)
-	if parse_err != OK:
-		return _failed(
-			"%s at line %d: %s" % [ERR_JSON, json.get_error_line(), json.get_error_message()]
-		)
-	var data: Variant = json.data
-	if not data is Dictionary:
-		return _failed("%s: top level is not an object" % ERR_SHAPE)
-	var root: Dictionary = data
-	var root_problem: String = _root_problem(root)
-	if root_problem != "":
-		return _failed(root_problem)
+	var parsed: JsonLoad = JsonLoad.parse(text, FORMAT_VERSION)
+	if parsed.error != "":
+		return _failed(parsed.error)
+	var root: Dictionary = parsed.root
+	if not root.has("cards") or not root["cards"] is Array:
+		return _failed("%s: missing cards array" % ERR_SHAPE)
 	var entries: Array = root["cards"]
 	var db: CardDb = CardDb.new()
 	for i: int in range(entries.size()):
@@ -186,19 +173,6 @@ static func _failed(message: String) -> CardDb:
 	var db: CardDb = CardDb.new()
 	db._error = message
 	return db
-
-
-## The first problem of the pool's top level, or "": a whole `version` equal to
-## FORMAT_VERSION and a `cards` array.
-static func _root_problem(root: Dictionary) -> String:
-	if not root.has("version") or not EngineAction.is_whole_number(root["version"]):
-		return "%s: missing or non-integer version" % ERR_SHAPE
-	var version: int = EngineAction.as_int(root["version"])
-	if version != FORMAT_VERSION:
-		return "%s: %d (expected %d)" % [ERR_VERSION, version, FORMAT_VERSION]
-	if not root.has("cards") or not root["cards"] is Array:
-		return "%s: missing cards array" % ERR_SHAPE
-	return ""
 
 
 ## The first problem of one card entry, as an error message naming card `i`, or "".

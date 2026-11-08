@@ -177,7 +177,7 @@ static func watchers(
 	var event: Dictionary = {
 		"moment": moment, "subjects": subjects, "seats": subject_seats, "seat": event_seat
 	}
-	var order: Array[int] = [state.first_seat, 1 - state.first_seat]
+	var order: Array[int] = state.commit_order()
 	for watcher_seat: int in order:
 		var piles: MatchState.SeatPiles = state.seats[watcher_seat]
 		for card: int in piles.board:
@@ -498,27 +498,25 @@ static func _context(
 	return ctx
 
 
-## The verb's prepare(): the match's extra verb table first, then Crew or card abilities.
+## The verb's prepare().
 static func _prepare(ctx: TriggerContext) -> void:
-	var handler: VerbHandler = ctx.cards.verb_handler()
-	if handler != null and handler.handles(ctx.verb):
-		handler.prepare(ctx)
-	elif ctx.is_crew():
-		CrewAbilities.prepare(ctx)
-	else:
-		Abilities.prepare(ctx)
+	_verbs_of(ctx).prepare(ctx)
 
 
-## The verb's resolve(), dispatched as _prepare().
+## The verb's resolve().
 static func _apply(ctx: TriggerContext) -> void:
 	ctx.prompt = {}
+	_verbs_of(ctx).resolve(ctx)
+
+
+## Who takes `ctx`'s verb: the match's extra verb table first, then Crew or card abilities.
+static func _verbs_of(ctx: TriggerContext) -> VerbHandler:
 	var handler: VerbHandler = ctx.cards.verb_handler()
 	if handler != null and handler.handles(ctx.verb):
-		handler.resolve(ctx)
-	elif ctx.is_crew():
-		CrewAbilities.resolve(ctx)
-	else:
-		Abilities.resolve(ctx)
+		return handler
+	if ctx.is_crew():
+		return CrewVerbs.new()
+	return CardVerbs.new()
 
 
 ## TRIGGER_FIRED {seat, card, crew, moment, verb, resolution}: public. A card firing from
@@ -726,3 +724,25 @@ static func _forward(events: Array[MatchEvent], sink: Callable) -> void:
 		return
 	for event: MatchEvent in events:
 		sink.call(event.kind, event.payload, event.owner_seat)
+
+
+## CrewAbilities behind the VerbHandler protocol (_verbs_of()).
+class CrewVerbs:
+	extends VerbHandler
+
+	func prepare(ctx: TriggerContext) -> void:
+		CrewAbilities.prepare(ctx)
+
+	func resolve(ctx: TriggerContext) -> void:
+		CrewAbilities.resolve(ctx)
+
+
+## Abilities behind the VerbHandler protocol (_verbs_of()).
+class CardVerbs:
+	extends VerbHandler
+
+	func prepare(ctx: TriggerContext) -> void:
+		Abilities.prepare(ctx)
+
+	func resolve(ctx: TriggerContext) -> void:
+		Abilities.resolve(ctx)

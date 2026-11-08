@@ -31,12 +31,14 @@ const KEY_SCOPE: String = "scope"
 const KEY_TEXT: String = "text"
 ## The keys whose value must be a non-empty string.
 const STRING_KEYS: Array[String] = [KEY_ID, KEY_NAME, KEY_TAG, KEY_MOMENT, KEY_VERB, KEY_TEXT]
+## The keys with a range in CrewDef.VERBS.
+const AMOUNT_KEYS: Array[String] = [KEY_AMOUNT, KEY_AMOUNT_2]
 
 # Error prefixes, stable so tests and callers can match on them.
 const ERR_FILE: String = "crew file"
-const ERR_JSON: String = "bad JSON"
-const ERR_SHAPE: String = "bad shape"
-const ERR_VERSION: String = "unsupported version"
+const ERR_JSON: String = JsonLoad.ERR_JSON
+const ERR_SHAPE: String = JsonLoad.ERR_SHAPE
+const ERR_VERSION: String = JsonLoad.ERR_VERSION
 const ERR_DUPLICATE: String = "duplicate crew id"
 const ERR_TAG: String = "unknown tag"
 const ERR_MOMENT: String = CardAbility.ERR_MOMENT
@@ -59,33 +61,18 @@ static func load_default() -> CrewPool:
 
 ## Loads a Crew pool from any path. Missing or unreadable files fail silently.
 static func load_from_path(path: String) -> CrewPool:
-	if not FileAccess.file_exists(path):
-		return _failed("%s not found: %s" % [ERR_FILE, path])
-	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return _failed("%s unreadable: %s" % [ERR_FILE, path])
-	var text: String = file.get_as_text()
-	file.close()
-	return from_json(text)
+	var file: JsonLoad = JsonLoad.read(path, ERR_FILE)
+	if file.error != "":
+		return _failed(file.error)
+	return from_json(file.text)
 
 
 ## Loads a Crew pool from JSON text (used by tests with in-memory data).
 static func from_json(text: String) -> CrewPool:
-	var json: JSON = JSON.new()
-	var parse_err: Error = json.parse(text)
-	if parse_err != OK:
-		return _failed(
-			"%s at line %d: %s" % [ERR_JSON, json.get_error_line(), json.get_error_message()]
-		)
-	var data: Variant = json.data
-	if not data is Dictionary:
-		return _failed("%s: top level is not an object" % ERR_SHAPE)
-	var root: Dictionary = data
-	if not root.has("version") or not EngineAction.is_whole_number(root["version"]):
-		return _failed("%s: missing or non-integer version" % ERR_SHAPE)
-	var version: int = EngineAction.as_int(root["version"])
-	if version != FORMAT_VERSION:
-		return _failed("%s: %d (expected %d)" % [ERR_VERSION, version, FORMAT_VERSION])
+	var parsed: JsonLoad = JsonLoad.parse(text, FORMAT_VERSION)
+	if parsed.error != "":
+		return _failed(parsed.error)
+	var root: Dictionary = parsed.root
 	if not root.has("crew") or not root["crew"] is Array:
 		return _failed("%s: missing crew array" % ERR_SHAPE)
 	var entries: Array = root["crew"]
@@ -188,18 +175,14 @@ static func _name_problem(d: Dictionary, i: int) -> String:
 ## within the verb's range.
 static func _amount_problem(d: Dictionary, i: int) -> String:
 	var verb: String = d[KEY_VERB]
-	for key: String in [KEY_AMOUNT, KEY_AMOUNT_2]:
-		var raw: Variant = d.get(key, 0)
-		if not EngineAction.is_whole_number(raw):
-			return "%s: crew %d has %s %s" % [ERR_AMOUNT, i, key, JSON.stringify(raw)]
-		var value: int = EngineAction.as_int(raw)
-		var bounds: Array[int] = CrewDef.range_of(verb, key)
-		if value < bounds[0] or value > bounds[1]:
-			return (
-				'%s: crew %d "%s" %s %d (allowed %d..%d)'
-				% [ERR_AMOUNT, i, verb, key, value, bounds[0], bounds[1]]
-			)
-	return ""
+	return VerbTable.amount_problem(
+		d,
+		CrewDef.VERBS,
+		verb,
+		AMOUNT_KEYS,
+		"%s: crew %d has %%s %%s" % [ERR_AMOUNT, i],
+		"%s: crew %d " % [ERR_AMOUNT, i]
+	)
 
 
 ## An error message for one entry's optional, uses and scope, or "": a bool optional, whole
@@ -208,7 +191,7 @@ static func _limit_problem(d: Dictionary, i: int) -> String:
 	if d.has(KEY_OPTIONAL) and not d[KEY_OPTIONAL] is bool:
 		return "%s: crew %d has optional %s" % [ERR_OPTIONAL, i, JSON.stringify(d[KEY_OPTIONAL])]
 	var raw_uses: Variant = d.get(KEY_USES, 0)
-	if not EngineAction.is_whole_number(raw_uses) or EngineAction.as_int(raw_uses) < 0:
+	if not VerbTable.is_uses(raw_uses):
 		return "%s: crew %d has uses %s" % [ERR_USES, i, JSON.stringify(raw_uses)]
 	var raw_scope: Variant = d.get(KEY_SCOPE, "")
 	if not raw_scope is String:

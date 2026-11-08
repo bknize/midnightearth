@@ -265,6 +265,17 @@ func clear_card_state(card: int) -> bool:
 	return card_states.erase(card)
 
 
+## Both seats, `seat` first (a Controller-first order takes the Controller).
+static func seats_from(seat: int) -> Array[int]:
+	var order: Array[int] = [seat, 1 - seat]
+	return order
+
+
+## The Turn's commit order: the first seat, then the second.
+func commit_order() -> Array[int]:
+	return seats_from(first_seat)
+
+
 ## The seat whose piles hold `card` (its Controller on a row; the holder of a hand, Deck or
 ## Pile), or the first committer for a card in the face-down `pending` Commit; -1 when no
 ## pile holds it.
