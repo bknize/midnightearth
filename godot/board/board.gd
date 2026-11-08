@@ -4,13 +4,13 @@ extends Node3D
 ## The table (R3-R8, R31-R39, R44): a fixed camera on four card collections, a HUD, and the
 ## step queue that plays a MatchSource's events one beat at a time, and the player's side of
 ## the table: drag staging against the energy (R11-R20), Commit, pause, concede and rematch
-## (R40-R43). Everything reaches the match through the source: a MatchDriver (engine and bots
+## (R40-R43). Everything reaches the match through the source: a local source (engine and bots
 ## in this process) or a remote one (cycle 12 P5). The board's seats are table seats: 0 is the
 ## player's side, whichever engine seat the source says the player holds (P6).
 ##
-## Seeds: `fixed_seed` if non-zero, else `--seed=N`, else a clock seed. The clock is read
-## here and nowhere else, and only to make a seed. `--autoplay` or `autoplay` makes seat 0
-## a bot too and plays at 4x; the player cannot drag then.
+## Main (or a verify scene's starter) builds the source and hands it to start_source().
+## `--autoplay` or `autoplay` makes seat 0 a bot too and plays at 4x; the player cannot drag
+## then.
 
 ## Emitted when the queue is empty and the human's commit is awaited. Input is unlocked.
 signal player_turn_started
@@ -23,6 +23,8 @@ signal decks_requested
 ## Emitted when Leave is pressed (a PVP pause menu or result panel); a running match has been
 ## conceded first. Main closes the room and returns to the title screen.
 signal leave_requested
+## Emitted when the result panel's Rematch is pressed; main starts a fresh local source.
+signal rematch_requested
 
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
@@ -37,20 +39,10 @@ const CATCH_UP_SPEED: float = 8.0
 ## Seconds a "<name> is back" note stays on the connection overlay.
 const CONNECTION_NOTE_TIME: float = 4.0
 
-## 0 means "ask the command line, then the clock".
-@export var fixed_seed: int = 0
 @export var autoplay: bool = false
-## True for stand-alone verify scenes: start the seeded pairing in _ready. Main starts it.
-@export var auto_start: bool = false
-var bot: String = BotRegistry.default_name()
 
-## What the board plays against: set by start_match (a MatchDriver) or start_source.
+## What the board plays against: set by start_source. The board never learns which kind it is.
 var source: MatchSource = null
-
-## The local match's driver, or null for a remote source (main's Decks and rematch read it).
-var driver: MatchDriver:
-	get:
-		return source as MatchDriver
 
 ## True while a reconnect's history is replayed: fast, with no prompt waits (cycle 12 P8).
 var catching_up: bool = false
@@ -67,17 +59,14 @@ var speed: float = NORMAL_SPEED
 var staging: Staging = Staging.new()
 
 var _cards: CardDb = null
-var _decks: DeckList = DeckList.load_default()
 var _crew: CrewPool = CrewPool.load_default()  # Each deck's three Crew (cycle 8 R42).
-## The ids of the running match ("" = the seeded pick); a rematch keeps them.
-var _deck_ids: Array[String] = ["", ""]
 var _autoplay: bool = false
 var _input_locked: bool = true
 ## Whether seat 0 is awaited; refreshed once per step in _advance(), false while steps run.
 var _awaited: bool = false
 var _running: bool = false
 var _halted: bool = false
-## Bumped by start_match so a runner from an earlier match stops touching the table.
+## Bumped by start_source so a runner from an earlier match stops touching the table.
 var _serial: int = 0
 ## The node-owned wait behind _wait(): counted down in _process, so it always resumes.
 var _wait_left: float = 0.0
@@ -95,8 +84,6 @@ var _arrivals: CardArrivals = CardArrivals.new()
 var _prompt: PromptHost = PromptHost.new()
 ## Each side's three Crew beside its hand (cycle 8 R59-R62).
 var _crew_line: CrewLine = CrewLine.new()
-## True when the first seed was fixed (`fixed_seed` or --seed=), so a rematch uses seed + 1.
-var _seed_fixed: bool = false
 var _paused: bool = false
 var _turn_energy: int = 0
 var _free_first: bool = false
@@ -175,9 +162,6 @@ func _ready() -> void:
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	_autoplay = autoplay or args.has(AUTOPLAY_ARG)
 	speed = AUTOPLAY_SPEED if _autoplay else NORMAL_SPEED
-	var first_seed: int = _resolve_seed(args)
-	if auto_start:
-		start_match(first_seed, _deck_ids)
 
 
 func _process(delta: float) -> void:
@@ -233,22 +217,6 @@ func _setup_effects() -> void:
 	_prompt.strip_parent = self
 	_prompt.spawn = _spawn_card
 	_prompt.crew_pool = _crew
-
-
-## Starts a fresh local match (new driver, empty table, opening steps); a "" deck id = seeded
-## pick.
-func start_match(new_seed: int, deck_ids: Array[String]) -> void:
-	_reset_for_match()
-	var local: MatchDriver = MatchDriver.create(
-		new_seed, _cards, _decks, deck_ids, _autoplay, bot, _crew
-	)
-	if local == null:
-		push_error("Board: cannot build bot '%s'" % bot)
-		return
-	_begin_source(local)
-	if _crew_pending:
-		push_error("Board: the match did not start (seed %d)" % new_seed)
-		_halted = true
 
 
 ## Starts a fresh match against any source (a remote one for PVP): empty table, then the
@@ -325,7 +293,6 @@ func _bind_cards() -> void:
 	var defs: MatchCards = source.match_cards()
 	if defs != null:
 		_fx.match_cards = defs
-		_deck_ids = source.deck_ids()
 
 
 ## True for a match served remotely: no rematch, no Decks, a Leave button, waiting text.
@@ -463,13 +430,6 @@ func _on_catch_up(events: Array[MatchEvent], _view: SeatView) -> void:
 func _finish_catch_up() -> void:
 	catching_up = false
 	speed = AUTOPLAY_SPEED if _autoplay else NORMAL_SPEED
-
-
-## The seed for a first match: fixed, then --seed=N, then the clock.
-func _resolve_seed(args: PackedStringArray) -> int:
-	var flagged: int = fixed_seed if fixed_seed != 0 else BoardSeeds.from_args(args)
-	_seed_fixed = flagged != 0
-	return flagged if flagged != 0 else BoardSeeds.clock_seed()
 
 
 # --- The queue ---------------------------------------------------------------------------
@@ -1183,9 +1143,7 @@ func _on_leave_pressed() -> void:
 	leave_requested.emit()
 
 
+## Rematch (a local match only): main starts a fresh source with the next seed.
 func _on_rematch_pressed() -> void:
 	hud.hide_result()
-	var local: MatchDriver = driver
-	if local == null:
-		return  # No local match (it never started, or the match is remote): no rematch.
-	start_match(BoardSeeds.rematch(_seed_fixed, local.match_seed), _deck_ids)
+	rematch_requested.emit()

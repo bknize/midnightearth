@@ -22,6 +22,8 @@ var _crew: CrewPool = null
 var _board_scene: PackedScene = null
 var _picker_scene: PackedScene = null
 var _board: Board = null
+## The local match on the board (PVE): kept for Decks and rematch.
+var _driver: MatchDriver = null
 var _picker: DeckPicker = null
 var _seed: int = 0
 var _seed_fixed: bool = false
@@ -105,15 +107,31 @@ func _read_bot_args(args: PackedStringArray) -> bool:
 ## Instances the board for the given ids ("" = the seeded pick) and starts the match.
 func _start_board(deck_ids: Array[String]) -> void:
 	_board = _board_scene.instantiate() as Board
-	if _seed_fixed:
-		_board.fixed_seed = _seed
 	_board.autoplay = _autoplay
-	_board.bot = _bot_name
 	add_child(_board)
 	var err: int = _board.decks_requested.connect(_on_decks_requested)
+	err += _board.rematch_requested.connect(_on_rematch_requested)
 	if err != OK:
-		push_warning("Main: could not connect decks_requested")
-	_board.start_match(_seed, deck_ids)
+		push_warning("Main: could not connect decks_requested or rematch_requested")
+	_start_match(deck_ids)
+
+
+## Builds the local match for the current seed and hands it to the board.
+func _start_match(deck_ids: Array[String]) -> void:
+	_driver = MatchDriver.create(_seed, _cards, _decks, deck_ids, _autoplay, _bot_name, _crew)
+	if _driver == null:
+		push_error("Board: cannot build bot '%s'" % _bot_name)
+		return
+	_board.start_source(_driver)
+
+
+## Rematch: the next seed, the same decks, a fresh driver.
+func _on_rematch_requested() -> void:
+	if _driver == null:
+		return
+	var last_ids: Array[String] = _driver.deck_ids()
+	_seed = BoardSeeds.rematch(_seed_fixed, _driver.match_seed)
+	_start_match(last_ids)
 
 
 func _show_picker(preselected: Array[String]) -> void:
@@ -133,7 +151,7 @@ func _on_picked(deck_ids: Array[String]) -> void:
 
 ## Tears the board down and shows the picker again with the match's decks preselected.
 func _on_decks_requested() -> void:
-	var driver: MatchDriver = _board.driver
+	var driver: MatchDriver = _driver
 	var last_ids: Array[String] = ["", ""]
 	if driver != null:
 		last_ids = driver.deck_ids()
