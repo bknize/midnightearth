@@ -18,7 +18,8 @@ bootstrap:  ; @scripts/bootstrap.sh
 # `WEIGHTS=<abs path>` builds it on that weights file.
 .PHONY: sweep
 sweep:      ; @$(if $(filter command line,$(origin BOT)),SWEEP_BOT=$(BOT) )$(if $(filter command line,$(origin WEIGHTS)),SWEEP_WEIGHTS=$(WEIGHTS) )scripts/check.sh sweep
-bot-eval:   ; @scripts/bot-eval.sh --a $(BOT) --b $(REF) --seeds $(SEEDS)
+# `WEIGHTS=<path>` builds side a (BOT) on that weights file (bot-eval.sh --weights).
+bot-eval:   ; @scripts/bot-eval.sh --a $(BOT) --b $(REF) --seeds $(SEEDS)$(if $(WEIGHTS), --weights $(WEIGHTS))
 bot-selftest: ; @python3 -I scripts/bot/driver.py selftest
 # The bot trainer's unit tests (cycle 11 P19), outside `check`. No Godot.
 .PHONY: trainer-test

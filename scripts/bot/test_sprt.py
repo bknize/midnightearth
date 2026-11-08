@@ -5,7 +5,7 @@ import random
 import sys
 import tempfile
 import unittest
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import driver  # noqa: E402
@@ -134,6 +134,19 @@ class DriverTest(unittest.TestCase):
         for arg in argv:
             self.assertNotIn("weights", arg)
             self.assertNotIn("level", arg)
+        argv = driver.godot_worker("linear", "random", 1, 25, "o", "l",
+                                   weights_a="/w/a.json", weights_b="/w/b.json")
+        self.assertEqual(argv[-2:], ["--weights-a=/w/a.json", "--weights-b=/w/b.json"])
+        argv = driver.godot_worker("linear", "random", 1, 25, "o", "l", weights_a="/w/a.json")
+        self.assertEqual(argv[-1], "--weights-a=/w/a.json")
+        self.assertFalse([a for a in argv if a.startswith("--weights-b")])
+
+    def test_weights_flags_parse(self) -> None:
+        args = driver.build_parser().parse_args(
+            ["eval", "--a", "x", "--b", "y", "--weights-a", "a.json", "--weights-b", "b.json"])
+        self.assertEqual((args.weights_a, args.weights_b), ("a.json", "b.json"))
+        args = driver.build_parser().parse_args(["eval", "--a", "x", "--b", "y"])
+        self.assertEqual((args.weights_a, args.weights_b), ("", ""))
 
     def test_godot_bin_env_accepts_windows_exe(self) -> None:
         exe = "C:\\Godot\\Godot_v4.6_win64.exe"
@@ -165,7 +178,8 @@ class DriverTest(unittest.TestCase):
         self.assertIn("seeds 1-25 exit 1", text)
 
     def gainer_run(self, us: int, rejected: int = 0, replay: int = 0,
-                   overruns_a: int = 0) -> Tuple[int, str]:
+                   overruns_a: int = 0, weights_stamp: str = "none",
+                   engine_stamp: str = "") -> Tuple[int, str]:
         """A gainer eval over stub batches whose side-a decisions all take `us` microseconds."""
         script = ("import sys, json\n"
                   "us, rej, rep, ov = [int(x) for x in sys.argv[2:6]]\n"
@@ -176,7 +190,7 @@ class DriverTest(unittest.TestCase):
                   "rows += [{'t': 'd', 'seed': 0, 'game': 0, 'seat': 0, 'us': 99999}] * 100\n"
                   "rows.append({'t': 'end', 'games': 50, 'rejected': rej, 'overruns': ov, "
                   "'overruns_a': ov, 'overruns_b': 0, 'replay_mismatches': rep, "
-                  "'stamp': 'r4-0123456789abcdef'})\n"
+                  "'stamp': sys.argv[6], 'weights_stamp': sys.argv[7]})\n"
                   "open(sys.argv[1], 'w').write('\\n'.join(json.dumps(r) for r in rows) + '\\n')\n")
         with tempfile.TemporaryDirectory() as tmp:
             args = driver.build_parser().parse_args(
@@ -184,7 +198,7 @@ class DriverTest(unittest.TestCase):
                  "--reports-dir", tmp])
             factory = lambda a, b, s, e, out: [  # noqa: E731
                 sys.executable, "-c", script, out, str(us), str(rejected), str(replay),
-                str(overruns_a)]
+                str(overruns_a), engine_stamp or records.current_stamp(), weights_stamp]
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 code = driver.run_eval(args, factory, workers=2)
@@ -199,6 +213,24 @@ class DriverTest(unittest.TestCase):
         self.assertNotIn("reason=", text)
         self.assertIn("p99_us=10000", text)
         self.assertIn("overruns_a=3 overruns_b=0", text)
+
+    def test_weights_stamp_none_and_match_print_match(self) -> None:
+        for ws in ("none", "match"):
+            code, text = self.gainer_run(us=2000, weights_stamp=ws)
+            self.assertEqual(code, 0)
+            self.assertIn("stamp=match exit=0", text)
+
+    def test_weights_stamp_mismatch_prints_mismatch(self) -> None:
+        code, text = self.gainer_run(us=2000, weights_stamp="MISMATCH")
+        self.assertEqual(code, 0)
+        self.assertIn("stamp=MISMATCH", text)
+
+    def test_engine_stamp_inequality_errors_out(self) -> None:
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code, _ = self.gainer_run(us=2000, engine_stamp="r4-0123456789abcdef")
+        self.assertEqual(code, 3)
+        self.assertIn("engine stamp", err.getvalue())
 
     def test_gainer_overruns_alone_do_not_block(self) -> None:
         code, text = self.gainer_run(us=2000, overruns_a=300)
@@ -248,6 +280,28 @@ class StoppingRuleTest(unittest.TestCase):
         self.assertEqual(test.result(), "PASS")
         agg = records.aggregate(kept)
         self.assertEqual((agg["pairs"], agg["games"], agg["overruns_a"]), (100, 1, 2))
+
+
+    def test_second_pair_of_an_undecided_seed_is_dropped(self) -> None:
+        """NSC-206: seed 100 has two pairs (decks swapped); the first decides the test, so
+        the second pair's p record, games 2 and 3 and their decisions leave the aggregates."""
+        recs: List[Dict[str, Any]] = [{"t": "p", "seed": i, "points_a": 1.0}
+                                      for i in range(1, 100)]
+        recs.append({"t": "p", "seed": 100, "points_a": 1.0})
+        recs.append({"t": "p", "seed": 100, "points_a": 1.0})
+        for game in range(4):
+            recs.append({"t": "g", "seed": 100, "game": game, "a_seat": game % 2,
+                         "first_won": True})
+            recs.append({"t": "d", "seed": 100, "game": game, "seat": game % 2,
+                         "us": 100 if game < 2 else 9000})
+        recs.append({"t": "end", "overruns_a": 1})
+        test = sprt.Sprt("nonreg")
+        kept = driver.feed_until_decided(test, recs)
+        self.assertEqual(test.pairs, 100)
+        agg = records.aggregate(kept)
+        self.assertEqual((agg["pairs"], agg["games"]), (100, 2))
+        self.assertEqual((agg["slowest_us"], agg["overruns_a"]), (100, 1))
+        self.assertEqual([r["game"] for r in kept if r["t"] == "d"], [0, 1])
 
 
 class IdenticalBotsTest(unittest.TestCase):

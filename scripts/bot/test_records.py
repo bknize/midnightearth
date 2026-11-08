@@ -84,6 +84,17 @@ class StampTest(unittest.TestCase):
         finally:
             shutil.rmtree(tmp)
 
+    def test_aggregate_reads_the_weights_stamp(self) -> None:
+        """Cycle 13 R15: the end record's weights_stamp (match, MISMATCH, none) is collected;
+        an end record without the field adds nothing."""
+        ends = [{"t": "end", "weights_stamp": "none"}, {"t": "end", "weights_stamp": "match"},
+                {"t": "end", "weights_stamp": "match"}, {"t": "end"}]
+        self.assertEqual(records.aggregate(ends)["weights_stamps"], ["match", "none"])
+        ends.append({"t": "end", "weights_stamp": "MISMATCH"})
+        self.assertEqual(records.aggregate(ends)["weights_stamps"],
+                         ["MISMATCH", "match", "none"])
+        self.assertEqual(records.aggregate([])["weights_stamps"], [])
+
     def test_a_missing_file_raises(self) -> None:
         missing = FIXTURES / "none.json"
         with self.assertRaises(OSError):
