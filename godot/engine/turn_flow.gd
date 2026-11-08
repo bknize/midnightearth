@@ -448,6 +448,7 @@ static func continue_end_turn(
 	if from == STEP_EXIT_PASS:
 		if at_turn_end(state, cards, rng, sink, MOMENT_TURN_END_AFTER, STEP_TURN_END_AFTER):
 			return true
+	CrewAbilities.end_turn_uses(state, cards)  # A `turn` Crew's uses come back (R6).
 	settle_turn(state, sink)
 	return false
 

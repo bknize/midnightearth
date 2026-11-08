@@ -29,8 +29,9 @@ extends RefCounted
 ## - salvager_cycle (on_commit): the seat may Discard a card from its hand, then draws (no
 ##   amount).
 ## `uses` 0 is unlimited (every v2 Crew); `scope` is the cessation of the change it gives
-## (CardAbility.SCOPES, or "" for none). The behaviour is CrewAbilities' (DC-13 T07, T14);
-## this class is data only.
+## (CardAbility.SCOPES, or "" for none) and, for a limited Crew, the scope its uses count in
+## (`turn` comes back at turn end, any other for the match; rules 9, cycle 14 R6). The
+## behaviour is CrewAbilities' (DC-13 T07, T14); this class is data only.
 
 ## The Crew verbs (plan P4; milestone B's four from DC-14 T14): verb name to {moment, and
 ## for `amount` and `amount_2` an inclusive [low, high] range when the verb takes it}.

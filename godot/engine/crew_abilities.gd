@@ -38,6 +38,16 @@ extends RefCounted
 ##   (TriggerContext.draw, Q11 on an empty Deck). An empty hand fizzles `no_target`; a
 ##   decline neither Discards nor draws.
 ##
+## Uses (rules 9, cycle 14 R6, R7, R13, plan P4, P7): MatchState.crew_uses[seat][slot]
+## counts down from CrewDef.initial_uses() each time a limited Crew (`uses` above 0)
+## resolves; CrewDef.UNLIMITED never counts. A Crew with none left fizzles `spent` when it
+## comes up instead of firing. A Crew of scope `turn` gets its uses back at turn end
+## (end_turn_uses()); any other scope counts for the match. After its verb resolves a Crew
+## sends CREW_FIRED {seat, slot, crew, moment, verb, uses_left} (public; `uses_left` -1 when
+## unlimited), besides the TRIGGER_FIRED the queue sent when it fired. Its stats changes go
+## through Abilities.stats_changed() with the Crew id as `cause` (R14), so a card in a
+## pending face-down Commit is told to the first committer only (R15).
+##
 ## Ongoing reads (no queue entry and no event of their own; CARD_SCORED and the Budget
 ## show them):
 ## - tallyman_fifth: fifth_mult() for the Score that is the seat's `amount`th, 2×`amount`th
@@ -61,8 +71,6 @@ const VERB_SALVAGER: String = "salvager_cycle"
 ## after that Score, and the slot the card Scored from.
 const KEY_SCORED_COUNT: String = "scored_count"
 const KEY_SLOT: String = "slot"
-## STATS_CHANGED `cause`.
-const KEY_CAUSE: String = "cause"
 
 
 ## The Crew trigger of `ctx` came up: it fizzles `no_target` when its condition does not
@@ -70,6 +78,9 @@ const KEY_CAUSE: String = "cause"
 static func prepare(ctx: TriggerContext) -> void:
 	if ctx.crew == null:
 		ctx.fizzle(Abilities.REASON_NO_TARGET)
+		return
+	if uses_left(ctx.state, ctx.cards, ctx.seat, ctx.crew_slot) == 0:
+		ctx.fizzle(Abilities.REASON_SPENT)  # Limited uses, none left in its scope (R6).
 		return
 	match ctx.verb:
 		VERB_NAVIGATOR:
@@ -94,8 +105,11 @@ static func prepare(ctx: TriggerContext) -> void:
 
 
 ## The Crew trigger of `ctx` resolves, reading its amounts now (Q5); a prompting Crew
-## resolves only once answered (a decline never reaches here, TriggerQueue.answer).
+## resolves only once answered (a decline never reaches here, TriggerQueue.answer). Then
+## fire() counts the use and sends CREW_FIRED.
 static func resolve(ctx: TriggerContext) -> void:
+	if ctx.crew == null:
+		return
 	match ctx.verb:
 		VERB_NAVIGATOR, VERB_CAPTAIN:
 			_grow_power(ctx, ctx.subject, ctx.crew.amount)
@@ -110,6 +124,66 @@ static func resolve(ctx: TriggerContext) -> void:
 			_veil(ctx)
 		VERB_SALVAGER:
 			_salvage(ctx)
+	fire(ctx)
+
+
+## After `ctx`'s Crew verb has resolved (R13): one use is counted (a limited Crew) and
+## CREW_FIRED {seat, slot, crew, moment, verb, uses_left} goes out, public, `uses_left` the
+## uses left after this one (CrewDef.UNLIMITED, -1, for an unlimited Crew).
+static func fire(ctx: TriggerContext) -> void:
+	var left: int = _count_use(ctx.state, ctx.cards, ctx.seat, ctx.crew_slot)
+	var fired: Dictionary = {
+		"seat": ctx.seat,
+		"slot": ctx.crew_slot,
+		"crew": ctx.crew.id,
+		"moment": ctx.moment,
+		"verb": ctx.verb,
+		"uses_left": left,
+	}
+	ctx.emit(MatchEvent.Kind.CREW_FIRED, fired)
+
+
+## The uses `seat`'s Crew in `slot` has left (MatchState.crew_uses): CrewDef.UNLIMITED for
+## an unlimited Crew; its CrewDef.initial_uses() when the counts are not filled yet.
+static func uses_left(state: MatchState, cards: MatchCards, seat: int, slot: int) -> int:
+	if state == null or seat < 0 or seat >= state.crew_uses.size() or slot < 0:
+		return CrewDef.UNLIMITED
+	var held: Array = state.crew_uses[seat]
+	if slot < held.size():
+		var left: int = held[slot]
+		return left
+	var crew: CrewDef = cards.crew_def(seat, slot) if cards != null else null
+	return crew.initial_uses() if crew != null else CrewDef.UNLIMITED
+
+
+## Turn end (TurnFlow.continue_end_turn, before the Turn settles): every Crew of scope
+## `turn` gets its uses back (CrewDef.initial_uses()); the others keep their counts.
+static func end_turn_uses(state: MatchState, cards: MatchCards) -> void:
+	if state == null or cards == null:
+		return
+	for seat: int in range(state.crew_uses.size()):
+		var held: Array = state.crew_uses[seat]
+		for slot: int in range(held.size()):
+			var crew: CrewDef = cards.crew_def(seat, slot)
+			if crew != null and crew.scope == Abilities.SCOPE_TURN:
+				held[slot] = crew.initial_uses()
+
+
+## Counts one use of `seat`'s limited Crew in `slot` (filling the seat's counts first when
+## they are not); returns the uses left after it, CrewDef.UNLIMITED for an unlimited Crew.
+static func _count_use(state: MatchState, cards: MatchCards, seat: int, slot: int) -> int:
+	var left: int = uses_left(state, cards, seat, slot)
+	if left == CrewDef.UNLIMITED:
+		return left
+	var held: Array = state.crew_uses[seat]
+	if slot >= held.size():
+		state.reset_crew_uses(cards)
+		held = state.crew_uses[seat]
+	if slot >= held.size():
+		return left
+	left = maxi(left - 1, 0)
+	held[slot] = left
+	return left
 
 
 # --- Ongoing reads --------------------------------------------------------------------
@@ -216,32 +290,14 @@ static func _pile_of(ctx: TriggerContext) -> Array[int]:
 	return ctx.state.seats[ctx.seat].pile
 
 
-## Power +`amount` for the match on `card` (Memory), then STATS_CHANGED {card, power, mult,
-## add, cost, permanent, cause}, private to the seat holding it while it is hidden.
+## Power +`amount` for the match on `card` (Memory), then STATS_CHANGED as a card ability's
+## (Abilities.stats_changed: the same keys, cost clamp and routing, R14, R15), `cause` the
+## Crew id.
 static func _grow_power(ctx: TriggerContext, card: int, amount: int) -> void:
 	if card < 0:
 		return
 	ctx.state.memory_for(card).power += amount
-	var shown: Dictionary = Scoring.stats(card, ctx.state, ctx.cards).to_dict()
-	shown["card"] = card
-	shown["cost"] = Scoring.effective_cost(card, ctx.state, ctx.cards)
-	shown["permanent"] = true
-	shown[KEY_CAUSE] = ctx.crew.id
-	ctx.emit(MatchEvent.Kind.STATS_CHANGED, shown, _holder_if_hidden(ctx.state, card))
-
-
-## The seat that may see `card` when it is hidden (in a hand, a Deck, or face down on a
-## row), else MatchEvent.PUBLIC (revealed on a row, or in a Pile).
-static func _holder_if_hidden(state: MatchState, card: int) -> int:
-	for seat: int in range(state.seats.size()):
-		var piles: MatchState.SeatPiles = state.seats[seat]
-		if piles.pile.has(card):
-			return MatchEvent.PUBLIC
-		if piles.board.has(card):
-			return MatchEvent.PUBLIC if piles.is_revealed(card) else seat
-		if piles.hand.has(card) or piles.deck.has(card):
-			return seat
-	return MatchEvent.PUBLIC
+	Abilities.stats_changed(ctx, card, true, ctx.crew.id)
 
 
 ## Dredger: the seat's Pile goes into its Deck, which is shuffled with the engine stream;

@@ -45,7 +45,8 @@ extends RefCounted
 ## - CARD_MOVED {card, seat, from, to, cause}; CARD_UNREVEALED {seat, card, slot};
 ##   CARD_RETURNED {owner, card, seat, slot} (the row it left, as on its EXIT_RESOLVED);
 ##   CARD_LOOKED {seat, card, slot, from_seat}
-## - CREW_FIRED {seat, crew, slot, moment}
+## - CREW_FIRED {seat, slot, crew, moment, verb, uses_left} (rules 9, R13: sent by
+##   CrewAbilities.fire after a Crew's verb resolves, `uses_left` -1 when unlimited)
 ## - TURN_ENDED {scores, winner, wins} (+ `round`, `turn`); ROUND_ENDED {winner, wins}
 ##   (+ `round`, `scores`, `turn_wins`); CONCEDED {seat}; MATCH_ENDED {winner, reason, wins,
 ##   rounds_played}
