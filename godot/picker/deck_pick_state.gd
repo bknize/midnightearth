@@ -4,18 +4,24 @@ extends RefCounted
 ## A pick replaces the column's previous one, and Start is allowed only once both columns
 ## hold a deck the list offers.
 
+## The default column count (PVE: You and Bot); PVP uses one (cycle 12 T08).
 const COLUMNS: int = 2
 
 var _available: Array[String] = []
 var _picks: Array[String] = ["", ""]
+var _columns: int = COLUMNS
 
 
 ## `available` are the deck ids on offer; `preselected` is one id per column, and an id that
-## is not on offer (or "") leaves that column without a pick.
-func setup(available: Array[String], preselected: Array[String]) -> void:
+## is not on offer (or "") leaves that column without a pick. `columns` (at least 1) is the
+## number of picks the state holds.
+func setup(available: Array[String], preselected: Array[String], columns: int = COLUMNS) -> void:
 	_available = available.duplicate()
-	_picks = ["", ""]
-	for column: int in range(mini(COLUMNS, preselected.size())):
+	_columns = maxi(columns, 1)
+	_picks = []
+	for _i: int in range(_columns):
+		_picks.append("")
+	for column: int in range(mini(_columns, preselected.size())):
 		if not pick(column, preselected[column]):
 			continue  # An unknown id leaves that column without a pick.
 
@@ -23,7 +29,7 @@ func setup(available: Array[String], preselected: Array[String]) -> void:
 ## Picks `deck_id` for `column`, replacing its previous pick. Returns false, changing
 ## nothing, for an unknown column or a deck that is not on offer.
 func pick(column: int, deck_id: String) -> bool:
-	if column < 0 or column >= COLUMNS or not _available.has(deck_id):
+	if column < 0 or column >= _columns or not _available.has(deck_id):
 		return false
 	_picks[column] = deck_id
 	return true
@@ -31,16 +37,21 @@ func pick(column: int, deck_id: String) -> bool:
 
 ## The column's picked deck id, "" when none.
 func picked_id(column: int) -> String:
-	if column < 0 or column >= COLUMNS:
+	if column < 0 or column >= _columns:
 		return ""
 	return _picks[column]
 
 
-## Whether Start may be pressed: both columns hold a pick.
+## Whether Start may be pressed: every column holds a pick.
 func can_start() -> bool:
-	return _picks[0] != "" and _picks[1] != ""
+	return not _picks.has("")
 
 
-## The two picks, You then Bot ("" for a column with none).
+## The picks, one per column (You then Bot for two) ("" for a column with none).
 func deck_ids() -> Array[String]:
 	return _picks.duplicate()
+
+
+## The number of columns.
+func column_count() -> int:
+	return _columns
