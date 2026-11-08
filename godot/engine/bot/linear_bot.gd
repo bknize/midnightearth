@@ -36,7 +36,7 @@ var _prompts: RandomBot = null
 func _init(bot_seed: int, cards: MatchCards, weights: BotWeights) -> void:
 	super(bot_seed, cards)
 	_weights = weights if weights != null else BotWeights.defaults()
-	_vector = _weights.vector(BotFeatures.names(_cards))
+	_vector = _weights.vector_for(_cards)
 	_prompts = RandomBot.new(bot_seed, cards)
 
 

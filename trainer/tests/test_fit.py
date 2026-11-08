@@ -220,6 +220,15 @@ class LearnerTest(unittest.TestCase):
                     should_stop=lambda: True)
         self.assertIn("stopped", str(ctx.exception))
 
+    def test_checkout_under_another_stamp_is_refused(self) -> None:
+        # The runs' stamp (r7-synthetic) is not the checkout's: the names read from the
+        # checkout would misname the weights, so the fit stops before writing anything.
+        cfg = FitConfig(runs=["a"])
+        with self.assertRaises(FitError) as ctx:
+            run_fit(self.store, "fit1", cfg, self.dir / "out", ROOT)
+        self.assertIn("code stamp", str(ctx.exception))
+        self.assertFalse((self.dir / "out").exists())
+
     def test_two_runs_are_learned_together(self) -> None:
         make_run(self.store, "b", 2, positions=100)
         cfg = FitConfig(runs=["b", "a"], seed=3)

@@ -55,6 +55,10 @@ var fit: Dictionary = _empty_fit()
 var weights: Dictionary = {}
 ## Why loading failed ("" when it did not); the defaults are then in force (R9).
 var load_error: String = ""
+## vector_for()'s memo: the pool it was built for (MatchCards.pool_key; -1 before the first
+## call) and the vector.
+var _vector_key: int = -1
+var _vector_memo: PackedInt64Array = PackedInt64Array()
 
 
 ## The built-in weights: committed Power counted once, every other feature 0, `k`
@@ -148,6 +152,17 @@ func vector(names: Array[String]) -> PackedInt64Array:
 			var weight: int = weights[name]
 			out[index] = weight
 	return out
+
+
+## vector(BotFeatures.names(`cards`)), built once per card pool (MatchCards.pool_key) and
+## kept on this object, so the bots of every play-out over one pool share it. Assumes
+## `weights` is not changed after the first call (the object is read-only once loaded).
+func vector_for(cards: MatchCards) -> PackedInt64Array:
+	var key: int = MatchCards.pool_key(cards)
+	if key != _vector_key:
+		_vector_memo = vector(BotFeatures.names(cards))
+		_vector_key = key
+	return _vector_memo
 
 
 ## Whether the file's stamp is the current engine's (BotStamp.current()); false for no stamp.

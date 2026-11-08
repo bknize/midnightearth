@@ -121,6 +121,14 @@ def feed_until_decided(test: sprt.Sprt,
     return kept
 
 
+def batch_stamp_mismatch(recs: List[Dict[str, Any]], stamp: str) -> str:
+    """The engine stamps of a batch's end records that are not `stamp`, joined by ", ";
+    "" when every end record carries `stamp` (or none carries a stamp)."""
+    other = sorted({str(r["stamp"]) for r in recs
+                    if r.get("t") == "end" and "stamp" in r and str(r["stamp"]) != stamp})
+    return ", ".join(other)
+
+
 def run_eval(args: argparse.Namespace,
              factory: Optional[WorkerFactory] = None,
              workers: Optional[int] = None) -> int:
@@ -162,11 +170,12 @@ def eval_report(args: argparse.Namespace,
     failures: List[str] = []
     fail_codes: List[int] = []
     running: Dict[Any, int] = {}
+    stale = ""                     # a batch's engine stamp, when it is not the driver's
     next_i = 0
     next_feed = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
         while True:
-            while (not failures and not test.decided() and next_i < len(plan)
+            while (not failures and not stale and not test.decided() and next_i < len(plan)
                    and len(running) < n_workers):
                 s, e = plan[next_i]
                 out = os.path.join(out_dir, "batch-%d-%d.jsonl" % (s, e))
@@ -189,7 +198,10 @@ def eval_report(args: argparse.Namespace,
                         os.remove(out)  # discard the partial batch (R31)
                 else:
                     done[i] = out
-            while not failures and next_feed in done and not test.decided():
+                    if not stale:
+                        stale = batch_stamp_mismatch(records.read_records(out), stamp)
+            while (not failures and not stale and next_feed in done
+                   and not test.decided()):
                 path = done[next_feed]
                 fed.append(path)
                 consumed.extend(feed_until_decided(test, records.read_records(path)))
@@ -200,6 +212,11 @@ def eval_report(args: argparse.Namespace,
         # worker exit codes, so a caller can tell a candidate's own failure (1: rejected
         # action or replay mismatch) from infrastructure (2, 3, 127)
         return EXIT_ERROR, {"worker_exit_codes": sorted(set(fail_codes))}
+    if stale:
+        # a stale worker fails fast: nothing is scheduled after the first stamp mismatch
+        print("bot-eval: engine stamp %s differs from the driver's %s" % (stale, stamp),
+              file=sys.stderr)
+        return EXIT_ERROR, {}
 
     agg = records.aggregate(consumed)
     state = test.state()
