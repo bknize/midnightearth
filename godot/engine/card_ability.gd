@@ -27,19 +27,31 @@ const KEY_TEXT: String = "text"
 ## The keys a verb table entry may hold besides `moments`: the amounts with a range.
 const RANGED_KEYS: Array[String] = [KEY_AMOUNT, KEY_AMOUNT_2, KEY_CAP]
 
-## The trigger moments (plan P3; canon R42), in the canon's order.
+## The trigger moments (plan P3; canon R42): the one place their names are written.
+const MOMENT_REVEAL: String = "on_reveal"
+const MOMENT_SCORE: String = "on_score"
+const MOMENT_COMMIT: String = "on_commit"
+const MOMENT_START: String = "on_start"
+const MOMENT_DISCARD: String = "on_discard"
+const MOMENT_SQUELCH: String = "on_squelch"
+const MOMENT_EMPTY_DRAW: String = "on_empty_draw"
+const MOMENT_MOVED: String = "on_moved"
+const MOMENT_TURN_END_BEFORE: String = "at_turn_end_before"
+const MOMENT_TURN_END_AFTER: String = "at_turn_end_after"
+const MOMENT_ONGOING: String = "ongoing"
+## The trigger moments in the canon's order.
 const MOMENTS: Array[String] = [
-	"on_reveal",
-	"on_score",
-	"on_commit",
-	"on_start",
-	"on_discard",
-	"on_squelch",
-	"on_empty_draw",
-	"on_moved",
-	"at_turn_end_before",
-	"at_turn_end_after",
-	"ongoing",
+	MOMENT_REVEAL,
+	MOMENT_SCORE,
+	MOMENT_COMMIT,
+	MOMENT_START,
+	MOMENT_DISCARD,
+	MOMENT_SQUELCH,
+	MOMENT_EMPTY_DRAW,
+	MOMENT_MOVED,
+	MOMENT_TURN_END_BEFORE,
+	MOMENT_TURN_END_AFTER,
+	MOMENT_ONGOING,
 ]
 ## The watcher bracket (plan P3): whose event the ability watches; "self" when absent.
 const WATCH_SELF: String = "self"

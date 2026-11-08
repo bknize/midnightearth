@@ -70,12 +70,6 @@ const STEP_TURN_END_BEFORE: String = "D9"
 const STEP_EXIT_PASS: String = "D10"
 const STEP_TURN_END_AFTER: String = "D11"
 const STEP_ROUND_END: String = "D12"
-const MOMENT_TURN_END_BEFORE: String = "at_turn_end_before"
-const MOMENT_TURN_END_AFTER: String = "at_turn_end_after"
-const MOMENT_EMPTY_DRAW: String = "on_empty_draw"
-const MOMENT_START: String = "on_start"
-const MOMENT_COMMIT: String = "on_commit"
-const MOMENT_DISCARD: String = "on_discard"
 ## What end_round() returns when D12 paused on a prompt: no Round is awarded yet.
 const ROUND_PAUSED: int = -2
 
@@ -437,7 +431,9 @@ static func continue_end_turn(
 ) -> bool:
 	var from: String = after
 	if from == "":
-		if at_turn_end(state, cards, rng, sink, MOMENT_TURN_END_BEFORE, STEP_TURN_END_BEFORE):
+		if at_turn_end(
+			state, cards, rng, sink, CardAbility.MOMENT_TURN_END_BEFORE, STEP_TURN_END_BEFORE
+		):
 			return true
 		from = STEP_TURN_END_BEFORE
 	if from == STEP_TURN_END_BEFORE:
@@ -446,7 +442,9 @@ static func continue_end_turn(
 			return true
 		from = STEP_EXIT_PASS
 	if from == STEP_EXIT_PASS:
-		if at_turn_end(state, cards, rng, sink, MOMENT_TURN_END_AFTER, STEP_TURN_END_AFTER):
+		if at_turn_end(
+			state, cards, rng, sink, CardAbility.MOMENT_TURN_END_AFTER, STEP_TURN_END_AFTER
+		):
 			return true
 	CrewAbilities.end_turn_uses(state, cards)  # A `turn` Crew's uses come back (R6).
 	settle_turn(state, sink)
@@ -609,12 +607,13 @@ static func leader(values: Array[int]) -> int:
 static func on_empty_draw(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int
 ) -> bool:
-	return _wake_and_drain(state, cards, rng, sink, MOMENT_EMPTY_DRAW, STEP_EMPTY_DRAW, seat)
+	var moment: String = CardAbility.MOMENT_EMPTY_DRAW
+	return _wake_and_drain(state, cards, rng, sink, moment, STEP_EMPTY_DRAW, seat)
 
 
 ## The On start Batch of revealed cards and Crew wakes and drains (D2).
 static func on_start(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> bool:
-	return _wake_and_drain(state, cards, rng, sink, MOMENT_START, STEP_ON_START)
+	return _wake_and_drain(state, cards, rng, sink, CardAbility.MOMENT_START, STEP_ON_START)
 
 
 ## `seat`'s On commit Batch (its revealed row cards, its hand cards with `zone: hand`, its
@@ -624,7 +623,7 @@ static func on_commit(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int
 ) -> bool:
 	var step: String = STEP_FIRST_COMMIT if seat == state.first_seat else STEP_SECOND_COMMIT
-	return _wake_and_drain(state, cards, rng, sink, MOMENT_COMMIT, step, seat)
+	return _wake_and_drain(state, cards, rng, sink, CardAbility.MOMENT_COMMIT, step, seat)
 
 
 ## Each card of `discarded`, in order, wakes its On discard Batch (at Round end, D12, the
@@ -641,23 +640,24 @@ static func on_discard(
 	step: String,
 	seat: int = -1
 ) -> bool:
+	var moment: String = CardAbility.MOMENT_DISCARD
 	var context: Dictionary = {"from": FROM_HAND, "reason": REASON_DISCARD_DOWN}
 	if step == STEP_EXIT_PASS:
 		context = {"from": FROM_ROW, "reason": REASON_CONDEMNED}
 	if step == STEP_ROUND_END:
 		context = {"from": FROM_ROW, "reason": REASON_ROUND_END}
-		if TriggerQueue.wake(state, cards, MOMENT_DISCARD, discarded, -1, context).is_empty():
+		if TriggerQueue.wake(state, cards, moment, discarded, -1, context).is_empty():
 			pass  # Nothing watches the Round-end clear.
 	else:
 		for card: int in discarded:
 			var subjects: Array[int] = [card]
-			if TriggerQueue.wake(state, cards, MOMENT_DISCARD, subjects, -1, context).is_empty():
+			if TriggerQueue.wake(state, cards, moment, subjects, -1, context).is_empty():
 				pass  # Nothing watches this Discard.
 	return TriggerQueue.drain(state, cards, rng, sink, step, seat)
 
 
-## The At turn end Batch of `moment` (MOMENT_TURN_END_BEFORE or _AFTER) wakes and drains at
-## `step` (D9 or D11).
+## The At turn end Batch of `moment` (CardAbility.MOMENT_TURN_END_BEFORE or _AFTER) wakes
+## and drains at `step` (D9 or D11).
 static func at_turn_end(
 	state: MatchState,
 	cards: MatchCards,

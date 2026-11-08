@@ -24,9 +24,6 @@ const ZONE_ROW: String = "row"
 const ZONE_HAND: String = "hand"
 const KIND_CARD: String = "card"
 const KIND_CREW: String = "crew"
-const MOMENT_MOVED: String = "on_moved"
-const MOMENT_SQUELCH: String = "on_squelch"
-const MOMENT_EMPTY_DRAW: String = "on_empty_draw"
 const KEY_TEXT: String = "text"
 
 var state: MatchState = null
@@ -168,14 +165,14 @@ func wake(
 ## Queues the On moved Batch of the cards a Movement call returned (one Batch, R40).
 func wake_moved(moved: Array[int]) -> void:
 	if not moved.is_empty():
-		wake(MOMENT_MOVED, moved)
+		wake(CardAbility.MOMENT_MOVED, moved)
 
 
 ## Queues the On squelch Batch of `p_card` when Statuses.apply() says it wakes it.
 func wake_squelch(p_card: int, applied: Statuses.Applied) -> void:
 	if applied != null and applied.wakes_squelch:
 		var subjects: Array[int] = [p_card]
-		wake(MOMENT_SQUELCH, subjects)
+		wake(CardAbility.MOMENT_SQUELCH, subjects)
 
 
 ## An effect's draw for `by_seat` (R18, Q11): the top card of its Deck to its hand
@@ -188,7 +185,7 @@ func draw(by_seat: int) -> int:
 	if piles.deck.is_empty():
 		emit(MatchEvent.Kind.DRAW_EMPTY, {"seat": by_seat})
 		var none: Array[int] = []
-		wake(MOMENT_EMPTY_DRAW, none, by_seat, {TriggerQueue.KEY_THEN_DRAW: by_seat})
+		wake(CardAbility.MOMENT_EMPTY_DRAW, none, by_seat, {TriggerQueue.KEY_THEN_DRAW: by_seat})
 		return -1
 	if TurnFlow.resumed_draw(state, sink, by_seat):
 		pass  # The Deck is not empty: the top card is now the last of the hand.

@@ -97,7 +97,7 @@ func size() -> int:
 
 ## The definition of instance `instance` (a Deck card or a recorded Dross card), or null.
 func def_of(instance: int) -> CardDef:
-	if instance >= DROSS_BASE:
+	if is_dross(instance):
 		if _dross.has(instance):
 			return _dross[instance]
 		return null  # Never created, or expired (forget_dross).
@@ -109,7 +109,7 @@ func def_of(instance: int) -> CardDef:
 ## The Owner of `instance`: the seat whose Deck it came from, or for a Dross card the seat
 ## it was created for; -1 when out of range or not recorded.
 func origin_of(instance: int) -> int:
-	if instance >= DROSS_BASE:
+	if is_dross(instance):
 		if _dross_owner.has(instance):
 			return _dross_owner[instance]
 		return -1

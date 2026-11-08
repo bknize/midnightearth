@@ -79,7 +79,6 @@ const KIND_USED: String = "used"  # AbilitiesGraveyardControl.KIND_USED (Tithe, 
 const SCOPE_TURN: String = "turn"
 const SCOPE_ROW: String = "row"
 const SCOPE_MATCH: String = "match"
-const MOMENT_DISCARD: String = "on_discard"
 ## CARD_LOOKED `zone` of a Delve look-at (a Lookout's has none: the opposing row).
 const LOOKED_DECK_TOP: String = "own_deck_top"
 ## ctx.data key: how many cards a Delve looked at.
@@ -444,7 +443,7 @@ static func _can_shift(ctx: TriggerContext) -> bool:
 	var seat: int = Statuses.row_seat(ctx.state, ctx.card)
 	if seat < 0 or ctx.state.seats[seat].board.size() < 2:
 		return false
-	return not Statuses.is_anchored(ctx.state, ctx.cards, ctx.card)
+	return not Statuses.is_anchored(ctx.state, ctx.cards, ctx.card, seat)
 
 
 ## Whether `card` is face down on the row of the seat other than `seat`, and `seat` has not
@@ -554,7 +553,7 @@ static func discard(ctx: TriggerContext, card: int) -> void:
 		ctx.state, ctx.cards, ctx.sink, card, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD
 	)
 	var subjects: Array[int] = [card]
-	ctx.wake(MOMENT_DISCARD, subjects)
+	ctx.wake(CardAbility.MOMENT_DISCARD, subjects)
 
 
 ## Marks `card` Condemned (a protection may block it: Bastion).
