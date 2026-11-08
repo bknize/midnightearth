@@ -31,10 +31,9 @@ const RECONNECT_WINDOW_MS: int = 120000
 const FINISHED_LINGER_MS: int = 300000
 const HOST_SEAT: int = 0
 const JOIN_SEAT: int = 1
-const MODE: String = "pvp"
 ## The server's end reasons (Data model): with winner -1 and complete false.
-const END_ABANDONED: String = "abandoned"
-const END_SERVER_ERROR: String = "server_error"
+const END_ABANDONED: String = PvpLog.REASON_ABANDONED
+const END_SERVER_ERROR: String = PvpLog.REASON_SERVER_ERROR
 ## `closed` reasons the room sends besides END_SERVER_ERROR.
 const CLOSED_FINISHED: String = "finished"
 const CLOSED_REPLACED: String = "replaced"
@@ -62,9 +61,7 @@ var _started_ms: int = -1
 var _ended_ms: int = -1
 ## The log's `end` once the match ended or the room closed after its start; {} before.
 var _end: Dictionary = {}
-## True when the engine ended the match (the log's `complete`).
-var _complete: bool = false
-## The log's `disconnects`: {seat, at, reconnected} per drop, in order.
+## The log's `disconnects`: PvpLog.disconnect_entry per drop, in order.
 var _disconnects: Array[Dictionary] = []
 ## Bumped whenever log_record() would change, so the server rewrites the file only then.
 var _revision: int = 0
@@ -218,7 +215,7 @@ func connection_lost(conn: int, now_ms: int) -> Array[Outbound]:
 		_close()
 	elif _phase == Phase.RUNNING:
 		slot.lost_at_ms = now_ms
-		_disconnects.append({"seat": seat, "at": _iso(now_ms), "reconnected": false})
+		_disconnects.append(PvpLog.disconnect_entry(seat, _seconds(now_ms), false))
 		_revision += 1
 		var seconds: int = _seconds(reconnect_window_ms)
 		_tell_other(out, seat, _opponent_state(NetProtocol.STATE_LOST, seconds, slot.name))
@@ -256,7 +253,7 @@ func fail(now_ms: int) -> Array[Outbound]:
 	if _phase == Phase.CLOSED:
 		return out
 	if _started_ms >= 0 and _end.is_empty():
-		_end = _server_end(END_SERVER_ERROR)
+		_end = PvpLog.server_end(END_SERVER_ERROR)
 		_ended_ms = now_ms
 	_tell_all(out, _closed(END_SERVER_ERROR))
 	_close()
@@ -306,10 +303,10 @@ func revision() -> int:
 	return _revision
 
 
-## The log file's content (plan P9, Data model; spec R53 to R57), the same Dictionary
-## shape T04's PvpLog builds (new_record, player, disconnect_entry, set_log, engine_end,
-## server_end, finish): {} before the match started; `end` and `ended_at` null and
-## `complete` false while it runs; `end` from the MATCH_ENDED payload (complete true), or
+## The log file's content (plan P9, Data model; spec R53 to R57), built with PvpLog's
+## builders (new_record, player, disconnect_entry, set_log, finish): {} before the match
+## started; `end` and `ended_at` null and `complete` false while it runs; `end` from the
+## MATCH_ENDED payload (PvpLog.engine_end, complete true), or PvpLog.server_end's
 ## {reason, winner: -1} for abandoned / server_error (complete false). `log` is the
 ## engine's ActionLog JSON parsed back in (whole numbers as ints), so
 ## ActionLog.from_json(JSON.stringify(record.log)) replays it. The only hidden data the
@@ -317,39 +314,20 @@ func revision() -> int:
 func log_record() -> Dictionary:
 	if _started_ms < 0 or _engine == null:
 		return {}
-	var players: Array = []
+	var players: Array[Dictionary] = []
 	for seat: int in range(_seats.size()):
 		var slot: SeatSlot = _seats[seat]
-		players.append(
-			{"seat": seat, "name": slot.name, "install_id": slot.install_id, "kind": slot.kind}
-		)
-	var decks: Array = []
-	decks.assign(_engine.deck_ids())
+		players.append(PvpLog.player(seat, slot.name, slot.install_id, slot.kind))
+	var record: Dictionary = PvpLog.new_record(
+		code, _seconds(_started_ms), stamp, build, players, _engine.deck_ids()
+	)
 	var disconnects: Array = []
 	for entry: Dictionary in _disconnects:
 		disconnects.append(entry.duplicate(true))
-	var record: Dictionary = {
-		"match_id": _compact_time(_started_ms) + "-" + code,
-		"room": code,
-		"mode": MODE,
-		"stamp": stamp,
-		"rules": MatchRules.RULES_VERSION,
-		"log_format": MatchRules.LOG_FORMAT,
-		"protocol": NetProtocol.VERSION,
-		"build": build,
-		"players": players,
-		"decks": decks,
-		"started_at": _iso(_started_ms),
-		"ended_at": null,
-		"end": null,
-		"complete": false,
-		"disconnects": disconnects,
-		"log": _parsed_log(),
-	}
+	record[PvpLog.KEY_DISCONNECTS] = disconnects
+	PvpLog.set_log(record, _engine.action_log())
 	if not _end.is_empty():
-		record["ended_at"] = _iso(_ended_ms)
-		record["end"] = _end.duplicate(true)
-		record["complete"] = _complete
+		PvpLog.finish(record, _end, _seconds(_ended_ms))
 	return record
 
 
@@ -412,39 +390,22 @@ func _accepted(result: ApplyResult, now_ms: int, out: Array[Outbound]) -> void:
 	if _phase == Phase.RUNNING and _engine.is_over():
 		_phase = Phase.FINISHED
 		_ended_ms = now_ms
-		_complete = true
 		_end = _engine_end(result)
 		for slot: SeatSlot in _seats:
 			slot.lost_at_ms = -1
 
 
-## The log's `end` from the match's MATCH_ENDED event (the engine's reason and result).
+## The log's `end` from the match's MATCH_ENDED event (PvpLog.engine_end).
 func _engine_end(result: ApplyResult) -> Dictionary:
 	for event: MatchEvent in result.events:
 		if event.kind == MatchEvent.Kind.MATCH_ENDED:
-			var p: Dictionary = event.payload
-			var wins: Array = []
-			var raw_wins: Variant = p.get("wins", [])
-			if raw_wins is Array:
-				var listed: Array = raw_wins
-				wins.assign(listed)
-			return {
-				"reason": p.get("reason", ""),
-				"winner": p.get("winner", -1),
-				"wins": wins,
-				"rounds": p.get("rounds_played", 0),
-			}
-	return _server_end(END_SERVER_ERROR)
-
-
-## A server-side `end` (abandoned, server_error), as PvpLog.server_end: no winner.
-static func _server_end(reason: String) -> Dictionary:
-	return {"reason": reason, "winner": -1}
+			return PvpLog.engine_end(event.payload)
+	return PvpLog.server_end(END_SERVER_ERROR)
 
 
 ## The match is abandoned by `seat` (R49): no action applied, `abandoned` to the other.
 func _abandon(seat: int, now_ms: int, out: Array[Outbound]) -> void:
-	_end = _server_end(END_ABANDONED)
+	_end = PvpLog.server_end(END_ABANDONED)
 	_ended_ms = now_ms
 	var message: Dictionary = _message(NetProtocol.T_ABANDONED)
 	message[NetProtocol.KEY_SEAT] = seat
@@ -515,13 +476,6 @@ func _tell_all(out: Array[Outbound], message: Dictionary) -> void:
 			out.append(Outbound.to(slot.connection_id, message.duplicate(true)))
 
 
-func _parsed_log() -> Variant:
-	var json: JSON = JSON.new()
-	if json.parse(_engine.action_log().to_json()) != OK:
-		return {}
-	return MatchEvent.whole_numbers(json.data)
-
-
 static func _message(kind: String) -> Dictionary:
 	return {NetProtocol.KEY_T: kind}
 
@@ -570,18 +524,9 @@ static func _text_of(identity: Dictionary, key: String) -> String:
 	return ""
 
 
+## Whole seconds of `ms` (Unix ms to the Unix seconds PvpLog takes).
 static func _seconds(ms: int) -> int:
 	return floori(float(ms) / 1000.0)
-
-
-## `now_ms` (Unix ms, UTC) as "2026-11-07T21:45:12Z".
-static func _iso(now_ms: int) -> String:
-	return Time.get_datetime_string_from_unix_time(_seconds(now_ms), false) + "Z"
-
-
-## `now_ms` as "20261107T214512Z" (the match id's and the file name's time, P9).
-static func _compact_time(now_ms: int) -> String:
-	return _iso(now_ms).replace("-", "").replace(":", "")
 
 
 ## One message for one connection.

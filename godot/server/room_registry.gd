@@ -21,6 +21,10 @@ var allowed_decks: Array[String] = []
 var _rng: RandomNumberGenerator = null
 ## func(deck_ids: Array[String]) -> MatchEngine, given to every room.
 var _engine_factory: Callable = Callable()
+## The shipped factory's object. A Callable does not keep its object alive, so the
+## registry holds it; without this the factory was freed when create() returned and every
+## room failed at its start.
+var _shipped: ShippedEngines = null
 var _rooms: Dictionary[String, MatchRoom] = {}
 var _closed: Array[MatchRoom] = []
 
@@ -36,9 +40,9 @@ static func create(
 	if engine_factory.is_valid():
 		registry._engine_factory = engine_factory
 	else:
-		var shipped: ShippedEngines = ShippedEngines.load_with(rng)
-		registry._engine_factory = shipped.make
-		registry.allowed_decks = shipped.deck_ids()
+		registry._shipped = ShippedEngines.load_with(rng)
+		registry._engine_factory = registry._shipped.make
+		registry.allowed_decks = registry._shipped.deck_ids()
 	return registry
 
 
