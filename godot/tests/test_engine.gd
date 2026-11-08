@@ -760,16 +760,81 @@ func test_engine_source_never_prints_asserts_or_pushes_errors() -> void:
 	assert_array(scripts).contains([BOT_SCRIPT])
 
 
-## NSC-177: every resume a prompt can carry has a branch in MatchEngine._resume_after, so an
-## answered prompt never leaves the match awaiting nobody (no engine error path, R27).
+## Opens a prompt by hand on the started `engine` for `seat`, carrying `resume` and `step`,
+## and declines it through apply(). Returns the kinds of the events that sent out.
+func _resume_kinds(engine: MatchEngine, resume: String, step: String, seat: int) -> Array[int]:
+	engine._state.prompt = {
+		Abilities.KEY_SEAT: seat,
+		Abilities.KEY_CARD: -1,
+		Abilities.KEY_VERB: "test",
+		Choice.KEY_ZONE: Choice.zone_name(Choice.Zone.OWN_HAND),
+		Choice.KEY_OPTIONS: [],
+		Choice.KEY_MULTI: false,
+		Choice.KEY_OPTIONAL: true,
+		Choice.KEY_RESUME: resume,
+		Choice.KEY_STEP: step,
+		Choice.KEY_CREW: "",
+	}
+	engine._state.phase = MatchState.Phase.AWAIT_CHOICE
+	var result: ApplyResult = engine.apply(EngineAction.decline(seat))
+	assert_bool(result.ok).is_true()
+	var kinds: Array[int] = []
+	for event: MatchEvent in result.events:
+		kinds.append(event.kind)
+	return kinds
+
+
+## NSC-177, T08 N4: every resume a prompt can carry takes the match on from the right step, so
+## an answered prompt never leaves it awaiting nobody (no engine error path, R27). Read from
+## what each one does: a branch missing from MatchEngine._resume_after sends none of these
+## events and, after _answer, leaves the phase AWAIT_SECOND.
 func test_every_resume_has_a_branch_in_the_engine() -> void:
-	var text: String = FileAccess.get_file_as_string("res://engine/match_engine.gd")
-	var names: Array[String] = [
-		"RESUME_WALK", "RESUME_TURN_START", "RESUME_COMMIT", "RESUME_TURN_END", "RESUME_ROUND_END"
-	]
-	assert_int(Choice.RESUMES.size()).is_equal(names.size())
-	for name: String in names:
-		assert_bool(text.contains("resume == Choice.%s" % name)).override_failure_message(name).is_true()
+	assert_int(Choice.RESUMES.size()).is_equal(5)
+	var ended: int = MatchEvent.Kind.TURN_ENDED
+	var walk_ended: int = MatchEvent.Kind.WALK_ENDED
+	var round_ended: int = MatchEvent.Kind.ROUND_ENDED
+
+	var start: MatchEngine = _started(SEED)
+	var seat: int = start._state.first_seat
+	var kinds: Array[int] = _resume_kinds(
+		start, Choice.RESUME_TURN_START, TurnFlow.STEP_ON_START, seat
+	)
+	assert_bool(kinds.has(ended)).is_false()
+	assert_int(start._state.phase).is_equal(MatchState.Phase.AWAIT_FIRST)
+	assert_int(start.awaited_seat()).is_equal(seat)
+
+	# The second seat's Commit is done (a discard drain, so no discard-down): the Walk starts.
+	var commit: MatchEngine = _started(SEED)
+	seat = 1 - commit._state.first_seat
+	kinds = _resume_kinds(commit, Choice.RESUME_COMMIT, TurnFlow.STEP_SECOND_DISCARD, seat)
+	assert_bool(kinds.has(MatchEvent.Kind.WALK_STARTED)).is_true()
+	assert_int(commit.awaited_seat()).is_greater_equal(0)
+
+	var walk: MatchEngine = _started(SEED)
+	ScoreWalk.begin(walk._state)
+	seat = walk._state.first_seat
+	kinds = _resume_kinds(walk, Choice.RESUME_WALK, ScoreWalk.STEP_SCORE, seat)
+	assert_bool(kinds.has(walk_ended)).is_true()
+	assert_bool(kinds.has(ended)).is_true()
+	assert_bool(kinds.has(MatchEvent.Kind.WALK_STARTED)).is_false()
+	assert_int(walk.awaited_seat()).is_greater_equal(0)
+
+	var turn_end: MatchEngine = _started(SEED)
+	seat = turn_end._state.first_seat
+	kinds = _resume_kinds(turn_end, Choice.RESUME_TURN_END, TurnFlow.STEP_TURN_END_AFTER, seat)
+	assert_bool(kinds.has(ended)).is_true()
+	assert_bool(kinds.has(walk_ended)).is_false()
+	assert_bool(kinds.has(round_ended)).is_false()
+	assert_int(turn_end.awaited_seat()).is_greater_equal(0)
+
+	var round_end: MatchEngine = _started(SEED)
+	seat = round_end._state.first_seat
+	kinds = _resume_kinds(round_end, Choice.RESUME_ROUND_END, TurnFlow.STEP_ROUND_END, seat)
+	assert_bool(kinds.has(round_ended)).is_true()
+	assert_bool(kinds.has(ended)).is_false()
+	assert_bool(kinds.has(MatchEvent.Kind.ROUND_STARTED)).is_true()
+	assert_int(round_end.awaited_seat()).is_greater_equal(0)
+
 
 ## Every .gd path under `dir`, subdirectories included, in a stable order.
 func _engine_scripts(dir: String) -> Array[String]:

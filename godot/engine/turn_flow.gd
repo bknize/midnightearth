@@ -50,11 +50,10 @@ const VERB_DISCARD_DOWN: String = "discard_down"
 ## CARD_DISCARDED `from` and `reason` (plan event table).
 const FROM_HAND: String = "hand"
 const FROM_ROW: String = "row"
-## DROSS_EXPIRED `from` of a Dross card leaving the Pile, the Deck or a waiting Commit
-## (expire_dross(); `hand` and `row` as above).
+## DROSS_EXPIRED `from` of a Dross card leaving the Pile or the Deck (expire_dross(); `hand`
+## and `row` as above).
 const FROM_PILE: String = "pile"
 const FROM_DECK: String = "deck"
-const FROM_PENDING: String = "pending"
 const REASON_DISCARD: String = "discard"
 const REASON_DISCARD_DOWN: String = "discard_down"
 const REASON_CONDEMNED: String = "condemned"
@@ -522,10 +521,11 @@ static func award_round(state: MatchState, cards: MatchCards, sink: Callable) ->
 ## at the end of a round"), after ROUND_ENDED and before the next Round's draws, the final
 ## Round of the Match included (so the Match-end checks read the hands without them): every
 ## Dross card whose lifetime is `round` (CardDef.expires_at_round_end) leaves the Match from
-## wherever it is (hand, row, Pile, Deck or a waiting Commit), in ascending id, each
-## forgotten by MatchCards (forget_dross) with one public DROSS_EXPIRED {owner, card, from,
-## reason: round_end}. A `match` Dross card stays. The other cards of each zone keep their
-## order: nothing is shuffled and no random draw is made.
+## wherever it is (hand, row, Pile or Deck), in ascending id, each forgotten by MatchCards
+## (forget_dross) with one public DROSS_EXPIRED {owner, card, from, reason: round_end}. A
+## `match` Dross card stays. The other cards of each zone keep their order: nothing is
+## shuffled and no random draw is made. No Commit waits here: the second seat's Commit empties
+## `pending` before the Walk, and a Round only ends after a Walk.
 static func expire_dross(state: MatchState, cards: MatchCards, sink: Callable) -> void:
 	if cards == null:
 		return
@@ -546,8 +546,8 @@ static func expire_dross(state: MatchState, cards: MatchCards, sink: Callable) -
 		sink.call(MatchEvent.Kind.DROSS_EXPIRED, expired)
 
 
-## Every card in a zone of the Match: each seat's hand, row, Pile and Deck, then the waiting
-## Commit (`pending`). Order does not matter (expire_dross() sorts).
+## Every card in a zone of the Match at Round end: each seat's hand, row, Pile and Deck.
+## Order does not matter (expire_dross() sorts).
 static func _all_cards(state: MatchState) -> Array[int]:
 	var out: Array[int] = []
 	for piles: MatchState.SeatPiles in state.seats:
@@ -555,18 +555,12 @@ static func _all_cards(state: MatchState) -> Array[int]:
 		out.append_array(piles.board)
 		out.append_array(piles.pile)
 		out.append_array(piles.deck)
-	out.append_array(state.pending)
 	return out
 
 
 ## Takes `card` out of whichever zone holds it (a row through Statuses.take_from_row, so its
 ## Board changes, reveal and looks end) and returns that zone's DROSS_EXPIRED `from`.
 static func _take_anywhere(state: MatchState, card: int, sink: Callable) -> String:
-	var at: int = state.pending.find(card)
-	if at >= 0:
-		state.pending.remove_at(at)
-		state.pending_slots.remove_at(at)
-		return FROM_PENDING
 	for seat: int in range(MatchEngine.SEATS):
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		if piles.board.has(card):

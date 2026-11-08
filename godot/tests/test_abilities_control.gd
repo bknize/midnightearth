@@ -560,6 +560,41 @@ func _marked(state: MatchState, row: Array[int]) -> Array[int]:
 	return out
 
 
+## R6 (T08 S1): one firing counts one use however many prompts it opens, in every scope. A
+## fixture Cull with `uses` 2 and both rows over its count asks both seats and has 1 left:
+## nothing counted until the first answer, nothing more at the second.
+func test_one_cull_firing_counts_one_use_over_its_two_prompts() -> void:
+	for scope: String in [Abilities.SCOPE_TURN, Abilities.SCOPE_ROW, Abilities.SCOPE_MATCH]:
+		var cards: MatchCards = _cards()
+		var cull: int = 0
+		var limited: CardAbility = StubAbilities.ability(
+			CardAbility.MOMENT_REVEAL, AbilitiesGraveyardControl.VERB_CULL, 5
+		)
+		limited.uses = 2
+		limited.scope = scope
+		var abilities: Array[CardAbility] = [limited]
+		var def: CardDef = StubAbilities.card_def("Cull", abilities, 7, 7)
+		assert_bool(StubAbilities.give(cards, _typed([cull]), def)).is_true()
+		var own: Array[int] = [cull, 1, 2, 3, 4, 5, 6]
+		var state: MatchState = StubAbilities.table(own, true)
+		state.seats[0].revealed.erase(cull)
+		var enemy: Array[int] = [OTHER, OTHER + 1, OTHER + 2, OTHER + 3, OTHER + 4, OTHER + 5]
+		StubAbilities.put_row(state, 1, enemy, true)
+		var rng: MatchRng = MatchRng.new(SEED)
+		var rec: StubAbilities.Recorder = StubAbilities.recorder()
+		var zone: int = Choice.Zone.OWN_BOARD
+		var kept: Array[int] = [0, 1, 2, 3, 4]
+		ScoreWalk.begin(state)
+		assert_bool(ScoreWalk.step(state, cards, rng, rec.record)).is_true()
+		assert_int(Scoring.uses_left(cull, state, cards)).is_equal(2)
+		assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_true()
+		assert_int(Scoring.uses_left(cull, state, cards)).is_equal(1)
+		assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_false()
+		assert_int(Scoring.uses_left(cull, state, cards)).is_equal(1)
+		assert_array(_marked(state, own)).is_equal(_typed([5, 6]))
+		assert_array(_marked(state, enemy)).is_equal(_typed([OTHER + 5]))
+
+
 # --- The random bot over every prompt -------------------------------------------------
 
 
