@@ -27,11 +27,11 @@ from trainer.config import FitConfig, RunConfig
 from trainer.farm import REPO_ROOT, Farm, FarmError, godot_bin, worker_command
 from trainer.fit import REPORT_NAME, FitError, run_fit, validate_runs
 from trainer.run import execute, git_commit
-from trainer.store import WEIGHTS_NAME, Store, default_data_dir, weights_path
+from trainer.store import (LIVE_FIT, WEIGHTS_NAME, Store, default_data_dir, digest_shards,
+                           weights_path, write_atomic)
 from trainer.sync import RunFn, default_run, stamp_of, sync_code
 
 ACTIVE_STATES = ("queued", "running", "stopping")
-LIVE_FIT = ("queued", "running")
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 LOCK_NAME = "serve.lock"
 WINDOWS_TOKEN = r"C:\Users\trainer\.trainer\token"
@@ -165,6 +165,8 @@ class Service:
         self._syncing = False
         self._farm: Optional[Farm] = None
         self._probes: Dict[str, str] = {}
+        # Digests of done runs by run id: a done run never changes (it cannot resume).
+        self._digests: Dict[str, str] = {}
         self._farm_factory = farm_factory or self._default_farm
         self._stamp_fn = stamp_fn or self._default_stamp
         self._sync_fn = sync_fn or sync_code
@@ -449,10 +451,8 @@ class Service:
 
     def _write_report(self, store: Store, run_id: str) -> None:
         report = self._report(store, run_id)
-        path = store.run_dir(run_id) / "report.json"
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(report, sort_keys=True, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        write_atomic(store.run_dir(run_id) / "report.json",
+                     json.dumps(report, sort_keys=True, indent=1))
 
     def _report(self, store: Store, run_id: str) -> Reply:
         run = store.get_run(run_id) or {}
@@ -473,7 +473,8 @@ class Service:
             "rollouts_per_s": round(rollouts / wall, 2) if wall > 0 else 0.0,
             "restarts": run.get("restarts", 0), "candidate_count_histogram": hist,
             "mean_value_spread": round(sum(spreads) / len(spreads), 4) if spreads else 0.0,
-            "digest": store.digest(run_id),
+            "digest": (self._done_digest(run_id, store.shard_paths(run_id))
+                       if run.get("state") == "done" else store.digest(run_id)),
             "shards": [str(p) for p in store.shard_paths(run_id)]}
 
     def run_status(self, run_id: str) -> Reply:
@@ -515,9 +516,20 @@ class Service:
                 "last_checkpoint": checkpoint if checkpoint > 0 else None,
                 "elapsed_s": round(elapsed, 1), "eta_s": eta,
                 "last_error": run["last_error"]}
-            if run["state"] == "done":
-                out["digest"] = self.store.digest(run_id)
-            return out
+            done = run["state"] == "done"
+            paths = self.store.shard_paths(run_id) if done and run_id not in self._digests else []
+        if done:  # hashed outside the lock: the shards of a done run never change
+            out["digest"] = self._done_digest(run_id, paths)
+        return out
+
+    def _done_digest(self, run_id: str, paths: List[Path]) -> str:
+        """The digest of the done run `run_id` over its shards `paths`, memoised (the paths
+        are not read once it is known)."""
+        digest = self._digests.get(run_id)
+        if digest is None:
+            digest = digest_shards(paths)
+            self._digests[run_id] = digest
+        return digest
 
     def stop_run(self, run_id: str) -> Reply:
         with self.lock:
@@ -558,7 +570,7 @@ class Service:
             if self._syncing:
                 return {"error": "a sync is in progress"}
             for live in self.store.list_fits():  # its labels must not change under a fit
-                if live["state"] in ("queued", "running") and run_id in live["runs"]:
+                if live["state"] in LIVE_FIT and run_id in live["runs"]:
                     return {"error": "fit %s is %s and reads run %s; resume after it ends"
                             % (live["id"], live["state"], run_id)}
             try:
@@ -665,7 +677,7 @@ class Service:
             store.close()
 
     def _fit_status(self, fit: Dict[str, Any]) -> Reply:
-        live = fit["state"] in ("queued", "running")
+        live = fit["state"] in LIVE_FIT
         end = time.time() if live else float(fit["updated"])
         pairs = 0
         if fit["report"]:

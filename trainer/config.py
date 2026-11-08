@@ -1,9 +1,29 @@
 """The run config (plan "Run config", R45)."""
 from dataclasses import asdict, dataclass, field, fields
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 DECK_MODES = ("seeded", "all_pairings")
 MAX_ITERATIONS = 100000
+
+
+def _int(merged: Dict[str, Any], name: str, least: Optional[int] = None) -> int:
+    """`merged[name]`, or ValueError when it is not an integer (a bool is not) or is below
+    `least`."""
+    v = merged[name]
+    if isinstance(v, bool) or not isinstance(v, int):
+        raise ValueError("config: %s must be an integer" % name)
+    if least is not None and v < least:
+        raise ValueError("config: %s must be at least %d" % (name, least))
+    return v
+
+
+def _number(merged: Dict[str, Any], name: str, nan_ok: bool = False) -> float:
+    """`merged[name]` as a float, or ValueError when it is not a number (a bool is not, and
+    NaN is not unless `nan_ok`)."""
+    v = merged[name]
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or (v != v and not nan_ok):
+        raise ValueError("config: %s must be a number" % name)
+    return float(v)
 
 
 @dataclass
@@ -36,15 +56,8 @@ class RunConfig:
         merged = cls().to_dict()
         merged.update(data)
         for name in ("positions", "k", "determinizations", "workers", "batch"):
-            v = merged[name]
-            if isinstance(v, bool) or not isinstance(v, int):
-                raise ValueError("config: %s must be an integer" % name)
-            if v < 1:
-                raise ValueError("config: %s must be at least 1" % name)
-        v = merged["run_seed"]
-        if isinstance(v, bool) or not isinstance(v, int):
-            raise ValueError("config: run_seed must be an integer")
-        if not -(1 << 63) <= v < (1 << 63):
+            _int(merged, name, 1)
+        if not -(1 << 63) <= _int(merged, "run_seed") < (1 << 63):
             raise ValueError("config: run_seed out of 64-bit range")
         for name in ("rollout", "generator"):
             v = merged[name]
@@ -55,12 +68,10 @@ class RunConfig:
         for name in ("rollout_weights", "generator_weights"):
             if not isinstance(merged[name], str):
                 raise ValueError("config: %s must be a string (a fit id)" % name)
-        v = merged["hours"]
-        if isinstance(v, bool) or not isinstance(v, (int, float)):
-            raise ValueError("config: hours must be a number")
-        if not v > 0:
+        # NaN passes the type check and fails the range check, as before.
+        merged["hours"] = _number(merged, "hours", nan_ok=True)
+        if not merged["hours"] > 0:
             raise ValueError("config: hours must be greater than 0")
-        merged["hours"] = float(v)
         return cls(**merged)
 
 
@@ -97,21 +108,12 @@ class FitConfig:
         if len(set(runs)) != len(runs):
             raise ValueError("config: runs must not repeat a run id")
         for name in ("iterations", "k"):
-            v = merged[name]
-            if isinstance(v, bool) or not isinstance(v, int):
-                raise ValueError("config: %s must be an integer" % name)
-            if v < 1:
-                raise ValueError("config: %s must be at least 1" % name)
+            _int(merged, name, 1)
         if merged["iterations"] > MAX_ITERATIONS:
             raise ValueError("config: iterations must be at most %d" % MAX_ITERATIONS)
-        v = merged["seed"]
-        if isinstance(v, bool) or not isinstance(v, int):
-            raise ValueError("config: seed must be an integer")
+        _int(merged, "seed")
         for name in ("l2", "holdout"):
-            v = merged[name]
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or v != v:
-                raise ValueError("config: %s must be a number" % name)
-            merged[name] = float(v)
+            merged[name] = _number(merged, name)
         if not 0.0 <= merged["l2"] < float("inf"):
             raise ValueError("config: l2 must be finite and at least 0")
         if not 0.0 <= merged["holdout"] < 0.5:

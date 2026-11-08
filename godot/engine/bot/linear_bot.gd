@@ -80,12 +80,14 @@ func choose(view: SeatView, _engine: MatchEngine) -> EngineAction:
 ## The candidates the bot scores at `view` (see the class comment): at most `k` of them.
 func candidates(view: SeatView) -> Array[EngineAction]:
 	var k: int = maxi(_weights.k, 1)
-	var rng: MatchRng = decision_rng(view, COMMIT_TAG)
 	if view.own_hand.size() > LegalPlays.ENUMERATE_MAX:
-		return _large_hand(view, k, rng)
+		return _large_hand(view, k, decision_rng(view, COMMIT_TAG))
 	var listed: Array[EngineAction] = RandomBot.candidates_for(view, _cards)
 	if listed.size() <= k:
 		return listed
+	# Built only when drawing; decision_rng is a fresh generator from the view, so the draws
+	# do not depend on when it is built.
+	var rng: MatchRng = decision_rng(view, COMMIT_TAG)
 	var indices: Array[int] = []
 	for index: int in range(listed.size()):
 		indices.append(index)
@@ -116,7 +118,8 @@ func _large_hand(view: SeatView, k: int, rng: MatchRng) -> Array[EngineAction]:
 	var seen: Dictionary = {}
 	for _draw: int in range(k):
 		var action: EngineAction = RandomBot.large_hand_commit(view, _cards, rng)
-		var key: String = JSON.stringify(action.to_dict())
+		# Every draw is a commit by view.seat, so its cards and slots tell it apart.
+		var key: String = "%s|%s" % [action.cards, action.slots]
 		if seen.has(key):
 			continue
 		seen[key] = true

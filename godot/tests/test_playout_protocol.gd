@@ -152,9 +152,13 @@ func test_a_numeric_seed_of_2_pow_53_or_more_is_refused() -> void:
 
 func test_an_over_long_request_line_is_an_error() -> void:
 	var padding: String = "x".repeat(PlayoutProtocol.MAX_REQUEST_BYTES)
-	var request: Dictionary = PlayoutProtocol.parse_request(_play_line({"note": padding}))
-	assert_bool(request.has("error")).is_true()
-	assert_str(request["error"]).contains("limit")
+	var line: String = _play_line({"note": padding})
+	# The worker checks the length before parsing and answers with too_long_reply().
+	assert_bool(PlayoutProtocol.is_over_long(line.to_utf8_buffer().size())).is_true()
+	var reply: Dictionary = PlayoutProtocol.too_long_reply()
+	assert_array(reply.keys()).is_equal(["id", "error"])
+	assert_object(reply["id"]).is_null()
+	assert_str(reply["error"]).contains("limit")
 	assert_bool(PlayoutProtocol.is_over_long(PlayoutProtocol.MAX_REQUEST_BYTES - 2)).is_false()
 	assert_bool(PlayoutProtocol.is_over_long(PlayoutProtocol.MAX_REQUEST_BYTES - 1)).is_true()
 

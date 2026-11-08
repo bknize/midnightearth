@@ -125,11 +125,27 @@ const TOTAL_DIVISOR: int = 100
 ## The feature names in vector order: COMPACT, then `card:<id>` for every card of the pool
 ## `cards` was built from, in CardDb order. Only COMPACT for a null or failed `cards`.
 static func names(cards: MatchCards) -> Array[String]:
+	var ids: Array[String] = []
+	if cards != null:
+		ids = cards.pool_ids()
+	return _names_with(ids)
+
+
+## names() for a card pool itself: COMPACT, then `card:<id>` for every card of `pool`, in
+## CardDb order. Only COMPACT for a null or failed `pool`.
+static func names_of(pool: CardDb) -> Array[String]:
+	var ids: Array[String] = []
+	if pool != null and pool.is_valid():
+		for def: CardDef in pool.cards():
+			ids.append(def.id)
+	return _names_with(ids)
+
+
+## COMPACT, then `card:<id>` for every id of `ids`, in order.
+static func _names_with(ids: Array[String]) -> Array[String]:
 	var out: Array[String] = []
 	out.assign(COMPACT)
-	if cards == null:
-		return out
-	for card_id: String in cards.pool_ids():
+	for card_id: String in ids:
 		out.append(CARD_PREFIX + card_id)
 	return out
 
@@ -179,12 +195,8 @@ static func _fill_committed(
 		out[F.COMMITTED_GROWN] += 1 if grown else 0
 		out[F.COMMITTED_ABILITIES] += 1 if uses != 0 and _has_ability(card, cards) else 0
 		_add_indicator(out, card, cards)
-	var spent: int = 0
-	for cost: int in costs:
-		spent += cost
+	var spent: int = LegalPlays.commit_cost_with(committed, costs, view.free_first)
 	var free: bool = view.free_first and count > 0
-	if free:
-		spent -= costs[0]
 	out[F.COMMITTED_COST] = spent
 	out[F.BUDGET_LEFT] = view.energy - spent
 	out[F.FREE_FIRST_USED] = 1 if free else 0

@@ -85,6 +85,15 @@ def run_worker(argv: List[str]) -> Tuple[int, str]:
     return proc.returncode, tail
 
 
+def _pair_key(r: Dict[str, Any], counts: Dict[Any, int]) -> Tuple[Any, int]:
+    """(seed, k) for the pair record `r`, the k-th of its seed so far; counts it in
+    `counts` (seed -> pair records seen)."""
+    seed = r.get("seed")
+    k = counts.get(seed, 0)
+    counts[seed] = k + 1
+    return seed, k
+
+
 def feed_until_decided(test: sprt.Sprt,
                        recs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Feed a batch's pair records to `test` in order and stop at the first pair that
@@ -97,11 +106,9 @@ def feed_until_decided(test: sprt.Sprt,
     for r in recs:
         if r.get("t") != "p":
             continue
-        seed = r.get("seed")
-        k = seen.get(seed, 0)
-        seen[seed] = k + 1
+        key = _pair_key(r, seen)
         test.add(float(r["points_a"]))
-        fed.add((seed, k))
+        fed.add(key)
         if test.decided():
             break
     kept: List[Dict[str, Any]] = []
@@ -111,10 +118,7 @@ def feed_until_decided(test: sprt.Sprt,
         if kind == "end":
             kept.append(r)
         elif kind == "p":
-            seed = r.get("seed")
-            k = counted.get(seed, 0)
-            counted[seed] = k + 1
-            if (seed, k) in fed:
+            if _pair_key(r, counted) in fed:
                 kept.append(r)
         elif (r.get("seed"), int(r.get("game", 0)) // 2) in fed:
             kept.append(r)
@@ -127,6 +131,14 @@ def batch_stamp_mismatch(recs: List[Dict[str, Any]], stamp: str) -> str:
     other = sorted({str(r["stamp"]) for r in recs
                     if r.get("t") == "end" and "stamp" in r and str(r["stamp"]) != stamp})
     return ", ".join(other)
+
+
+def _stamp_error(stale: str, stamp: str) -> Tuple[int, Dict[str, Any]]:
+    """Reports engine stamps `stale` that are not the driver's `stamp` (cycle 11: a worker
+    built on other card data than the driver's is an error)."""
+    print("bot-eval: engine stamp %s differs from the driver's %s" % (stale, stamp),
+          file=sys.stderr)
+    return EXIT_ERROR, {}
 
 
 def run_eval(args: argparse.Namespace,
@@ -214,20 +226,16 @@ def eval_report(args: argparse.Namespace,
         return EXIT_ERROR, {"worker_exit_codes": sorted(set(fail_codes))}
     if stale:
         # a stale worker fails fast: nothing is scheduled after the first stamp mismatch
-        print("bot-eval: engine stamp %s differs from the driver's %s" % (stale, stamp),
-              file=sys.stderr)
-        return EXIT_ERROR, {}
+        return _stamp_error(stale, stamp)
 
     agg = records.aggregate(consumed)
     state = test.state()
     result = {"H1": "PASS", "H0": "FAIL"}.get(state or "", "CAP")
     bound = state if state in ("H0", "H1") else "cap"
     code = {"PASS": EXIT_PASS, "FAIL": EXIT_FAIL, "CAP": EXIT_CAP}[result]
-    if any(s != stamp for s in agg["stamps"]):
-        # cycle 11: a worker built on other card data than the driver's is an error
-        print("bot-eval: engine stamp %s differs from the driver's %s"
-              % (", ".join(agg["stamps"]), stamp), file=sys.stderr)
-        return EXIT_ERROR, {}
+    stale = batch_stamp_mismatch(consumed, stamp)
+    if stale:  # every fed batch passed the check above; this guards the fed records
+        return _stamp_error(stale, stamp)
     # plan P7: `none` (no weights file) is not a mismatch
     mismatch = any(s not in ("match", "none") for s in agg["weights_stamps"])
     if agg["rejected"] or agg["replay_mismatches"]:

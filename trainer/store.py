@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, Sequence
 
 STATES = ("queued", "running", "stopping", "stopped", "interrupted", "done", "failed")
 FIT_STATES = ("queued", "running", "done", "failed")
+# The fit states of a fit still in flight (queued or running).
+LIVE_FIT = ("queued", "running")
 TIMING_FIELDS = ("us",)
 # Fields of a shard line that name the run rather than its data: the dataset digest drops
 # them, so two runs with the same config and run seed give the same digest (spec R36).
@@ -62,6 +64,18 @@ def weights_path(data_dir: Path, fit_id: str) -> str:
     if not fit_id:
         return ""
     return str((Path(data_dir) / "fits" / fit_id / WEIGHTS_NAME).resolve())
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Write `text` to `path` through `<name>.tmp` (flushed and fsynced, then renamed over
+    `path`), so a reader never sees half a file."""
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
 
 
 def shard_name(batch: int) -> str:
@@ -161,23 +175,22 @@ class Store:
         self.db.commit()
         return fit_id
 
-    def get_fit(self, fit_id: str) -> Optional[Dict[str, Any]]:
-        row = self.db.execute("SELECT * FROM fits WHERE id = ?", (fit_id,)).fetchone()
-        if row is None:
-            return None
+    @staticmethod
+    def _fit_from_row(row: sqlite3.Row) -> Dict[str, Any]:
         out: Dict[str, Any] = dict(row)
         out["config"] = json.loads(out["config"])
         out["runs"] = json.loads(out["runs"])
         return out
 
+    def get_fit(self, fit_id: str) -> Optional[Dict[str, Any]]:
+        row = self.db.execute("SELECT * FROM fits WHERE id = ?", (fit_id,)).fetchone()
+        if row is None:
+            return None
+        return self._fit_from_row(row)
+
     def list_fits(self) -> List[Dict[str, Any]]:
-        ids = [r["id"] for r in self.db.execute("SELECT id FROM fits ORDER BY created, id")]
-        out: List[Dict[str, Any]] = []
-        for i in ids:
-            fit = self.get_fit(i)
-            if fit is not None:
-                out.append(fit)
-        return out
+        return [self._fit_from_row(row)
+                for row in self.db.execute("SELECT * FROM fits ORDER BY created, id")]
 
     def active_fit_id(self) -> Optional[str]:
         row = self.db.execute("SELECT id FROM fits WHERE state IN ('queued', 'running')"
@@ -337,12 +350,7 @@ class Store:
         directory = self.run_dir(run_id)
         directory.mkdir(parents=True, exist_ok=True)
         final = directory / shard_name(batch_index)
-        tmp = directory / (shard_name(batch_index) + ".tmp")
-        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write("".join(line + "\n" for line in lines))
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, final)
+        write_atomic(final, "".join(line + "\n" for line in lines))
         # A crash here leaves the shard without rows; recover() removes it.
         try:
             with self.db:
@@ -401,18 +409,23 @@ class Store:
     def digest(self, run_id: str) -> str:
         """SHA-256 over the committed shards' lines in batch order, timing fields and the run
         id removed."""
-        h = hashlib.sha256()
-        for path in self.shard_paths(run_id):
-            with open(path, "r", encoding="utf-8", newline="") as fh:
-                for line in fh:
-                    line = line.rstrip("\r\n")
-                    if not line:
-                        continue
-                    record = _strip_timing(json.loads(line))
-                    if isinstance(record, dict):
-                        for key in IDENTITY_FIELDS:
-                            record.pop(key, None)
-                    canon = json.dumps(record, sort_keys=True, separators=(",", ":"))
-                    h.update(canon.encode("utf-8"))
-                    h.update(b"\n")
-        return h.hexdigest()
+        return digest_shards(self.shard_paths(run_id))
+
+
+def digest_shards(paths: Sequence[Path]) -> str:
+    """Store.digest over the shards `paths`, in order; reads only the files, not the DB."""
+    h = hashlib.sha256()
+    for path in paths:
+        with open(path, "r", encoding="utf-8", newline="") as fh:
+            for line in fh:
+                line = line.rstrip("\r\n")
+                if not line:
+                    continue
+                record = _strip_timing(json.loads(line))
+                if isinstance(record, dict):
+                    for key in IDENTITY_FIELDS:
+                        record.pop(key, None)
+                canon = json.dumps(record, sort_keys=True, separators=(",", ":"))
+                h.update(canon.encode("utf-8"))
+                h.update(b"\n")
+    return h.hexdigest()

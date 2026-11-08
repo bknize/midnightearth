@@ -17,7 +17,8 @@ extends RefCounted
 ## `seed` and `label_seed` are whole numbers or decimal strings (a 64-bit seed does not
 ## survive a JSON float, so the trainer sends it as text; a numeric seed of magnitude 2^53 or
 ## more is refused, NSC-207). `id` is a number or a string, echoed back as given.
-## A request line is at most MAX_REQUEST_BYTES long (NSC-208); a longer one gets an error.
+## A request line is at most MAX_REQUEST_BYTES long (NSC-208); the worker answers a longer
+## one with too_long_reply() and never parses it, so parse_request does not check the length.
 ##
 ## parse_request returns {"error": text, "id": the id when readable, else null} for a bad
 ## line, otherwise the request with typed members: kind, and for play id, seed, decks
@@ -39,8 +40,6 @@ const KIND_QUIT: String = "quit"
 const MAX_REQUEST_BYTES: int = 1048576
 ## The error text for an over-long line.
 const TOO_LONG_MESSAGE: String = "request line is longer than the %d byte limit"
-## The least magnitude at which a JSON number can no longer hold a whole number exactly.
-const SEED_FLOAT_LIMIT: float = 9007199254740992.0
 ## The fields a digest ignores: the time spent and the Godot version of the reply's worker.
 const TIMING_FIELDS: Array[String] = ["us", "godot"]
 
@@ -49,8 +48,6 @@ const TIMING_FIELDS: Array[String] = ["us", "godot"]
 
 ## Parses one request line; see the class comment for the shapes.
 static func parse_request(line: String) -> Dictionary:
-	if is_over_long(line.to_utf8_buffer().size()):
-		return _bad(null, TOO_LONG_MESSAGE % MAX_REQUEST_BYTES)
 	var json: JSON = JSON.new()
 	if json.parse(line) != OK:
 		return _bad(null, "request is not JSON")
@@ -90,16 +87,17 @@ static func _parse_play(d: Dictionary, request_id: Variant) -> Dictionary:
 	var generator: String = generator_raw
 	if not BotRegistry.NAMES.has(generator):
 		return _bad(request_id, "unknown generator bot: %s" % generator)
-	var weights: Array[String] = []
-	if not _read_weights_path(d, "generator_weights", weights):
+	var weights_raw: Variant = d.get("generator_weights", "")
+	if not weights_raw is String:
 		return _bad(request_id, "generator_weights is not a string")
+	var weights: String = weights_raw
 	return {
 		"id": request_id,
 		"kind": KIND_PLAY,
 		"seed": seed_out[0],
 		"decks": decks,
 		"generator": generator,
-		"generator_weights": weights[0],
+		"generator_weights": weights,
 	}
 
 
@@ -133,9 +131,10 @@ static func _parse_label(d: Dictionary, request_id: Variant) -> Dictionary:
 	var rollout: String = rollout_raw
 	if not BotRegistry.NAMES.has(rollout):
 		return _bad(request_id, "unknown rollout bot: %s" % rollout)
-	var weights: Array[String] = []
-	if not _read_weights_path(d, "rollout_weights", weights):
+	var weights_raw: Variant = d.get("rollout_weights", "")
+	if not weights_raw is String:
 		return _bad(request_id, "rollout_weights is not a string")
+	var weights: String = weights_raw
 	var prefix: Array[EngineAction] = []
 	if not _read_actions(d.get("actions", null), prefix):
 		return _bad(request_id, "actions is missing or holds a malformed action")
@@ -170,7 +169,7 @@ static func _parse_label(d: Dictionary, request_id: Variant) -> Dictionary:
 		"determinizations": determinizations,
 		"rollout": rollout,
 		"label_seed": label_out[0],
-		"rollout_weights": weights[0],
+		"rollout_weights": weights,
 	}
 
 
@@ -185,7 +184,7 @@ static func _bad(request_id: Variant, message: String) -> Dictionary:
 static func _read_seed(name: String, value: Variant, out: Array[int]) -> String:
 	if value is float:
 		var number: float = value
-		if is_finite(number) and absf(number) >= SEED_FLOAT_LIMIT:
+		if is_finite(number) and absf(number) >= EngineAction.MAX_SAFE_FLOAT:
 			return "%s is a number of magnitude 2^53 or more, send it as a string" % name
 	if EngineAction.is_whole_number(value):
 		out.append(EngineAction.as_int(value))
@@ -196,17 +195,6 @@ static func _read_seed(name: String, value: Variant, out: Array[int]) -> String:
 			out.append(text.to_int())
 			return ""
 	return "%s is missing or not a whole number" % name
-
-
-## Reads the optional weights path `name` into `out` ("" when absent); false when it is
-## present and not a string.
-static func _read_weights_path(d: Dictionary, name: String, out: Array[String]) -> bool:
-	var raw: Variant = d.get(name, "")
-	if not raw is String:
-		return false
-	var path: String = raw
-	out.append(path)
-	return true
 
 
 ## Reads a deck list (empty, or two strings) into `out`.
@@ -305,6 +293,11 @@ static func label_reply(
 
 static func error_reply(request_id: Variant, message: String) -> Dictionary:
 	return {"id": request_id, "error": message}
+
+
+## The error reply to an over-long request line (is_over_long), which has no readable id.
+static func too_long_reply() -> Dictionary:
+	return error_reply(null, TOO_LONG_MESSAGE % MAX_REQUEST_BYTES)
 
 
 ## The result object of a finished match: {winner, wins, rounds, reason}.

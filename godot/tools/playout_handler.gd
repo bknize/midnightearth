@@ -90,7 +90,8 @@ func _weights_problem(path: String) -> String:
 	var loaded: BotWeights = BotWeights.cached(path)
 	if loaded.load_error != "":
 		return "weights file unusable: " + loaded.load_error
-	if loaded.stamp != _stamp:
+	# _stamp is BotStamp.current() (load_default), the stamp stamp_matches() checks against.
+	if not loaded.stamp_matches():
 		return "weights file stamp %s is not the worker's %s" % [loaded.stamp, _stamp]
 	return ""
 
@@ -200,10 +201,7 @@ func _label(request: Dictionary, began: int) -> Dictionary:
 	for action: EngineAction in chosen:
 		dicts.append(action.to_dict())
 		var vector: PackedInt64Array = BotFeatures.of(view, action, engine.match_cards())
-		var listed_features: Array = []
-		for entry: int in vector:
-			listed_features.append(entry)
-		features.append(listed_features)
+		features.append(Array(vector))
 	var hand: Array = _hand_of(view, engine.match_cards())
 	var value_list: Array = []
 	for value: Dictionary in values:

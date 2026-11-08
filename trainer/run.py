@@ -154,7 +154,7 @@ def _execute(store: Store, run_id: str, farm: Farm, cfg: RunConfig, stamp: str,
             raise RunError("workers are at stamp %r, the run is at %r" % (farm.stamp, stamp))
         stored = store.get_run(run_id)
         have = str(stored["feature_set"]) if stored else ""
-        fs = str(getattr(farm, "feature_set", ""))
+        fs = str(farm.feature_set)
         if not have:
             store.set_feature_set(run_id, fs)
         elif fs and fs != have:

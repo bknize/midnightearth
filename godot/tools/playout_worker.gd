@@ -40,11 +40,7 @@ func _run() -> int:
 		var raw: String = _read_line()
 		if PlayoutProtocol.is_over_long(raw.to_utf8_buffer().size()):
 			_drain_long_line(raw)
-			_emit(
-				PlayoutProtocol.error_reply(
-					null, PlayoutProtocol.TOO_LONG_MESSAGE % PlayoutProtocol.MAX_REQUEST_BYTES
-				)
-			)
+			_emit(PlayoutProtocol.too_long_reply())
 			empty_reads = 0
 			continue
 		var line: String = raw.strip_edges()

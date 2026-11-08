@@ -29,8 +29,6 @@ const DEFAULT_K: int = 64
 ## The one feature the built-in defaults weigh, and its weight: committed Power once (R9).
 const DEFAULT_FEATURE: String = "committed_power"
 const DEFAULT_WEIGHT: int = 100
-## JSON numbers arrive as floats: a whole number is exact up to here.
-const MAX_SAFE_FLOAT: float = 9007199254740992.0
 ## The largest weight accepted either way, in hundredths (10000 times a feature).
 const MAX_WEIGHT: int = 1000000
 
@@ -84,7 +82,9 @@ static func load(path: String) -> BotWeights:
 
 
 ## load(`path`) once per path per process; the same object on every later call, so callers
-## must treat it as read-only. An empty `path` is DEFAULT_PATH.
+## must treat it as read-only. An empty `path` is DEFAULT_PATH. The cache never goes stale:
+## the trainer writes each fit's weights once, to a new `fits/<fit id>/` path, and names a
+## fit only once it is done.
 static func cached(path: String) -> BotWeights:
 	var key: String = path if path != "" else DEFAULT_PATH
 	if _cache.has(key):
@@ -128,13 +128,7 @@ static func from_json(text: String, known: Array[String] = []) -> BotWeights:
 ## the pool fails to load.
 static func known_names() -> Array[String]:
 	if _shipped_names.is_empty():
-		var names: Array[String] = []
-		names.assign(BotFeatures.COMPACT)
-		var pool: CardDb = CardDb.load_default()
-		if pool.is_valid():
-			for def: CardDef in pool.cards():
-				names.append(BotFeatures.CARD_PREFIX + def.id)
-		_shipped_names = names
+		_shipped_names = BotFeatures.names_of(CardDb.load_default())
 	var out: Array[String] = []
 	out.assign(_shipped_names)
 	return out
@@ -209,7 +203,7 @@ static func _empty_fit() -> Dictionary:
 ## problem, or "".
 static func _read_header(root: Dictionary, out: BotWeights) -> String:
 	var version: Variant = root.get("version", null)
-	if not _is_whole_number(version) or _as_int(version) != FORMAT_VERSION:
+	if not EngineAction.is_whole_number(version) or EngineAction.as_int(version) != FORMAT_VERSION:
 		return "unsupported version: %s (expected %d)" % [JSON.stringify(version), FORMAT_VERSION]
 	var set_version: Variant = root.get("features", null)
 	if not set_version is String or set_version != BotFeatures.SET_VERSION:
@@ -228,9 +222,9 @@ static func _read_header(root: Dictionary, out: BotWeights) -> String:
 	out.features = BotFeatures.SET_VERSION
 	if root.has("k"):
 		var raw: Variant = root["k"]
-		if not _is_whole_number(raw):
+		if not EngineAction.is_whole_number(raw):
 			return "k is not a whole number: %s" % JSON.stringify(raw)
-		var number: int = _as_int(raw)
+		var number: int = EngineAction.as_int(raw)
 		if number < 1:
 			return "k out of range: %d (least 1)" % number
 		out.k = number
@@ -282,31 +276,11 @@ static func _read_weights(root: Dictionary, out: BotWeights, known: Array[String
 			return "unknown feature: %s" % JSON.stringify(key)
 		var name: String = key
 		var weight: Variant = table[key]
-		if not _is_whole_number(weight):
+		if not EngineAction.is_whole_number(weight):
 			return "weight of %s is not a whole number: %s" % [name, JSON.stringify(weight)]
-		var whole: int = _as_int(weight)
+		var whole: int = EngineAction.as_int(weight)
 		if absi(whole) > MAX_WEIGHT:
 			return "weight of %s out of range: %d (limit %d)" % [name, whole, MAX_WEIGHT]
 		read[name] = whole
 	out.weights = read
 	return ""
-
-
-## True for an int, or a finite float with no fractional part within MAX_SAFE_FLOAT (JSON
-## numbers arrive as floats).
-static func _is_whole_number(value: Variant) -> bool:
-	if value is int:
-		return true
-	if not value is float:
-		return false
-	var number: float = value
-	return is_finite(number) and number == floorf(number) and absf(number) <= MAX_SAFE_FLOAT
-
-
-## `value`, already checked by _is_whole_number, as an int.
-static func _as_int(value: Variant) -> int:
-	if value is int:
-		var whole: int = value
-		return whole
-	var number: float = value
-	return int(number)

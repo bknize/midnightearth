@@ -24,6 +24,7 @@ whether it did, and the digest guarantee then holds only for that process's thre
 No `threadpoolctl`: no new dependency.
 """
 import hashlib
+import itertools
 import json
 import os
 import random
@@ -33,7 +34,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from trainer.config import FitConfig
-from trainer.store import WEIGHTS_NAME, Store
+from trainer.store import WEIGHTS_NAME, Store, write_atomic
 from trainer.sync import stamp_of
 
 REPORT_NAME = "report.json"
@@ -166,13 +167,11 @@ def _load_pairs(store: Store, run_ids: Sequence[str]) -> Tuple[Any, Any, int]:
         rows = store.db.execute(
             "SELECT position_index, candidate_index, mean, features FROM labels"
             " WHERE run_id = ? ORDER BY position_index, candidate_index", (rid,)).fetchall()
-        i = 0
-        while i < len(rows):
-            j = i
-            while j < len(rows) and rows[j]["position_index"] == rows[i]["position_index"]:
-                j += 1
-            cands = rows[i:j]
-            i = j
+        # Fetched whole, so the read lock is not held through the numpy work below (a
+        # labelling run may be committing batches). Ordered by position, so each position's
+        # candidates are one group.
+        for _, grouped in itertools.groupby(rows, key=lambda r: r["position_index"]):
+            cands = list(grouped)
             positions += 1
             vectors = [json.loads(r["features"]) for r in cands]
             for v in vectors:
@@ -245,7 +244,8 @@ def run_fit(store: Store, fit_id: str, config: FitConfig, out_dir: Path, repo_ro
     # Scale each column by its largest magnitude over the fitted pairs.
     scale = np.abs(x_fit).max(axis=0).astype(np.float64)
     scale[scale == 0] = 1.0
-    xs = x_fit.astype(np.float64) / scale
+    xf = x_fit.astype(np.float64)
+    xs = xf / scale
     n = xs.shape[0]
 
     # A fixed step from the top eigenvalue of XtX/n (power iteration from ones).
@@ -283,7 +283,7 @@ def run_fit(store: Store, fit_id: str, config: FitConfig, out_dir: Path, repo_ro
         whole = np.zeros(width, dtype=np.int64)
     else:
         whole = np.rint(raw * (WEIGHT_SCALE / peak)).astype(np.int64)
-    fit_right, fit_total = _agreement(np, x_fit.astype(np.float64), raw)
+    fit_right, fit_total = _agreement(np, xf, raw)
     hold_right, hold_total = _agreement(np, x_hold.astype(np.float64), raw)
     fit_q_right, _ = _agreement(np, x_fit, whole)
     hold_q_right, _ = _agreement(np, x_hold, whole)
@@ -329,10 +329,4 @@ def write_outputs(out_dir: Path, doc: Dict[str, Any], report: Dict[str, Any],
     texts = ((WEIGHTS_NAME, weights_text(doc, feature_names)),
              (REPORT_NAME, json.dumps(report, sort_keys=True, indent=1) + "\n"))
     for name, text in texts:
-        final = out_dir / name
-        tmp = out_dir / (name + ".tmp")
-        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(text)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, final)
+        write_atomic(out_dir / name, text)
