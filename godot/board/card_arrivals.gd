@@ -18,14 +18,16 @@ var spawn: Callable = Callable()
 ## A DEAL or DRAW (and a created card going to a hand): the card sweeps from the entry into
 ## the fan. The viewer's shows its face; the opponent's is a back (a count).
 func deal(step: BoardStep) -> void:
-	var hand: CardCollection3D = fx.player_hand if step.seat == 0 else fx.opponent_hand
+	var hand: CardCollection3D = (
+		fx.player_hand if step.seat == BoardSteps.OWN_SIDE else fx.opponent_hand
+	)
 	var card: BoardCard = _make()
 	if card == null:
 		return
 	hand.card_move_tween_duration = maxf(step.duration, EffectPlayer.MIN_TWEEN_TIME)
 	hand.append_card(card)
 	card.global_position = entry_marker.global_position
-	if step.seat == 0:
+	if step.seat == BoardSteps.OWN_SIDE:
 		fx.show(card, step)
 		fx.player_cards[step.card] = card
 	else:
@@ -71,7 +73,7 @@ func create_on_row(step: BoardStep) -> void:
 	if card == null:
 		return
 	card.instance_id = step.card
-	if step.seat == 0:
+	if step.seat == BoardSteps.OWN_SIDE:
 		fx.player_cards[step.card] = card
 		fx.committed_ids[step.card] = true
 	fx.show(card, step, fx.row_entry(step.seat, step.card))
@@ -92,7 +94,7 @@ func place(step: BoardStep) -> void:
 	if card == null:
 		return
 	card.face_down = true
-	if step.seat == 0:
+	if step.seat == BoardSteps.OWN_SIDE:
 		card.instance_id = step.card
 		fx.player_cards[step.card] = card
 		fx.committed_ids[step.card] = true
@@ -116,7 +118,9 @@ func shuffle_in(step: BoardStep) -> void:
 
 ## A new card inserted at the step's slot of its seat's row, starting at `start`.
 func _land(step: BoardStep, start: Vector3) -> BoardCard:
-	var row: CardCollection3D = fx.player_row if step.seat == 0 else fx.opponent_row
+	var row: CardCollection3D = (
+		fx.player_row if step.seat == BoardSteps.OWN_SIDE else fx.opponent_row
+	)
 	var card: BoardCard = _make()
 	if card == null:
 		return null

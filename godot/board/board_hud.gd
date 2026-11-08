@@ -11,6 +11,8 @@ signal concede_pressed
 signal resume_pressed
 signal rematch_pressed
 signal decks_pressed
+## Leave was pressed in the pause menu or on the result panel of a PVP match (cycle 12 P7).
+signal leave_pressed
 ## The prompt reader's action button was pressed (R42).
 signal action_pressed
 ## The multi-select prompt's confirm button was pressed (R48).
@@ -25,6 +27,9 @@ const PIP_ON: Color = Color(0.95, 0.78, 0.25, 1.0)
 const PIP_OFF: Color = Color(0.2, 0.22, 0.3, 1.0)
 const FLASH_COLOR: Color = Color(1.0, 0.25, 0.25, 1.0)
 const FLASH_SECONDS: float = 0.45
+## What the far side is called until the source names it.
+const DEFAULT_OPPONENT: String = "Opponent"
+const ABANDONED_TITLE: String = "Match abandoned"
 
 var _energy_tween: Tween
 ## The prompt reader's button; built in code, present only while a prompt has a card lifted.
@@ -36,6 +41,9 @@ var _confirm_suspended: bool = false
 var _confirm_wanted: bool = false
 ## The Skip button of an optional prompt, built in code, where the confirm button sits.
 var _skip_button: Button = null
+
+## The far side's name, for the seat panel, the result panel and the waiting text.
+var _opponent_name: String = DEFAULT_OPPONENT
 
 var _score_labels: Array[Label] = []
 var _pile_labels: Array[Label] = []
@@ -58,7 +66,15 @@ var _note_tweens: Array[Tween] = [null, null]
 @onready var _commit_button: Button = %CommitButton
 @onready var _prompt_banner: PanelContainer = %PromptBanner
 @onready var _prompt_text: Label = %PromptText
+@onready var _waiting_label: Label = %WaitingLabel
+@onready var _connection_label: Label = %ConnectionLabel
+@onready var _opponent_name_label: Label = %NameLabel
 @onready var _pause_menu: Control = %PauseMenu
+@onready var _pause_decks_button: Button = %DecksButton
+@onready var _pause_leave_button: Button = %PauseLeaveButton
+@onready var _rematch_button: Button = %RematchButton
+@onready var _result_decks_button: Button = %ResultDecksButton
+@onready var _result_leave_button: Button = %ResultLeaveButton
 @onready var _result_panel: Control = %ResultPanel
 @onready var _result_title: Label = %ResultTitle
 @onready var _result_wins: Label = %ResultWins
@@ -371,8 +387,61 @@ func _on_skip_button_pressed() -> void:
 	skip_pressed.emit()
 
 
-func show_pause(shown: bool) -> void:
+## Shows or hides the pause menu. A PVP menu offers Resume, Concede and Leave, no Decks (R26).
+func show_pause(shown: bool, pvp: bool = false) -> void:
+	_pause_decks_button.visible = not pvp
+	_pause_leave_button.visible = pvp
 	_pause_menu.visible = shown
+
+
+## "Waiting for <name>…" (R25).
+static func waiting_text(opponent: String) -> String:
+	return "Waiting for %s…" % opponent
+
+
+## The connection overlay's line for a MatchSource.connection_changed (R44 to R46); "" clears.
+static func connection_text(state: String, detail: String) -> String:
+	if state == MatchSource.STATE_RECONNECTING:
+		return "Reconnecting…"
+	if state == MatchSource.STATE_OPPONENT_LOST:
+		return "Connection with %s lost; waiting up to 2 minutes" % detail
+	if state == MatchSource.STATE_OPPONENT_BACK:
+		return "%s is back" % detail
+	return ""
+
+
+## Shows "Waiting for <name>…" while the far side decides; an empty name clears it.
+func set_waiting(opponent: String) -> void:
+	_waiting_label.text = "" if opponent == "" else waiting_text(opponent)
+	_waiting_label.visible = opponent != ""
+
+
+## The waiting line on show, or "".
+func waiting_label_text() -> String:
+	return _waiting_label.text if _waiting_label.visible else ""
+
+
+## Names the far side wherever the board says "Opponent" (R28); an empty name restores it.
+func set_opponent_name(opponent: String) -> void:
+	_opponent_name = opponent if opponent != "" else DEFAULT_OPPONENT
+	_opponent_name_label.text = _opponent_name
+
+
+## The name on the far side's seat panel.
+func opponent_label_text() -> String:
+	return _opponent_name_label.text
+
+
+## The connection overlay for `state` and `detail` (see connection_text); "" hides it.
+func show_connection(state: String, detail: String) -> void:
+	var line: String = connection_text(state, detail)
+	_connection_label.text = line
+	_connection_label.visible = line != ""
+
+
+## The connection overlay's line on show, or "".
+func connection_label_text() -> String:
+	return _connection_label.text if _connection_label.visible else ""
 
 
 ## The end reason as a phrase for the result panel (R23).
@@ -394,7 +463,11 @@ static func reason_text(reason: String, winner: int, rounds: int) -> String:
 	return reason
 
 
-func show_result(winner: int, wins: Array[int], reason: String, rounds: int) -> void:
+## The result panel. A PVP panel offers Leave only (R27).
+func show_result(
+	winner: int, wins: Array[int], reason: String, rounds: int, pvp: bool = false
+) -> void:
+	_set_result_buttons(pvp)
 	if winner == 0:
 		_result_title.text = "You win"
 	elif winner == 1:
@@ -403,13 +476,49 @@ func show_result(winner: int, wins: Array[int], reason: String, rounds: int) -> 
 		_result_title.text = "Draw"
 	var you: int = wins[0] if wins.size() > 0 else 0
 	var them: int = wins[1] if wins.size() > 1 else 0
-	_result_wins.text = "Rounds won: You %d - %d Opponent" % [you, them]
+	_result_wins.text = "Rounds won: You %d - %d %s" % [you, them, _opponent_name]
 	_result_reason.text = reason_text(reason, winner, rounds)
+	_result_panel.visible = true
+
+
+## The PVP result for a room closed on the player: "Match abandoned" with Leave (R49).
+func show_abandoned() -> void:
+	_set_result_buttons(true)
+	_result_title.text = ABANDONED_TITLE
+	_result_wins.text = ""
+	_result_reason.text = "%s left; the match is abandoned" % _opponent_name
 	_result_panel.visible = true
 
 
 func hide_result() -> void:
 	_result_panel.visible = false
+
+
+## The result panel's title, wins and reason lines, and whether Leave is on offer.
+func result_texts() -> Array[String]:
+	return [_result_title.text, _result_wins.text, _result_reason.text]
+
+
+func result_leave_visible() -> bool:
+	return _result_leave_button.visible
+
+
+func result_rematch_visible() -> bool:
+	return _rematch_button.visible
+
+
+func pause_leave_visible() -> bool:
+	return _pause_leave_button.visible
+
+
+func pause_decks_visible() -> bool:
+	return _pause_decks_button.visible
+
+
+func _set_result_buttons(pvp: bool) -> void:
+	_rematch_button.visible = not pvp
+	_result_decks_button.visible = not pvp
+	_result_leave_button.visible = pvp
 
 
 func _on_commit_button_pressed() -> void:
@@ -434,3 +543,7 @@ func _on_rematch_button_pressed() -> void:
 
 func _on_decks_button_pressed() -> void:
 	decks_pressed.emit()
+
+
+func _on_leave_button_pressed() -> void:
+	leave_pressed.emit()

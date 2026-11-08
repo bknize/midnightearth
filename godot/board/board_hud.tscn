@@ -98,6 +98,7 @@ layout_mode = 2
 mouse_filter = 2
 
 [node name="NameLabel" type="Label" parent="Root/SeatPanel1/Box"]
+unique_name_in_owner = true
 layout_mode = 2
 text = "Opponent"
 
@@ -171,6 +172,22 @@ unique_name_in_owner = true
 layout_mode = 2
 horizontal_alignment = 1
 text = "Energy 0 / 0"
+
+[node name="WaitingLabel" type="Label" parent="Root/TopInfo/Box"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(220, 0)
+layout_mode = 2
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="ConnectionLabel" type="Label" parent="Root/TopInfo/Box"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(220, 0)
+layout_mode = 2
+horizontal_alignment = 1
+autowrap_mode = 3
 
 [node name="PromptBanner" type="PanelContainer" parent="Root/TopInfo/Box"]
 unique_name_in_owner = true
@@ -267,8 +284,15 @@ layout_mode = 2
 text = "Concede"
 
 [node name="DecksButton" type="Button" parent="Root/PauseMenu/Center/Panel/Box"]
+unique_name_in_owner = true
 layout_mode = 2
 text = "Decks"
+
+[node name="PauseLeaveButton" type="Button" parent="Root/PauseMenu/Center/Panel/Box"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "Leave"
 
 [node name="ResultPanel" type="Control" parent="Root"]
 unique_name_in_owner = true
@@ -324,8 +348,15 @@ layout_mode = 2
 text = "Rematch"
 
 [node name="ResultDecksButton" type="Button" parent="Root/ResultPanel/Center/Panel/Box"]
+unique_name_in_owner = true
 layout_mode = 2
 text = "Decks"
+
+[node name="ResultLeaveButton" type="Button" parent="Root/ResultPanel/Center/Panel/Box"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "Leave"
 
 [connection signal="pressed" from="Root/CommitButton" to="." method="_on_commit_button_pressed"]
 [connection signal="pressed" from="Root/PauseButton" to="." method="_on_pause_button_pressed"]
@@ -334,3 +365,5 @@ text = "Decks"
 [connection signal="pressed" from="Root/ResultPanel/Center/Panel/Box/RematchButton" to="." method="_on_rematch_button_pressed"]
 [connection signal="pressed" from="Root/PauseMenu/Center/Panel/Box/DecksButton" to="." method="_on_decks_button_pressed"]
 [connection signal="pressed" from="Root/ResultPanel/Center/Panel/Box/ResultDecksButton" to="." method="_on_decks_button_pressed"]
+[connection signal="pressed" from="Root/PauseMenu/Center/Panel/Box/PauseLeaveButton" to="." method="_on_leave_button_pressed"]
+[connection signal="pressed" from="Root/ResultPanel/Center/Panel/Box/ResultLeaveButton" to="." method="_on_leave_button_pressed"]

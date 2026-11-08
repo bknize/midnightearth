@@ -19,8 +19,10 @@ var card_lift: CardLift = null
 var hud: BoardHud = null
 ## The board's zone-glow material, copied per card by BoardCard.set_glow.
 var glow_material: Material = null
-## The match's driver (set per match): the action button and the confirm submit through it.
-var driver: MatchDriver = null
+## The match's source (set per match): the action button and the confirm submit through it.
+var source: MatchSource = null
+## The engine seat the player holds; Pile seats in the strip are table seats (0 = the player).
+var viewer: int = 0
 ## Where the deck strip is built, and the board's card factory.
 var strip_parent: Node3D = null
 var spawn: Callable = Callable()
@@ -38,8 +40,8 @@ var _prompt: Dictionary = {}
 var _lit: Array[BoardCard] = []
 ## The option each lit card stands for, parallel to _lit.
 var _lit_options: Array[int] = []
-## What the strip's callback submitted, for press() to hand back.
-var _strip_result: ApplyResult = null
+## Whether the strip's callback submitted a choice, for press() to hand back.
+var _strip_submitted: bool = false
 
 
 ## Hands over the table: the four collections (hand, row, opponent row, opponent hand), the
@@ -86,7 +88,9 @@ func open(prompt: Dictionary, text: String, view: SeatView) -> void:
 	if PromptRules.is_pile_zone(zone_label) or PromptRules.is_deck_top_zone(zone_label):
 		_open_strip(view)
 	if is_multi():
-		hud.show_confirm(PromptRules.confirm_text(_prompt, 0), PromptRules.confirm_enabled(_prompt, 0))
+		hud.show_confirm(
+			PromptRules.confirm_text(_prompt, 0), PromptRules.confirm_enabled(_prompt, 0)
+		)
 	if PromptRules.wants_skip(_prompt):
 		hud.show_skip(is_multi())
 
@@ -178,7 +182,7 @@ func tap(card: BoardCard, own_size: int) -> PromptTap:
 
 ## One tap while the prompt is open (R40-R44): lift, swap the lift, or put it down.
 func handle_tap(card: BoardCard) -> void:
-	var routed: PromptTap = tap(card, driver.view().own_board.size())
+	var routed: PromptTap = tap(card, source.view().own_board.size())
 	await apply_tap(routed, card)
 
 
@@ -213,46 +217,50 @@ func lift_ended() -> void:
 
 
 ## The action button was pressed (R42, R48): a multi prompt toggles the lifted card in the
-## selection and sets it down (null returned); any other submits it and returns the result.
-func press() -> ApplyResult:
+## selection and sets it down (false returned); any other submits it and returns true. The
+## source answers through its signals.
+func press() -> bool:
 	var routed: PromptTap = PromptRules.action_tap(_prompt, lifted_option)
-	if not is_open() or driver == null:
-		return null
+	if not is_open() or source == null:
+		return false
 	if routed.kind == PromptRules.Tap.TOGGLE_SELECT:
 		selected = PromptRules.toggled(selected, routed.index)
 		_refresh_selection()
 		put_down()
-		return null
+		return false
 	if routed.kind != PromptRules.Tap.CHOOSE:
-		return null
+		return false
 	if strip.is_up():
 		# A strip entry is picked through the strip's callback, which submits it.
-		_strip_result = null
+		_strip_submitted = false
 		if not strip.choose(routed.index):
-			return null
-		return _strip_result
+			return false
+		return _strip_submitted
 	var zone: int = Choice.zone_of(_prompt)
-	return driver.submit_choice(zone, routed.index)
+	source.submit_choice(zone, routed.index)
+	return true
 
 
-## The confirm button was pressed (R48): submits the selected positions; null when no multi
+## The confirm button was pressed (R48): submits the selected positions; false when no multi
 ## prompt is open or the selection is not the legal size (R80).
-func confirm() -> ApplyResult:
-	if not is_open() or not is_multi() or driver == null:
-		return null
+func confirm() -> bool:
+	if not is_open() or not is_multi() or source == null:
+		return false
 	if not PromptRules.confirm_enabled(_prompt, selected.size()):
-		return null
+		return false
 	var zone: int = Choice.zone_of(_prompt)
 	var chosen: Array[int] = []
 	chosen.assign(selected)
-	return driver.submit_set(zone, chosen)
+	source.submit_set(zone, chosen)
+	return true
 
 
-## The Skip button was pressed (R63): declines the open optional prompt; null when none is open.
-func skip() -> ApplyResult:
-	if not is_open() or driver == null or not PromptRules.wants_skip(_prompt):
-		return null
-	return driver.submit_decline()
+## The Skip button was pressed (R63): declines the open optional prompt; false when none is open.
+func skip() -> bool:
+	if not is_open() or source == null or not PromptRules.wants_skip(_prompt):
+		return false
+	source.submit_decline()
+	return true
 
 
 ## The open prompt's Crew name, or "" for a card prompt (R66).
@@ -302,7 +310,8 @@ func _open_strip(view: SeatView) -> void:
 	_show_piles(seats, options, view)
 
 
-## The Pile of `seat` face up in the strip with nothing to choose (a tap on its count, R78).
+## The Pile of table seat `seat` face up in the strip with nothing to choose (a tap on its
+## count, R78).
 ## A second tap on the same Pile, or any tap while another strip is up, puts the strip away.
 ## Nothing while an open prompt chooses from the strip (a Pile or Deck-top zone): hiding it
 ## would leave that prompt with nothing to choose.
@@ -313,7 +322,8 @@ func toggle_pile(seat: int, view: SeatView) -> void:
 		strip.hide(0.25)
 		return
 	var none: Array[int] = []
-	_show_piles([seat], none, view)
+	# With two seats the rotation is its own inverse: table seat to engine seat.
+	_show_piles([BoardSteps.table_seat(seat, viewer)], none, view)
 
 
 func _show_piles(seats: Array[int], eligible: Array[int], view: SeatView) -> void:
@@ -323,7 +333,7 @@ func _show_piles(seats: Array[int], eligible: Array[int], view: SeatView) -> voi
 		var ids: Array[int] = view.pile_of(seat)
 		for i: int in range(ids.size()):
 			entries.append(ids[i])
-			piles.append(Vector2i(seat, i))
+			piles.append(Vector2i(BoardSteps.table_seat(seat, viewer), i))
 	_show_entries(entries, piles, eligible, view)
 
 
@@ -331,8 +341,8 @@ func _show_entries(
 	entries: Array[int], piles: Array[Vector2i], eligible: Array[int], view: SeatView
 ) -> void:
 	var def_of: Callable = Callable()
-	if driver != null:
-		def_of = driver.match_cards().def_of
+	if source != null:
+		def_of = source.match_cards().def_of
 	strip.aspect = _aspect()
 	strip.show(
 		strip_parent,
@@ -367,14 +377,17 @@ static func _pile_entry(id: int, view: SeatView) -> Dictionary:
 
 func _on_strip_choice(index: int) -> void:
 	var zone: int = Choice.zone_of(_prompt)
-	_strip_result = driver.submit_choice(zone, index)
+	source.submit_choice(zone, index)
+	_strip_submitted = true
 
 
 func _lift(card: BoardCard, option: int) -> void:
 	if card_lift.is_holding() or not is_open():
 		return
 	# Your own face-down card shows its face in the lift; an opponent's stays a back (R45, R46).
-	var own_hidden: bool = card.face_down and not strip.has_card(card) and spot_of(card).seat == 0
+	var own_hidden: bool = (
+		card.face_down and not strip.has_card(card) and spot_of(card).seat == BoardSteps.OWN_SIDE
+	)
 	card_lift.lift(card, own_hidden, option >= 0)
 	if option >= 0 and card_lift.is_holding():
 		lifted_option = option
@@ -385,6 +398,6 @@ func _lift(card: BoardCard, option: int) -> void:
 
 
 func _collection_of(seat: int, in_hand: bool) -> CardCollection3D:
-	if seat == 0:
+	if seat == BoardSteps.OWN_SIDE:
 		return player_hand if in_hand else player_row
 	return opponent_hand if in_hand else opponent_row
