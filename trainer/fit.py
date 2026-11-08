@@ -14,23 +14,45 @@ sorted or in feature order, floats rounded before they are written.
 numpy is imported inside the functions that need it, so the rest of the trainer (and
 `python -I trainer serve`) runs without it; a missing numpy is `FitError("numpy missing")`.
 Everything above `run_fit` that touches no array (validation, names) works without numpy.
+
+Threads. A multithreaded BLAS may reduce in a thread-dependent order, which would make the
+bytes depend on the machine's core count. `_numpy()` therefore pins OpenBLAS, MKL and OpenMP
+to one thread (`BLAS_THREAD_VARS`) before numpy is first imported in the process. The
+environment is read when the BLAS library loads, so if numpy was already imported (a test
+runner, or a host that imported it itself) the pin cannot take effect; `BLAS_PINNED` records
+whether it did, and the digest guarantee then holds only for that process's thread count.
+No `threadpoolctl`: no new dependency.
 """
 import hashlib
 import json
 import os
 import random
 import re
+import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from trainer.config import FitConfig
 from trainer.store import WEIGHTS_NAME, Store
+from trainer.sync import stamp_of
 
 REPORT_NAME = "report.json"
 FORMAT_VERSION = 2
 TOP_WEIGHTS = 10
-WEIGHT_SCALE = 10000  # the largest whole weight, in hundredths
-MAX_CELLS = 150_000_000  # pairs x features held in memory at once (about 1.2 GB as float64)
+# The largest whole weight a fit writes, in hundredths. It mirrors MAX_WEIGHT of
+# godot/engine/bot/bot_weights.gd (the loader's limit), so the full range is used and wide
+# features (total_diff reaches about 5,800) do not quantize to 0 to 2. Keep the two equal.
+# int64 safety of LinearBot.score: 124 features x 1e6 x a feature magnitude; features are
+# counts, sums and differences of game quantities (well under 1e6), so a score stays below
+# 124 x 1e6 x 1e6 = 1.24e14, far inside int64 (9.2e18). Even a feature of 1e9 gives 1.24e17.
+WEIGHT_SCALE = 1_000_000
+# Pairs x features allowed in one fit. The int64 chunks, the concatenated copy, the split
+# copies (x_fit, x_hold) and the float64 `xs` are all live at the peak: about 4 to 5 times
+# the cap in 8-byte cells, so 150 M cells is about 1.2 GB per copy and 5 to 6 GB at the peak.
+MAX_CELLS = 150_000_000
+BLAS_THREAD_VARS = ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS")
+BLAS_PINNED = False  # whether _numpy() pinned BLAS before numpy first loaded; stays False
+# when numpy was imported by someone else first
 FEATURES_GD = Path("godot") / "engine" / "bot" / "bot_features.gd"
 CARDS_JSON = Path("godot") / "engine" / "data" / "cards.json"
 FINISHED = ("done", "stopped")
@@ -41,6 +63,11 @@ class FitError(Exception):
 
 
 def _numpy() -> Any:
+    global BLAS_PINNED
+    if "numpy" not in sys.modules:  # the BLAS reads these when numpy first loads
+        for var in BLAS_THREAD_VARS:
+            os.environ[var] = "1"
+        BLAS_PINNED = True
     try:
         import numpy
     except ImportError:
@@ -78,11 +105,21 @@ def validate_runs(store: Store, run_ids: Sequence[str]) -> Tuple[str, str]:
     return stamp, feature_set
 
 
-def engine_feature_names(repo_root: Path, feature_set: str) -> List[str]:
+def engine_feature_names(repo_root: Path, feature_set: str,
+                         stamp: Optional[str] = None) -> List[str]:
     """The feature names in vector order, read from the checkout the workers run: the
     COMPACT list of bot_features.gd, then `card:<id>` per card of cards.json. FitError when
-    the checkout's feature set is not `feature_set`."""
+    the checkout's feature set is not `feature_set`, or (given `stamp`) when its code stamp
+    (as trainer/sync.py computes it) is not the runs' `stamp`, since a renamed or reordered
+    card would misname the weights."""
     root = Path(repo_root)
+    if stamp is not None:
+        try:
+            have = stamp_of(root)
+        except (OSError, ValueError) as e:
+            raise FitError("cannot compute the checkout's code stamp: %s" % (e,))
+        if have != stamp:
+            raise FitError("the checkout's code stamp is %s, the runs' is %s" % (have, stamp))
     try:
         gd = (root / FEATURES_GD).read_text(encoding="utf-8")
         cards = json.loads((root / CARDS_JSON).read_text(encoding="utf-8"))

@@ -3,6 +3,8 @@ extends GdUnitTestSuite
 ## PlayoutProtocol and PlayoutHandler (cycle 11 R25 to R29, R31, plan P9, T05): request
 ## parsing, reply field order, the digest, and the handler called as a function.
 
+const WEIGHTS_TMP: String = "user://test_playout_weights.json"
+
 
 ## The length of `value`, an Array held as a Variant.
 func _size(value: Variant) -> int:
@@ -329,3 +331,47 @@ func test_play_then_label_a_logged_position() -> void:
 	assert_str(PlayoutProtocol.digest([PlayoutProtocol.encode(first)])).is_equal(
 		PlayoutProtocol.digest([PlayoutProtocol.encode(again)])
 	)
+
+
+func _write_weights(text: String) -> void:
+	var file: FileAccess = FileAccess.open(WEIGHTS_TMP, FileAccess.WRITE)
+	assert_object(file).is_not_null()
+	if file == null:
+		return
+	file.store_string(text)
+	file.close()
+	BotWeights.forget_cached()
+
+
+func test_an_unusable_or_old_weights_file_is_an_error_reply() -> void:
+	var handler: PlayoutHandler = PlayoutHandler.load_default()
+	assert_object(handler).is_not_null()
+	if handler == null:
+		return
+	BotWeights.forget_cached()
+	var missing: Dictionary = handler.handle_line(
+		_play_line({"generator": "linear", "generator_weights": "user://no_such_weights.json"})
+	)
+	assert_array(missing.keys()).is_equal(["id", "error"])
+	assert_str(missing["error"]).contains("generator_weights")
+	_write_weights('{"version": 2, "bot": "linear"')
+	var broken: Dictionary = handler.handle_line(_label_line({"rollout_weights": WEIGHTS_TMP}))
+	assert_array(broken.keys()).is_equal(["id", "error"])
+	assert_str(broken["error"]).contains("rollout_weights")
+	var old: BotWeights = BotWeights.defaults()
+	old.stamp = handler.stamp() + "-old"
+	_write_weights(old.to_json())
+	var stale: Dictionary = handler.handle_line(
+		_play_line({"generator": "linear", "generator_weights": WEIGHTS_TMP})
+	)
+	assert_array(stale.keys()).is_equal(["id", "error"])
+	assert_str(stale["error"]).contains("stamp")
+	var current: BotWeights = BotWeights.defaults()
+	current.stamp = handler.stamp()
+	_write_weights(current.to_json())
+	var fine: Dictionary = handler.handle_line(
+		_play_line({"generator": "linear", "generator_weights": WEIGHTS_TMP})
+	)
+	assert_bool(fine.has("error")).is_false()
+	BotWeights.forget_cached()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(WEIGHTS_TMP))

@@ -31,6 +31,7 @@ from trainer.store import WEIGHTS_NAME, Store, default_data_dir, weights_path
 from trainer.sync import RunFn, default_run, stamp_of, sync_code
 
 ACTIVE_STATES = ("queued", "running", "stopping")
+LIVE_FIT = ("queued", "running")
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 LOCK_NAME = "serve.lock"
 WINDOWS_TOKEN = r"C:\Users\trainer\.trainer\token"
@@ -375,6 +376,13 @@ class Service:
             return "%s: fit %s is %s, not done" % (field, fit_id, fit["state"])
         if not Path(weights_path(self.data_dir, fit_id)).is_file():
             return "%s: fit %s has no weights file" % (field, fit_id)
+        try:  # the workers refuse a weights file of another stamp, so refuse it up front
+            current = self._stamp_fn()
+        except (OSError, ValueError) as e:
+            return "%s: stamp: %s" % (field, e)
+        if fit["stamp"] != current:
+            return ("%s: fit %s is under stamp %s, the code is at %s"
+                    % (field, fit_id, fit["stamp"], current))
         return ""
 
     def _launch(self, run_id: str) -> None:
@@ -549,6 +557,10 @@ class Service:
                 return {"error": "run %s is active" % active}
             if self._syncing:
                 return {"error": "a sync is in progress"}
+            for live in self.store.list_fits():  # its labels must not change under a fit
+                if live["state"] in ("queued", "running") and run_id in live["runs"]:
+                    return {"error": "fit %s is %s and reads run %s; resume after it ends"
+                            % (live["id"], live["state"], run_id)}
             try:
                 now_stamp = self._stamp_fn()
             except (OSError, ValueError) as e:
@@ -627,21 +639,27 @@ class Service:
     def _fit_job(self, fit_id: str, cfg: FitConfig, stop: threading.Event) -> None:
         store = Store(self.data_dir, recover_on_open=False)
         try:
-            store.set_fit_state(fit_id, "running")
+            # Compare-and-set throughout: a fit failed meanwhile (Service.close on a stuck
+            # fit) stays failed, whatever this thread does late.
+            if not store.set_fit_state(fit_id, "running", only_from=("queued",)):
+                return
             report = self._fit_fn(store, fit_id, cfg, self.fit_dir(fit_id), self._work(),
                                   should_stop=stop.is_set)
-            store.set_fit_state(fit_id, "done", "", json.dumps(report, sort_keys=True))
+            store.set_fit_state(fit_id, "done", "", json.dumps(report, sort_keys=True),
+                                only_from=LIVE_FIT)
         except Exception as e:  # a failed fit never takes the service with it
             try:
-                store.set_fit_state(fit_id, "failed", "%s: %s" % (type(e).__name__, e))
+                store.set_fit_state(fit_id, "failed", "%s: %s" % (type(e).__name__, e),
+                                    only_from=LIVE_FIT)
             except Exception:
                 pass
         finally:
             try:  # never end with the fit in a live state
                 row = store.get_fit(fit_id)
-                if row is not None and row["state"] in ("queued", "running"):
+                if row is not None and row["state"] in LIVE_FIT:
                     store.set_fit_state(fit_id, "failed",
-                                        "fit thread ended while %s" % row["state"])
+                                        "fit thread ended while %s" % row["state"],
+                                        only_from=LIVE_FIT)
             except Exception:
                 pass
             store.close()

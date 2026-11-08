@@ -77,6 +77,24 @@ static func is_quit(line: String) -> bool:
 	return request.get("kind", "") == PlayoutProtocol.KIND_QUIT and not request.has("error")
 
 
+# --- weights --------------------------------------------------------------------------
+
+
+## Why the weights file at `path` cannot be used for a labelled run: it fails to load, or its
+## stamp is not this worker's (R9, R13: a run is never labelled with the defaults a broken
+## or old fit file would silently become). "" for an empty path (the committed file, as
+## before) or a sound current file.
+func _weights_problem(path: String) -> String:
+	if path == "":
+		return ""
+	var loaded: BotWeights = BotWeights.cached(path)
+	if loaded.load_error != "":
+		return "weights file unusable: " + loaded.load_error
+	if loaded.stamp != _stamp:
+		return "weights file stamp %s is not the worker's %s" % [loaded.stamp, _stamp]
+	return ""
+
+
 # --- play -----------------------------------------------------------------------------
 
 
@@ -85,6 +103,9 @@ func _play(request: Dictionary, began: int) -> Dictionary:
 	var match_seed: int = request["seed"]
 	var generator: String = request["generator"]
 	var generator_weights: String = request["generator_weights"]
+	var refused: String = _weights_problem(generator_weights)
+	if refused != "":
+		return PlayoutProtocol.error_reply(request_id, "generator_weights: " + refused)
 	var play_decks: Array[String] = []
 	play_decks.assign(_as_array(request["decks"]))
 	var engine: MatchEngine = _new_engine(match_seed, play_decks)
@@ -137,6 +158,10 @@ func _play(request: Dictionary, began: int) -> Dictionary:
 func _label(request: Dictionary, began: int) -> Dictionary:
 	var request_id: Variant = request["id"]
 	var seat: int = request["seat"]
+	var rollout_weights: String = request["rollout_weights"]
+	var refused: String = _weights_problem(rollout_weights)
+	if refused != "":
+		return PlayoutProtocol.error_reply(request_id, "rollout_weights: " + refused)
 	var replayed: Dictionary = _replayed(request_id, request)
 	if replayed.has("error"):
 		return replayed["error"]
@@ -167,7 +192,6 @@ func _label(request: Dictionary, began: int) -> Dictionary:
 		chosen = given
 	var determinizations: int = request["determinizations"]
 	var rollout: String = request["rollout"]
-	var rollout_weights: String = request["rollout_weights"]
 	var values: Array[Dictionary] = Rollout.label(
 		engine, seat, chosen, determinizations, rollout, label_seed, rollout_weights
 	)
