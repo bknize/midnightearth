@@ -5,9 +5,10 @@ extends GdUnitTestSuite
 ## Round end sends both rows to their Owners' Piles (R2); the first committer of a Round's
 ## Turn 1 is the previous Round's loser, after a tied Round the seat that did not commit
 ## first on its last Turn, and a coin flip only in Round 1 (R3); four wins end the Match,
-## after Round 7 more wins take it, and level seats play sudden-death Rounds; a concede ends
-## it at once; `rounds_played` counts the ROUND_ENDED events; every later action fails with
-## MATCH_OVER.
+## after Round 7 more wins take it, and level seats play sudden-death Rounds; a tied
+## sudden-death Round with no card committed ends it in a stalemate (rules 8, cycle 13 C9); a
+## concede ends it at once; `rounds_played` counts the ROUND_ENDED events; every later action
+## fails with MATCH_OVER.
 ##
 ## Round outcomes come from real actions: both seats pass turns 1-6 (each pass answering its
 ## discard-down), and on Turn 7 the chosen winner commits one card (every fixture card is
@@ -139,6 +140,52 @@ func _play_round(engine: MatchEngine, winner: int) -> Array[MatchEvent]:
 	assert_int(_of_kind(seen, MatchEvent.Kind.ROUND_ENDED).size()).is_equal(1)
 	var ended: MatchEvent = _last(seen, MatchEvent.Kind.ROUND_ENDED)
 	assert_int(_payload_int(ended, "winner")).is_equal(winner)
+	return seen
+
+
+## Moves `card` into `seat`'s hand from wherever it is (Deck, hand or Pile; the rows are
+## empty between Turns of a Round's start).
+func _give(engine: MatchEngine, seat: int, card: int) -> void:
+	var piles: MatchState.SeatPiles = engine._state.seats[seat]
+	piles.deck.erase(card)
+	piles.hand.erase(card)
+	piles.pile.erase(card)
+	piles.hand.append(card)
+
+
+## Plays one tied Round in which cards are committed: each seat is handed its own f01 (seat
+## 0's card 0, seat 1's card DECK_SIZE) and commits it on Turn 1, and every other decision is
+## a pass. The two rows are equal and both seats' Crew act alike, so every Turn ties and the
+## Round ties with two cards committed. Returns every event of the Round.
+func _play_committed_tie(engine: MatchEngine) -> Array[MatchEvent]:
+	var own: Array[int] = [0, MatchRules.DECK_SIZE]
+	for seat: int in range(MatchEngine.SEATS):
+		_give(engine, seat, own[seat])
+	var seen: Array[MatchEvent] = []
+	var round_number: int = _state_int(engine, "round")
+	var guard: int = 0
+	while not engine.is_over() and _state_int(engine, "round") == round_number and guard < 60:
+		guard += 1
+		var action: EngineAction = FixtureDecks.discard_answer(engine)
+		if action == null:
+			var seat: int = engine.awaited_seat()
+			var cards: Array[int] = []
+			if _state_int(engine, "turn") == 1:
+				cards.append(own[seat])
+			action = EngineAction.commit(seat, cards)
+		var result: ApplyResult = engine.apply(action)
+		if not result.ok:
+			fail("round action rejected with code %d" % result.error)
+			return seen
+		seen.append_array(result.events)
+	var cards_committed: int = 0
+	for event: MatchEvent in _of_kind(seen, MatchEvent.Kind.COMMITTED):
+		if not _payload_bool(event, "pass"):
+			cards_committed += 1
+	assert_int(cards_committed).is_equal(2)
+	assert_int(_of_kind(seen, MatchEvent.Kind.ROUND_ENDED).size()).is_equal(1)
+	var ended: MatchEvent = _last(seen, MatchEvent.Kind.ROUND_ENDED)
+	assert_int(_payload_int(ended, "winner")).is_equal(TIE)
 	return seen
 
 
@@ -386,7 +433,8 @@ func test_more_wins_after_round_7_take_the_match() -> void:
 
 
 ## 3-3 after Round 7 goes to sudden death: Round 8 starts with `sudden_death`, a tied
-## sudden-death Round starts another, and the first won one ends the Match.
+## sudden-death Round in which cards were committed starts another, and the first won one
+## ends the Match.
 func test_level_after_round_7_plays_sudden_death_until_a_win() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var events: Array[MatchEvent] = engine.start().events
@@ -395,8 +443,80 @@ func test_level_after_round_7_plays_sudden_death_until_a_win() -> void:
 	var started: MatchEvent = _last(events, MatchEvent.Kind.ROUND_STARTED)
 	assert_int(_payload_int(started, "round")).is_equal(8)
 	assert_bool(_payload_bool(started, "sudden_death")).is_true()
-	events.append_array(_play_rounds(engine, _typed([TIE, 0])))
+	events.append_array(_play_committed_tie(engine))
+	events.append_array(_play_rounds(engine, _typed([0])))
 	_assert_match_ended(engine, events, 0, MatchEngine.REASON_SUDDEN_DEATH, _typed([4, 3]), 9)
+
+
+# --- Rules 8: a sudden-death Round with no commits (cycle 13 C9) -----------------------
+
+
+## Plays Rounds 1 to 7 to 3-3 (Round 7 tied), so Round 8 is sudden death, then sets the
+## Match total Scores to `match_scores` (no later Walk adds to them while every seat passes).
+## Returns every event from Match start.
+func _to_sudden_death(engine: MatchEngine, match_scores: Array[int]) -> Array[MatchEvent]:
+	var events: Array[MatchEvent] = engine.start().events
+	events.append_array(_play_rounds(engine, _typed([0, 1, 0, 1, 0, 1, TIE])))
+	assert_bool(engine.is_over()).is_false()
+	var started: MatchEvent = _last(events, MatchEvent.Kind.ROUND_STARTED)
+	assert_int(_payload_int(started, "round")).is_equal(8)
+	assert_bool(_payload_bool(started, "sudden_death")).is_true()
+	engine._state.match_scores.assign(match_scores)
+	return events
+
+
+## C9 (Ben, 2026-11-08, "1a"): a tied sudden-death Round in which neither seat committed a
+## card ends the Match, reason stalemate, though the seats still hold cards; the higher
+## Match total Score wins: seat 1 here, level on wins at 3-3 but ahead on Score.
+func test_a_sudden_death_round_with_no_commit_ends_in_a_stalemate() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death(engine, _typed([3, 11]))
+	var held: int = 0
+	for seat: int in range(MatchEngine.SEATS):
+		held += _seat_list(engine, "hand", seat).size()
+	assert_int(held).is_greater(0)
+	events.append_array(_play_round(engine, TIE))
+	_assert_match_ended(engine, events, 1, MatchEngine.REASON_STALEMATE, _typed([3, 3]), 8)
+	assert_int(_state_int(engine, "round_committed")).is_equal(0)
+	_assert_all_rejected_as_over(engine)
+
+
+## C9: the same stalemate with equal Match total Scores is a draw (winner -1).
+func test_a_no_commit_stalemate_on_equal_match_scores_draws() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death(engine, _typed([6, 6]))
+	events.append_array(_play_round(engine, TIE))
+	_assert_match_ended(engine, events, TIE, MatchEngine.REASON_STALEMATE, _typed([3, 3]), 8)
+
+
+## C9: a tied sudden-death Round in which a card was committed does not end the Match; the
+## next sudden-death Round starts, its committed-card count back at 0.
+func test_a_tied_sudden_death_round_with_a_commit_goes_on() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death(engine, _typed([3, 11]))
+	events.append_array(_play_committed_tie(engine))
+	assert_bool(engine.is_over()).is_false()
+	assert_int(_of_kind(events, MatchEvent.Kind.MATCH_ENDED).size()).is_equal(0)
+	var started: MatchEvent = _last(events, MatchEvent.Kind.ROUND_STARTED)
+	assert_int(_payload_int(started, "round")).is_equal(9)
+	assert_bool(_payload_bool(started, "sudden_death")).is_true()
+	assert_int(_state_int(engine, "round")).is_equal(9)
+	assert_int(_state_int(engine, "round_committed")).is_equal(0)
+
+
+## C9 applies to sudden death only: Rounds 1 to 7 with no card committed tie and the Match
+## goes on, into sudden death after Round 7 (wins 0-0).
+func test_rounds_with_no_commit_before_sudden_death_do_not_end_the_match() -> void:
+	var engine: MatchEngine = _started(SEED)
+	for round_number: int in range(1, MatchRules.ROUNDS + 1):
+		var events: Array[MatchEvent] = _play_round(engine, TIE)
+		assert_bool(engine.is_over()).is_false()
+		assert_int(_of_kind(events, MatchEvent.Kind.MATCH_ENDED).size()).is_equal(0)
+		assert_int(_state_int(engine, "round")).is_equal(round_number + 1)
+	var state: Dictionary = engine.full_state()
+	var sudden: bool = state["sudden_death"]
+	assert_bool(sudden).is_true()
+	assert_array(_state_ints(engine, "wins")).is_equal(_typed([0, 0]))
 
 
 # --- Concede --------------------------------------------------------------------------
@@ -457,8 +577,9 @@ func test_the_final_round_end_leaves_the_rows_in_the_piles() -> void:
 
 
 ## Stalemate (spec C12): random bots on the fixture deck, seeds 1-20, every match ends; a
-## stalemate ending comes after a tied sudden-death Round with both Decks and hands empty,
-## and the winner is the higher Match total Score (-1 when level). At least one seed of the
+## stalemate ending comes after a tied sudden-death Round with both Decks and hands empty or
+## (rules 8, cycle 13 C9) with no card committed, and the winner is the higher Match total
+## Score (-1 when level). At least one seed of the
 ## twenty reaches it (seed 5 did before the rule existed).
 func test_a_stalemate_ends_on_the_match_total_score() -> void:
 	var stalemates: int = 0
@@ -483,7 +604,12 @@ func test_a_stalemate_ends_on_the_match_total_score() -> void:
 		stalemates += 1
 		var sudden: bool = state["sudden_death"]
 		assert_bool(sudden).is_true()
+		# C9: a Round with no card committed is a stalemate whatever the seats still hold;
+		# otherwise both Decks and hands are empty.
+		var round_committed: int = state["round_committed"]
 		for seat: int in range(MatchEngine.SEATS):
+			if round_committed == 0:
+				break
 			assert_array(_seat_list(engine, "deck", seat)).is_empty()
 			assert_array(_seat_list(engine, "hand", seat)).is_empty()
 			# Review 3a: a seat that could shuffle a non-empty Pile back in is not stalled.

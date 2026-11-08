@@ -4,7 +4,7 @@ tags: [spec, cycle-13-bot-trainer-b, engine, tooling, bot, training, learner]
 status: approved
 related: ["[[specs/cycle-13-bot-trainer-b/plan]]", "[[specs/cycle-13-bot-trainer-b/tasks]]", "[[specs/cycle-11-bot-trainer/spec]]", "[[planning/bot-trainer-architecture]]", "[[planning/bot-ladder]]", "[[specs/cycle-7-bot-players/spec]]", "[[planning/cycles]]", "[[planning/phase-1-tech-stack]]"]
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-08
 uid: 3c3e6b99-3719-4405-b164-29c44ff6db23
 linear: https://linear.app/night-science-llc/project/cycle-13-bot-trainer-cycle-b-the-learner-the-linear-bot-rung-1-64d41cbb8498
 supersedes:
@@ -233,7 +233,7 @@ over one or more finished runs. "The yardstick" is the ladder's: today `random`,
   pinned feature vector, the `linear` suite, the sweep lines, the `bot-eval` lines, the fit
   reports, the label digest equal on 1 and 8 workers, and the ledger row.
 
-## Clarifications (Ben, 2026-11-07)
+## Clarifications (Ben, 2026-11-07; C9 2026-11-08)
 
 | # | Question | Answer |
 |---|---|---|
@@ -245,6 +245,7 @@ over one or more finished runs. "The yardstick" is the ladder's: today `random`,
 | C6 | Round 2 Q2, run sizes: (a) 4,000 random-rollout positions, then 2,000 per iteration with the fitted policy, three nights; (b) half; (c) 8 determinizations, twice the positions | 2a |
 | C7 | Round 2 Q3, measurement: (a) Mac only, `bot-eval` gains `--weights`, no `eval` verb on the PC; (b) plus an `eval` verb (+1 task M) | 3a |
 | C8 | Round 2 Q4, closing: (a) the iterations are the verification, the branch lives for the nights, `/cycle test` after the last; (b) close after iteration 0, iterate after the merge | 4a |
+| C9 | DC-18 T09, 2026-11-08: iteration 0's gainer against `random` stopped (exit 3) on two `greed` mirrors that hit the 2,000-action cap. In sudden death the F0 bot held its last card and passed every turn, the other seat had no cards, every Round tied 0-0, and `MatchEngine._stalled()` (cycle 9 C12) fires only with both hands empty. Q1 the rule: (a) a sudden-death Round in which neither seat commits a card ends the Match as a stalemate (higher Match total Score wins, equal totals draw), `RULES_VERSION` 7 to 8, night 1 rerun under the new stamp; (b) the same rule with no version bump; (c) leave the rules, `bot-eval` scores a capped game as a draw. Q2 timing: (a) fix first, gainer reruns clean, then night 2; (b) night 2 now, fix in parallel | Ben: "1a 2a". New stamp `r8-857b165d5a5d755e`; night 1 (run c61172712da8, fit 91579a1f5ef6) is superseded and rerun as iteration 0 under r8 |
 
 Defaults stated by the interrogator and not vetoed (round 2 preamble and this spec): NSC-232
 folded in, NSC-231 and NSC-233 left in Backlog; a fit reads the runs named in its config, the

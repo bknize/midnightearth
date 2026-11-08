@@ -6,7 +6,7 @@ extends RefCounted
 ## 100 counts a feature once.
 ##
 ## The file: a JSON object
-## `{"version": 2, "bot": "linear", "stamp": "r7-…", "features": "f1", "k": 64,
+## `{"version": 2, "bot": "linear", "stamp": "r8-…", "features": "f1", "k": 64,
 ## "fit": {"id": "…", "runs": ["…"], "digest": "…"}, "weights": {"committed_power": 100, …}}`.
 ## `version` and `features` are required and must be FORMAT_VERSION and
 ## BotFeatures.SET_VERSION; every other key is optional and keeps its default when absent;

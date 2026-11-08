@@ -1,6 +1,6 @@
 class_name MatchState
 extends RefCounted
-## All mutable match state, rules version 7 (cycle 9 plan, Data model). MatchEngine, TurnFlow
+## All mutable match state, rules version 8 (cycle 9 plan, Data model). MatchEngine, TurnFlow
 ## and ScoreWalk are its writers; readers (SeatView, replay) use the fields or to_dict(), the
 ## full-state read.
 ##
@@ -44,6 +44,9 @@ var pending_slots: Array[int] = []
 var energy: EnergyState = EnergyState.new()
 ## The cards each seat committed this Turn (0 for a Pass or before its Commit, P14).
 var committed_count: Array[int] = [0, 0]
+## Cards committed by both seats so far this Round, 0 at Round start (rules 8, cycle 13 C9:
+## a tied sudden-death Round with none ends the Match in a stalemate).
+var round_committed: int = 0
 ## Each seat's Score: the last Walk's walking total rounded once (R27).
 var scores: Array[int] = [0, 0]
 ## Each seat's walking total in ten-thousandths (R25, R28): 0 at Walk start, the total after
@@ -139,6 +142,7 @@ func to_dict() -> Dictionary:
 		"pending_slots": plain(pending_slots),
 		"energy": energy.to_dict(),
 		"committed_count": plain(committed_count),
+		"round_committed": round_committed,
 		"scores": plain(scores),
 		"totals": plain(totals),
 		"wins": plain(wins),
@@ -180,6 +184,7 @@ func duplicate() -> MatchState:
 	out.pending_slots.assign(pending_slots)
 	out.energy = energy.copy()
 	out.committed_count.assign(committed_count)
+	out.round_committed = round_committed
 	out.scores.assign(scores)
 	out.totals.assign(totals)
 	out.wins.assign(wins)

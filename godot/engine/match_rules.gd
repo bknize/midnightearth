@@ -22,7 +22,9 @@ const MAX_COPIES: int = 4
 const CREW_SIZE: int = 3
 ## The resolutions one pulse or drain point may make before the rest fizzle (canon Q4).
 const TRIGGER_BUDGET: int = 50
-const RULES_VERSION: int = 7
+## Rules 8 since cycle 13 C9 (Ben, 2026-11-08): a tied sudden-death Round with no card
+## committed ends the Match in a stalemate (MatchEngine._stalled()).
+const RULES_VERSION: int = 8
 const LOG_FORMAT: int = 5
 ## Ten-thousandths: the unit of the walking total and of a Bonus value (plan P7).
 const SCALE: int = 10000
