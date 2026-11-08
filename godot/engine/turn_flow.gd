@@ -131,8 +131,9 @@ static func begin_round(state: MatchState, rng: MatchRng, sink: Callable) -> voi
 
 
 ## Turn start (resolution steps 1 to 3): the commit order, each seat's spend and Commit
-## count cleared, TURN_STARTED, the draws (first seat first), then On start. The phase is
-## AWAIT_FIRST. True when a drain (D1 or D2) paused on a prompt.
+## count cleared, TURN_STARTED (with `free_first` per seat, R16), the draws (first seat
+## first), then On start. The phase is AWAIT_FIRST. True when a drain (D1 or D2) paused on a
+## prompt.
 static func begin_turn(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> bool:
 	state.turn += 1
 	if state.turn > 1 and state.last_turn_winner >= 0:
@@ -146,6 +147,7 @@ static func begin_turn(state: MatchState, cards: MatchCards, rng: MatchRng, sink
 		"turn": state.turn,
 		"first_seat": state.first_seat,
 		"budgets": [budget(state, cards, 0), budget(state, cards, 1)],
+		"free_first": [state.energy.free_first[0], state.energy.free_first[1]],
 	}
 	sink.call(MatchEvent.Kind.TURN_STARTED, started)
 	return _draws_from(state, cards, rng, sink, 0)
@@ -367,13 +369,27 @@ static func answer_discard_down(
 
 ## Sends `card`, already taken from its hand or row, to its Owner's Pile as a Discard
 ## (R19, R20, R31): CARD_DISCARDED {owner, card, from, reason, pile_index}, public, since a
-## Pile entry is public (R24).
+## Pile entry is public (R24). Rules 9 (cycle 14 R8, R10, R11): a created card (Dross,
+## Twin's copy) whose lifetime is `until_piled` (CardDef.expires_when_piled) expires
+## instead: it leaves the Match (MatchCards.forget_created), enters no Pile, and
+## CARD_EXPIRED {owner, card, from, reason} is public; a `match` one is filed like any
+## card. Every card has an Owner
+## (origin_of(); a created one from its creation): there is no fallback seat, so an id
+## with none is a programming error, which a test surfaces (the engine never asserts): it
+## is filed nowhere and no event names it.
 static func to_pile(
 	state: MatchState, cards: MatchCards, sink: Callable, card: int, from: String, reason: String
 ) -> void:
 	var owner: int = cards.origin_of(card)
 	if owner < 0:
-		owner = 0
+		return
+	var def: CardDef = cards.def_of(card)
+	if MatchCards.is_created(card) and def != null and def.expires_when_piled():
+		if cards.forget_created(card):
+			pass  # It leaves the Match: no def_of() or origin_of() from now on.
+		var expired: Dictionary = {"owner": owner, "card": card, "from": from, "reason": reason}
+		sink.call(MatchEvent.Kind.CARD_EXPIRED, expired)
+		return
 	var pile: Array[int] = state.seats[owner].pile
 	pile.append(card)
 	var discarded: Dictionary = {

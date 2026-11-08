@@ -261,7 +261,8 @@ func test_match_start_deals_four_then_round_one_draws_one() -> void:
 	assert_int(engine.awaited_seat()).is_equal(_payload_int(turn_started, "first_seat"))
 	var keys: Array = turn_started.payload.keys()
 	keys.sort()
-	assert_array(keys).is_equal(["budgets", "first_seat", "round", "turn"])
+	# `free_first` per seat since rules 9 (cycle 14 R16).
+	assert_array(keys).is_equal(["budgets", "first_seat", "free_first", "round", "turn"])
 
 
 func test_deal_events_are_private_to_their_seat() -> void:

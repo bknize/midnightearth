@@ -90,10 +90,9 @@ var queue: TriggerQueue = TriggerQueue.new()
 ## Per seat, the Void grants its next Scoring card will take (DC-13 T07, plan P13): a count
 ## that stacks, spent when that card Scores and cleared at turn end (CrewAbilities). Public.
 var void_grants: Array[int] = [0, 0]
-## Created cards (DC-14 T12, plan P6): instance id to {def: its pool id, owner: its Owner's
-## seat}; MatchCards.record_created holds the same, so def_of() and origin_of() answer.
-var created: Dictionary[int, Dictionary] = {}
-## The id the next created card takes: MatchCards.CREATED_BASE first, then up by one.
+## The id the next created card takes: MatchCards.CREATED_BASE first, then up by one. The
+## created cards' definitions and Owners are recorded once, in MatchCards (record_created,
+## DC-20 T03, NSC-179); MatchEngine.full_state() lists them as `created`.
 var next_created_id: int = MatchCards.CREATED_BASE
 ## Chosen cards kept by the card that chose them (Hex, DC-14 T12; glossary "chosen card"):
 ## source to chosen card. An entry ends when either card leaves its row or is Un-revealed
@@ -160,7 +159,6 @@ func to_dict() -> Dictionary:
 		"seat_protections": _seat_protections_list(),
 		"queue": queue.to_dict(),
 		"void_grants": plain(void_grants),
-		"created": _created_dict(),
 		"next_created_id": next_created_id,
 		"chosen": _chosen_dict(),
 	}
@@ -206,9 +204,6 @@ func duplicate() -> MatchState:
 	out.seat_protections.assign(_seat_protections_list())
 	out.queue = queue.copy()
 	out.void_grants.assign(void_grants)
-	for card: int in created:
-		var made: Dictionary = created[card]
-		out.created[card] = made.duplicate(true)
 	out.next_created_id = next_created_id
 	out.chosen.assign(chosen)
 	return out
@@ -312,15 +307,6 @@ func _chosen_dict() -> Dictionary:
 	var out: Dictionary = {}
 	for source: int in chosen:
 		out[source] = chosen[source]
-	return out
-
-
-## The created cards as plain data, keyed by instance id.
-func _created_dict() -> Dictionary:
-	var out: Dictionary = {}
-	for card: int in created:
-		var made: Dictionary = created[card]
-		out[card] = made.duplicate(true)
 	return out
 
 

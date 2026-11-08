@@ -12,7 +12,7 @@ extends GdUnitTestSuite
 ## CARD_PLACED) and chains; Exhume always prompts once for up to two and may choose none; Immolator
 ## Condemns as many random opposing cards as it chose; Reset refills both Decks before it
 ## reaches its own Pile. Each case puts the shipped card's definition on a stub deck
-## instance (StubAbilities, MatchCards.replace_def); seat 1's instances add DECK_SIZE.
+## instance (StubAbilities.replace_def); seat 1's instances add DECK_SIZE.
 
 const SEED: int = 1
 const OTHER: int = MatchRules.DECK_SIZE
@@ -156,6 +156,77 @@ func test_fuse_grows_on_opposing_scores_then_condemns_itself_and_one_opposing() 
 	assert_array(state.seats[1].board).is_equal(enemy)
 	assert_bool(Statuses.take_from_row(state, 0, fuse, rec.record)).is_true()
 	assert_int(_power(state, cards, fuse)).is_equal(1)
+
+
+## Fuse at Power 5 over an opposing row of four Scoring cards, the whole Walk on one stream
+## `rng`; `enemy` holds seat 1's instances, revealed. Returns the recorder.
+func _fuse_over(
+	cards: MatchCards, state: MatchState, enemy: Array[int], rng: MatchRng
+) -> StubAbilities.Recorder:
+	StubAbilities.put_row(state, 1, enemy, true)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	ScoreWalk.begin(state)
+	var guard: int = 0
+	while state.walk.active and guard < GUARD:
+		assert_bool(ScoreWalk.step(state, cards, rng, rec.record)).is_false()
+		guard += 1
+	return rec
+
+
+## Rules 9 (cycle 14 R3, C2 2b): Fuse's random pick is drawn from the whole opposing row;
+## landing on a card a protection keeps from the Condemned mark (four Bastions) is a miss,
+## one TRIGGER_FIZZLED `protected` for the pick, Fuse itself having fired (and Condemned
+## itself). The stream advances exactly as when the pick lands on an open card: one
+## pick_index over the row of four.
+func test_fuse_pick_on_a_protected_card_fizzles_protected() -> void:
+	var cards: MatchCards = _cards()
+	var fuse: int = 0
+	_put(cards, _typed([fuse]), "gy01")
+	var bastion: int = OTHER + StubAbilities.BASTION
+	var guarded: Array[int] = [bastion, bastion + 1, bastion + 2, bastion + 3]
+	var state: MatchState = StubAbilities.table(_typed([fuse]), true)
+	var rng: MatchRng = MatchRng.new(SEED)
+	var rec: StubAbilities.Recorder = _fuse_over(cards, state, guarded, rng)
+	assert_int(rec.cards_of(FIRED).count(fuse)).is_equal(4)
+	assert_str(Statuses.exit_mark_of(state, fuse)).is_equal(Statuses.CONDEMNED)
+	assert_array(_condemned(state, guarded)).is_empty()
+	assert_array(_fizzles(rec, "fuse")).is_equal(_words([Abilities.REASON_PROTECTED]))
+	var missed: MatchEvent = rec.of_kind(FIZZLED)[0]
+	assert_int(_int_of(missed, "card")).is_equal(fuse)
+	assert_int(missed.owner_seat).is_equal(MatchEvent.PUBLIC)
+	# The same Walk over four open cards marks one, on the same stream.
+	var open: MatchState = StubAbilities.table(_typed([fuse]), true)
+	var enemy: Array[int] = [OTHER, OTHER + 1, OTHER + 2, OTHER + 3]
+	var open_rng: MatchRng = MatchRng.new(SEED)
+	var open_rec: StubAbilities.Recorder = _fuse_over(cards, open, enemy, open_rng)
+	assert_int(_condemned(open, enemy).size()).is_equal(1)
+	assert_array(_fizzles(open_rec, "fuse")).is_empty()
+	assert_int(rng.state).is_equal(open_rng.state)
+	var one_pick: MatchRng = MatchRng.new(SEED)
+	var at: int = one_pick.pick_index(enemy.size())
+	assert_int(rng.state).is_equal(one_pick.state)
+	assert_str(Statuses.exit_mark_of(open, enemy[at])).is_equal(Statuses.CONDEMNED)
+
+
+## Rules 9 (R3): a pick that lands on a card already holding the Condemned mark is a miss,
+## TRIGGER_FIZZLED `already_marked`, with no new EXIT_MARKED for it; same stream.
+func test_fuse_pick_on_a_condemned_card_fizzles_already_marked() -> void:
+	var cards: MatchCards = _cards()
+	var fuse: int = 0
+	_put(cards, _typed([fuse]), "gy01")
+	var enemy: Array[int] = [OTHER, OTHER + 1, OTHER + 2, OTHER + 3]
+	var state: MatchState = StubAbilities.table(_typed([fuse]), true)
+	for card: int in enemy:
+		state.card_state_for(card).exit_mark = Statuses.CONDEMNED
+	var rng: MatchRng = MatchRng.new(SEED)
+	var rec: StubAbilities.Recorder = _fuse_over(cards, state, enemy, rng)
+	assert_str(Statuses.exit_mark_of(state, fuse)).is_equal(Statuses.CONDEMNED)
+	assert_array(_fizzles(rec, "fuse")).is_equal(_words([Abilities.REASON_ALREADY_MARKED]))
+	assert_array(rec.cards_of(MatchEvent.Kind.EXIT_MARKED)).is_equal(_typed([fuse]))
+	assert_array(_condemned(state, enemy)).is_equal(enemy)
+	var one_pick: MatchRng = MatchRng.new(SEED)
+	one_pick.pick_index(enemy.size())
+	assert_int(rng.state).is_equal(one_pick.state)
 
 
 ## Three opposing Scores leave Fuse at Power 4: nothing is Condemned.
@@ -565,6 +636,29 @@ func test_immolator_condemns_its_choice_and_as_many_opposing() -> void:
 	assert_int(_condemned(state, enemy).size()).is_equal(1)
 	assert_array(state.seats[0].board).is_equal(_typed([imm, 1, 2]))
 	assert_array(state.seats[1].board).is_equal(enemy)
+
+
+## Rules 9 (R3): Immolator chooses two, so two distinct picks over the whole opposing row of
+## a Bastion and a Mote: the pick on Bastion is a miss (TRIGGER_FIZZLED `protected`) that
+## still counts as one of the two, so the Mote is Condemned too, whatever the order.
+func test_immolator_pick_on_a_protected_card_still_counts() -> void:
+	var cards: MatchCards = _cards()
+	var imm: int = 0
+	_put(cards, _typed([imm]), "gy09")
+	var state: MatchState = StubAbilities.table(_typed([imm, 1, 2]), false)
+	state.seats[0].revealed[1] = true
+	state.seats[0].revealed[2] = true
+	var bastion: int = OTHER + StubAbilities.BASTION
+	var enemy: Array[int] = [bastion, OTHER]
+	StubAbilities.put_row(state, 1, enemy, true)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	ScoreWalk.begin(state)
+	assert_bool(ScoreWalk.step(state, cards, MatchRng.new(SEED), rec.record)).is_true()
+	_answer_and_finish(state, cards, rec, Choice.Zone.OWN_BOARD, _typed([1, 2]))
+	assert_array(_condemned(state, state.seats[0].board)).is_equal(_typed([1, 2]))
+	assert_array(_condemned(state, enemy)).is_equal(_typed([OTHER]))
+	assert_array(_fizzles(rec, "immolate")).is_equal(_words([Abilities.REASON_PROTECTED]))
+	assert_bool(rec.cards_of(FIRED).has(imm)).is_true()
 
 
 ## With one eligible card Immolator still prompts (Q9), and an empty answer Condemns nothing.

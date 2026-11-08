@@ -6,7 +6,7 @@ extends GdUnitTestSuite
 ## Scores twice, the On commit and On start brackets, and a prompt pausing a drain inside
 ## the Walk (D8) in a real match that a replay of its log reaches and resumes the same way.
 ## Every card here carries the fixture's stub verbs (StubAbilities.StubVerbs) through
-## MatchCards.replace_def; seat 1's instances add MatchRules.DECK_SIZE.
+## StubAbilities.replace_def; seat 1's instances add MatchRules.DECK_SIZE.
 
 const SEED: int = 1
 const OTHER: int = MatchRules.DECK_SIZE

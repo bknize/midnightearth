@@ -7,8 +7,9 @@ extends GdUnitTestSuite
 ## its row; Shepherd swaps (one On moved Batch, the cursor rules decide who Scores) and an
 ## Anchored Shepherd fizzles; Skip's move happens after D7 and its On moved drains in D8, and
 ## an Anchored next card stays; Fence Condemns a card that would wrap instead of moving it,
-## waking no On moved; Herald is ×1.5 in the rightmost slot; Level sets every card of a row
-## to the lowest revealed Power (a Saboteur's -3 sets its row to -3); Shake's chosen Anchored
+## waking no On moved; Herald is ×1.5 in the rightmost slot; Level sets every revealed card
+## of a row to the lowest revealed Power (a Saboteur's -3 sets its row to -3; a face-down
+## card keeps its own until revealed, rules 9); Shake's chosen Anchored
 ## card stays and every card that changed slot, displaced or chosen, on both rows, is one On
 ## moved Batch; Tempest reverses the opposing row around an Anchor; Cull prompts both seats
 ## in turn and the random bot answers the second. Last, two random bots play whole matches
@@ -328,10 +329,11 @@ func test_herald_is_x1_5_in_the_rightmost_slot() -> void:
 # --- Level ----------------------------------------------------------------------------
 
 
-## Level read on seat 0's row: every card of a row has the lowest Power among that row's
-## revealed cards, read before any Level (Level 4, Pebble 3, Mote 2 all read 2; a face-down
-## Wisp does not count but is set too); its own row included. A Saboteur-like card (Power
-## -3, Saboteur's number) on the opposing row sets that row to -3, so its Walk Scores -6.
+## Level read on seat 0's row: every revealed card of a row has the lowest Power among that
+## row's revealed cards, read before any Level (Level 4, Pebble 3, Mote 2 all read 2; a
+## face-down Wisp neither counts nor is set: it keeps its 1, rules 9); its own row
+## included. A Saboteur-like card (Power -3, Saboteur's number) on the opposing row sets
+## that row to -3, so its Walk Scores -6.
 ## Squelched, Level changes nothing.
 func test_level_sets_each_row_to_its_lowest_revealed_power() -> void:
 	var cards: MatchCards = _cards()
@@ -347,8 +349,9 @@ func test_level_sets_each_row_to_its_lowest_revealed_power() -> void:
 	for card: int in [level, pebble, 1]:
 		state.seats[0].revealed[card] = true
 	StubAbilities.put_row(state, 1, _typed([saboteur, OTHER + pebble]), true)
-	for card: int in [level, pebble, 1, wisp]:
+	for card: int in [level, pebble, 1]:
 		assert_int(Scoring.stats(card, state, cards).power).is_equal(2)
+	assert_int(Scoring.stats(wisp, state, cards).power).is_equal(1)
 	assert_int(Scoring.stats(saboteur, state, cards).power).is_equal(SABOTEUR_POWER)
 	assert_int(Scoring.stats(OTHER + pebble, state, cards).power).is_equal(SABOTEUR_POWER)
 	_walk(state, cards, StubAbilities.recorder())
@@ -356,6 +359,37 @@ func test_level_sets_each_row_to_its_lowest_revealed_power() -> void:
 	assert_bool(StubAbilities.stub_squelch(state, cards, level, Callable()).ok()).is_true()
 	assert_int(Scoring.stats(pebble, state, cards).power).is_equal(3)
 	assert_int(Scoring.stats(OTHER + pebble, state, cards).power).is_equal(3)
+
+
+
+## Rules 9 (cycle 14 R4, R5, C3 3a), one case per row side: a face-down Power-7 card on a
+## row under a read Level keeps its 7 (and does not supply the lowest Power); once revealed
+## it has the row's lowest revealed Power, read before any Level. On Level's own row (Level
+## 4, Pebble 3) it becomes 3; on the opposing row (Mote 2) it becomes 2.
+func test_level_skips_a_face_down_card_until_it_is_revealed() -> void:
+	var cards: MatchCards = _cards()
+	var level: int = 0
+	var pebble: int = StubAbilities.PEBBLE
+	_put(cards, _typed([level]), "ct07")
+	var none: Array[CardAbility] = []
+	var seven: CardDef = StubAbilities.card_def("Seven", none, 7)
+	var own_seven: int = 1
+	var their_seven: int = OTHER + 1
+	assert_bool(StubAbilities.give(cards, _typed([own_seven, their_seven]), seven)).is_true()
+	var state: MatchState = StubAbilities.table(_typed([level, pebble, own_seven]), false)
+	for card: int in [level, pebble]:
+		state.seats[0].revealed[card] = true
+	StubAbilities.put_row(state, 1, _typed([OTHER, their_seven]), false)
+	state.seats[1].revealed[OTHER] = true
+	assert_int(Scoring.stats(own_seven, state, cards).power).is_equal(7)
+	assert_int(Scoring.stats(their_seven, state, cards).power).is_equal(7)
+	assert_int(Scoring.stats(pebble, state, cards).power).is_equal(3)
+	assert_int(Scoring.stats(OTHER, state, cards).power).is_equal(2)
+	state.seats[0].revealed[own_seven] = true
+	state.seats[1].revealed[their_seven] = true
+	assert_int(Scoring.stats(own_seven, state, cards).power).is_equal(3)
+	assert_int(Scoring.stats(their_seven, state, cards).power).is_equal(2)
+	assert_int(Scoring.stats(level, state, cards).power).is_equal(3)
 
 
 # --- Shake ----------------------------------------------------------------------------

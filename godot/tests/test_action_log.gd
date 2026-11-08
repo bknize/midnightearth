@@ -668,13 +668,27 @@ func test_rules_mismatch_fails_replay() -> void:
 		assert_object(replayed.engine).is_null()
 
 
-## The header: format 5 since DC-13 T02 (cycle 9 plan P1, spec R65: the v2 cards), rules 8
-## since cycle 13 C9. An older log still parses, and replay refuses it before running
-## anything: every format-4 log (the v6 cards, whatever its rules) and every older format
-## fail on the format (checked first); a format-5 log under rules 7 or older fails on the
-## rules version; a format-5 header without `decks` is a format mismatch.
+## Rules 9 (DC-20 T03, cycle 14 R12, C9): a real match's log written under rules 8 is
+## refused at replay on the rules version, before any action runs.
+func test_a_rules_8_log_is_refused() -> void:
+	var the_log: ActionLog = _scripted(SEED, 0, 6).action_log()
+	the_log.rules_version = 8
+	var parsed: ActionLog = _through_json(the_log)
+	assert_int(parsed.rules_version).is_equal(8)
+	var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks(), FixtureDecks.crew())
+	assert_bool(replayed.ok).is_false()
+	assert_int(replayed.reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
+	assert_int(replayed.failed_index).is_equal(-1)
+	assert_object(replayed.engine).is_null()
+
+
+## The header: format 5 since DC-13 T02 (cycle 9 plan P1, spec R65: the v2 cards), rules 9
+## since DC-20 T03 (cycle 14 R12). An older log still parses, and replay refuses it before
+## running anything: every format-4 log (the v6 cards, whatever its rules) and every older
+## format fail on the format (checked first); a format-5 log under rules 8 or older fails on
+## the rules version; a format-5 header without `decks` is a format mismatch.
 func test_a_format_4_or_older_or_old_rules_or_deckless_log_fails_replay() -> void:
-	assert_int(MatchRules.RULES_VERSION).is_equal(8)
+	assert_int(MatchRules.RULES_VERSION).is_equal(9)
 	assert_int(MatchRules.LOG_FORMAT).is_equal(5)
 	var commit: String = '{"k": "commit", "s": 0, "c": [], "p": []}'
 	var actions: String = ' "actions": [' + commit + ', {"k": "concede", "s": 1}]}'
@@ -685,6 +699,7 @@ func test_a_format_4_or_older_or_old_rules_or_deckless_log_fails_replay() -> voi
 		'{"format": 4, "rules": 6, "seed": "1",' + decks + actions,
 		'{"format": 4, "rules": 7, "seed": "1",' + decks + actions,
 		'{"format": 5, "rules": 7, "seed": "1",' + actions,
+		'{"format": 5, "rules": 8, "seed": "1",' + decks + actions,
 		'{"format": 5, "rules": 7, "seed": "1",' + decks + actions,
 		'{"format": 5, "rules": 6, "seed": "1",' + decks + actions,
 		'{"format": 5, "rules": 5, "seed": "1",' + decks + actions,
@@ -695,6 +710,7 @@ func test_a_format_4_or_older_or_old_rules_or_deckless_log_fails_replay() -> voi
 		ReplayResult.Reason.FORMAT_MISMATCH,
 		ReplayResult.Reason.FORMAT_MISMATCH,
 		ReplayResult.Reason.FORMAT_MISMATCH,
+		ReplayResult.Reason.RULES_MISMATCH,
 		ReplayResult.Reason.RULES_MISMATCH,
 		ReplayResult.Reason.RULES_MISMATCH,
 		ReplayResult.Reason.RULES_MISMATCH,
@@ -803,15 +819,15 @@ func test_format_5_round_trips_with_decks_slots_and_choices() -> void:
 	var the_log: ActionLog = _log_of(SEED, _sample_actions())
 	var text: String = the_log.to_json()
 	# The header names both decks (format 3, DC-07 T02); format 5 since DC-13 T02 (cycle 9
-	# P1: the v2 cards), rules 8 since cycle 13 C9.
-	var header: String = '{"format":5,"rules":8,"seed":"1","decks":["fixture","fixture"]'
+	# P1: the v2 cards), rules 9 since DC-20 T03 (cycle 14 R12).
+	var header: String = '{"format":5,"rules":9,"seed":"1","decks":["fixture","fixture"]'
 	assert_bool(text.begins_with(header)).override_failure_message(text).is_true()
 	assert_bool(text.contains('{"k":"commit","s":0,"c":[3,7],"p":[0,2]}')).is_true()
 	assert_bool(text.contains('{"k":"commit","s":1,"c":[],"p":[]}')).is_true()
 	assert_bool(text.contains('{"k":"choose","s":0,"z":1,"i":2}')).is_true()
 	var parsed: ActionLog = _through_json(the_log)
 	assert_int(parsed.format_version).is_equal(5)
-	assert_int(parsed.rules_version).is_equal(8)
+	assert_int(parsed.rules_version).is_equal(9)
 	assert_array(parsed.deck_ids).is_equal(FixtureDecks.ids())
 	assert_array(_dicts(parsed.actions)).is_equal(_dicts(the_log.actions))
 	assert_str(parsed.to_json()).is_equal(text)

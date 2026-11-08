@@ -550,6 +550,13 @@ static func _fizzled(ctx: TriggerContext, reason: String) -> void:
 	ctx.emit(MatchEvent.Kind.TRIGGER_FIZZLED, fizzled, _owner(ctx))
 
 
+## One pick of `ctx`'s fired trigger that missed (Fuse's or Immolator's random Condemn on a
+## protected or already Condemned card, rules 9, cycle 14 R3): TRIGGER_FIZZLED with
+## `reason`, routed as _fizzled(). The trigger has fired; this names the single pick only.
+static func missed(ctx: TriggerContext, reason: String) -> void:
+	_fizzled(ctx, reason)
+
+
 ## Adds `from_hand: true` to a trigger payload whose card is in its seat's hand, so the board
 ## telegraphs it to both seats (rules-v2 section 8, C14).
 static func _mark_hand(ctx: TriggerContext, payload: Dictionary) -> void:

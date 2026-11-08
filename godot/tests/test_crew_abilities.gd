@@ -11,7 +11,7 @@ extends GdUnitTestSuite
 ## Pantry), and Salvager's prompt once per own Commit, its decline, and its Discard waking
 ## On discard before the discard-down. Every match plays the fixture deck
 ## `stubs` (StubAbilities) with the Crew named per test; the cards a test scores are made
-## plain bodies of Power 1 (MatchCards.replace_def), so each total is easy to read.
+## plain bodies of Power 1 (StubAbilities.replace_def), so each total is easy to read.
 
 const SEED: int = 1
 const OTHER: int = MatchRules.DECK_SIZE

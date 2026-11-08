@@ -2,7 +2,7 @@ class_name TestAbilitiesEvergreen
 extends FullMatchHarness
 ## The evergreen card abilities (DC-13 T06; cycle 9 plan P3 verb table, P12; canon
 ## [[rules/cards-v2]] section 2.7): each case puts the shipped card's definition on a stub
-## deck instance (StubAbilities, MatchCards.replace_def) and drives it through the trigger
+## deck instance (StubAbilities.replace_def) and drives it through the trigger
 ## queue or a Walk; stub statuses and shifts stand in for the effects no milestone A card
 ## makes. The last case plays random bots over the look-at and choice cards with the
 ## harness's leak scan at every step. Seat 1's instances add MatchRules.DECK_SIZE.

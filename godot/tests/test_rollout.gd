@@ -72,8 +72,7 @@ func _state() -> MatchState:
 	state.seats[1].pile.assign(_typed([T + 4]))
 	state.card_state_for(FADED).exit_mark = Statuses.FADE
 	state.memory_for(T + 1).power = 2
-	state.created[DROSS] = {"def": "dross", "owner": 1}
-	state.next_created_id = DROSS + 1
+	state.next_created_id = DROSS + 1  # The Dross's record is MatchCards' (_engine_on).
 	return state
 
 

@@ -54,6 +54,12 @@ const REASON_NO_TARGET: String = "no_target"
 const REASON_SPENT: String = "spent"
 ## TRIGGER_FIZZLED `reason`: the pulse's 50 resolutions are spent (Q4, T05).
 const REASON_EXHAUSTED: String = "exhausted"
+## TRIGGER_FIZZLED `reason` of one random Condemn pick (Fuse, Immolator) that landed on a
+## card a protection keeps from the Condemned mark (Bastion; rules 9, cycle 14 R3).
+const REASON_PROTECTED: String = "protected"
+## TRIGGER_FIZZLED `reason` of one random Condemn pick that landed on a card already holding
+## the Condemned mark (rules 9, cycle 14 R3).
+const REASON_ALREADY_MARKED: String = "already_marked"
 const KEY_SEAT: String = "seat"
 const KEY_CARD: String = "card"
 const KEY_VERB: String = "verb"

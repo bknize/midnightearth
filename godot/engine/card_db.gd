@@ -14,6 +14,10 @@ extends RefCounted
 ## abilities. A pool has no card count: decks are checked by DeckList.validate().
 ## An optional `"created": true` marks a card made only by an ability, never dealt from a
 ## Deck (Dross, DC-14 T12): cards_tagged() leaves it out and created_cards() lists it.
+## A created card may carry `"lifetime"`: CardDef.LIFETIME_UNTIL_PILED (the default when
+## absent: it expires when sent to a Pile) or CardDef.LIFETIME_MATCH (filed in its Owner's
+## Pile like any card); any other value fails with ERR_LIFETIME (rules 9, cycle 14 R9, C9).
+## The key is read only when `created` is true; the format version stays 5.
 ##
 ## Loading never prints, asserts or pushes an error: every failure is reported through
 ## load_error(), and a failed database holds no cards, so the engine refuses to start.
@@ -44,6 +48,7 @@ const ERR_WATCH: String = CardAbility.ERR_WATCH
 const ERR_ZONE: String = CardAbility.ERR_ZONE
 const ERR_USES: String = CardAbility.ERR_USES
 const ERR_TEXT: String = CardAbility.ERR_TEXT
+const ERR_LIFETIME: String = "unknown lifetime"
 
 const KEY_ID: String = "id"
 const KEY_NAME: String = "name"
@@ -54,6 +59,7 @@ const KEY_BONUS: String = "bonus"
 const KEY_ABILITIES: String = "abilities"
 const KEY_TEXT: String = "text"
 const KEY_CREATED: String = "created"
+const KEY_LIFETIME: String = "lifetime"
 
 var _cards: Array[CardDef] = []
 var _index_by_id: Dictionary[String, int] = {}
@@ -242,7 +248,7 @@ static func _has_card_fields(d: Dictionary) -> bool:
 	return not d.has(KEY_TEXT) or d[KEY_TEXT] is String
 
 
-## The cost and power problem of a card entry (fields already checked), or "".
+## The cost, power and lifetime problem of a card entry (fields already checked), or "".
 static func _range_problem(d: Dictionary, abilities: Array, i: int) -> String:
 	var cost: int = EngineAction.as_int(d[KEY_COST])
 	var max_cost: int = MAX_COST
@@ -259,7 +265,21 @@ static func _range_problem(d: Dictionary, abilities: Array, i: int) -> String:
 			"%s: card %d has power %d (allowed %d..%d)"
 			% [ERR_POWER, i, power, MIN_POWER, MAX_POWER]
 		)
-	return ""
+	return _lifetime_problem(d, i)
+
+
+## The lifetime problem of a created card entry, or "": absent, or a string in
+## CardDef.LIFETIMES. A card that is not created is not read for it.
+static func _lifetime_problem(d: Dictionary, i: int) -> String:
+	var created: bool = d.get(KEY_CREATED, false)
+	if not created or not d.has(KEY_LIFETIME):
+		return ""
+	var raw: Variant = d[KEY_LIFETIME]
+	if raw is String and CardDef.LIFETIMES.has(raw):
+		return ""
+	return "%s: card %d has lifetime %s (allowed %s)" % [
+		ERR_LIFETIME, i, JSON.stringify(raw), str(CardDef.LIFETIMES)
+	]
 
 
 ## Whether one of `abilities` (already accepted) has the Cost exception verb (R12).
@@ -363,4 +383,7 @@ static func _build_entry(entry: Variant) -> CardDef:
 	)
 	var created: bool = d.get(KEY_CREATED, false)
 	def.created = created
+	if created:
+		var lifetime: String = d.get(KEY_LIFETIME, CardDef.LIFETIME_UNTIL_PILED)
+		def.lifetime = lifetime
 	return def

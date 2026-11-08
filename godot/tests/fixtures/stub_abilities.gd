@@ -115,13 +115,25 @@ static func card_def(
 	)
 
 
-## Gives the instances `instances` of `cards` the definition `def` (MatchCards.replace_def);
-## true when every one took it.
+## Gives the instances `instances` of `cards` the definition `def` (replace_def()); true
+## when every one took it.
 static func give(cards: MatchCards, instances: Array[int], def: CardDef) -> bool:
 	var ok: bool = true
 	for instance: int in instances:
-		ok = cards.replace_def(instance, def) and ok
+		ok = replace_def(cards, instance, def) and ok
 	return ok
+
+
+## Fixtures only (DC-20 T03, NSC-179: the engine has no such method): replaces the
+## definition of the Deck instance `instance` of `cards` with `def` (a card carrying a stub
+## verb) and adds its verbs to has_verb(). False, changing nothing, for an id outside the
+## Decks or a null `def`. The deck lists and every other instance keep theirs.
+static func replace_def(cards: MatchCards, instance: int, def: CardDef) -> bool:
+	if def == null or instance < 0 or instance >= cards.size():
+		return false
+	cards._defs[instance] = def
+	cards._add_verbs(def)
+	return true
 
 
 ## A fresh state whose `seat` row is `row` (face up when `revealed`), first seat 0.

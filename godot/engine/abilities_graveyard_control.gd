@@ -7,7 +7,9 @@ extends RefCounted
 ## Abilities.prepare() and resolve() hand every verb of VERBS to prepare() and resolve()
 ## here (the queue's protocol, TriggerContext). Triggered verbs:
 ## - `fuse` (Fuse, On score of an opposing card): Power +amount until it leaves the row;
-##   then at Power `amount_2` or more it Condemns itself and one random opposing card.
+##   then at Power `amount_2` or more it Condemns itself and one random opposing card. The
+##   pick is drawn from the whole row; one that lands on a protected or already Condemned
+##   card is a miss, a TRIGGER_FIZZLED `protected` / `already_marked` (rules 9, R3).
 ## - `tithe_energy` (Tithe, On discard of another card of yours): only for a Condemned card
 ##   Discarded by the exit pass (the D10 context, TurnFlow.on_discard); the seat's
 ##   `next_turn_grants` +amount, at most `cap` per Tithe per turn end (`spent` past it); on
@@ -25,7 +27,8 @@ extends RefCounted
 ##   a decline or an empty set chooses none. Each chosen card, in position order,
 ##   PILE_SHUFFLED_IN {seat, count: 1, pile_cards: [card]}.
 ## - `immolate` (Immolator): an optional-count multi-select over its other cards; each
-##   chosen one is Condemned, then as many random opposing cards (distinct).
+##   chosen one is Condemned, then as many random opposing cards (distinct), each pick a
+##   possible miss as Fuse's.
 ## - `reset_piles` (Reset): both Piles into their Decks (first seat's first, each Deck
 ##   shuffled after, PILE_SHUFFLED_IN {seat, count}), then Reset Condemns itself.
 ## - `moved_add` (Eddy, On moved): Add +amount until end of turn.
@@ -44,8 +47,9 @@ extends RefCounted
 ##   Condemned.
 ## Ongoing verbs, never queued, read where they apply:
 ## - `pile_power` (Boneyard) and `rightmost_mult` (Herald): its own stats (ongoing_stats(),
-##   from Scoring.stats); `level_power` (Level): each card on a row has the lowest Power,
-##   read before any Level, among the revealed cards of its row (Scoring.stats).
+##   from Scoring.stats); `level_power` (Level): each revealed card on a row has the lowest
+##   Power, read before any Level, among the revealed cards of its row (Scoring.stats); a
+##   face-down card keeps its own (rules 9).
 ## - `fence` (Fence): fence_movers(), from Movement.step_set: a mover that would wrap the
 ##   ring is Condemned instead and does not move, so it wakes no On moved.
 ## - `wraith_fade` (Wraith): read once at the start of the exit pass (Statuses.exit_pass),
@@ -207,7 +211,9 @@ static func ongoing_stats(
 ## Level (read at Score, Q5): while a Level is read on either row, `card` on a row has the
 ## lowest Power among the revealed cards of its row, each read before any Level applies
 ## (Scoring.stats with `levelled` false; `out` is `card`'s own). A row with no revealed card
-## changes nothing.
+## changes nothing. Only a revealed `card` is levelled (rules 9, cycle 14 R4, C3 3a): a
+## face-down one keeps its own Power until its reveal; which cards supply the lowest Power
+## is unchanged (R5).
 static func level_power(
 	out: Scoring.Stats, card: int, state: MatchState, cards: MatchCards
 ) -> void:
@@ -217,6 +223,8 @@ static func level_power(
 	if seat < 0:
 		return
 	var piles: MatchState.SeatPiles = state.seats[seat]
+	if not piles.is_revealed(card):
+		return
 	var found: bool = false
 	var lowest: int = 0
 	for other: int in piles.board:
@@ -432,7 +440,7 @@ static func _cull_ask(ctx: TriggerContext, by_seat: int) -> void:
 
 
 ## Fuse: Power +amount until it leaves the row; then at `amount_2` or more Power it Condemns
-## itself and one random opposing card.
+## itself and one random opposing card, drawn from the whole row (a miss: _condemn_pick()).
 static func _fuse(ctx: TriggerContext) -> void:
 	ctx.state.card_state_for(ctx.card).power_delta += ctx.ability.amount
 	Abilities.stats_changed(ctx, ctx.card, false)
@@ -442,7 +450,7 @@ static func _fuse(ctx: TriggerContext) -> void:
 	var enemy: Array[int] = ctx.state.seats[1 - ctx.seat].board
 	if enemy.is_empty() or ctx.rng == null:
 		return
-	_condemn(ctx, enemy[ctx.rng.pick_index(enemy.size())])
+	_condemn_pick(ctx, enemy[ctx.rng.pick_index(enemy.size())])
 
 
 ## Tithe: +amount Energy next Turn for the seat (`next_turn_grants`, moved in at turn end),
@@ -521,7 +529,8 @@ static func _shuffle_in(ctx: TriggerContext, card: int) -> void:
 	ctx.emit(MatchEvent.Kind.PILE_SHUFFLED_IN, shuffled)
 
 
-## Immolator: each chosen card is Condemned, then as many distinct random opposing cards.
+## Immolator: each chosen card is Condemned, then as many distinct random opposing cards,
+## drawn from the whole row; a pick that misses (_condemn_pick()) still counts as one.
 static func _immolate(ctx: TriggerContext) -> void:
 	var count: int = 0
 	for card: int in ctx.chosen_cards():
@@ -533,7 +542,7 @@ static func _immolate(ctx: TriggerContext) -> void:
 		return
 	for _pick: int in range(mini(count, pool.size())):
 		var at: int = ctx.rng.pick_index(pool.size())
-		_condemn(ctx, pool[at])
+		_condemn_pick(ctx, pool[at])
 		pool.remove_at(at)
 
 
@@ -650,6 +659,17 @@ static func _condemned(ctx: TriggerContext, card: int) -> bool:
 static func _condemn(ctx: TriggerContext, card: int) -> void:
 	if _condemned(ctx, card):
 		pass  # Marked: it leaves at turn end.
+
+
+## Condemns the random pick `card` (Fuse, Immolator; rules 9, cycle 14 R3, C2 2b): a card
+## already holding the Condemned mark, or one a protection keeps from it (Bastion), is a
+## visible miss, one TRIGGER_FIZZLED for this pick with reason `already_marked` or
+## `protected` (TriggerQueue.missed()); the trigger itself has fired and its draw is spent.
+static func _condemn_pick(ctx: TriggerContext, card: int) -> void:
+	if Statuses.exit_mark_of(ctx.state, card) == Statuses.CONDEMNED:
+		TriggerQueue.missed(ctx, Abilities.REASON_ALREADY_MARKED)
+	elif not _condemned(ctx, card):
+		TriggerQueue.missed(ctx, Abilities.REASON_PROTECTED)
 
 
 ## The uses `card` has counted this Turn (KIND_USED entries of its Board changes).

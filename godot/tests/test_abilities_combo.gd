@@ -4,7 +4,7 @@ extends GdUnitTestSuite
 ## The Combo card abilities (DC-14 T12; canon [[rules/cards-v2]] section 2.2, its Flags and
 ## section 5; [[rules/resolution]] Q1 to Q10 and scenarios 4 and 5): one case per card text
 ## and one per Flags note. Each case puts the shipped card's definition on a stub deck
-## instance (StubAbilities, MatchCards.replace_def); seat 1's instances add DECK_SIZE.
+## instance (StubAbilities.replace_def); seat 1's instances add DECK_SIZE.
 
 const SEED: int = 1
 const OTHER: int = MatchRules.DECK_SIZE
@@ -339,7 +339,7 @@ func test_scenario_4_encore_and_scrap() -> void:
 
 
 ## Twin creates a copy of itself in its Controller's hand: the first created id, its
-## definition and Owner recorded (def_of, origin_of, MatchState.created), CARD_CREATED
+## definition and Owner recorded once (def_of, origin_of; not in MatchState), CARD_CREATED
 ## public; the copy has base values and no Memory.
 func test_twin_creates_a_copy_in_hand() -> void:
 	var cards: MatchCards = _cards()
@@ -354,8 +354,6 @@ func test_twin_creates_a_copy_in_hand() -> void:
 	assert_int(state.next_created_id).is_equal(copy + 1)
 	assert_str(cards.def_of(copy).id).is_equal("cb06")
 	assert_int(cards.origin_of(copy)).is_equal(0)
-	var made: Dictionary = state.created[copy]
-	assert_dict(made).is_equal({"def": "cb06", "owner": 0})
 	assert_object(state.memory_of(copy)).is_null()
 	assert_int(_power(state, cards, copy)).is_equal(1)
 	var created: Array[MatchEvent] = rec.of_kind(CREATED)
@@ -364,11 +362,13 @@ func test_twin_creates_a_copy_in_hand() -> void:
 	assert_dict(created[0].payload).is_equal(
 		{"seat": 0, "card": copy, "def": "cb06", "owner": 0, "to": "hand", "slot": -1}
 	)
-	assert_dict(state.to_dict()["created"]).is_equal({copy: {"def": "cb06", "owner": 0}})
+	# One record of created cards, MatchCards (DC-20 T03, NSC-179): none in MatchState.
+	assert_bool(state.to_dict().has("created")).is_false()
 
 
 ## Twin Flags (LOOP across Turns, CREATE): the copy plays like any card; its own reveal makes
-## one more copy with a new id, and a Discarded copy goes to its Owner's Pile.
+## one more copy with a new id. Rules 9 (cycle 14 R10, C9): a copy is a created card of the
+## default lifetime, so a Discarded copy expires (CARD_EXPIRED) and enters no Pile.
 func test_a_twin_copy_reveals_and_makes_another() -> void:
 	var cards: MatchCards = _cards()
 	var twin: int = 4
@@ -383,8 +383,16 @@ func test_a_twin_copy_reveals_and_makes_another() -> void:
 	assert_str(cards.def_of(copy + 1).id).is_equal("cb06")
 	state.seats[0].hand.clear()
 	var reason: String = TurnFlow.REASON_DISCARD
-	TurnFlow.to_pile(state, cards, _spare.record, copy + 1, TurnFlow.FROM_HAND, reason)
-	assert_array(state.seats[0].pile).is_equal(_typed([copy + 1]))
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	TurnFlow.to_pile(state, cards, rec.record, copy + 1, TurnFlow.FROM_HAND, reason)
+	assert_array(state.seats[0].pile).is_empty()
+	assert_array(rec.cards_of(MatchEvent.Kind.CARD_EXPIRED)).is_equal(_typed([copy + 1]))
+	assert_object(cards.def_of(copy + 1)).is_null()
+	# The Deck's own Twin is not a created card: it is filed in its Owner's Pile as always.
+	assert_bool(state.seats[0].board.has(twin)).is_true()
+	state.seats[0].board.erase(twin)
+	TurnFlow.to_pile(state, cards, rec.record, twin, TurnFlow.FROM_ROW, reason)
+	assert_array(state.seats[0].pile).is_equal(_typed([twin]))
 
 
 # --- Reprise --------------------------------------------------------------------------
