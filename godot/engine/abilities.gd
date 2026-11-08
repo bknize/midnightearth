@@ -43,8 +43,10 @@ extends RefCounted
 ## holds the card while it is in a hand or Deck or face down on a row.
 ##
 ## Limited uses (rules 9, cycle 14 R6, R7, plan P4): an ability whose `uses` is above 0 is
-## counted each time it resolves (count_use()) in the scope its `scope` names: `turn` and
-## `row` as a KIND_USED Board change (CardState.granted, until that scope, so it ends at turn
+## counted once per firing, at its first resolve() (count_use(); a verb that asks again,
+## Quorum or Cull, re-enters resolve() per answer and counts no more; a declined prompt never
+## reaches resolve()) in the scope its `scope` names: `turn` and `row` as a KIND_USED Board
+## change (CardState.granted, until that scope, so it ends at turn
 ## end or when the card leaves its row), `match` or none as the Memory's `uses_left` (which
 ## follows the card through every zone). Once none is left in that scope, prepare() fizzles
 ## it `spent` (TRIGGER_FIZZLED) instead of firing. `uses` 0 or absent is unlimited and never
@@ -87,6 +89,8 @@ const SCOPE_MATCH: String = "match"
 const LOOKED_DECK_TOP: String = "own_deck_top"
 ## ctx.data key: how many cards a Delve looked at.
 const DATA_COUNT: String = "count"
+## ctx.data key, set only on a limited ability: this firing has counted its use (count_use()).
+const DATA_USE_COUNTED: String = "use_counted"
 
 const VERB_DRAW: String = "draw"
 const VERB_OPPONENT_DRAW: String = "opponent_draw"
@@ -416,10 +420,15 @@ static func uses_spent(ctx: TriggerContext) -> bool:
 
 ## Counts one use of `ctx`'s limited card ability as it resolves (R6): a KIND_USED Board
 ## change until its scope (`turn`, `row`), else one off the Memory's `uses_left`. An
-## unlimited ability (`uses` 0) counts nothing.
+## unlimited ability (`uses` 0) counts nothing. One firing counts once: `ctx.data` travels
+## with the paused entry across its prompts (TriggerQueue), and a retrigger's extra
+## resolution starts with fresh data, so it is a firing of its own.
 static func count_use(ctx: TriggerContext) -> void:
 	if ctx.ability == null or ctx.ability.uses <= 0 or ctx.card < 0:
 		return
+	if ctx.data.has(DATA_USE_COUNTED):
+		return
+	ctx.data[DATA_USE_COUNTED] = true
 	var scope: String = ctx.ability.scope
 	if scope == SCOPE_TURN or scope == SCOPE_ROW:
 		ctx.state.card_state_for(ctx.card).grant(KIND_USED, 1, scope)

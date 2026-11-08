@@ -580,6 +580,84 @@ func test_quorum_skips_a_seat_with_two_or_fewer_revealed() -> void:
 	assert_str(_str_of(none.of_kind(FIZZLED)[0], "reason")).is_equal(Abilities.REASON_NO_TARGET)
 
 
+## Gives `quorum` a fixture Quorum with `uses` in `scope`, on a table where both seats hold
+## three revealed cards, so a firing opens two prompts. `quorum` is in slot 0 of seat 0.
+func _limited_quorum_table(cards: MatchCards, quorum: int, uses: int, scope: String) -> MatchState:
+	var limited: CardAbility = StubAbilities.ability(
+		CardAbility.MOMENT_START, AbilitiesComboDisruption.VERB_QUORUM, 2
+	)
+	limited.uses = uses
+	limited.scope = scope
+	var abilities: Array[CardAbility] = [limited]
+	var def: CardDef = StubAbilities.card_def("Quorum", abilities, 4, 5)
+	assert_bool(StubAbilities.give(cards, _typed([quorum]), def)).is_true()
+	var state: MatchState = StubAbilities.table(_typed([quorum, 0, 1]), true)
+	StubAbilities.put_row(state, 1, _typed([OTHER, OTHER + 1, OTHER + 2]), true)
+	return state
+
+
+## R6 (T08 S1): one firing counts one use however many prompts it opens, in every scope. With
+## `uses` 2 a firing asks both seats and leaves 1, nothing counted until the first answer; the
+## second firing asks both again and leaves 0; the third fizzles `spent`. Each answer keeps
+## slots 0 and 1, so Quorum itself is never Muted and always comes up.
+func test_one_quorum_firing_counts_one_use_over_its_two_prompts() -> void:
+	for scope: String in [Abilities.SCOPE_TURN, Abilities.SCOPE_ROW, Abilities.SCOPE_MATCH]:
+		var cards: MatchCards = _cards()
+		var quorum: int = 4
+		var state: MatchState = _limited_quorum_table(cards, quorum, 2, scope)
+		var rng: MatchRng = MatchRng.new(SEED)
+		var rec: StubAbilities.Recorder = StubAbilities.recorder()
+		var zone: int = Choice.Zone.OWN_BOARD
+		var kept: Array[int] = [0, 1]
+		for left: int in [1, 0]:
+			assert_bool(TurnFlow.on_start(state, cards, rng, rec.record)).is_true()
+			assert_int(Scoring.uses_left(quorum, state, cards)).is_equal(left + 1)
+			assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_true()
+			assert_int(Scoring.uses_left(quorum, state, cards)).is_equal(left)
+			assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_false()
+			assert_int(Scoring.uses_left(quorum, state, cards)).is_equal(left)
+		assert_int(rec.of_kind(PROMPTED).size()).is_equal(4)
+		var spent: StubAbilities.Recorder = StubAbilities.recorder()
+		assert_bool(TurnFlow.on_start(state, cards, rng, spent.record)).is_false()
+		assert_array(spent.of_kind(FIRED)).is_empty()
+		assert_str(_str_of(spent.of_kind(FIZZLED)[0], "reason")).is_equal(Abilities.REASON_SPENT)
+
+
+## R6: `uses` 1 is enough for a whole firing: its second prompt still opens and its effect
+## still lands, the use counted once.
+func test_a_quorum_with_one_use_finishes_its_firing() -> void:
+	var cards: MatchCards = _cards()
+	var quorum: int = 4
+	var state: MatchState = _limited_quorum_table(cards, quorum, 1, Abilities.SCOPE_MATCH)
+	var rng: MatchRng = MatchRng.new(SEED)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	var zone: int = Choice.Zone.OWN_BOARD
+	var kept: Array[int] = [0, 1]
+	assert_bool(TurnFlow.on_start(state, cards, rng, rec.record)).is_true()
+	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_true()
+	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_false()
+	assert_int(Scoring.uses_left(quorum, state, cards)).is_equal(0)
+	assert_array(_with_status(state, 0, Statuses.MUTED)).is_equal(_typed([1]))
+	assert_array(_with_status(state, 1, Statuses.MUTED)).is_equal(_typed([OTHER + 2]))
+
+
+## R6: a firing declined at its first prompt counts no use and has no effect. Quorum's prompts
+## are not optional, so this answers the queue directly: the engine would refuse the decline.
+func test_a_quorum_declined_at_its_first_prompt_counts_no_use() -> void:
+	var cards: MatchCards = _cards()
+	var quorum: int = 4
+	var state: MatchState = _limited_quorum_table(cards, quorum, 2, Abilities.SCOPE_MATCH)
+	var rng: MatchRng = MatchRng.new(SEED)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	var none: Array[int] = []
+	assert_bool(TurnFlow.on_start(state, cards, rng, rec.record)).is_true()
+	assert_bool(
+		TriggerQueue.answer(state, cards, rng, rec.record, Choice.NO_ZONE, none, true)
+	).is_false()
+	assert_int(Scoring.uses_left(quorum, state, cards)).is_equal(2)
+	assert_array(_with_status(state, 0, Statuses.MUTED)).is_empty()
+
+
 func _prompt_seat(state: MatchState) -> int:
 	var seat: int = state.prompt.get(Abilities.KEY_SEAT, -1)
 	return seat

@@ -57,7 +57,7 @@ extends RefCounted
 ##   CONTROL_CHANGED {card, owner, controller, from_seat, slot} (Saboteur: the card moves to
 ##   the controller's row at `slot`; the Owner is kept)
 ## - Rules 9 (DC-20 T03, C13, public): DROSS_EXPIRED {owner, card, from:
-##   hand|row|pile|deck|pending, reason: round_end} (a Dross card of lifetime `round` leaves
+##   hand|row|pile|deck, reason: round_end} (a Dross card of lifetime `round` leaves
 ##   the Match at the end of the Round, after ROUND_ENDED, one per card in ascending id;
 ##   TurnFlow.expire_dross)
 
