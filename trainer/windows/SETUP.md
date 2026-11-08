@@ -14,7 +14,11 @@ repository root, unless it starts with `ssh`, in which case the quoted part runs
 ## Part 1. Over SSH as `trainer` (no admin; the current PC)
 
 Layout on the PC: `C:\Users\trainer\trainer\` (runner, `queue\`, `autostart\`, `logs\`),
-`C:\Users\trainer\me\` (`repo`, `work`, `inbox`, `venv`, `logs`), `C:\Users\trainer\.trainer\token`.
+`C:\Users\trainer\me\` (`repo`, `work`, `inbox`, `venv`, `logs`), `C:\Users\trainer\.trainer\token`,
+and `C:\Users\trainer\trainer-data\`, the run store the service creates itself (`TRAINER_DATA`
+overrides it): `trainer.db` (runs, positions, labels, fits), `runs\<id>\` (the label shards and
+`report.json` of each run), `fits\<id>\` (each fit's `linear_weights.json` and `report.json`),
+`logs\` and `serve.lock`. Back it up before wiping the PC; `sync_code` never touches it.
 
 1. Create the folders.
 
@@ -31,11 +35,13 @@ Layout on the PC: `C:\Users\trainer\trainer\` (runner, `queue\`, `autostart\`, `
    scp trainer/windows/start-mcp.cmd PC:C:/Users/trainer/trainer/autostart/start-mcp.cmd
    ```
 
-3. Venv from the NuGet Python (the MSI installer needs admin), with the MCP SDK.
+3. Venv from the NuGet Python (the MSI installer needs admin), with the MCP SDK and numpy
+   (the learner's only dependency; `health` shows its version, `none` when it is missing).
 
    ```sh
    ssh PC 'C:\Users\trainer\tools\python314\tools\python.exe -m venv C:\Users\trainer\me\venv'
    ssh PC 'C:\Users\trainer\me\venv\Scripts\python.exe -m pip install "mcp>=2.3,<3"'
+   ssh PC 'C:\Users\trainer\me\venv\Scripts\python.exe -m pip install "numpy>=1.26,<3"'
    ```
 
 4. First code: make a bundle on the Mac, copy it to the inbox and set up the training
