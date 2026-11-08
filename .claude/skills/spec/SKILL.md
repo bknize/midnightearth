@@ -135,6 +135,8 @@ onto the relevant areas and name the tooling each will use. The stack is fixed b
 - **Engine:** pure, fully typed GDScript under `godot/engine/` with a seeded RNG and a
   serializable, replayable action log (D4). No backend, no network-dependent scene.
   Scenes call the engine; the engine never touches nodes.
+- **PVP:** amended by `docs/decisions/0005-match-server-for-pvp.md`: PVE stays local and
+  offline; PVP is served by a headless Godot process on the testing PC (`godot/server/`).
 - **Tests and gate:** gdUnit4 suites under `godot/tests/`, one per engine module, run
   through the `make check` gate (D5). Implementers never run Godot or `make check`;
   the orchestrator does.

@@ -12,6 +12,8 @@ R1–R9). This file is the short version every agent must obey.
 | `docs/specs/<slug>/` | `spec.md`, `plan.md`, `tasks.md` per feature | Written by `/spec`, exercised into Linear by `/exercise` |
 | `godot/` | The Godot project | Mobile renderer, Compatibility-clean shaders (D2) |
 | `godot/engine/` | Pure match engine (from cycle 1) | Typed GDScript, deterministic, seeded RNG, serializable action log (D4) |
+| `godot/net/` | Client network code (from cycle 12) | Protocol, codec, `NetClient`, `RemoteMatchSource`, the headless bot client; typed GDScript, no engine state on the client (ADR 0005) |
+| `godot/server/` | PVP match server (from cycle 12) | Headless, server-authoritative, runs on the testing PC; rooms, hardening, PVP logs; no clock or RNG inside `godot/engine/` (ADR 0005) |
 | `godot/addons/` | Vendored third-party code | Never edit except through a patch recorded in `addons/THIRD_PARTY_LICENSES.md` |
 | `godot/tests/` | gdUnit4 suites | One suite per engine module |
 | `godot/art/` | Approved art (`/art approve`) | Git LFS; every image has an entry in `art/manifest.json` (ADR 0003) |
