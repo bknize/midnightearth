@@ -46,13 +46,17 @@ static func refusal_message(reason: String, detail: String, address: String) -> 
 				% [NetProtocol.VERSION, detail.trim_prefix("server ")]
 			)
 		NetProtocol.REASON_UNKNOWN_ROOM:
-			text = "No room %s on the server (unknown_room)." % detail
+			# The server echoes no code it could not read (a typo, a wrong length).
+			var room: String = detail + " " if detail != "" else ""
+			text = "No room %son the server (unknown_room)." % room
 		NetProtocol.REASON_ROOM_FULL:
 			text = "Room %s is full (room_full)." % detail
 		NetProtocol.REASON_ROOM_EXPIRED:
 			text = "Room %s has expired (room_expired)." % detail
 		NetProtocol.REASON_SERVER_FULL:
 			text = "The server is full; try again later (server_full)."
+		NetProtocol.REASON_SAME_INSTALL:
+			text = "Room %s was hosted on this device (same_install)." % detail
 		_:
 			var tail: String = ": " + detail if detail != "" else ""
 			text = "The server refused: %s%s." % [reason, tail]

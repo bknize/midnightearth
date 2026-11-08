@@ -258,7 +258,7 @@ func test_protocol_names_its_constants() -> void:
 	assert_int(NetProtocol.MAX_MESSAGE_BYTES).is_equal(16384)
 	assert_int(NetProtocol.CLIENT_KINDS.size()).is_equal(6)
 	assert_int(NetProtocol.SERVER_KINDS.size()).is_equal(11)
-	assert_int(NetProtocol.REASONS.size()).is_equal(12)
+	assert_int(NetProtocol.REASONS.size()).is_equal(14)  # same_install, idle_timeout: NSC-226
 	for kind: String in NetProtocol.CLIENT_KINDS:
 		assert_bool(NetProtocol.SERVER_KINDS.has(kind)).is_false()
 

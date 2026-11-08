@@ -145,6 +145,86 @@ func test_a_half_handshake_is_closed_at_the_deadline_and_only_it() -> void:
 	assert_bool(await _play_one(players)).is_true()
 
 
+## R36 as a sliding window (NSC-226 S6): no one-second span admits more than 20 messages,
+## so 20 at once and 20 more just before the second is up is refused at the 21st.
+func test_no_one_second_window_admits_more_than_twenty_messages() -> void:
+	var server: MatchServer = auto_free(MatchServer.new())
+	var conn: MatchServer.Connection = MatchServer.Connection.new()
+	for _i: int in range(MatchServer.MAX_PER_S):
+		assert_bool(server._take_token(conn, 0)).is_true()
+	assert_bool(server._take_token(conn, 999)).is_false()
+	# The first twenty age out at exactly one second.
+	assert_bool(server._take_token(conn, 1000)).is_true()
+	var spread: MatchServer.Connection = MatchServer.Connection.new()
+	for _i: int in range(10):
+		assert_bool(server._take_token(spread, 0)).is_true()
+	for _i: int in range(10):
+		assert_bool(server._take_token(spread, 500)).is_true()
+	assert_bool(server._take_token(spread, 999)).is_false()
+	for _i: int in range(10):
+		assert_bool(server._take_token(spread, 1000)).is_true()
+	assert_bool(server._take_token(spread, 1499)).is_false()
+
+
+## A connection past the per-address cap is dropped as it arrives; the match plays on (S5).
+func test_a_connection_past_the_per_address_cap_is_dropped() -> void:
+	var players: Array[Client] = await _start_match()
+	_server.max_per_ip = 2
+	var extra: Client = _connect()
+	var closed: bool = await _pump_until(func() -> bool: return extra.is_closed())
+	assert_bool(closed).is_true()
+	assert_int(_server.connection_count()).is_equal(2)
+	assert_bool(_all_open(players)).is_true()
+	assert_bool(await _play_one(players)).is_true()
+
+
+## A connection past the total cap is dropped as it arrives (S5).
+func test_a_connection_past_the_total_cap_is_dropped() -> void:
+	var players: Array[Client] = await _start_match()
+	_server.max_connections = 2
+	var extra: Client = _connect()
+	var closed: bool = await _pump_until(func() -> bool: return extra.is_closed())
+	assert_bool(closed).is_true()
+	assert_int(_server.connection_count()).is_equal(2)
+	assert_bool(_all_open(players)).is_true()
+
+
+## A welcomed connection in no room is closed `idle_timeout` after idle_ms; the two seated
+## in a room are not (S5).
+func test_a_welcomed_connection_in_no_room_times_out() -> void:
+	var players: Array[Client] = await _start_match()
+	var idle: Client = _connect()
+	var up: bool = await _pump_until(func() -> bool: return idle.is_open())
+	assert_bool(up).is_true()
+	idle.send(_hello("Cy", "install-cy"))
+	var welcomed: bool = await _pump_until(
+		func() -> bool: return idle.count(NetProtocol.T_WELCOME) > 0
+	)
+	assert_bool(welcomed).is_true()
+	_now += _server.idle_ms - 100
+	await _pump_until(func() -> bool: return false, 3)
+	assert_bool(idle.is_open()).is_true()
+	_now += 200
+	var closed: bool = await _pump_until(func() -> bool: return idle.is_closed())
+	assert_bool(closed).is_true()
+	assert_str(idle.peer.get_close_reason()).is_equal(NetProtocol.REASON_IDLE_TIMEOUT)
+	var server: MatchServer = _server
+	var gone: bool = await _pump_until(func() -> bool: return server.connection_count() == 2)
+	assert_bool(gone).is_true()
+	assert_bool(_all_open(players)).is_true()
+
+
+## A hello whose install id is past the length or charset is refused (S4).
+func test_a_hello_with_a_bad_install_id_is_refused() -> void:
+	var client: Client = _connect()
+	var up: bool = await _pump_until(func() -> bool: return client.is_open())
+	assert_bool(up).is_true()
+	client.send(_hello("Dee", "x".repeat(NetCodec.MAX_INSTALL_ID_LENGTH + 1)))
+	var closed: bool = await _pump_until(func() -> bool: return client.is_closed())
+	assert_bool(closed).is_true()
+	assert_str(client.peer.get_close_reason()).is_equal(NetProtocol.REASON_BAD_MESSAGE)
+
+
 # --- Helpers ----------------------------------------------------------------------------
 
 

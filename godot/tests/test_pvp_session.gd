@@ -92,6 +92,7 @@ func test_refusal_messages_use_the_specs_wording() -> void:
 		NetProtocol.REASON_ROOM_EXPIRED,
 		NetProtocol.REASON_SERVER_FULL,
 		NetProtocol.REASON_SERVER_ERROR,
+		NetProtocol.REASON_SAME_INSTALL,  # NSC-226 S7
 	]:
 		assert_str(PvpSession.refusal_message(reason, CODE, SERVER)).contains(reason)
 

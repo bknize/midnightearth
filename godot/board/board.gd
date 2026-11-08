@@ -262,6 +262,7 @@ func _begin_source(new_source: MatchSource) -> void:
 	_fx.viewer = source.player_seat
 	_prompt.source = source
 	_prompt.viewer = source.player_seat
+	_crew_line.viewer = source.player_seat  # Crew lines by table seat (R20).
 	_bind_cards()
 	_clear_table_now()
 	hud.show_pause(false, _pvp())

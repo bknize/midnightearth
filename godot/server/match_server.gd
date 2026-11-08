@@ -9,8 +9,8 @@ extends Node
 ## down as `now_ms`, so a suite drives poll(now_ms) on a fake clock.
 ##
 ## Hardening (R35 to R37, P10): a connection that sends a frame past
-## NetProtocol.MAX_MESSAGE_BYTES, more than `burst` messages at once or `rate_per_s` per
-## second sustained, a binary frame, a frame NetCodec refuses, a server kind, a second
+## NetProtocol.MAX_MESSAGE_BYTES, more than `max_per_s` messages within any one second
+## (a sliding window), a binary frame, a frame NetCodec refuses, a server kind, a second
 ## `hello`, a request before `hello`, or a room message without a room is answered
 ## `refused {reason}` and closed with that reason (WebSocket close code 1008). A connection
 ## that has not completed the WebSocket handshake and a valid `hello` within `handshake_ms`
@@ -18,6 +18,11 @@ extends Node
 ## A connection a room is done with (`closed`, `abandoned`, `expired`; `closed replaced`
 ## for a socket a rejoin took over) is closed `close_grace_ms` after that message, so the
 ## client reads it first.
+##
+## Capacity (NSC-226 S5): at most `max_connections` open connections and `max_per_ip` from
+## one address; a connection past either is dropped as it arrives. A welcomed connection in
+## no room for `idle_ms` is refused `idle_timeout` and closed. Client text (names, codes,
+## decks) is cleaned or clipped before it is kept or printed (NetCodec, S4).
 ##
 ## The PVP log (R52 to R58): after every handled message and every poll, each room whose
 ## log_record() changed (MatchRoom.revision) is rewritten through PvpLog.write; listen()
@@ -27,8 +32,13 @@ extends Node
 const DEFAULT_PORT: int = 8766
 const DEFAULT_LOGS: String = "user://pvp-logs"
 const HANDSHAKE_MS: int = 5000
-const RATE_PER_S: float = 20.0
-const BURST: float = 20.0
+## R36: more than this many messages within any one second (WINDOW_MS) closes the
+## connection `too_many_messages`.
+const MAX_PER_S: int = 20
+const WINDOW_MS: int = 1000
+const MAX_CONNECTIONS: int = 32
+const MAX_PER_IP: int = 8
+const IDLE_MS: int = 60000
 ## How long a connection a room is done with stays open after its last message.
 const CLOSE_GRACE_MS: int = 1000
 ## How long a requested close may take before the socket is dropped regardless.
@@ -52,8 +62,10 @@ var build: String = ""
 var logs_dir: String = DEFAULT_LOGS
 ## The hardening windows (P10); a suite may shorten them.
 var handshake_ms: int = HANDSHAKE_MS
-var rate_per_s: float = RATE_PER_S
-var burst: float = BURST
+var max_per_s: int = MAX_PER_S
+var max_connections: int = MAX_CONNECTIONS
+var max_per_ip: int = MAX_PER_IP
+var idle_ms: int = IDLE_MS
 var close_grace_ms: int = CLOSE_GRACE_MS
 ## No stdout lines (the suites).
 var quiet: bool = false
@@ -157,6 +169,12 @@ func _accept(now_ms: int) -> void:
 		var stream: StreamPeerTCP = _tcp.take_connection()
 		if stream == null:
 			return
+		var address: String = stream.get_connected_host()
+		var full: String = _capacity_problem(address)
+		if full != "":
+			stream.disconnect_from_host()
+			_say("conn refused from %s reason=%s" % [address, full])
+			continue
 		var peer: WebSocketPeer = WebSocketPeer.new()
 		peer.inbound_buffer_size = INBOUND_BUFFER_BYTES
 		peer.outbound_buffer_size = OUTBOUND_BUFFER_BYTES
@@ -165,10 +183,8 @@ func _accept(now_ms: int) -> void:
 		_next_id += 1
 		conn.peer = peer
 		conn.stream = stream
-		conn.address = stream.get_connected_host()
+		conn.address = address
 		conn.opened_ms = now_ms
-		conn.tokens = burst
-		conn.refilled_ms = now_ms
 		if peer.accept_stream(stream) != OK:
 			stream.disconnect_from_host()
 			continue
@@ -191,6 +207,9 @@ func _poll_conn(conn: Connection, now_ms: int) -> void:
 	elif state == WebSocketPeer.STATE_OPEN:
 		if not conn.welcomed and now_ms - conn.opened_ms >= handshake_ms:
 			_refuse_close(conn, NetProtocol.REASON_HANDSHAKE_TIMEOUT, "", now_ms)
+			return
+		if _idle_too_long(conn, now_ms):
+			_refuse_close(conn, NetProtocol.REASON_IDLE_TIMEOUT, "", now_ms)
 			return
 		while not conn.closing and conn.peer.get_available_packet_count() > 0:
 			var packet: PackedByteArray = conn.peer.get_packet()
@@ -251,15 +270,40 @@ func _refuse_close(conn: Connection, reason: String, detail: String, now_ms: int
 	_close_conn(conn, reason, CLOSE_POLICY, 0, now_ms)
 
 
-## One more message from `conn` under the token bucket; false when it has none left (R36).
+## One more message from `conn` at `now_ms`; false when it would be past `max_per_s` within
+## the last WINDOW_MS (R36: a sliding window, so no one-second span admits more).
 func _take_token(conn: Connection, now_ms: int) -> bool:
-	var elapsed: int = maxi(now_ms - conn.refilled_ms, 0)
-	conn.tokens = minf(burst, conn.tokens + float(elapsed) * rate_per_s / 1000.0)
-	conn.refilled_ms = now_ms
-	if conn.tokens < 1.0:
+	while not conn.recent.is_empty() and now_ms - conn.recent[0] >= WINDOW_MS:
+		conn.recent.remove_at(0)
+	if conn.recent.size() >= max_per_s:
 		return false
-	conn.tokens -= 1.0
+	conn.recent.append(now_ms)
 	return true
+
+
+## Why a new connection from `address` is turned away ("" when it is not): the total cap or
+## the per-address cap (S5).
+func _capacity_problem(address: String) -> String:
+	if _conns.size() >= max_connections:
+		return "too_many_connections"
+	var from_address: int = 0
+	for conn: Connection in _conns.values():
+		if conn.address == address:
+			from_address += 1
+	if from_address >= max_per_ip:
+		return "too_many_from_address"
+	return ""
+
+
+## Whether `conn`, welcomed and in no room, has been so for `idle_ms` (S5). The idle time
+## starts when it was welcomed or last left a room.
+func _idle_too_long(conn: Connection, now_ms: int) -> bool:
+	if not conn.welcomed or conn.room != null:
+		conn.idle_since_ms = -1
+		return false
+	if conn.idle_since_ms < 0:
+		conn.idle_since_ms = now_ms
+	return now_ms - conn.idle_since_ms >= idle_ms
 
 
 # --- Messages ---------------------------------------------------------------------------
@@ -324,10 +368,15 @@ func _on_hello(conn: Connection, message: Dictionary, now_ms: int) -> void:
 	if _text_of(message, NetProtocol.KEY_STAMP) != stamp:
 		_refuse_close(conn, NetProtocol.REASON_STAMP_MISMATCH, stamp, now_ms)
 		return
+	var install_id: String = _text_of(message, NetProtocol.KEY_INSTALL_ID)
+	if not NetCodec.is_install_id(install_id):
+		_refuse_close(conn, NetProtocol.REASON_BAD_MESSAGE, "install_id", now_ms)
+		return
 	conn.welcomed = true
+	conn.idle_since_ms = now_ms
 	conn.identity = {
-		NetProtocol.KEY_NAME: _text_of(message, NetProtocol.KEY_NAME),
-		NetProtocol.KEY_INSTALL_ID: _text_of(message, NetProtocol.KEY_INSTALL_ID),
+		NetProtocol.KEY_NAME: NetCodec.clean_name(_text_of(message, NetProtocol.KEY_NAME)),
+		NetProtocol.KEY_INSTALL_ID: install_id,
 		NetProtocol.KEY_KIND: _text_of(message, NetProtocol.KEY_KIND),
 	}
 	_send(
@@ -362,10 +411,11 @@ func _on_host(conn: Connection, message: Dictionary, now_ms: int) -> void:
 
 ## `join` or `rejoin` (R11, R46): the room under the code takes `conn` on a seat.
 func _on_join(conn: Connection, kind: String, message: Dictionary, now_ms: int) -> void:
-	var code: String = _text_of(message, NetProtocol.KEY_CODE)
-	var room: MatchRoom = registry.room_of(code)
+	# A code off the alphabet is never looked up or echoed (S4).
+	var code: String = NetCodec.room_code(_text_of(message, NetProtocol.KEY_CODE))
+	var room: MatchRoom = null if code == "" else registry.room_of(code)
 	if room == null:
-		_send(conn, _refused(NetProtocol.REASON_UNKNOWN_ROOM, RoomCodes.normalized(code)))
+		_send(conn, _refused(NetProtocol.REASON_UNKNOWN_ROOM, code))
 		return
 	var out: Array[MatchRoom.Outbound] = []
 	if kind == NetProtocol.T_JOIN:
@@ -409,7 +459,7 @@ func _send(conn: Connection, message: Dictionary) -> void:
 	if _text_of(message, NetProtocol.KEY_T) == NetProtocol.T_REFUSED:
 		var reason: String = _text_of(message, NetProtocol.KEY_REASON)
 		var detail: String = _text_of(message, NetProtocol.KEY_DETAIL)
-		_say("conn %d refused reason=%s detail=%s" % [conn.id, reason, detail])
+		_say("conn %d refused reason=%s detail=%s" % [conn.id, reason, NetCodec.printable(detail)])
 
 
 # --- Rooms and logs ---------------------------------------------------------------------
@@ -425,10 +475,11 @@ func _flush_rooms() -> void:
 		if phase != tracked.phase:
 			tracked.phase = phase
 			_say("room %s %s" % [room.code, PHASE_NAMES[phase]])
-		if room.revision() != tracked.revision:
+		# The revision is recorded only once written, so a failed write is retried next poll;
+		# a closed room is kept until its last record is on disk (S3).
+		if room.revision() != tracked.revision and _write_log(tracked):
 			tracked.revision = room.revision()
-			_write_log(room)
-		if not room.is_closed():
+		if not room.is_closed() or room.revision() != tracked.revision:
 			live.append(tracked)
 	_rooms = live
 	for id: int in _ids():
@@ -439,13 +490,21 @@ func _flush_rooms() -> void:
 	registry.take_closed().clear()
 
 
-func _write_log(room: MatchRoom) -> void:
+## Writes the room's log; whether it is on disk (a room with no record yet counts as
+## written). A failure warns once until a write succeeds again.
+func _write_log(tracked: TrackedRoom) -> bool:
+	var room: MatchRoom = tracked.room
 	var record: Dictionary = room.log_record()
 	if record.is_empty():
-		return
+		return true
 	var err: int = PvpLog.write(logs_dir, record)
-	if err != OK:
+	if err == OK:
+		tracked.write_failed = false
+		return true
+	if not tracked.write_failed:
 		push_warning("MatchServer: room %s log not written (error %d)" % [room.code, err])
+	tracked.write_failed = true
+	return false
 
 
 # --- Helpers ----------------------------------------------------------------------------
@@ -488,7 +547,7 @@ static func _int_of(message: Dictionary, key: String) -> int:
 	return -1
 
 
-## One peer: its socket, handshake, token bucket and room.
+## One peer: its socket, handshake, message window and room.
 class Connection:
 	extends RefCounted
 
@@ -501,8 +560,10 @@ class Connection:
 	var identity: Dictionary = {}
 	var welcomed: bool = false
 	var room: MatchRoom = null
-	var tokens: float = 0.0
-	var refilled_ms: int = 0
+	## The arrival times of its messages in the last WINDOW_MS, oldest first (R36).
+	var recent: Array[int] = []
+	## Since when it has been welcomed and in no room; -1 while in a room (S5).
+	var idle_since_ms: int = -1
 	## Set once the server is done with the connection: its input is ignored from then on.
 	var closing: bool = false
 	var close_reason: String = ""
@@ -518,3 +579,5 @@ class TrackedRoom:
 	var room: MatchRoom = null
 	var revision: int = -1
 	var phase: int = MatchRoom.Phase.WAITING
+	## The last write failed (warned once).
+	var write_failed: bool = false
