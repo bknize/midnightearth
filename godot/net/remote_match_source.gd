@@ -338,12 +338,8 @@ func _on_message(message: Dictionary) -> void:
 		NetProtocol.T_ABANDONED:
 			_close()
 			match_closed.emit(MatchSource.CLOSED_ABANDONED)
-		NetProtocol.T_EXPIRED:
-			_close()
-			match_closed.emit(CLOSED_EXPIRED)
-		NetProtocol.T_CLOSED:
-			_close()
-			match_closed.emit(_text(message.get(NetProtocol.KEY_REASON, "")))
+		NetProtocol.T_EXPIRED, NetProtocol.T_CLOSED:
+			_on_room_ended(kind, message)
 		_:
 			push_warning("RemoteMatchSource: ignored a '%s' message" % kind)
 
@@ -379,6 +375,21 @@ func _on_dropped(_reason: String) -> void:
 
 
 # --- Messages ----------------------------------------------------------------------------
+
+
+## `expired` or `closed {reason}`: the connection ends. Before the match is over it comes
+## out as match_closed; once it is over (the server's linger after a finished match, R39)
+## it ends quietly, with no signal, so the board keeps its result panel and Leave still
+## goes to the title (R27).
+func _on_room_ended(kind: String, message: Dictionary) -> void:
+	var over: bool = is_over()
+	_close()
+	if over:
+		return
+	if kind == NetProtocol.T_EXPIRED:
+		match_closed.emit(CLOSED_EXPIRED)
+	else:
+		match_closed.emit(_text(message.get(NetProtocol.KEY_REASON, "")))
 
 
 func _on_welcome() -> void:

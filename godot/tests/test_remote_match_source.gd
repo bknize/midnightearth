@@ -1,3 +1,4 @@
+# gdlint: ignore=max-public-methods
 class_name TestRemoteMatchSource
 extends FullMatchHarness
 ## RemoteMatchSource and NetClient's codec path (cycle 12 plan P5, P8; T06) against a
@@ -498,6 +499,27 @@ func test_expired_and_closed_reach_match_closed() -> void:
 	assert_str(_list(rig.record.closed)).is_equal(_list([NetProtocol.REASON_SERVER_ERROR]))
 
 
+## The server's linger close after a finished match (R39) ends the connection quietly: the
+## board keeps its result panel and Leave takes the player to the title (R27).
+func test_closed_or_expired_after_the_end_is_quiet() -> void:
+	for kind: String in [NetProtocol.T_CLOSED, NetProtocol.T_EXPIRED]:
+		var rig: Rig = _joined(0)
+		# The other seat concedes: the match is over at once.
+		assert_bool(rig.server.apply(EngineAction.concede(1), 1).ok).is_true()
+		assert_bool(rig.source.is_over()).is_true()
+		var ending: Dictionary = {NetProtocol.KEY_T: kind}
+		if kind == NetProtocol.T_CLOSED:
+			ending[NetProtocol.KEY_REASON] = "finished"
+		rig.server.send(ending)
+		assert_array(rig.record.closed).is_empty()
+		assert_int(rig.client.closes).is_equal(1)
+		assert_bool(rig.source.is_over()).is_true()
+		rig.client.drop(NetClient.DROP_CLOSED)
+		rig.source.tick(100000)
+		assert_array(rig.record.closed).is_empty()
+		assert_array(rig.record.connection).is_empty()
+
+
 func test_leave_sends_leave_closes_and_goes_quiet() -> void:
 	var rig: Rig = _joined(0)
 	rig.source.leave()
@@ -544,9 +566,28 @@ func test_the_client_drops_text_that_does_not_decode() -> void:
 	client.message.connect(func(m: Dictionary) -> void: got.append(m))
 	client.receive_text("not json")
 	client.receive_text('{"t": "nonsense"}')
+	client.receive_text('{"t": "pong"}')  # The keepalive's answer is swallowed.
 	client.receive_text('{"t": "welcome", "protocol": 1, "stamp": "r7-1"}')
 	assert_int(got.size()).is_equal(1)
 	assert_str(got[0][NetProtocol.KEY_T]).is_equal(NetProtocol.T_WELCOME)
+
+
+## The keepalive (R44, R45): an open connection silent for receive_timeout_ms is dropped as
+## DROP_CLOSED; a ping that cannot go out waits a whole interval before the next try.
+func test_the_client_drops_a_connection_that_went_silent() -> void:
+	var client: NetClient = NetClient.new()
+	auto_free(client)
+	var drops: Array[String] = []
+	client.dropped.connect(func(reason: String) -> void: drops.append(reason))
+	client._received_ms = 1000
+	client._sent_ms = 1000
+	client._keep_alive(1000 + client.ping_ms)
+	assert_int(client._sent_ms).is_equal(1000 + client.ping_ms)
+	client._keep_alive(1000 + client.receive_timeout_ms - 1)
+	assert_array(drops).is_empty()
+	client._keep_alive(1000 + client.receive_timeout_ms)
+	assert_str(_list(drops)).is_equal(_list([NetClient.DROP_CLOSED]))
+	assert_int(NetDefaults.RECEIVE_TIMEOUT_MS).is_greater(2 * NetDefaults.PING_MS)
 
 
 func test_the_client_url_and_buffer_take_a_late_resync() -> void:

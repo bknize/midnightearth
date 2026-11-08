@@ -55,6 +55,10 @@ static func refusal_message(reason: String, detail: String, address: String) -> 
 			text = "Room %s has expired (room_expired)." % detail
 		NetProtocol.REASON_SERVER_FULL:
 			text = "The server is full; try again later (server_full)."
+		NetProtocol.REASON_TOO_MANY_CONNECTIONS:
+			text = "The server is full; try again later (too_many_connections)."
+		NetProtocol.REASON_TOO_MANY_FROM_ADDRESS:
+			text = "Too many connections from your address (too_many_from_address)."
 		NetProtocol.REASON_SAME_INSTALL:
 			text = "Room %s was hosted on this device (same_install)." % detail
 		_:

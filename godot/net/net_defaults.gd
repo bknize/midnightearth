@@ -17,3 +17,12 @@ const RETRY_MS: int = 3000
 ## ...for this long after the drop, then the client gives up (R51). The server keeps the
 ## room as long (its RECONNECT_WINDOW_MS).
 const RECONNECT_WINDOW_MS: int = 120000
+## An open connection with nothing sent for this long sends `ping`; the server answers
+## `pong`, so a live connection never goes this long without traffic either way.
+const PING_MS: int = 5000
+## An open connection that has received nothing for this long is taken as lost (a peer gone
+## without a TCP close: sleep, Wi-Fi loss) and reported as a drop. Three missed pings.
+const RECEIVE_TIMEOUT_MS: int = 15000
+## WebSocketPeer.heartbeat_interval (seconds): protocol-level ping frames under the
+## application's own `ping`, which also keep NAT mappings alive.
+const HEARTBEAT_S: float = 5.0
