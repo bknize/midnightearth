@@ -107,6 +107,8 @@ func _build_samples() -> Array[Dictionary]:
 			NetProtocol.KEY_ACTION: commit.to_dict(),
 		},
 		{NetProtocol.KEY_T: NetProtocol.T_LEAVE},
+		{NetProtocol.KEY_T: NetProtocol.T_PING},
+		{NetProtocol.KEY_T: NetProtocol.T_PONG},
 		{
 			NetProtocol.KEY_T: NetProtocol.T_WELCOME,
 			NetProtocol.KEY_PROTOCOL: NetProtocol.VERSION,
@@ -256,9 +258,11 @@ func test_extra_keys_are_dropped() -> void:
 func test_protocol_names_its_constants() -> void:
 	assert_int(NetProtocol.VERSION).is_equal(1)
 	assert_int(NetProtocol.MAX_MESSAGE_BYTES).is_equal(16384)
-	assert_int(NetProtocol.CLIENT_KINDS.size()).is_equal(6)
-	assert_int(NetProtocol.SERVER_KINDS.size()).is_equal(11)
-	assert_int(NetProtocol.REASONS.size()).is_equal(14)  # same_install, idle_timeout: NSC-226
+	assert_int(NetProtocol.CLIENT_KINDS.size()).is_equal(7)  # ping: DC-19 review
+	assert_int(NetProtocol.SERVER_KINDS.size()).is_equal(12)  # pong: DC-19 review
+	# same_install, idle_timeout: NSC-226; too_many_connections, too_many_from_address: DC-19
+	assert_int(NetProtocol.REASONS.size()).is_equal(16)
+	assert_bool(NetProtocol.is_client_kind(NetProtocol.T_PING)).is_true()
 	for kind: String in NetProtocol.CLIENT_KINDS:
 		assert_bool(NetProtocol.SERVER_KINDS.has(kind)).is_false()
 

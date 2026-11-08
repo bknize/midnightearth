@@ -10,6 +10,12 @@ extends Node
 ## from this side with no `dropped`. `ticked` fires every frame with the monotonic clock, so
 ## RemoteMatchSource can run its retry schedule without reading a clock itself.
 ## Expected network conditions (a refused or lost connection) are signals, never errors.
+##
+## Keepalive (R44, R45): an open connection that has sent nothing for ping_ms sends `ping`
+## (the server answers `pong`, which is swallowed here), and one that has received nothing
+## for receive_timeout_ms is dropped as DROP_CLOSED, so a server gone without a TCP close
+## (sleep, Wi-Fi loss) still runs the reconnect loop. The peer also sends WebSocket ping
+## frames every NetDefaults.HEARTBEAT_S.
 
 signal connected
 signal message(message: Dictionary)
@@ -26,6 +32,9 @@ const URL_SCHEME: String = "ws://"
 
 ## How long a connection may stay CONNECTING before it counts as unreachable (R15).
 var connect_timeout_ms: int = NetDefaults.CONNECT_TIMEOUT_MS
+## The keepalive (R44, R45); 0 turns either off.
+var ping_ms: int = NetDefaults.PING_MS
+var receive_timeout_ms: int = NetDefaults.RECEIVE_TIMEOUT_MS
 ## A suite's fake clock: when it is 0 or more, it is the clock `ticked` and the connect
 ## timeout read instead of the monotonic one.
 var fake_now_ms: int = -1
@@ -38,6 +47,9 @@ var _closing: bool = false
 ## connect_to_url failed inside open(): reported as unreachable on the next frame, so a
 ## listener never sees `dropped` from inside its own open() call.
 var _open_failed: bool = false
+## When the open connection last sent and last received a frame (the keepalive's clock).
+var _sent_ms: int = 0
+var _received_ms: int = 0
 
 
 ## "ws://host:port" for a typed "host:port" (an address that names a scheme is kept).
@@ -53,6 +65,7 @@ func open(address: String) -> void:
 	_discard_peer()
 	var peer: WebSocketPeer = WebSocketPeer.new()
 	peer.inbound_buffer_size = INBOUND_BUFFER_BYTES
+	peer.heartbeat_interval = NetDefaults.HEARTBEAT_S
 	_opened_ms = _now_ms()
 	_was_open = false
 	_closing = false
@@ -79,7 +92,10 @@ func send(message: Dictionary) -> bool:
 		push_warning("NetClient: a message did not encode and was not sent")
 		return false
 	var err: int = _peer.send_text(text)
-	return err == OK
+	if err != OK:
+		return false
+	_sent_ms = _now_ms()
+	return true
 
 
 ## Ends the connection from this side. Queued frames still go out; no `dropped` follows.
@@ -101,6 +117,9 @@ func receive_text(text: String) -> void:
 	var decoded: Dictionary = NetCodec.decode(text)
 	if decoded.is_empty():
 		push_warning("NetClient: dropped a server message that did not decode")
+		return
+	var kind: Variant = decoded.get(NetProtocol.KEY_T)
+	if typeof(kind) == TYPE_STRING and kind == NetProtocol.T_PONG:
 		return
 	message.emit(decoded)
 
@@ -135,13 +154,30 @@ func _poll(now: int) -> void:
 		return
 	if not _was_open:
 		_was_open = true
+		_sent_ms = now
+		_received_ms = now
 		connected.emit()
 	# A listener may close or reopen inside `message`: stop reading a peer no longer ours.
 	while _peer == peer and peer.get_available_packet_count() > 0:
+		_received_ms = now
 		var packet: PackedByteArray = peer.get_packet()
 		if not peer.was_string_packet():
 			continue
 		receive_text(packet.get_string_from_utf8())
+	if _peer == peer:
+		_keep_alive(now)
+
+
+## The keepalive on an open connection: `ping` when nothing was sent for ping_ms; a drop
+## (DROP_CLOSED, as if the server had closed) when nothing arrived for receive_timeout_ms.
+func _keep_alive(now: int) -> void:
+	if receive_timeout_ms > 0 and now - _received_ms >= receive_timeout_ms:
+		_discard_peer()
+		dropped.emit(DROP_CLOSED)
+		return
+	if ping_ms > 0 and now - _sent_ms >= ping_ms:
+		if not send({NetProtocol.KEY_T: NetProtocol.T_PING}):
+			_sent_ms = now  # Not sent: try again a whole interval later, not every frame.
 
 
 ## Forgets the current peer without reporting it.

@@ -7,13 +7,15 @@ extends RefCounted
 ##   hello {protocol, stamp, name, install_id, kind: "human" | "bot"}
 ##   host {deck}; join {code, deck}; rejoin {code}
 ##   act {action}  (an EngineAction.to_dict(); the server overwrites its seat, R34)
-##   leave {}
+##   leave {}; ping {}  (a keepalive, NetClient.ping_ms after its last send)
 ## Server to client:
 ##   welcome {protocol, stamp}; refused {reason, detail}; hosted {code, expires_in_s}
 ##   started {seat, opponent: {name, deck}, decks: [seat 0's, seat 1's], view, events}
 ##   events {events, view}; rejected {error, action}; resync {events, view}
 ##   opponent {state: "lost" | "back", seconds_left, name}
-##   abandoned {seat, name}; expired {}; closed {reason}
+##   abandoned {seat, name}; expired {}; closed {reason}; pong {}  (the answer to `ping`)
+## Each side closes a connection that has received nothing for its receive timeout, so a
+## peer that vanished without a TCP close still runs the drop paths (R44, R45).
 ## `view` is a SeatView.to_dict(), `events` a list of MatchEvent.to_dict() (each the
 ## receiving seat's redacted copy), `error` an EngineError code name (EngineError.name_of).
 
@@ -33,6 +35,7 @@ const T_JOIN: String = "join"
 const T_REJOIN: String = "rejoin"
 const T_ACT: String = "act"
 const T_LEAVE: String = "leave"
+const T_PING: String = "ping"
 const T_WELCOME: String = "welcome"
 const T_REFUSED: String = "refused"
 const T_HOSTED: String = "hosted"
@@ -44,9 +47,10 @@ const T_OPPONENT: String = "opponent"
 const T_ABANDONED: String = "abandoned"
 const T_EXPIRED: String = "expired"
 const T_CLOSED: String = "closed"
+const T_PONG: String = "pong"
 
-## The kinds a client sends.
-const CLIENT_KINDS: Array[String] = [T_HELLO, T_HOST, T_JOIN, T_REJOIN, T_ACT, T_LEAVE]
+## The kinds a client sends (`ping` from any connection, welcomed or not).
+const CLIENT_KINDS: Array[String] = [T_HELLO, T_HOST, T_JOIN, T_REJOIN, T_ACT, T_LEAVE, T_PING]
 ## The kinds the server sends.
 const SERVER_KINDS: Array[String] = [
 	T_WELCOME,
@@ -60,6 +64,7 @@ const SERVER_KINDS: Array[String] = [
 	T_ABANDONED,
 	T_EXPIRED,
 	T_CLOSED,
+	T_PONG,
 ]
 
 # --- Refusal reasons --------------------------------------------------------------------
@@ -80,6 +85,10 @@ const REASON_SERVER_ERROR: String = "server_error"
 const REASON_SAME_INSTALL: String = "same_install"
 ## A welcomed connection in no room past MatchServer.idle_ms.
 const REASON_IDLE_TIMEOUT: String = "idle_timeout"
+## A connection past MatchServer.max_connections, or past max_per_ip from one address: the
+## server is full (R38), refused once the WebSocket handshake is done.
+const REASON_TOO_MANY_CONNECTIONS: String = "too_many_connections"
+const REASON_TOO_MANY_FROM_ADDRESS: String = "too_many_from_address"
 
 const REASONS: Array[String] = [
 	REASON_PROTOCOL_MISMATCH,
@@ -96,6 +105,8 @@ const REASONS: Array[String] = [
 	REASON_SERVER_ERROR,
 	REASON_SAME_INSTALL,
 	REASON_IDLE_TIMEOUT,
+	REASON_TOO_MANY_CONNECTIONS,
+	REASON_TOO_MANY_FROM_ADDRESS,
 ]
 
 # --- Keys and values --------------------------------------------------------------------

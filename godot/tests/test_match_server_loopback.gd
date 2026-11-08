@@ -40,6 +40,8 @@ func before_test() -> void:
 	_server = MatchServer.new()
 	_server.quiet = true
 	_server.stamp = STAMP
+	# A few fake milliseconds: enough for the refusal to be read before the close.
+	_server.refusal_grace_ms = 5
 	_server.build = "test-build"
 	_server.logs_dir = TEMP_DIR
 	_server.engine_factory = _maker.make
@@ -166,27 +168,78 @@ func test_no_one_second_window_admits_more_than_twenty_messages() -> void:
 	assert_bool(server._take_token(spread, 1499)).is_false()
 
 
-## A connection past the per-address cap is dropped as it arrives; the match plays on (S5).
-func test_a_connection_past_the_per_address_cap_is_dropped() -> void:
+## A connection past the per-address cap is refused with the reason and closed; the match
+## plays on (S5, R38).
+func test_a_connection_past_the_per_address_cap_is_refused() -> void:
 	var players: Array[Client] = await _start_match()
 	_server.max_per_ip = 2
 	var extra: Client = _connect()
-	var closed: bool = await _pump_until(func() -> bool: return extra.is_closed())
-	assert_bool(closed).is_true()
-	assert_int(_server.connection_count()).is_equal(2)
+	await _expect_refused(extra, NetProtocol.REASON_TOO_MANY_FROM_ADDRESS)
 	assert_bool(_all_open(players)).is_true()
 	assert_bool(await _play_one(players)).is_true()
 
 
-## A connection past the total cap is dropped as it arrives (S5).
-func test_a_connection_past_the_total_cap_is_dropped() -> void:
+## A connection past the total cap is refused with the reason and closed (S5, R38).
+func test_a_connection_past_the_total_cap_is_refused() -> void:
 	var players: Array[Client] = await _start_match()
 	_server.max_connections = 2
 	var extra: Client = _connect()
-	var closed: bool = await _pump_until(func() -> bool: return extra.is_closed())
-	assert_bool(closed).is_true()
-	assert_int(_server.connection_count()).is_equal(2)
+	await _expect_refused(extra, NetProtocol.REASON_TOO_MANY_CONNECTIONS)
 	assert_bool(_all_open(players)).is_true()
+
+
+## One address may host every room (MAX_PER_IP is above MAX_ROOMS): the ninth host is
+## refused `server_full` by the room cap, not turned away at the door (R38).
+func test_a_ninth_host_from_one_address_hears_server_full() -> void:
+	var hosts: Array[Client] = []
+	for _i: int in range(RoomRegistry.MAX_ROOMS + 1):
+		hosts.append(_connect())
+	assert_bool(await _pump_until(func() -> bool: return _all_open(hosts))).is_true()
+	for at: int in range(hosts.size()):
+		hosts[at].send(_hello("Host%d" % at, "install-host-%d" % at))
+	var welcomed: bool = await _pump_until(
+		func() -> bool: return _all_have(hosts, NetProtocol.T_WELCOME)
+	)
+	assert_bool(welcomed).is_true()
+	var rooms: Array[Client] = []
+	for at: int in range(RoomRegistry.MAX_ROOMS):
+		hosts[at].send({"t": NetProtocol.T_HOST, "deck": "greed"})
+		rooms.append(hosts[at])
+	var hosted: bool = await _pump_until(
+		func() -> bool: return _all_have(rooms, NetProtocol.T_HOSTED)
+	)
+	assert_bool(hosted).is_true()
+	var ninth: Client = hosts[RoomRegistry.MAX_ROOMS]
+	ninth.send({"t": NetProtocol.T_HOST, "deck": "greed"})
+	var refused: bool = await _pump_until(
+		func() -> bool: return ninth.count(NetProtocol.T_REFUSED) > 0
+	)
+	assert_bool(refused).is_true()
+	var reason: String = ninth.last(NetProtocol.T_REFUSED).get("reason", "")
+	assert_str(reason).is_equal(NetProtocol.REASON_SERVER_FULL)
+
+
+## A `ping` is answered `pong`; a welcomed connection silent for receive_timeout_ms (a peer
+## gone without a TCP close) is dropped and its opponent hears it lost (R44).
+func test_a_silent_connection_is_dropped_at_the_receive_timeout() -> void:
+	var players: Array[Client] = await _start_match()
+	var host: Client = players[HOST_SEAT]
+	var guest: Client = players[GUEST_SEAT]
+	_now += _server.receive_timeout_ms - 100
+	host.send({"t": NetProtocol.T_PING})
+	var ponged: bool = await _pump_until(func() -> bool: return host.count(NetProtocol.T_PONG) > 0)
+	assert_bool(ponged).is_true()
+	assert_bool(_all_open(players)).is_true()
+	_now += 200
+	var closed: bool = await _pump_until(func() -> bool: return guest.is_closed())
+	assert_bool(closed).is_true()
+	var told: bool = await _pump_until(
+		func() -> bool: return host.count(NetProtocol.T_OPPONENT) > 0
+	)
+	assert_bool(told).is_true()
+	assert_str(host.last(NetProtocol.T_OPPONENT).get("state", "")).is_equal(NetProtocol.STATE_LOST)
+	assert_bool(host.is_open()).is_true()
+	assert_int(_server.connection_count()).is_equal(1)
 
 
 ## A welcomed connection in no room is closed `idle_timeout` after idle_ms; the two seated
@@ -201,6 +254,8 @@ func test_a_welcomed_connection_in_no_room_times_out() -> void:
 		func() -> bool: return idle.count(NetProtocol.T_WELCOME) > 0
 	)
 	assert_bool(welcomed).is_true()
+	# The jump is past the receive timeout, which this test is not about.
+	_server.receive_timeout_ms = 0
 	_now += _server.idle_ms - 100
 	await _pump_until(func() -> bool: return false, 3)
 	assert_bool(idle.is_open()).is_true()
@@ -287,6 +342,22 @@ func _expect_closed(client: Client, reason: String) -> void:
 	assert_str(client.peer.get_close_reason()).is_equal(reason)
 	var server: MatchServer = _server
 	var gone: bool = await _pump_until(func() -> bool: return server.connection_count() == 1)
+	assert_bool(gone).is_true()
+
+
+## `client`, over a capacity cap, opens and says `hello`: it is refused `reason`, then
+## closed with it (code 1008), and the server forgot it.
+func _expect_refused(client: Client, reason: String) -> void:
+	var up: bool = await _pump_until(func() -> bool: return client.is_open())
+	assert_bool(up).is_true()
+	client.send(_hello("Eve", "install-eve"))
+	var closed: bool = await _pump_until(func() -> bool: return client.is_closed())
+	assert_bool(closed).is_true()
+	assert_str(client.last(NetProtocol.T_REFUSED).get("reason", "")).is_equal(reason)
+	assert_int(client.peer.get_close_code()).is_equal(MatchServer.CLOSE_POLICY)
+	assert_str(client.peer.get_close_reason()).is_equal(reason)
+	var server: MatchServer = _server
+	var gone: bool = await _pump_until(func() -> bool: return server.connection_count() == 2)
 	assert_bool(gone).is_true()
 
 

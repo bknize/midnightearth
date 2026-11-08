@@ -20,9 +20,20 @@ extends Node
 ## client reads it first.
 ##
 ## Capacity (NSC-226 S5): at most `max_connections` open connections and `max_per_ip` from
-## one address; a connection past either is dropped as it arrives. A welcomed connection in
-## no room for `idle_ms` is refused `idle_timeout` and closed. Client text (names, codes,
-## decks) is cleaned or clipped before it is kept or printed (NetCodec, S4).
+## one address; a connection past either completes the WebSocket handshake and its first
+## message (normally `hello`) is answered `refused too_many_connections` or
+## `too_many_from_address` (the client reads the server is full, R38), then it is closed.
+## Past REFUSAL_SLOTS such connections at once, a new one is dropped as it
+## arrives. A welcomed connection in no room for `idle_ms` is refused `idle_timeout` and
+## closed.
+##
+## Keepalive (R44): every `ping` is answered `pong`, and a welcomed connection that has
+## sent nothing for `receive_timeout_ms` (a client gone without a TCP close) is dropped
+## `receive_timeout`, so its seat hears connection_lost. Peers also send WebSocket ping
+## frames every HEARTBEAT_S.
+##
+## Client text (names, codes, decks) is cleaned or clipped before it is kept or printed
+## (NetCodec, S4).
 ##
 ## The PVP log (R52 to R58): after every handled message and every poll, each room whose
 ## log_record() changed (MatchRoom.revision) is rewritten through PvpLog.write; listen()
@@ -37,10 +48,22 @@ const HANDSHAKE_MS: int = 5000
 const MAX_PER_S: int = 20
 const WINDOW_MS: int = 1000
 const MAX_CONNECTIONS: int = 32
-const MAX_PER_IP: int = 8
+## Above the room cap (one connection hosts one room), so a ninth host from one address is
+## refused `server_full` by the registry, not turned away at the door.
+const MAX_PER_IP: int = 16
+## Connections being refused for capacity, past which a new one is dropped unanswered.
+const REFUSAL_SLOTS: int = 8
+## A welcomed connection silent this long is lost (the client pings every
+## NetDefaults.PING_MS).
+const RECEIVE_TIMEOUT_MS: int = 15000
+## WebSocketPeer.heartbeat_interval, in seconds.
+const HEARTBEAT_S: float = 5.0
+const REASON_RECEIVE_TIMEOUT: String = "receive_timeout"
 const IDLE_MS: int = 60000
 ## How long a connection a room is done with stays open after its last message.
 const CLOSE_GRACE_MS: int = 1000
+## How long a refused connection stays open after its `refused` (long enough to be read).
+const REFUSAL_GRACE_MS: int = 100
 ## How long a requested close may take before the socket is dropped regardless.
 const CLOSE_FORCE_MS: int = 2000
 ## The hard socket limit on one inbound frame (P10); the 16 KiB rule is checked per message.
@@ -49,6 +72,7 @@ const INBOUND_BUFFER_BYTES: int = 65536
 const OUTBOUND_BUFFER_BYTES: int = NetProtocol.MAX_SERVER_MESSAGE_BYTES + 65536
 const CLOSE_NORMAL: int = 1000
 const CLOSE_POLICY: int = 1008
+const CLOSE_GOING_AWAY: int = 1001
 const LINE_PREFIX: String = "PVP server: "
 ## The `t` of the room messages after which the room is done with a connection.
 const ENDING_KINDS: Array[String] = [
@@ -66,7 +90,10 @@ var max_per_s: int = MAX_PER_S
 var max_connections: int = MAX_CONNECTIONS
 var max_per_ip: int = MAX_PER_IP
 var idle_ms: int = IDLE_MS
+## 0 turns the receive timeout off.
+var receive_timeout_ms: int = RECEIVE_TIMEOUT_MS
 var close_grace_ms: int = CLOSE_GRACE_MS
+var refusal_grace_ms: int = REFUSAL_GRACE_MS
 ## No stdout lines (the suites).
 var quiet: bool = false
 ## func(deck_ids: Array[String]) -> MatchEngine for every room, set before listen(); the
@@ -171,13 +198,14 @@ func _accept(now_ms: int) -> void:
 			return
 		var address: String = stream.get_connected_host()
 		var full: String = _capacity_problem(address)
-		if full != "":
+		if full != "" and _conns.size() >= max_connections + REFUSAL_SLOTS:
 			stream.disconnect_from_host()
-			_say("conn refused from %s reason=%s" % [address, full])
+			_say("conn dropped from %s reason=%s" % [address, full])
 			continue
 		var peer: WebSocketPeer = WebSocketPeer.new()
 		peer.inbound_buffer_size = INBOUND_BUFFER_BYTES
 		peer.outbound_buffer_size = OUTBOUND_BUFFER_BYTES
+		peer.heartbeat_interval = HEARTBEAT_S
 		var conn: Connection = Connection.new()
 		conn.id = _next_id
 		_next_id += 1
@@ -185,6 +213,8 @@ func _accept(now_ms: int) -> void:
 		conn.stream = stream
 		conn.address = address
 		conn.opened_ms = now_ms
+		conn.received_ms = now_ms
+		conn.refusal = full
 		if peer.accept_stream(stream) != OK:
 			stream.disconnect_from_host()
 			continue
@@ -213,8 +243,12 @@ func _poll_conn(conn: Connection, now_ms: int) -> void:
 			return
 		while not conn.closing and conn.peer.get_available_packet_count() > 0:
 			var packet: PackedByteArray = conn.peer.get_packet()
+			conn.received_ms = now_ms
 			_receive(conn, packet, conn.peer.was_string_packet(), now_ms)
 			_flush_rooms()
+		# After the reads: a frame that waited in the buffer still counts as heard.
+		if not conn.closing and _silent_too_long(conn, now_ms):
+			_lose(conn, now_ms)
 
 
 ## A connection on its way out: its input is ignored; the close is requested once its grace
@@ -246,6 +280,15 @@ func _drop(conn: Connection, now_ms: int) -> void:
 	_route(room.connection_lost(conn.id, now_ms), now_ms)
 
 
+## A welcomed connection silent past receive_timeout_ms: its peer is gone without a close,
+## so the socket is dropped now and its seat hears connection_lost (R44).
+func _lose(conn: Connection, now_ms: int) -> void:
+	conn.close_reason = REASON_RECEIVE_TIMEOUT
+	conn.peer.close(CLOSE_GOING_AWAY, REASON_RECEIVE_TIMEOUT)
+	conn.stream.disconnect_from_host()
+	_drop(conn, now_ms)
+
+
 ## Marks `conn` closing with `reason`; the close itself goes out after `grace_ms`.
 func _close_conn(conn: Connection, reason: String, code: int, grace_ms: int, now_ms: int) -> void:
 	if conn.closing:
@@ -267,7 +310,9 @@ func _request_close(conn: Connection, now_ms: int) -> void:
 ## `refused {reason, detail}` to `conn`, then it is closed with `reason` (R35 to R37).
 func _refuse_close(conn: Connection, reason: String, detail: String, now_ms: int) -> void:
 	_send(conn, _refused(reason, detail))
-	_close_conn(conn, reason, CLOSE_POLICY, 0, now_ms)
+	# A close sent with the refusal empties the client's unread frames, so it would never
+	# read why (R14 to R16): the close follows refusal_grace_ms later, input ignored meanwhile.
+	_close_conn(conn, reason, CLOSE_POLICY, refusal_grace_ms, now_ms)
 
 
 ## One more message from `conn` at `now_ms`; false when it would be past `max_per_s` within
@@ -283,16 +328,28 @@ func _take_token(conn: Connection, now_ms: int) -> bool:
 
 ## Why a new connection from `address` is turned away ("" when it is not): the total cap or
 ## the per-address cap (S5).
+## Connections already being refused do not count.
 func _capacity_problem(address: String) -> String:
-	if _conns.size() >= max_connections:
-		return "too_many_connections"
+	var total: int = 0
 	var from_address: int = 0
 	for conn: Connection in _conns.values():
+		if conn.refusal != "":
+			continue
+		total += 1
 		if conn.address == address:
 			from_address += 1
+	if total >= max_connections:
+		return NetProtocol.REASON_TOO_MANY_CONNECTIONS
 	if from_address >= max_per_ip:
-		return "too_many_from_address"
+		return NetProtocol.REASON_TOO_MANY_FROM_ADDRESS
 	return ""
+
+
+## Whether `conn`, welcomed, has received nothing for receive_timeout_ms (R44).
+func _silent_too_long(conn: Connection, now_ms: int) -> bool:
+	if receive_timeout_ms <= 0 or not conn.welcomed:
+		return false
+	return now_ms - conn.received_ms >= receive_timeout_ms
 
 
 ## Whether `conn`, welcomed and in no room, has been so for `idle_ms` (S5). The idle time
@@ -309,11 +366,16 @@ func _idle_too_long(conn: Connection, now_ms: int) -> bool:
 # --- Messages ---------------------------------------------------------------------------
 
 
-## One frame from `conn`: rate, size, kind and shape checked, then handled.
+## One frame from `conn`: rate, size, kind and shape checked, then handled. A connection
+## over a capacity cap answers its first frame (normally `hello`) with its refusal: sent
+## any earlier, the frame would reach a client still finishing the HTTP upgrade, which
+## drops it. One that never speaks meets the handshake deadline.
 func _receive(conn: Connection, packet: PackedByteArray, is_text: bool, now_ms: int) -> void:
 	var problem: String = ""
 	var message: Dictionary = {}
-	if not _take_token(conn, now_ms):
+	if conn.refusal != "":
+		problem = conn.refusal
+	elif not _take_token(conn, now_ms):
 		problem = NetProtocol.REASON_TOO_MANY_MESSAGES
 	elif packet.size() > NetProtocol.MAX_MESSAGE_BYTES:
 		problem = NetProtocol.REASON_MESSAGE_TOO_LARGE
@@ -330,6 +392,9 @@ func _receive(conn: Connection, packet: PackedByteArray, is_text: bool, now_ms: 
 
 
 func _handle(conn: Connection, kind: String, message: Dictionary, now_ms: int) -> void:
+	if kind == NetProtocol.T_PING:
+		_send(conn, {NetProtocol.KEY_T: NetProtocol.T_PONG})
+		return
 	if kind == NetProtocol.T_HELLO:
 		_on_hello(conn, message, now_ms)
 		return
@@ -556,6 +621,10 @@ class Connection:
 	var stream: StreamPeerTCP = null
 	var address: String = ""
 	var opened_ms: int = 0
+	## When its last frame arrived (the receive timeout, R44).
+	var received_ms: int = 0
+	## The capacity reason it is refused with once open; "" for a connection served (S5).
+	var refusal: String = ""
 	## hello's name, install_id and kind once welcomed.
 	var identity: Dictionary = {}
 	var welcomed: bool = false
