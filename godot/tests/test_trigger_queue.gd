@@ -284,6 +284,52 @@ func test_a_muted_entry_left_when_the_budget_runs_out_stays_silent() -> void:
 	assert_bool(state.queue.is_empty()).is_true()
 
 
+## Cycle 14 R1, R2 (C1, NSC-178): an effect's On empty draw Batch (Q11, `then_draw`) whose
+## first trigger refills the Deck spends the pulse's last resolution; the rest of the Batch
+## (two cards, then seat 0's Void) fizzles `exhausted`, and the denied draw is still made
+## once, right after the Batch's last entry. The draw is a game step: `spent` is unchanged.
+func test_the_resumed_draw_survives_an_exhausted_budget() -> void:
+	var verbs: StubAbilities.StubVerbs = StubAbilities.StubVerbs.new()
+	var cards: MatchCards = _cards(verbs)
+	var r: int = 0
+	var x: int = 1
+	var y: int = 2
+	var refilled: int = StubAbilities.PEBBLE
+	_give(cards, _typed([r]), "Refiller", _ability("on_empty_draw", StubAbilities.VERB_REFILL))
+	_give(cards, _typed([x, y]), "Plain", _ability("on_empty_draw", StubAbilities.VERB_RECORD))
+	var state: MatchState = StubAbilities.table(_typed([r, x, y]), true)
+	var piles: MatchState.SeatPiles = state.seats[0]
+	piles.deck.clear()
+	piles.hand.clear()
+	piles.pile.assign(_typed([refilled]))
+	state.walk.resolutions = MatchRules.TRIGGER_BUDGET - 1
+	var context: Dictionary = {TriggerQueue.KEY_THEN_DRAW: 0}
+	var none: Array[int] = []
+	var batch: Dictionary = TriggerQueue.wake(state, cards, "on_empty_draw", none, 0, context)
+	assert_dict(batch).is_not_empty()
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	assert_bool(TriggerQueue.drain(state, cards, MatchRng.new(SEED), rec.record, "D8")).is_false()
+	assert_array(rec.cards_of(FIRED)).is_equal(_typed([r]))
+	assert_array(_ints(rec.events, FIRED, "resolution")).is_equal(
+		_typed([MatchRules.TRIGGER_BUDGET])
+	)
+	var exhausted: Array[int] = []
+	for event: MatchEvent in _fizzles(rec, Abilities.REASON_EXHAUSTED):
+		exhausted.append(_int_of(event, "card"))
+	assert_array(exhausted).is_equal(_typed([x, y, -1]))
+	# The denied draw: once, after the last exhausted entry, from the refilled Deck.
+	var kinds: Array[int] = _kinds(rec.events)
+	var drawn: Array[int] = rec.cards_of(MatchEvent.Kind.CARD_DRAWN)
+	assert_array(drawn).is_equal(_typed([refilled]))
+	assert_int(kinds.find(MatchEvent.Kind.CARD_DRAWN)).is_greater(kinds.rfind(FIZZLED))
+	var last: int = kinds[kinds.size() - 1]
+	assert_int(last).is_equal(MatchEvent.Kind.CARD_DRAWN)
+	assert_array(piles.hand).is_equal(_typed([refilled]))
+	assert_array(piles.deck).is_empty()
+	assert_int(TriggerQueue.spent(state)).is_equal(MatchRules.TRIGGER_BUDGET)
+	assert_bool(state.queue.is_empty()).is_true()
+
+
 # --- Q6: retriggers -------------------------------------------------------------------
 
 

@@ -52,6 +52,7 @@ const VERB_SCORES_TWICE: String = "stub_scores_twice"
 const VERB_FEED: String = "stub_condemn_random_and_rescore"
 const VERB_DISCARD_PICK: String = "stub_discard_pick"
 const VERB_CHOOSE_HAND: String = "stub_choose_hand"
+const VERB_REFILL: String = "stub_refill"
 const MOMENT_MOVED: String = "on_moved"
 const MOMENT_SCORE: String = "on_score"
 
@@ -260,7 +261,9 @@ class Recorder:
 ## - stub_discard_pick: chooses a card of its Controller's hand (Q9), Discards it (On
 ##   discard wakes), then reads N, the Controller's Pile size, now (Q5): Power +N until it
 ##   leaves the row ("n <N>");
-## - stub_choose_hand: chooses a card of its Controller's hand ("chose <card>").
+## - stub_choose_hand: chooses a card of its Controller's hand ("chose <card>");
+## - stub_refill: moves its Controller's Pile, in order, onto the bottom of its Deck
+##   ("refilled <Deck size>").
 class StubVerbs:
 	extends VerbHandler
 
@@ -274,6 +277,7 @@ class StubVerbs:
 		VERB_FEED,
 		VERB_DISCARD_PICK,
 		VERB_CHOOSE_HAND,
+		VERB_REFILL,
 	]
 
 	var trace: Array[String] = []
@@ -319,6 +323,12 @@ class StubVerbs:
 				_discard_pick(ctx)
 			VERB_CHOOSE_HAND:
 				trace.append("chose %d" % ctx.chosen_card())
+			VERB_REFILL:
+				# The Deck's top is its first card, so the Pile goes under it.
+				var piles: MatchState.SeatPiles = ctx.state.seats[ctx.seat]
+				piles.deck.append_array(piles.pile)
+				piles.pile.clear()
+				trace.append("refilled %d" % piles.deck.size())
 
 	func _feed(ctx: TriggerContext) -> void:
 		var enemy: Array[int] = ctx.state.seats[1 - ctx.seat].board

@@ -150,7 +150,8 @@ static func build(
 	view.first_seat = state.first_seat
 	view.sudden_death = state.sudden_death
 	view.prompt = _prompt(state, view.seat, cards)
-	for index: int in range(2):
+	# Seat-indexed: MatchEngine.SEATS owns the count (NSC-177).
+	for index: int in range(MatchEngine.SEATS):
 		var uses: Array = state.crew_uses[index]
 		view.crew_uses[index] = uses.duplicate()
 		if cards != null:
@@ -160,7 +161,7 @@ static func build(
 
 ## The seat-indexed pairs: Deck counts, Scores, walking totals, wins, Budgets and Hand sizes.
 static func _fill_pairs(view: SeatView, state: MatchState, cards: MatchCards) -> void:
-	for index: int in range(2):
+	for index: int in range(MatchEngine.SEATS):
 		var piles: MatchState.SeatPiles = state.seats[index]
 		view.deck_counts[index] = piles.deck.size()
 		view.scores[index] = state.scores[index]
@@ -413,7 +414,7 @@ static func from_dict(d: Dictionary) -> SeatView:
 	var view: SeatView = SeatView.new()
 	view.seat = reader.ranged("seat", 0, 1)
 	view.opponent = reader.ranged("opponent", 0, 1)
-	view.deck_ids = reader.strings("deck_ids", 2)
+	view.deck_ids = reader.strings("deck_ids", MatchEngine.SEATS)
 	view.own_hand = reader.ints("own_hand")
 	view.own_hand_row = reader.entries("own_hand_row")
 	view.own_hand_costs = reader.ints("own_hand_costs")
@@ -428,15 +429,15 @@ static func from_dict(d: Dictionary) -> SeatView:
 	view.opponent_hand_count = reader.ranged("opponent_hand_count", 0, MAX_COUNT)
 	view.opponent_pending_count = reader.ranged("opponent_pending_count", 0, MAX_COUNT)
 	view.opponent_pending_slots = reader.ints("opponent_pending_slots")
-	view.deck_counts = reader.ints("deck_counts", 2)
-	view.scores = reader.ints("scores", 2)
-	view.totals = reader.ints("totals", 2)
-	view.wins = reader.ints("wins", 2)
+	view.deck_counts = reader.ints("deck_counts", MatchEngine.SEATS)
+	view.scores = reader.ints("scores", MatchEngine.SEATS)
+	view.totals = reader.ints("totals", MatchEngine.SEATS)
+	view.wins = reader.ints("wins", MatchEngine.SEATS)
 	view.round_number = reader.ranged("round", 0, MAX_COUNT)
 	view.turn = reader.ranged("turn", 0, MAX_COUNT)
 	view.energy = reader.whole("energy")
-	view.budgets = reader.ints("budgets", 2)
-	view.hand_sizes = reader.ints("hand_sizes", 2)
+	view.budgets = reader.ints("budgets", MatchEngine.SEATS)
+	view.hand_sizes = reader.ints("hand_sizes", MatchEngine.SEATS)
 	view.free_first = reader.flag("free_first")
 	view.looked = reader.slots("looked")
 	view.deck_top = reader.ints("deck_top")
@@ -556,10 +557,10 @@ class Reader:
 	## Two untyped lists, one per seat: of Strings when `texts`, else of whole numbers.
 	func pair_lists(key: String, texts: bool) -> Array[Array]:
 		var out: Array[Array] = [[], []]
-		var items: Array = _list_of(_d.get(key), 2)
-		if items.size() != 2:
+		var items: Array = _list_of(_d.get(key), MatchEngine.SEATS)
+		if items.size() != MatchEngine.SEATS:
 			return out
-		for index: int in range(2):
+		for index: int in range(MatchEngine.SEATS):
 			var plain: Array = []
 			if texts:
 				var seat_items: Array = _list_of(items[index], -1)
