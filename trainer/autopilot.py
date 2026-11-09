@@ -122,7 +122,8 @@ class Autopilot:
         self.data_dir = Path(data_dir if data_dir is not None else service.data_dir)
         self.dir = self.data_dir / "autopilot"
         self.clock = clock
-        self.sleep = sleep
+        # the default sleep wakes at once on a stop or shutdown; an injected one is used as is
+        self.sleep: Callable[[float], None] = self._nap if sleep is time.sleep else sleep
         self._disk_free_gb: Callable[[], float] = disk_free_gb or (
             lambda: shutil.disk_usage(str(self.data_dir)).free / GB)
         self._feature_set_fn: Callable[[], str] = feature_set_fn or self._default_feature_set
@@ -134,14 +135,16 @@ class Autopilot:
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.RLock()
         self.state: Dict[str, Any] = self._load_state()
+        self._halting = False  # set by shutdown(): leave the open block for the next start
         if self.state.get("config"):
             self.cfg = AutopilotConfig.from_dict(self.state["config"])
+            self._apply_judge_cap()
 
     # defaults
 
     def _default_advisor(self) -> Any:
         from trainer import advisor as advisor_mod  # lazily: not needed with an injected advisor
-        return advisor_mod.Advisor(self.data_dir)
+        return advisor_mod.FileAdvisor(self.data_dir)
 
     def _default_judge(self) -> Any:
         work = Path(getattr(self.service, "root", ".")) / "work"
@@ -200,9 +203,7 @@ class Autopilot:
             st[key] = old[key]
         self.cfg = cfg
         self.state = st
-        cap = getattr(getattr(self.judge, "config", None), "cap", None)
-        if cap is not None:
-            self.judge.config.cap = cfg.judge_cap
+        self._apply_judge_cap()
         champ, note = self._load_champion()
         st["champion"] = str(champ["fit_id"]) if champ else ""
         st["feature_set"] = self._feature_set_fn()
@@ -211,10 +212,22 @@ class Autopilot:
                   plan=self.advisor.default_plan(has), plan_source="default",
                   plan_notes=[note] if note else [], stage="label")
         st["kind"] = "seed" if (not has and cfg.candidates) else "full"
+        self._halting = False
         self._clear_stop()
         self._save()
         self._spawn()
         return {"started": True, "block": st["block"], "kind": st["kind"]}
+
+    def _nap(self, seconds: float) -> None:
+        if self._stop_event.is_set():  # a stop is pending: poll the draining stage gently
+            time.sleep(min(seconds, 1.0))
+        else:
+            self._stop_event.wait(seconds)
+
+    def _apply_judge_cap(self) -> None:
+        cap = getattr(getattr(self.judge, "config", None), "cap", None)
+        if cap is not None:
+            self.judge.config.cap = self.cfg.judge_cap
 
     def _load_champion(self) -> Any:
         fs = self._feature_set_fn()
@@ -227,6 +240,14 @@ class Autopilot:
             return {"error": "autopilot is not running"}
         self._stop_event.set()
         return {"stopping": True, "block": self.state["block"]}
+
+    def shutdown(self, timeout: Optional[float] = None) -> None:
+        """Stop the thread at its next safe point for a service shutdown. Unlike `stop`, no
+        `interrupted` entry is written and `running` stays true in the state file, so the next
+        service start resumes the open block with its remaining budget (R37)."""
+        self._halting = True
+        self._stop_event.set()
+        self.join(timeout)
 
     def status(self) -> Dict[str, Any]:
         st = dict(self.state)
@@ -306,10 +327,12 @@ class Autopilot:
                 continue
             if st["block_started"] is None:
                 if self._stop_requested():
-                    self._finish_stop()
+                    if not self._halting:
+                        self._finish_stop()
                     break
                 self._begin_block()
-            self._run_block()
+            if not self._run_block():
+                break
             self._close_block()
 
     def _begin_block(self) -> None:
@@ -325,7 +348,9 @@ class Autopilot:
         st = self.state
         return bool(st["run_id"]) or st["stage"] in ("fit", "judge")
 
-    def _run_block(self) -> None:
+    def _run_block(self) -> bool:
+        """Run the block's stages and compose its entry; False when a shutdown left the block
+        open (state saved, no entry)."""
         st = self.state
         try:
             if st["kind"] == "seed":
@@ -342,7 +367,11 @@ class Autopilot:
                     self.service.stop_run(st["run_id"])
                 except Exception:
                     pass
+        if r == "stop" and self._halting:
+            self._save()
+            return False
         self._compose_entry(r)
+        return True
 
     def _compose_entry(self, r: str) -> None:
         st = self.state

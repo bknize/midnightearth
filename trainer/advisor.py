@@ -236,6 +236,10 @@ class Advisor:
         self.clock = clock or time.monotonic
         self.sleep = sleep or time.sleep
 
+    @staticmethod
+    def default_plan(has_champion: bool) -> Dict[str, Any]:
+        return default_plan(has_champion)
+
     def _argv(self) -> List[str]:
         c = self.config
         return [c.server_path, "-m", c.model_path, "--host", c.host,
@@ -355,3 +359,35 @@ class Advisor:
                                json.dumps(record, sort_keys=True, indent=1) + "\n")
         except OSError:
             pass
+
+
+class FileAdvisor:
+    """An `Advisor` whose config is read from `<data>/autopilot/config.json` at every call, so
+    an edit takes effect at the next block boundary. A missing or invalid config gives the
+    fallback plan with the reason; no server is started."""
+
+    def __init__(self, data_dir: Any, **advisor_kwargs: Any) -> None:
+        self.data_dir = Path(data_dir)
+        self.path = self.data_dir / "autopilot" / "config.json"
+        self.kwargs = advisor_kwargs
+
+    @staticmethod
+    def default_plan(has_champion: bool) -> Dict[str, Any]:
+        return default_plan(has_champion)
+
+    def advise(self, block: int, entries: Sequence[Dict[str, Any]],
+               bounds: Dict[str, List[Any]], extras: Dict[str, List[Any]],
+               pins: Dict[str, Any], notes: Sequence[str], plateau: bool,
+               last_plan: Dict[str, Any], has_champion: bool) -> Advice:
+        try:
+            config = load_config(self.path)
+        except FileNotFoundError:
+            problem = "no advisor config at %s" % self.path
+        except (OSError, ValueError) as exc:
+            problem = str(exc)
+        else:
+            return Advisor(config, self.data_dir, **self.kwargs).advise(
+                block, entries, bounds, extras, pins, notes, plateau, last_plan, has_champion)
+        plan, which = fallback_plan(entries, has_champion)
+        return Advice(plan=plan, source="fallback",
+                      fallback_reason="%s (fell back to the %s)" % (problem, which))
