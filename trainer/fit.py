@@ -7,7 +7,8 @@ candidate scores higher). Positions whose candidates share one value contribute 
 
 Model. L2 logistic loss on the scaled differences, full-batch gradient descent (Nesterov
 momentum, a step from a fixed power iteration) for a fixed number of iterations from a zero
-start. The fit seed only picks the held-out positions. The same runs and config give the
+start. Each pair weighs 1 / (pairs in its position), so no position dominates (R34). The fit
+seed only picks the held-out positions. The same runs and config give the
 same bytes on the same machine: no clock, no thread-dependent reductions of our own, keys
 sorted or in feature order, floats rounded before they are written.
 
@@ -30,6 +31,7 @@ import os
 import random
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -57,6 +59,18 @@ BLAS_PINNED = False  # whether _numpy() pinned BLAS before numpy first loaded; s
 FEATURES_GD = Path("godot") / "engine" / "bot" / "bot_features.gd"
 CARDS_JSON = Path("godot") / "engine" / "data" / "cards.json"
 FINISHED = ("done", "stopped")
+# Run config fields that must agree across the runs of one fit (R35): a run's labels are
+# values under its rollout and generator policy, and values under different policies are not
+# on one scale.
+POLICY_FIELDS = ("rollout", "rollout_weights", "generator_weights")
+# What the report's `pair_weighting` field says, so a later fit can be reproduced.
+PAIR_WEIGHTING = ("1/pairs in the pair's position, then normalised to sum 1 over the fitted"
+                  " pairs")
+REPLACE_TRIES = 5  # write_outputs retries a PermissionError from os.replace this often
+REPLACE_PAUSE_S = 0.05
+# Power iteration under-estimates the top eigenvalue; the step allows this margin (never
+# past the trace, which bounds it from above).
+POWER_MARGIN = 1.1
 
 
 class FitError(Exception):
@@ -83,6 +97,7 @@ def validate_runs(store: Store, run_ids: Sequence[str]) -> Tuple[str, str]:
     stamp = ""
     feature_set = ""
     first = ""
+    first_config: Dict[str, Any] = {}
     for rid in run_ids:
         run = store.get_run(rid)
         if run is None:
@@ -94,6 +109,7 @@ def validate_runs(store: Store, run_ids: Sequence[str]) -> Tuple[str, str]:
             raise FitError("run %s has no feature set (labelled before features)" % rid)
         if not first:
             first, stamp, feature_set = rid, str(run["stamp"]), str(run["feature_set"])
+            first_config = dict(run["config"])
             continue
         if run["stamp"] != stamp:
             raise FitError("run %s is under stamp %s, run %s under %s"
@@ -101,6 +117,12 @@ def validate_runs(store: Store, run_ids: Sequence[str]) -> Tuple[str, str]:
         if run["feature_set"] != feature_set:
             raise FitError("run %s has feature set %s, run %s has %s"
                            % (rid, run["feature_set"], first, feature_set))
+        for field in POLICY_FIELDS:
+            mine = run["config"].get(field, "")
+            theirs = first_config.get(field, "")
+            if mine != theirs:
+                raise FitError("run %s has %s %r, run %s has %r"
+                               % (rid, field, mine, first, theirs))
     if not first:
         raise FitError("no runs named")
     return stamp, feature_set
@@ -153,12 +175,14 @@ def datasets_digest(store: Store, run_ids: Sequence[str]) -> str:
 
 # --- the data -------------------------------------------------------------------------------
 
-def _load_pairs(store: Store, run_ids: Sequence[str]) -> Tuple[Any, Any, int]:
-    """(X, group, positions): the pair difference matrix (int64, pairs x features), each
-    pair's position group number, and how many positions were read."""
+def _load_pairs(store: Store, run_ids: Sequence[str]) -> Tuple[Any, Any, Any, int]:
+    """(X, group, weight, positions): the pair difference matrix (int64, pairs x features),
+    each pair's position group number, each pair's weight (1 / the pairs of its position, so a
+    position with many candidates does not dominate; R34), and how many positions were read."""
     np = _numpy()
     chunks: List[Any] = []
     groups: List[Any] = []
+    weights: List[Any] = []
     width = -1
     group = 0
     positions = 0
@@ -197,10 +221,11 @@ def _load_pairs(store: Store, run_ids: Sequence[str]) -> Tuple[Any, Any, int]:
                 raise FitError("too many pairs to hold in memory (%d cells)" % cells)
             chunks.append(feats[hi] - feats[lo])
             groups.append(np.full(a.size, group, dtype=np.int64))
+            weights.append(np.full(a.size, 1.0 / a.size, dtype=np.float64))
             group += 1
     if not chunks:
         raise FitError("no pairs: every position's candidates share one value")
-    return np.concatenate(chunks), np.concatenate(groups), positions
+    return np.concatenate(chunks), np.concatenate(groups), np.concatenate(weights), positions
 
 
 def _agreement(np: Any, x: Any, w: Any) -> Tuple[int, int]:
@@ -222,7 +247,7 @@ def run_fit(store: Store, fit_id: str, config: FitConfig, out_dir: Path, repo_ro
     np = _numpy()
     run_ids = sorted(config.runs)
     stamp, feature_set = validate_runs(store, run_ids)
-    x_all, group, positions = _load_pairs(store, run_ids)
+    x_all, group, weight_all, positions = _load_pairs(store, run_ids)
     width = int(x_all.shape[1])
     feature_names = list(names) if names is not None else engine_feature_names(
         repo_root, feature_set, stamp=stamp)
@@ -240,23 +265,34 @@ def run_fit(store: Store, fit_id: str, config: FitConfig, out_dir: Path, repo_ro
     is_held = flag[group]
     x_fit = x_all[~is_held]
     x_hold = x_all[is_held]
+    pair_weight = weight_all[~is_held]
+    pair_weight = pair_weight / pair_weight.sum()  # sums to 1 over the fitted pairs
 
     # Scale each column by its largest magnitude over the fitted pairs.
     scale = np.abs(x_fit).max(axis=0).astype(np.float64)
     scale[scale == 0] = 1.0
     xf = x_fit.astype(np.float64)
     xs = xf / scale
-    n = xs.shape[0]
+    xw = xs * np.sqrt(pair_weight)[:, None]  # xw.T @ xw is the weighted Gram matrix
+    if not xw.any():
+        raise FitError("every fitted pair has an all-zero difference")
 
-    # A fixed step from the top eigenvalue of XtX/n (power iteration from ones).
-    vec = np.ones(width) / np.sqrt(width)
+    # A fixed step from the top eigenvalue of that matrix: power iteration from the stated
+    # vector 1 + i/width (not the ones vector, which rows that sum to zero are orthogonal to).
+    # The iteration under-estimates the eigenvalue, so the step allows a margin, capped by
+    # the trace, which bounds it from above.
+    vec = 1.0 + np.arange(width, dtype=np.float64) / width
+    vec = vec / np.linalg.norm(vec)
     lam = 0.0
     for _ in range(100):
-        nxt = xs.T @ (xs @ vec) / n
+        nxt = xw.T @ (xw @ vec)
         lam = float(np.linalg.norm(nxt))
         if lam == 0.0:
-            raise FitError("every fitted pair has an all-zero difference")
+            break
         vec = nxt / lam
+    trace = float((xw * xw).sum())
+    # lam stays 0 only when the start vector is orthogonal to every row; the trace still bounds.
+    lam = min(lam * POWER_MARGIN, trace) if lam > 0.0 else trace
     lipschitz = 0.275 * lam + config.l2
     step = 1.0 / lipschitz
 
@@ -268,13 +304,13 @@ def run_fit(store: Store, fit_id: str, config: FitConfig, out_dir: Path, repo_ro
             raise FitError("fit stopped")
         z = xs @ y
         s = 0.5 * (1.0 - np.tanh(z / 2.0))  # the logistic of -z, without overflow
-        grad = -(xs.T @ s) / n + config.l2 * y
+        grad = -(xs.T @ (pair_weight * s)) + config.l2 * y
         w_next = y - step * grad
         t_next = (1.0 + np.sqrt(1.0 + 4.0 * t * t)) / 2.0
         y = w_next + ((t - 1.0) / t_next) * (w_next - w)
         w = w_next
         t = t_next
-    loss = float(np.logaddexp(0.0, -(xs @ w)).mean() + 0.5 * config.l2 * float(w @ w))
+    loss = float((pair_weight * np.logaddexp(0.0, -(xs @ w))).sum() + 0.5 * config.l2 * float(w @ w))
 
     # Back to raw features, then whole numbers: the largest weight is WEIGHT_SCALE.
     raw = w / scale
@@ -301,6 +337,7 @@ def run_fit(store: Store, fit_id: str, config: FitConfig, out_dir: Path, repo_ro
         "stamp": stamp, "feature_set": feature_set, "digest": digest,
         "features": width, "positions": positions, "paired_positions": groups,
         "heldout_positions": held_count,
+        "pair_weighting": PAIR_WEIGHTING,
         "pairs": {"total": fit_total + hold_total, "fitted": fit_total, "heldout": hold_total},
         "agreement": {
             "fitted": _share(fit_right, fit_total), "heldout": _share(hold_right, hold_total),
@@ -329,4 +366,11 @@ def write_outputs(out_dir: Path, doc: Dict[str, Any], report: Dict[str, Any],
     texts = ((WEIGHTS_NAME, weights_text(doc, feature_names)),
              (REPORT_NAME, json.dumps(report, sort_keys=True, indent=1) + "\n"))
     for name, text in texts:
-        write_atomic(out_dir / name, text)
+        for attempt in range(REPLACE_TRIES):
+            try:
+                write_atomic(out_dir / name, text)
+                break
+            except PermissionError:  # Windows: a reader (get_artifact) holds the file open
+                if attempt == REPLACE_TRIES - 1:
+                    raise
+                time.sleep(REPLACE_PAUSE_S)

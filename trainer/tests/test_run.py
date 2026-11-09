@@ -78,6 +78,18 @@ class FarmTest(unittest.TestCase):
             self.assertEqual(ctx.exception.reason, "crash")
             self.assertEqual(farm.request(play_req(2))["log"]["seed"], "2")
 
+    def test_one_reply_per_request_buffered_or_unbuffered(self) -> None:
+        # The stub flushes explicitly; the real worker needs flush_stdout_on_print for the
+        # same (NSC-209). This pins the farm's side: one reply per request either way.
+        for flags in (["-I"], ["-I", "-u"]):
+            farm = Farm([sys.executable] + flags + [STUB], 1, timeout=30.0, start_timeout=30.0)
+            farm.start()
+            try:
+                for seed in (1, 2, 3):
+                    self.assertEqual(farm.request(play_req(seed))["log"]["seed"], str(seed))
+            finally:
+                farm.stop()
+
     def test_bad_command_fails_start(self) -> None:
         farm = Farm([sys.executable, "-I", "-c", "pass"], 1, start_timeout=10.0)
         with self.assertRaises(FarmError):

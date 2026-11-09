@@ -5,7 +5,8 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from unittest import mock
 
 from trainer.config import FitConfig
 from trainer import fit as fit_module
@@ -29,12 +30,14 @@ NAMES = ["f%d" % i for i in range(WIDTH)]
 
 
 def make_run(store: Store, run_id: str, seed: int, positions: int = 300, stamp: str = STAMP,
-             feature_set: str = SET, state: str = "done") -> None:
+             feature_set: str = SET, state: str = "done",
+             policy: Optional[Dict[str, Any]] = None) -> None:
     """A finished run whose candidate values are the true score (TRUE . features) plus a
     little noise, rounded (so some candidates tie), and some positions all-tied."""
     rng = random.Random(seed)
-    store.create_run({"positions": positions, "run_seed": seed}, stamp, "c", run_id=run_id,
-                     state=state)
+    config: Dict[str, Any] = {"positions": positions, "run_seed": seed}
+    config.update(policy or {})
+    store.create_run(config, stamp, "c", run_id=run_id, state=state)
     store.set_feature_set(run_id, feature_set)
     pos: List[Dict[str, Any]] = []
     labs: List[Dict[str, Any]] = []
@@ -77,6 +80,21 @@ class ValidationTest(unittest.TestCase):
             with self.assertRaises(FitError) as ctx:
                 validate_runs(self.store, ids)
             self.assertIn(text, str(ctx.exception))
+
+    def test_mixed_policies_are_refused(self) -> None:
+        make_run(self.store, "a", 1, positions=4, policy={"rollout": "random"})
+        make_run(self.store, "same", 2, positions=4, policy={"rollout": "random"})
+        make_run(self.store, "lin", 3, positions=4, policy={"rollout": "linear"})
+        make_run(self.store, "rw", 4, positions=4,
+                 policy={"rollout": "random", "rollout_weights": "abc"})
+        make_run(self.store, "gw", 5, positions=4,
+                 policy={"rollout": "random", "generator_weights": "abc"})
+        self.assertEqual(validate_runs(self.store, ["a", "same"]), (STAMP, SET))
+        for other, field in (("lin", "rollout"), ("rw", "rollout_weights"),
+                             ("gw", "generator_weights")):
+            with self.assertRaises(FitError) as ctx:
+                validate_runs(self.store, ["a", other])
+            self.assertIn("run %s has %s" % (other, field), str(ctx.exception))
 
     def test_run_without_a_feature_set_is_refused(self) -> None:
         make_run(self.store, "old", 1, positions=4, feature_set="")
@@ -235,6 +253,68 @@ class LearnerTest(unittest.TestCase):
         report = run_fit(self.store, "fit1", cfg, self.dir / "two", ROOT, names=NAMES)
         self.assertEqual(report["runs"], ["a", "b"])
         self.assertEqual(report["positions"], 400)
+
+
+    def test_report_states_the_pair_weighting(self) -> None:
+        self.assertEqual(self.fit("out")["pair_weighting"], fit_module.PAIR_WEIGHTING)
+
+    def test_pairs_are_weighted_by_their_position(self) -> None:
+        # One position with 6 candidates (15 pairs) and one with 2 (1 pair): the pair
+        # weights are 1/15 each and 1, so each position counts once.
+        store = Store(self.dir / "w")
+        self.addCleanup(store.close)
+        store.create_run({"positions": 2, "run_seed": 1}, STAMP, "c", run_id="w", state="done")
+        store.set_feature_set("w", SET)
+        labs: List[Dict[str, Any]] = []
+        for position, count in ((0, 6), (1, 2)):
+            for c in range(count):
+                labs.append({"position_index": position, "candidate_index": c, "action": {},
+                             "mean": c / 10.0, "spread": 0.0, "n": 1, "wins": 0, "draws": 0,
+                             "losses": 0, "capped": False, "features": [c, 1] + [0] * 10})
+        store.commit_batch("w", 0, [
+            {"index": i, "seed": i, "decks": [], "prefix_len": 0, "seat": 0} for i in (0, 1)],
+            labs)
+        _, group, weight, _ = fit_module._load_pairs(store, ["w"])
+        self.assertEqual(sorted(set(weight.tolist())), [1.0 / 15.0, 1.0])
+        self.assertAlmostEqual(float(weight[group == 0].sum()), 1.0)
+        self.assertAlmostEqual(float(weight[group == 1].sum()), 1.0)
+
+class WriteOutputsTest(unittest.TestCase):
+    """No numpy needed."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.out = Path(self._tmp.name) / "out"
+
+    def write(self) -> None:
+        fit_module.write_outputs(self.out, {"weights": {"f0": 1}}, {"fit_id": "x"}, NAMES)
+
+    def test_a_locked_replace_is_retried(self) -> None:
+        real = os.replace
+        calls: List[int] = []
+
+        def flaky(src: Any, dst: Any) -> None:
+            calls.append(1)
+            if len(calls) <= 2:
+                raise PermissionError("locked")
+            real(src, dst)
+
+        with mock.patch("trainer.store.os.replace", flaky), \
+                mock.patch("trainer.fit.time.sleep"):
+            self.write()
+        self.assertEqual(len(calls), 4)  # two failures, then the weights file and the report
+        self.assertTrue((self.out / "report.json").is_file())
+        self.assertTrue((self.out / "linear_weights.json").is_file())
+
+    def test_it_gives_up_after_the_retries(self) -> None:
+        def locked(src: Any, dst: Any) -> None:
+            raise PermissionError("locked")
+
+        with mock.patch("trainer.store.os.replace", locked), \
+                mock.patch("trainer.fit.time.sleep"):
+            with self.assertRaises(PermissionError):
+                self.write()
 
 
 class WeightsTextTest(unittest.TestCase):

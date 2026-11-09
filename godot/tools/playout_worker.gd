@@ -72,6 +72,8 @@ func _drain_long_line(piece: String) -> void:
 		last = _read_line()
 
 
-## Prints one reply as a line; the stdout buffer is flushed by print.
+## Prints one reply as a line. GDScript has no stdout flush call; print() flushes per line
+## only in debug builds, or when the project setting application/run/flush_stdout_on_print
+## is true (set in project.godot), so a release export still delivers one reply per request.
 func _emit(reply: Dictionary) -> void:
 	print(PlayoutProtocol.encode(reply))

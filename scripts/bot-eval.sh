@@ -17,13 +17,16 @@ command -v "$GODOT_BIN" >/dev/null 2>&1 || { printf 'bot-eval: Godot not found a
 command -v python3 >/dev/null 2>&1 || { printf 'bot-eval: python3 not found\n' >&2; exit 3; }
 
 # `--weights PATH` is shorthand for the driver's `--weights-a PATH` (cycle 13 plan P7).
+# A relative path is resolved against the caller's directory (the script cds to the repo root
+# below).
+abs_path() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$PWD" "$1" ;; esac; }
 args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --weights)
       [ $# -ge 2 ] || { printf 'bot-eval: --weights needs a path\n' >&2; exit 3; }
-      args+=(--weights-a "$2"); shift 2 ;;
-    --weights=*) args+=("--weights-a=${1#--weights=}"); shift ;;
+      args+=(--weights-a "$(abs_path "$2")"); shift 2 ;;
+    --weights=*) args+=("--weights-a=$(abs_path "${1#--weights=}")"); shift ;;
     *) args+=("$1"); shift ;;
   esac
 done
