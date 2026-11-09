@@ -147,16 +147,6 @@ func score_anchor(seat: int) -> Vector2:
 	return label.get_global_rect().get_center()
 
 
-## The number on show for `seat`.
-func shown_score(seat: int) -> int:
-	return _shown[seat]
-
-
-## The text of `seat`'s score label.
-func score_label_text(seat: int) -> String:
-	return _score_labels[seat].text
-
-
 ## Each side's Pile count (R78), seat 0 first. A tap on a count asks for that Pile's strip.
 func set_piles(counts: Array[int]) -> void:
 	for seat: int in range(mini(counts.size(), _pile_labels.size())):
@@ -299,11 +289,6 @@ func hide_action() -> void:
 		_action_button.visible = false
 
 
-## Whether the action button is on show.
-func action_visible() -> bool:
-	return _action_button != null and _action_button.visible
-
-
 ## The action button's rect in viewport pixels, or an empty rect while it is not built.
 func action_rect() -> Rect2:
 	if _action_button == null:
@@ -359,10 +344,6 @@ func confirm_text() -> String:
 ## Whether the confirm button can be pressed (R80).
 func confirm_enabled() -> bool:
 	return _confirm_button != null and not _confirm_button.disabled
-
-
-func confirm_visible() -> bool:
-	return _confirm_button != null and _confirm_button.visible
 
 
 func _on_confirm_button_pressed() -> void:

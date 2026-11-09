@@ -166,9 +166,9 @@ func exit_card(step: BoardStep) -> void:
 		return
 	var card: BoardCard = _find_in_row(row_seat, step.card, -1)
 	match step.exit_to:
-		"pile":
+		BoardStep.ExitTo.PILE:
 			_sweep_off_row(row_seat, card, step.duration)
-		"hand":
+		BoardStep.ExitTo.HAND:
 			var hand: CardCollection3D = _hand_of(step.seat)
 			move_card(card, _row_of(row_seat), hand, step.duration)
 			_hide_if_opponent(card, step.seat, step.duration)
@@ -178,7 +178,7 @@ func exit_card(step: BoardStep) -> void:
 				player_cards[step.card] = card
 			else:
 				_forget(step.card)
-		"face_down":
+		BoardStep.ExitTo.FACE_DOWN:
 			flip_down(card, step.duration)
 			if row_seat == BoardSteps.OWN_SIDE:
 				face_down_ids[step.card] = true
@@ -191,7 +191,7 @@ func exit_card(step: BoardStep) -> void:
 ## back. The event names the row (`from_seat`) and the card's slot before it left (DC-14
 ## T17); an event with no row falls back to the event's owner seat.
 func _exit_hidden(step: BoardStep) -> void:
-	if step.exit_to != "hand":
+	if step.exit_to != BoardStep.ExitTo.HAND:
 		return
 	var row_seat: int = step.from_seat
 	if row_seat < 0 and step.source != null:
@@ -367,36 +367,22 @@ func return_card(step: BoardStep) -> void:
 ## already taken it (R81).
 func discard(step: BoardStep) -> void:
 	if step.from_row:
-		var row_seat: int = _row_seat_of(step.card)
-		if row_seat >= 0:
-			_sweep_off_row(row_seat, _find_in_row(row_seat, step.card, -1), step.duration)
+		_sweep_off_any_row(step.card, step.duration)
 		return
-	var hand: CardCollection3D = _hand_of(step.seat)
-	var card: BoardCard = null
-	if step.seat == BoardSteps.OWN_SIDE:
-		card = _player_card(step.card)
-	elif not hand.cards.is_empty():
-		card = hand.cards[hand.cards.size() - 1] as BoardCard
+	var card: BoardCard = _hand_card(step.seat, step.card)
 	if card != null:
-		_sweep_off(hand, card, step.duration)
+		_sweep_off(_hand_of(step.seat), card, step.duration)
 
 
 ## DROSS_EXPIRED (R25): the card leaves the table with a fly-off, from the hand or a row. A
 ## card in a Pile or Deck, or one the board does not show, is a no-op; the Pile count stays.
 func expire(step: BoardStep) -> void:
 	if step.zone == "hand":
-		var hand: CardCollection3D = _hand_of(step.seat)
-		var card: BoardCard = null
-		if step.seat == BoardSteps.OWN_SIDE:
-			card = _player_card(step.card)
-		elif not hand.cards.is_empty():
-			card = hand.cards[hand.cards.size() - 1] as BoardCard
+		var card: BoardCard = _hand_card(step.seat, step.card)
 		if card != null:
-			_sweep_off(hand, card, step.duration)
+			_sweep_off(_hand_of(step.seat), card, step.duration)
 	elif step.zone == "row":
-		var row_seat: int = _row_seat_of(step.card)
-		if row_seat >= 0:
-			_sweep_off_row(row_seat, _find_in_row(row_seat, step.card, -1), step.duration)
+		_sweep_off_any_row(step.card, step.duration)
 
 
 ## The opponent's pick glows for the step's time (R53). The card is found by zone and index,
@@ -469,6 +455,24 @@ func _row_seat_of(id: int) -> int:
 func _find_on_any_row(id: int) -> BoardCard:
 	var seat: int = _row_seat_of(id)
 	return null if seat < 0 else _find_in_row(seat, id, -1)
+
+
+## The hand card a step names: the viewer's own by id; the opponent's hand is all backs, so
+## its card is the fan's last. Null when there is none.
+func _hand_card(seat: int, id: int) -> BoardCard:
+	if seat == BoardSteps.OWN_SIDE:
+		return _player_card(id)
+	var hand: CardCollection3D = _hand_of(seat)
+	if hand.cards.is_empty():
+		return null
+	return hand.cards[hand.cards.size() - 1] as BoardCard
+
+
+## Sweeps the card with this id off whichever row holds it; a no-op when neither does.
+func _sweep_off_any_row(id: int, duration: float) -> void:
+	var row_seat: int = _row_seat_of(id)
+	if row_seat >= 0:
+		_sweep_off_row(row_seat, _find_in_row(row_seat, id, -1), duration)
 
 
 ## The opponent's copy is a back again: forget which card it was once the move ends.
