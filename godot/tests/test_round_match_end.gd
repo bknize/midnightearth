@@ -1,3 +1,4 @@
+# gdlint: disable=max-public-methods
 class_name TestRoundMatchEnd
 extends GdUnitTestSuite
 ## MatchEngine Round and Match end under rules 7 (cycle 9 R1 to R3; DC-13 T03): a Round is
@@ -6,9 +7,9 @@ extends GdUnitTestSuite
 ## Turn 1 is the previous Round's loser, after a tied Round the seat that did not commit
 ## first on its last Turn, and a coin flip only in Round 1 (R3); four wins end the Match,
 ## after Round 7 more wins take it, and level seats play sudden-death Rounds; a tied
-## sudden-death Round with no card committed ends it in a stalemate (rules 8, cycle 13 C9); a
-## concede ends it at once; `rounds_played` counts the ROUND_ENDED events; every later action
-## fails with MATCH_OVER.
+## sudden-death Round with no card committed ends it in a stalemate (rules 8, cycle 13 C9), as
+## does the third in a row to tie (rules 10, cycle 14 C15); a concede ends it at once;
+## `rounds_played` counts the ROUND_ENDED events; every later action fails with MATCH_OVER.
 ##
 ## Round outcomes come from real actions: both seats pass turns 1-6 (each pass answering its
 ## discard-down), and on Turn 7 the chosen winner commits one card (every fixture card is
@@ -519,6 +520,75 @@ func test_rounds_with_no_commit_before_sudden_death_do_not_end_the_match() -> vo
 	assert_array(_state_ints(engine, "wins")).is_equal(_typed([0, 0]))
 
 
+# --- Rules 10: three tied sudden-death Rounds in a row (cycle 14 C15) ------------------
+
+
+## Plays to Round 8 with the Match totals at `match_scores` (_to_sudden_death()), then `ties`
+## committed tied sudden-death Rounds. Each adds the same Walk Scores to both totals, so the
+## gap holds. Returns every event from Match start.
+func _to_sudden_death_ties(
+	engine: MatchEngine, match_scores: Array[int], ties: int
+) -> Array[MatchEvent]:
+	var events: Array[MatchEvent] = _to_sudden_death(engine, match_scores)
+	for _tie: int in range(ties):
+		events.append_array(_play_committed_tie(engine))
+	return events
+
+
+## The other two stalemate conditions are out of the way: the last Round had cards committed
+## and both hands still hold cards, so the third tie alone ended the Match. (The fixture Decks
+## run out in Round 6, but neither hand does: a committed f01 comes back by _give() each tied
+## Round and a discard-down keeps four.)
+func _assert_only_the_ties_stalemated(engine: MatchEngine) -> void:
+	assert_int(_state_int(engine, "round_committed")).is_equal(2)
+	for seat: int in range(MatchEngine.SEATS):
+		assert_array(_seat_list(engine, "hand", seat)).is_not_empty()
+
+
+## C15: two committed ties in sudden death go on: Round 10 starts, still sudden death.
+func test_two_committed_sudden_death_ties_go_on() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death_ties(engine, _typed([3, 11]), 2)
+	assert_bool(engine.is_over()).is_false()
+	assert_int(_of_kind(events, MatchEvent.Kind.MATCH_ENDED).size()).is_equal(0)
+	var started: MatchEvent = _last(events, MatchEvent.Kind.ROUND_STARTED)
+	assert_int(_payload_int(started, "round")).is_equal(10)
+	assert_bool(_payload_bool(started, "sudden_death")).is_true()
+	assert_int(_state_int(engine, "round")).is_equal(10)
+
+
+## C15: the third committed tie in a row ends the Match, reason stalemate; the higher Match
+## total Score wins: seat 1 here, level on wins at 3-3 but ahead on Score. Round 10 is the last.
+func test_the_third_committed_sudden_death_tie_ends_in_a_stalemate() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death_ties(engine, _typed([3, 11]), 3)
+	_assert_match_ended(engine, events, 1, MatchEngine.REASON_STALEMATE, _typed([3, 3]), 10)
+	_assert_only_the_ties_stalemated(engine)
+	var totals: Array[int] = _state_ints(engine, "match_scores")
+	assert_int(totals[1]).is_greater(totals[0])
+	assert_int(_of_kind(events, MatchEvent.Kind.ROUND_STARTED).size()).is_equal(10)
+	_assert_all_rejected_as_over(engine)
+
+
+## C15: the same stalemate with equal Match total Scores is a draw (winner -1).
+func test_a_third_tie_stalemate_on_equal_match_scores_draws() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death_ties(engine, _typed([6, 6]), 3)
+	_assert_match_ended(engine, events, TIE, MatchEngine.REASON_STALEMATE, _typed([3, 3]), 10)
+	_assert_only_the_ties_stalemated(engine)
+	var totals: Array[int] = _state_ints(engine, "match_scores")
+	assert_int(totals[0]).is_equal(totals[1])
+
+
+## C15: a won third sudden-death Round ends the Match first, reason sudden_death, for its
+## winner: seat 0 here, behind on the Match total.
+func test_a_won_third_sudden_death_round_is_not_a_stalemate() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death_ties(engine, _typed([3, 11]), 2)
+	events.append_array(_play_round(engine, 0))
+	_assert_match_ended(engine, events, 0, MatchEngine.REASON_SUDDEN_DEATH, _typed([4, 3]), 10)
+
+
 # --- Concede --------------------------------------------------------------------------
 
 
@@ -577,10 +647,10 @@ func test_the_final_round_end_leaves_the_rows_in_the_piles() -> void:
 
 
 ## Stalemate (spec C12): random bots on the fixture deck, seeds 1-20, every match ends; a
-## stalemate ending comes after a tied sudden-death Round with both Decks and hands empty or
-## (rules 8, cycle 13 C9) with no card committed, and the winner is the higher Match total
-## Score (-1 when level). At least one seed of the
-## twenty reaches it (seed 5 did before the rule existed).
+## stalemate ending comes after a tied sudden-death Round with both Decks and hands empty,
+## (rules 8, cycle 13 C9) with no card committed or (rules 10, cycle 14 C15) as the third in
+## a row, and the winner is the higher Match total Score (-1 when level). No match passes
+## Round 10. At least one seed of the twenty reaches it (seed 5 did before the rule existed).
 func test_a_stalemate_ends_on_the_match_total_score() -> void:
 	var stalemates: int = 0
 	for match_seed: int in range(1, 21):
@@ -598,17 +668,20 @@ func test_a_stalemate_ends_on_the_match_total_score() -> void:
 		assert_bool(engine.is_over()).is_true()
 		var state: Dictionary = engine.full_state()
 		var result: Dictionary = state["result"]
+		var last_round: int = MatchRules.ROUNDS + MatchRules.SUDDEN_DEATH_TIES
+		var played: int = result["rounds_played"]
+		assert_int(played).is_less_equal(last_round)
 		var reason: String = result["reason"]
 		if reason != MatchEngine.REASON_STALEMATE:
 			continue
 		stalemates += 1
 		var sudden: bool = state["sudden_death"]
 		assert_bool(sudden).is_true()
-		# C9: a Round with no card committed is a stalemate whatever the seats still hold;
-		# otherwise both Decks and hands are empty.
+		# C9: a Round with no card committed is a stalemate whatever the seats still hold, and
+		# C15: so is the third tie in a row; otherwise both Decks and hands are empty.
 		var round_committed: int = state["round_committed"]
 		for seat: int in range(MatchEngine.SEATS):
-			if round_committed == 0:
+			if round_committed == 0 or played == last_round:
 				break
 			assert_array(_seat_list(engine, "deck", seat)).is_empty()
 			assert_array(_seat_list(engine, "hand", seat)).is_empty()

@@ -4,7 +4,7 @@ tags: [reference, rules-v2, glossary]
 status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]"]
 created: 2026-11-06
-updated: 2026-11-08
+updated: 2026-11-09
 uid: 50ec83af-22d5-4bb1-9262-1e94e9a6cfac
 linear: https://linear.app/night-science-llc/issue/NSC-137/t01-glossary
 supersedes:
@@ -37,7 +37,8 @@ this note says what the term means. Multipliers are written with the sign ×.
 | Pass | A Commit of zero cards; it is still an accepted Commit. | A commit phase | Pass, "committed nothing" |
 | Score | As a noun, a seat's Walk Score (the rounded walking total after its last Scoring card); as a verb, a card adding its Power to its Controller's walking total, then multiplying that total by its Bonus value. | The Walk | Score (same) |
 | Match start | The moment the Match begins: Decks are shuffled once and each seat is dealt its opening hand. | Once per Match | Match setup |
-| Match end | The moment a seat has four Round wins, or has more Round wins after Round 7 with no sudden-death Round left. | Once per Match | Match over |
+| Match end | The moment a seat has four Round wins, has more Round wins after Round 7, wins a sudden-death Round, or a Stalemate is reached. | Once per Match | Match over |
+| Stalemate | The Match end when a sudden-death Round ties and the Match may not go on: the seat with the higher total of its Walk Scores over the Match wins, and equal totals draw. | Match end | Stalemate (same) |
 | Round start | The moment a Round begins; Turn 1 follows. Nothing is refilled or reshuffled. | Once per Round | Round setup |
 | Round end | The moment after Turn 7: every card on both rows is Discarded to its Owner's Pile, then the Round is awarded. | Once per Round | Round end (same) |
 | Turn start | The first phase of a Turn: each seat draws one card, then On start triggers fire. | Once per Turn | Turn start (same) |
@@ -50,7 +51,8 @@ this note says what the term means. Multipliers are written with the sign ×.
 
 Note on winning: a Turn's winner is the seat with the higher Score from that Turn's Walk. A
 Round's winner is decided by Turn wins, as today (spec R5). After Round 7 the seat with more
-Round wins takes the Match, with sudden-death Rounds while they are level.
+Round wins takes the Match, with sudden-death Rounds while they are level, until one is won
+or a Stalemate ends the Match ([[rules/rules-v2]] gives the limit).
 
 ## 2. Zones, cards and ownership
 

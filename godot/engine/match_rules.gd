@@ -10,6 +10,9 @@ extends RefCounted
 const ROUNDS: int = 7
 const TURNS: int = 7
 const WINS_TO_TAKE: int = 4
+## The sudden-death Rounds in a row that may tie: the last of them ends the Match in a
+## stalemate, so a Match is over after Round 10 at the latest (rules 10, cycle 14 C15).
+const SUDDEN_DEATH_TIES: int = 3
 ## The cards each seat is dealt at Match start (canon R13).
 const OPENING_HAND: int = 4
 ## The base Hand size the discard-down keeps a hand to (canon R14; T03 enforces it).
@@ -27,8 +30,10 @@ const TRIGGER_BUDGET: int = 50
 ## (cycle 14 R12, C13): a Dross card leaves the Match at the end of the Round
 ## (CardDef.lifetime, TurnFlow.expire_dross), Level skips face-down cards and a random
 ## Condemn pick that lands on a protected or Condemned card is a visible miss, so a rules-8
-## log is refused at replay.
-const RULES_VERSION: int = 9
+## log is refused at replay. Rules 10 since DC-20 T17a (cycle 14 C15, Ben, 2026-11-09): the
+## third tied sudden-death Round in a row ends the Match in a stalemate (SUDDEN_DEATH_TIES),
+## so a rules-9 log is refused at replay.
+const RULES_VERSION: int = 10
 const LOG_FORMAT: int = 5
 ## Ten-thousandths: the unit of the walking total and of a Bonus value (plan P7).
 const SCALE: int = 10000
