@@ -1,0 +1,11 @@
+{
+  "block_hours": 3.0,
+  "grace_minutes": 20,
+  "trial_minutes": 20,
+  "min_positions": 300,
+  "plateau_blocks": 6,
+  "disk_floor_gb": 5,
+  "judge_cap": 200,
+  "candidates": ["05182ca9d62f", "<second DC-21 fit id>"],
+  "run_seed_base": 160000
+}

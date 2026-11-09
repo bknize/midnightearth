@@ -10,3 +10,4 @@ godot/tests/fixtures/stamp/*.json -text
 # These batch files use goto, which needs CRLF: stored as they are, scp'd to the PC as they are.
 trainer/windows/start-mcp.cmd -text
 trainer/windows/swap-start-mcp.cmd -text
+trainer/windows/autopilot-stop.cmd -text
