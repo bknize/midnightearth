@@ -6,7 +6,7 @@ related: ["[[specs/cycle-16-training-autopilot/spec]]", "[[specs/cycle-16-traini
 created: 2026-11-09
 updated: 2026-11-09
 uid: 74e6318b-174d-4bdd-9381-86e61fd51df5
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-16-training-autopilot-016e673341f1
 supersedes:
 ---
 

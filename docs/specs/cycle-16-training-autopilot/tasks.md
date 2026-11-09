@@ -6,7 +6,7 @@ related: ["[[specs/cycle-16-training-autopilot/spec]]", "[[specs/cycle-16-traini
 created: 2026-11-09
 updated: 2026-11-09
 uid: 8669afa9-0889-4a0a-8f5a-92ea900d6c4e
-linear:
+linear: https://linear.app/night-science-llc/project/cycle-16-training-autopilot-016e673341f1
 supersedes:
 ---
 
@@ -55,13 +55,34 @@ Task 14, owned by the orchestrator:
       row of `docs/planning/cycles.md`.
 - [ ] `obsidian-cli vault=docs unresolved` reports nothing new.
 
-## Linear
+## Linear (exercised 2026-11-09)
 
-Filled by `/exercise cycle-16-training-autopilot`. Empty until then.
+- Project: [Cycle 16 — training autopilot](https://linear.app/night-science-llc/project/cycle-16-training-autopilot-016e673341f1)
+  (P-NSC-17), state Planned, label `spec/cycle-16-training-autopilot`. Every issue is in Todo
+  with blockers from the Depends column.
+- Milestone: `DC-NN training-autopilot`, numbered and set at `/cycle plan` (DC-21 is the paused
+  training milestone).
+- Task 1 (NSC-263) is done on `cycle-15-training`, DC-21's branch, not on this branch.
+- Task 14 (verification) has no issue: Linear refused it because the workspace has reached the
+  Free plan's issue limit. Its checklist above is the record; create the issue at `/cycle plan`
+  once space is freed (archive closed issues or upgrade).
 
-- Project:
-- Milestone:
-- Issue mapping:
+| Task | Title | Issue | Blocked by |
+|---|---|---|---|
+| T01 | Close DC-21's hand-run rounds | NSC-263 | – |
+| T02 | Knobs | NSC-264 | – |
+| T03 | Findings log | NSC-265 | – |
+| T04 | Judge and champion | NSC-266 | – |
+| T05 | Advisor | NSC-267 | NSC-264, NSC-265 |
+| T06 | The autopilot loop | NSC-268 | NSC-264, NSC-265, NSC-266, NSC-267 |
+| T07 | Steering | NSC-269 | NSC-264, NSC-268 |
+| T08 | Service wiring | NSC-270 | NSC-268 |
+| T09 | Mac pull and figures | NSC-271 | NSC-265 |
+| T10 | Windows files and setup | NSC-272 | NSC-270 |
+| T11 | The `/training` skill and the digest note | NSC-273 | NSC-270, NSC-271 |
+| T12 | Docs | NSC-274 | NSC-268 to NSC-273 |
+| T13 | Review of the cycle's diff | NSC-275 | NSC-264 to NSC-274 |
+| T14 | Verification | – (Free plan issue limit) | – |
 
 ## Commit plan
 
