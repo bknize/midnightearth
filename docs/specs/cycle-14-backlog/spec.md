@@ -230,6 +230,15 @@ the stale documents.
 - R52. If any task outside the rules wave moves the golden line or the sweep summary, then
   the orchestrator shall treat it as a defect of that task, not re-pin.
 
+### I. Rules 10 (C15)
+
+- R53. When a sudden-death Round is the third in a row to end tied, the engine shall end the
+  Match in a stalemate: the seat with the higher Match total Score wins, and equal totals draw.
+  A won sudden-death Round still ends the Match first (C15).
+- R54. The engine shall set `RULES_VERSION` to 10, so the stamp becomes
+  `r10-857b165d5a5d755e` and a rules-9 action log is refused at replay. R48's ladder and
+  re-stamp steps and R50's PC redeploy shall be repeated at r10 (C15).
+
 ## Clarifications (Ben, 2026-11-08)
 
 Settled before the interview by the orchestrator's conversation with Ben (2026-11-08):
@@ -258,6 +267,7 @@ The interview:
 | C12 | R3 Q4: all the cleanup, or local items only? | 4a: all of it, the structural items as their own tasks (NSC-185, NSC-189, NSC-190) |
 | C13 | After the T03 merge (Ben, 2026-11-08): "'Dross' is the term we will use for 'created cards'. Twin's copies are Dross cards. Let's make the default rule 'dross cards disappear at the end of a round' to make Reliquary useful." Then 1a 2a 3c | 1a: at Round end every `round` Dross leaves every zone (hand, rows, Pile, Deck), after the award and before the next draws, one `DROSS_EXPIRED` each; 2a: lifetimes `round` (default) and `match`, `until_piled` dropped; 3c: full rename in code (`created` → Dross: `record_created`, `CardDef.created`, `CARD_EXPIRED` → `DROSS_EXPIRED`) as well as the canon. Supersedes C9's `until_piled` default (R9–R11) |
 | C14 | After T13 (Ben, 2026-11-09, 1a; PvP testing put off, so night 2 had not started): which order for the trainer wave and night 2? | 1a: the trainer wave now, before night 2, overriding C11's order; DC-20 no longer waits on a night. Accepted: night 2 trains on the new pair weighting while F0 (`d9c99be2c60b`) was fit under the old one, so comparing iterations is less clean; the training checkout syncs after T17; F0 still needs a re-stamp or refit before night 2; night 2 still waits on PvP testing |
+| C15 | After T17 (Ben, 2026-11-09, `1a 2a`): the `linear` sweep's seed 33 never ends, because a `cb09` mirror at 3–3 ties every sudden-death Round and Fleeting refills both hands. Change the rule? And where does T17's skipped one-sampling-path item go? | 1a: rules 10, three tied sudden-death Rounds in a row end the Match in a stalemate (higher Match total Score wins, equal totals draw), so the Match ends after Round 10 at the latest; the extra task T17a lands before T18, moves the stamp to `r10-857b165d5a5d755e`, and redoes the ladder row and the PC redeploy. Overrides R49 and R52 for T17a alone. 2a: the skipped item goes to NSC-257, because `legal` -1 is in the label reply (R37) |
 
 Facts corrected during the interview: the PC's PVP server already ran stamp
 `r8-857b165d5a5d755e` (redeployed at `master` cc2b695, 80 gate suites green), so the only
@@ -293,7 +303,7 @@ redeploy this cycle is the one C9 brings.
 - **Given** a PVP board whose opponent has abandoned, **when** the close arrives, **then**
   the connection note is gone, Pass and Commit are disabled, and only Leave shows (R24).
 - **Given** the rules wave merged and synced to the PC, **when** `make bot-eval` runs
-  `random` against `random`, **then** the line ends `stamp=match` at `r9-857b165d5a5d755e`
+  `random` against `random`, **then** the line ends `stamp=match` at `r10-857b165d5a5d755e`
   and a rung-0 row is added (R48).
 
 ## Data touched
@@ -316,9 +326,12 @@ redeploy this cycle is the one C9 brings.
 ## Definition of done
 
 - [ ] Rulings R1–R12 in the engine with a gdUnit case each, and in `docs/rules/` (R45).
-- [ ] `RULES_VERSION` 9; golden lines and the sweep summary re-pinned once (R49); `make sweep`
-  `p99_us` under 10000; rung-0 `bot-eval` PASS at r9 with its ladder row (R48);
-  `linear_weights.json` re-stamped; the PC server prints `stamp=r9-857b165d5a5d755e`.
+- [ ] `RULES_VERSION` 10 (R54; 9 at T03, 10 at T17a, C15); golden lines and the sweep summary
+  re-pinned at T03 (R49), and at T17a only if it moved them; `make sweep` and
+  `make sweep BOT=linear` pass, `p99_us` under 10000; rung-0 `bot-eval` PASS at r10 with its
+  ladder row (R48, R54); `linear_weights.json` re-stamped; the PC server prints
+  `stamp=r10-857b165d5a5d755e`.
+- [ ] R53 in the engine with gdUnit cases and in `systems/game-loop` (C15).
 - [ ] The PVP leak scan includes a Crew stats change on a card in a pending Commit and passes
   (R15).
 - [ ] Board fixes R19–R25 verified in the editor on the cycle worktree, one screenshot each

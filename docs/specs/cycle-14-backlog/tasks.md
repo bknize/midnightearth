@@ -41,7 +41,8 @@ the typed-strict traps and the rule that no `.gd` file names both a class and it
 | 15 | Trainer Python (R34, R35, R38, R39, P13): NSC-245's Python items including the pair weighting recorded in the fit record; NSC-209 explicit flush; NSC-231 orchestrator check over SSH noted in the task | trainer | NSC-245 (Python half), NSC-209, NSC-231 | 9 (C14: before night 2) | `trainer/tests` green on the Mac; `make fit` on two recorded runs prints the weighting; the play-out worker answers with stdout unbuffered under `python -u` and without; NSC-231 numbers written in the task notes | implementer |
 | 16 | Trainer Godot side of NSC-245 (P13): `LinearBot` pass candidate; `match_worker` `_weights_stamp` | engine, tools | NSC-245 (Godot half) | 9 (C14: before night 2) | `test_linear_bot.gd` pass candidate case; `make sweep BOT=linear` counters recorded (not pinned), `p99_us` recorded; `test_match_worker_records.gd` stamp case | implementer-engine |
 | 17 | Trainer code items of NSC-233 (R36, R37, P13): store-owned run state machine, `ActiveRun`, restart loop, one Godot path, one sampling path, shared stamp module, `argparse`, run-row counters, pool_key memo, feature base, power iteration on XtX; protocol, hello, label reply and schema untouched | trainer | NSC-233 (code items; the protocol and schema items stay in P-NSC-16 under the training milestone) | 15 | `trainer/tests` green on the Mac and the PC; the 20-position label digest before and after, equal or explained; `trainer/server.py` hello and label reply byte-identical; `fits` schema unchanged | implementer |
-| 18 | Tests (R43, R44, P15): one `_typed()` helper in `tests/fixtures/typed.gd`, the 22 copies gone; gdUnit under 30 s with every suite still run, using the orchestrator's per-suite timings | tests | NSC-191, NSC-251 | 7, 11, 13, 16 | `grep -c "func _typed" godot/tests` is 1; `make check` test stage reports the gdUnit time under 30 s; case count equal to the sum before the task | implementer |
+| 17a | Rules 10 (R53, R54, C15): three tied sudden-death Rounds in a row end the Match in a stalemate; `RULES_VERSION` 10, stamp pins, canon and the stalemate result text. The orchestrator re-stamps `linear_weights.json`, adds the rung-0 row, runs both sweeps and redeploys the PC server (T09's steps at r10) | engine, vault | NSC-259 | 17 | `test_round_match_end.gd`: two ties go on, the third ends `stalemate` on the higher total, equal totals draw, a won third Round ends `sudden_death`; `test_action_log.gd`: a rules-9 log is refused; `make sweep BOT=linear` passes; the `bot-eval` line ends `stamp=match exit=0` at `r10-857b165d5a5d755e` | implementer-engine |
+| 18 | Tests (R43, R44, P15): one `_typed()` helper in `tests/fixtures/typed.gd`, the 22 copies gone; gdUnit under 30 s with every suite still run, using the orchestrator's per-suite timings | tests | NSC-191, NSC-251 | 7, 11, 13, 16, 17a | `grep -c "func _typed" godot/tests` is 1; `make check` test stage reports the gdUnit time under 30 s; case count equal to the sum before the task | implementer |
 | 19 | Documents (R46, R47, P17): `docs/systems/bot-training.md` rewritten from the code; `CLAUDE.md` rows for `trainer/`, `godot/title/`, `scripts/pc/`; cycles.md "Planned next" refreshed; DoD boxes in finished specs ticked or superseded; the two Ben boxes listed for the orchestrator | vault | NSC-204, NSC-252 | 17 | the guide names no deleted tool (`bot-train`, `bot-calibrate`, levels); `obsidian-cli vault=docs unresolved` and `orphans` nothing new; the two boxes decided by Ben and recorded in NSC-252 | implementer |
 | 20 | Verification (below) | all | new (`type/verification`) | 18, 19 | all boxes below | orchestrator |
 
@@ -65,7 +66,7 @@ Task 20, owned by the orchestrator, on the cycle worktree with the editor open t
   card.
 - [ ] PVP: a headless `--join` bot joins the editor's room, the bot leaves, the board shows
   "Match abandoned" with Leave only and no connection note, Pass and Commit disabled (R24);
-  one `take_screenshot`. The PC server's `server.log` shows `stamp=r9-857b165d5a5d755e`
+  one `take_screenshot`. The PC server's `server.log` shows `stamp=r10-857b165d5a5d755e`
   and a rotated file after a planted size (R31).
 - [ ] Trainer: `trainer/tests` green on the Mac and the PC; the label digest before task 15
   and after task 17 recorded with its explanation; the PC synced once before night 3.
@@ -130,7 +131,8 @@ and gain a `## Spec (cycle-14-backlog)` section naming their task; new issues ar
 | 15 | NSC-209, NSC-231, NSC-245 (Python half) | NSC-255 |
 | 16 | NSC-245 (Godot half) | NSC-255 |
 | 17 | NSC-233 (code items) | NSC-209, NSC-231, NSC-245 |
-| 18 | NSC-191, NSC-251 | NSC-185, NSC-246, NSC-190, NSC-245 |
+| 17a | NSC-259 (new, C15) | NSC-233 |
+| 18 | NSC-191, NSC-251 | NSC-185, NSC-246, NSC-190, NSC-245, NSC-259 |
 | 19 | NSC-204, NSC-252 | NSC-233 |
 | 20 | NSC-256 (new) | NSC-191, NSC-251, NSC-204, NSC-252 |
 

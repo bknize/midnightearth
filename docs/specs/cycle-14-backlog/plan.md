@@ -50,7 +50,7 @@ choice, the choice is in the decisions table so tasks.md can point at it.
 | P15 | Tests and the budget (R43, R44) | The `_typed()` helper lives in `godot/tests/fixtures/typed.gd` (a static helper, no `class_name` clash: the file names one class only). The budget task runs last among code tasks; the orchestrator gives the implementer the per-suite timings from `godot/reports/test.log`, and the implementer trims the slowest suites (fewer seeds in sweeps that are not the 50-seed sweep, shared fixtures, no sleeps) without dropping a case. |
 | P16 | Tooling (R41, R42) | `worktree-sweep.sh` lists worktrees with `git worktree list --porcelain`, removes only those whose branch is `git merge-base --is-ancestor` of the target and whose path lies under this checkout's `.worktrees` (or the path the Makefile uses), and before removal moves `*.png` under the worktree's `godot/reports/` and screenshot folder to `reports/screenshots/<branch>/` in the main checkout. The edit hook prepends `~/.local/bin` to PATH and prints `edit hook: gdlint not found, lint skipped` when it is still missing. |
 | P17 | Documents (R45–R48) | The canon task writes the rulings in `docs/rules/` and the two systems guides; the docs task rewrites `docs/systems/bot-training.md` from the code after the trainer wave, adds the three `CLAUDE.md` rows, refreshes "Planned next", ticks or supersedes DoD boxes and lists the two Ben boxes for the orchestrator's question. The ladder row and the cycles row are the orchestrator's at T09 and T20. |
-| P18 | Night 2 and the PC (R40, R50) | After T09 the orchestrator syncs the cycle branch commit to the PC, redeploys the server (`stamp=r9-857b165d5a5d755e` in `server.log`) and tells Ben night 2 may start. Nothing is synced to the PC during a night; the trainer wave (T15–T17) runs before night 2 (C14). DC-20 closes at T20 regardless of nights 2 and 3. |
+| P18 | Night 2 and the PC (R40, R50) | After T09 the orchestrator syncs the cycle branch commit to the PC, redeploys the server (`stamp=r9-857b165d5a5d755e` in `server.log`) and tells Ben night 2 may start. T17a repeats this at `r10-857b165d5a5d755e` (C15). Nothing is synced to the PC during a night; the trainer wave (T15–T17) runs before night 2 (C14). DC-20 closes at T20 regardless of nights 2 and 3. |
 
 ## Interfaces and contracts
 
@@ -72,7 +72,8 @@ Engine API:
 - `MatchCards.record_created(def: CardDef, owner: int) -> int` (owner required),
   `MatchCards.forget_created(card: int) -> void`, `MatchCards.lifetime_of(card) -> String`.
 - `CardDef.lifetime: String` (`until_piled` | `match`), `CardDef.LIFETIMES`.
-- `MatchRules.RULES_VERSION = 9`; `BotStamp.current()` = `r9-857b165d5a5d755e`.
+- `MatchRules.RULES_VERSION = 10` (9 at T03, 10 at T17a, C15); `BotStamp.current()` = `r10-857b165d5a5d755e`.
+- `MatchRules.SUDDEN_DEATH_TIES = 3`. Every sudden-death Round that did not end the Match was tied, so `MatchEngine._stalled()` reads the count from `round_number`; `MatchState` gains no field.
 - `Rollout._pinned` contract: pins card ids only (P10).
 
 Board:
@@ -118,6 +119,7 @@ Trainer:
 | 1 rules | T01 ∥ T02 ∥ T03 ∥ T05 → T04 → T06 → T07 → T08 (review) → T09 (stamp chores) | first | T02 and T04 both edit `trigger_queue.gd`, so T04 waits; T03 carries `RULES_VERSION` 9 and the one re-pin; T09 syncs the PC and night 2 may start |
 | 2 sweep | T10 → T12 → T13 (board chain) ∥ T11 (PVP) ∥ T14 (tooling) | after T09 | no PC sync during a night |
 | 3 trainer | T15 ∥ T16 → T17 | before night 2 (C14) | label digest before and after |
+| 3b rules 10 | T17a | after T17, before T18 (C15) | stamp chores and PC redeploy at r10 |
 | 4 close | T18 (tests, budget) → T19 (docs) → T20 (verification) | after waves 2 and 3 | T18 is last among code tasks (it touches many suites) |
 
 ## Constitution Check
