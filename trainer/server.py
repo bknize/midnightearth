@@ -632,10 +632,16 @@ class Service:
         run may be active (the fit reads only finished runs)."""
         try:
             cfg = FitConfig.from_dict(config)
-            stamp, feature_set = validate_runs(self.store, cfg.runs)
-        except (ValueError, FitError) as e:
+        except ValueError as e:
             return {"error": str(e)}
         with self.lock:
+            # Validate and create under one hold of the lock, so resume_run (which takes the
+            # same lock) cannot flip a run to queued in between. Only the short database
+            # reads and the insert run here; the fit itself runs on its own thread.
+            try:
+                stamp, feature_set = validate_runs(self.store, cfg.runs)
+            except FitError as e:
+                return {"error": str(e)}
             active = self.store.active_fit_id()
             if active:
                 return {"error": "fit %s is active" % active}

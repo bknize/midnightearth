@@ -238,6 +238,11 @@ static func _hand_of(view: SeatView, cards: MatchCards) -> Array:
 ## LegalPlays.ENUMERATE_MAX cards): uniform draws by RandomBot.large_hand_commit from one
 ## MatchRng seeded MatchRng.derive_seed(label_seed, [LARGE_HAND_TAG]), duplicates dropped,
 ## in draw order, after at most k * LARGE_HAND_TRIES draws.
+## LinearBot._large_hand (godot/engine/bot/linear_bot.gd) differs on purpose: it draws exactly
+## k times and de-duplicates by cards and slots, so it can return fewer than k commits, while
+## this labeller retries up to k * LARGE_HAND_TRIES draws to reach k distinct ones. The two
+## stay as they are: changing either draw count would move the committed labels or the
+## `linear` bot's sweep (NSC-245, R37).
 static func _large_hand_candidates(
 	view: SeatView, cards: MatchCards, k: int, label_seed: int
 ) -> Array[EngineAction]:
