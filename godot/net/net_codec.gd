@@ -289,6 +289,11 @@ static func _checked(message: Dictionary) -> Dictionary:
 		if typeof(value) == TYPE_NIL:
 			return {}
 		out[key] = value
+	if kind == NetProtocol.T_RESYNC and message.has(NetProtocol.KEY_ACTIONS):
+		# Optional (R32): kept when it is a whole count, dropped when it is not.
+		var actions: Variant = _field(Field.COUNT, message[NetProtocol.KEY_ACTIONS])
+		if typeof(actions) != TYPE_NIL:
+			out[NetProtocol.KEY_ACTIONS] = actions
 	return out
 
 

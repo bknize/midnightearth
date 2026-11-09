@@ -2,14 +2,16 @@ extends SceneTree
 ## The PVP match server's entry (cycle 12 plan P1, P4, P13; spec R31, R43):
 ##
 ##   godot --headless --path godot -s res://server/server_main.gd --
-##     [--port=8766] [--logs=user://pvp-logs] [--build=<git sha>]
+##     [--port=8766] [--logs=user://pvp-logs] [--build=<commit>] [--log=<server.log>]
 ##
 ## Adds one MatchServer to the root, ticks at TICK_FPS and prints, once it accepts
 ## connections:
 ##
 ##   PVP server ready port=<n> stamp=<BotStamp> protocol=<n> logs=<folder>
 ##
-## `--port=0` listens on a free port and prints it. Exit codes: 1 when the port is busy
+## `--log=<file>` sends the server's own lines (and the ready line) to that file instead of
+## stdout, rotated at 8 MiB keeping 3 past files (ServerLog, R31); the ready line is printed
+## too. `--port=0` listens on a free port and prints it. Exit codes: 1 when the port is busy
 ## (`PVP server: port <n> in use`), 2 on a bad argument. The process runs until killed.
 
 const DEFAULT_PORT: int = 8766
@@ -17,7 +19,7 @@ const MAX_PORT: int = 65535
 const TICK_FPS: int = 30
 const EXIT_PORT_BUSY: int = 1
 const EXIT_ARGS: int = 2
-const KNOWN_ARGS: Array[String] = ["port", "logs", "build"]
+const KNOWN_ARGS: Array[String] = ["port", "logs", "build", "log"]
 
 ## Held so the node outlives _initialize (the tree owns it too, once added).
 var _server: MatchServer = null
@@ -37,6 +39,8 @@ func _initialize() -> void:
 	server.stamp = BotStamp.current()
 	server.build = _arg(args, "build", "")
 	server.logs_dir = logs
+	var log_file: String = _arg(args, "log", "")
+	server.log_path = log_file
 	if server.listen(port) != OK:
 		print("PVP server: port %d in use" % port)
 		server.free()
@@ -50,7 +54,12 @@ func _initialize() -> void:
 		NetProtocol.VERSION,
 		ProjectSettings.globalize_path(logs),
 	]
-	print("PVP server ready port=%d stamp=%s protocol=%d logs=%s" % fields)
+	var ready: String = "PVP server ready port=%d stamp=%s protocol=%d logs=%s" % fields
+	print(ready)
+	if log_file != "":
+		var err: int = ServerLog.append(log_file, ready)
+		if err != OK:
+			printerr("PVP server: cannot write %s (error %d)" % [log_file, err])
 
 
 ## `--key=value` pairs after `--`; a bare `--key` maps to "".

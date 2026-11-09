@@ -11,11 +11,13 @@ extends RefCounted
 ## Server to client:
 ##   welcome {protocol, stamp}; refused {reason, detail}; hosted {code, expires_in_s}
 ##   started {seat, opponent: {name, deck}, decks: [seat 0's, seat 1's], view, events}
-##   events {events, view}; rejected {error, action}; resync {events, view}
+##   events {events, view}; rejected {error, action}; resync {events, view, actions?}
 ##   opponent {state: "lost" | "back", seconds_left, name}
 ##   abandoned {seat, name}; expired {}; closed {reason}; pong {}  (the answer to `ping`)
 ## Each side closes a connection that has received nothing for its receive timeout, so a
 ## peer that vanished without a TCP close still runs the drop paths (R44, R45).
+## `actions` (optional, a whole number) is how many `events` messages the match has dealt so
+## far: a rejoined client resumes its count from it (R32). Servers without it are as before.
 ## `view` is a SeatView.to_dict(), `events` a list of MatchEvent.to_dict() (each the
 ## receiving seat's redacted copy), `error` an EngineError code name (EngineError.name_of).
 
@@ -131,6 +133,8 @@ const KEY_EVENTS: String = "events"
 const KEY_ERROR: String = "error"
 const KEY_STATE: String = "state"
 const KEY_SECONDS_LEFT: String = "seconds_left"
+## A `resync`'s optional count of the actions accepted so far.
+const KEY_ACTIONS: String = "actions"
 
 ## hello's `kind`.
 const PLAYER_HUMAN: String = "human"
