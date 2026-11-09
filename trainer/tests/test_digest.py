@@ -143,7 +143,7 @@ class DigestTest(unittest.TestCase):
                               capture_output=True, text=True, cwd=str(self.dir))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(len(calls.read_text().strip().splitlines()), 1)
-        self.assertIn("PC:C:/Users/trainer/trainer-data/autopilot/findings.jsonl",
+        self.assertIn("midnight-pc:C:/Users/trainer/trainer-data/autopilot/findings.jsonl",
                       calls.read_text())
         self.assertTrue((target / "figures.json").exists())
         self.assertTrue((target / "figures.md").exists())
