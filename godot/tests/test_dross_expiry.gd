@@ -16,12 +16,6 @@ const CHOICE_MADE: int = MatchEvent.Kind.CHOICE_MADE
 # --- Helpers --------------------------------------------------------------------------
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _started() -> MatchEngine:
 	var engine: MatchEngine = StubAbilities.engine(SEED)
 	assert_bool(engine.start().ok).is_true()
@@ -125,15 +119,15 @@ func test_a_paused_round_end_expires_dross_once_after_the_answer() -> void:
 	)
 	var abilities: Array[CardAbility] = [watching]
 	var def: CardDef = StubAbilities.card_def("Watcher", abilities)
-	assert_bool(StubAbilities.give(cards, _typed([watcher]), def)).is_true()
+	assert_bool(StubAbilities.give(cards, Typed.ints([watcher]), def)).is_true()
 	# Small hands: no discard-down on the passes, and two or more cards so the prompt opens.
 	var first_card: int = state.seats[0].hand[0]
-	state.seats[0].hand.assign(_typed([first_card, in_hand, kept]))
-	state.seats[1].hand.assign(_typed([state.seats[1].hand[0]]))
-	state.seats[0].pile.assign(_typed([in_pile]))
+	state.seats[0].hand.assign(Typed.ints([first_card, in_hand, kept]))
+	state.seats[1].hand.assign(Typed.ints([state.seats[1].hand[0]]))
+	state.seats[0].pile.assign(Typed.ints([in_pile]))
 	state.seats[1].deck.push_front(in_deck)
-	StubAbilities.put_row(state, 0, _typed([watcher]), true)
-	StubAbilities.put_row(state, 1, _typed([on_row]), true)
+	StubAbilities.put_row(state, 0, Typed.ints([watcher]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([on_row]), true)
 	state.turn = MatchRules.TURNS
 	state.turn_wins.assign([2, 0])
 
@@ -154,7 +148,7 @@ func test_a_paused_round_end_expires_dross_once_after_the_answer() -> void:
 	assert_int(_of_kind(events, ROUND_ENDED).size()).is_equal(1)
 	var winner: int = _of_kind(events, ROUND_ENDED)[0].payload["winner"]
 	assert_int(winner).is_equal(0)
-	assert_array(_expired_cards(events)).is_equal(_typed([in_deck, in_hand, in_pile, on_row]))
+	assert_array(_expired_cards(events)).is_equal(Typed.ints([in_deck, in_hand, in_pile, on_row]))
 	assert_array(_expired_from(events)).is_equal(["deck", "hand", "pile", "pile"])
 	assert_int(_first_at(events, CHOICE_MADE)).is_less(_first_at(events, ROUND_ENDED))
 	assert_int(_first_at(events, ROUND_ENDED)).is_less(_first_at(events, EXPIRED))
@@ -187,7 +181,7 @@ func test_a_seat_holding_only_round_dross_counts_as_empty() -> void:
 	state.seats[0].hand.append(in_hand)
 	state.seats[1].deck.append(in_deck)
 	var events: Array[MatchEvent] = _pass_turn(engine)
-	assert_array(_expired_cards(events)).is_equal(_typed([in_hand, in_deck]))
+	assert_array(_expired_cards(events)).is_equal(Typed.ints([in_hand, in_deck]))
 	assert_int(_first_at(events, EXPIRED)).is_less(_first_at(events, MATCH_ENDED))
 	assert_bool(engine.is_over()).is_true()
 	var reason: String = state.result["reason"]
@@ -208,7 +202,7 @@ func test_a_match_dross_keeps_a_seat_alive() -> void:
 	state.seats[0].hand.append(kept)
 	state.seats[1].deck.append(in_deck)
 	var events: Array[MatchEvent] = _pass_turn(engine)
-	assert_array(_expired_cards(events)).is_equal(_typed([in_deck]))
+	assert_array(_expired_cards(events)).is_equal(Typed.ints([in_deck]))
 	assert_array(_of_kind(events, MATCH_ENDED)).is_empty()
 	assert_bool(engine.is_over()).is_false()
 	assert_int(_of_kind(events, ROUND_STARTED).size()).is_equal(1)

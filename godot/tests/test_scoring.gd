@@ -9,12 +9,6 @@ extends GdUnitTestSuite
 const SCALE: int = MatchRules.SCALE
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 ## The walking total after each card of `row` Scores, each card [power, adds, mults].
 func _walk(row: Array) -> Array[int]:
 	var out: Array[int] = []
@@ -23,8 +17,8 @@ func _walk(row: Array) -> Array[int]:
 		var power: int = card[0]
 		var raw_adds: Array = card[1]
 		var raw_mults: Array = card[2]
-		var adds: Array[int] = _typed(raw_adds)
-		var mults: Array[int] = _typed(raw_mults)
+		var adds: Array[int] = Typed.ints(raw_adds)
+		var mults: Array[int] = Typed.ints(raw_mults)
 		total = Scoring.step_total(total, power, Scoring.bonus_value(adds, mults))
 		out.append(total)
 	return out
@@ -38,10 +32,10 @@ func test_the_canons_worked_rows_give_16_and_24() -> void:
 	var b: Array = [3, [100], []]
 	var c: Array = [4, [], []]
 	var abc: Array[int] = _walk([a, b, c])
-	assert_array(abc).is_equal(_typed([3 * SCALE, 12 * SCALE, 16 * SCALE]))
+	assert_array(abc).is_equal(Typed.ints([3 * SCALE, 12 * SCALE, 16 * SCALE]))
 	assert_int(Scoring.walk_score(abc[2])).is_equal(16)
 	var cab: Array[int] = _walk([c, a, b])
-	assert_array(cab).is_equal(_typed([4 * SCALE, 9 * SCALE, 24 * SCALE]))
+	assert_array(cab).is_equal(Typed.ints([4 * SCALE, 9 * SCALE, 24 * SCALE]))
 	assert_int(Scoring.walk_score(cab[2])).is_equal(24)
 	# B A C also gives 16, the canon's coincidence: (3 x 2 + 2) x 1.5 + 4.
 	assert_int(Scoring.walk_score(_walk([b, a, c])[2])).is_equal(16)
@@ -49,18 +43,18 @@ func test_the_canons_worked_rows_give_16_and_24() -> void:
 
 ## (1 + 0.5) x 1.25 is 1.875: Void's grant (canon crew-v2).
 func test_a_bonus_value_applies_every_add_then_every_mult() -> void:
-	assert_int(Scoring.bonus_value(_typed([50]), _typed([125]))).is_equal(18750)
-	assert_int(Scoring.bonus_value(_typed([]), _typed([]))).is_equal(SCALE)
-	assert_int(Scoring.bonus_value(_typed([100]), _typed([]))).is_equal(20000)
-	assert_int(Scoring.bonus_value(_typed([25, 25]), _typed([150, 200]))).is_equal(45000)
+	assert_int(Scoring.bonus_value(Typed.ints([50]), Typed.ints([125]))).is_equal(18750)
+	assert_int(Scoring.bonus_value(Typed.ints([]), Typed.ints([]))).is_equal(SCALE)
+	assert_int(Scoring.bonus_value(Typed.ints([100]), Typed.ints([]))).is_equal(20000)
+	assert_int(Scoring.bonus_value(Typed.ints([25, 25]), Typed.ints([150, 200]))).is_equal(45000)
 	# A Mult below 1 simply multiplies; the value is never below 0.
-	assert_int(Scoring.bonus_value(_typed([]), _typed([50]))).is_equal(5000)
-	assert_int(Scoring.bonus_value(_typed([-300]), _typed([]))).is_equal(0)
+	assert_int(Scoring.bonus_value(Typed.ints([]), Typed.ints([50]))).is_equal(5000)
+	assert_int(Scoring.bonus_value(Typed.ints([-300]), Typed.ints([]))).is_equal(0)
 
 
 ## A total of 2.5 and a card of Power 1 with ×1.25: (2.5 + 1) x 1.25 = 4.375.
 func test_a_total_of_25000_with_power_1_and_x1_25_is_43750() -> void:
-	var bv: int = Scoring.bonus_value(_typed([]), _typed([125]))
+	var bv: int = Scoring.bonus_value(Typed.ints([]), Typed.ints([125]))
 	assert_int(Scoring.step_total(25000, 1, bv)).is_equal(43750)
 
 
@@ -77,7 +71,7 @@ func test_each_multiply_rounds_to_the_ten_thousandth() -> void:
 
 ## A negative total is multiplied like any other: a Mult above 1 makes it more negative.
 func test_a_negative_total_is_multiplied_like_any_other() -> void:
-	var bv: int = Scoring.bonus_value(_typed([]), _typed([200]))
+	var bv: int = Scoring.bonus_value(Typed.ints([]), Typed.ints([200]))
 	assert_int(Scoring.step_total(0, -3, bv)).is_equal(-60000)
 	assert_int(Scoring.step_total(-60000, 1, SCALE)).is_equal(-50000)
 
@@ -101,23 +95,23 @@ func test_walk_end_rounding_rounds_half_up_once() -> void:
 ## (1.5 + 0.25) x 1.2 = 2.10 (canon rules-v2 section 5): the base, the additive steps, then
 ## the multiplicative ones, rounded to the hundredth.
 func test_growth_is_base_then_adds_then_times() -> void:
-	assert_int(Scoring.grown_mult(150, 25, _typed([120]), 0)).is_equal(210)
-	assert_int(Scoring.grown_mult(125, 0, _typed([]), 0)).is_equal(125)
+	assert_int(Scoring.grown_mult(150, 25, Typed.ints([120]), 0)).is_equal(210)
+	assert_int(Scoring.grown_mult(125, 0, Typed.ints([]), 0)).is_equal(125)
 	# 1.25 x 1.2 = 1.5; x 1.2 again = 1.8.
-	assert_int(Scoring.grown_mult(125, 0, _typed([120, 120]), 0)).is_equal(180)
+	assert_int(Scoring.grown_mult(125, 0, Typed.ints([120, 120]), 0)).is_equal(180)
 	# 1.33 x 1.25 = 1.6625 rounds to 1.66.
-	assert_int(Scoring.grown_mult(133, 0, _typed([125]), 0)).is_equal(166)
+	assert_int(Scoring.grown_mult(133, 0, Typed.ints([125]), 0)).is_equal(166)
 
 
 ## Sapling's +0.25 per Score caps at ×2.00; Graft's ×1.2 caps at ×2.50.
 func test_sapling_caps_at_200_and_graft_at_250() -> void:
 	var sapling: Array[int] = []
 	for scores: int in range(6):
-		sapling.append(Scoring.grown_mult(125, 25 * scores, _typed([]), 200))
-	assert_array(sapling).is_equal(_typed([125, 150, 175, 200, 200, 200]))
-	assert_int(Scoring.grown_mult(200, 0, _typed([120]), 250)).is_equal(240)
-	assert_int(Scoring.grown_mult(200, 0, _typed([120, 120]), 250)).is_equal(250)
-	assert_int(Scoring.grown_mult(150, 0, _typed([120, 120, 120]), 250)).is_equal(250)
+		sapling.append(Scoring.grown_mult(125, 25 * scores, Typed.ints([]), 200))
+	assert_array(sapling).is_equal(Typed.ints([125, 150, 175, 200, 200, 200]))
+	assert_int(Scoring.grown_mult(200, 0, Typed.ints([120]), 250)).is_equal(240)
+	assert_int(Scoring.grown_mult(200, 0, Typed.ints([120, 120]), 250)).is_equal(250)
+	assert_int(Scoring.grown_mult(150, 0, Typed.ints([120, 120, 120]), 250)).is_equal(250)
 
 
 # --- A card's stats and Cost ----------------------------------------------------------
@@ -144,7 +138,7 @@ func test_stats_read_printed_memory_and_board_changes() -> void:
 	state.card_state_for(skim).grant(CardState.KIND_MULT, 150, "turn")
 	var grown: Scoring.Stats = Scoring.stats(skim, state, defs)
 	assert_int(grown.power).is_equal(5)
-	assert_array(grown.mults).is_equal(_typed([150, 150]))
+	assert_array(grown.mults).is_equal(Typed.ints([150, 150]))
 	assert_int(grown.bonus_value()).is_equal(22500)
 	assert_int(grown.mult()).is_equal(225)
 	assert_bool(Scoring.is_grown(skim, state)).is_true()

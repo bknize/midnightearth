@@ -8,12 +8,6 @@ extends GdUnitTestSuite
 ## test_turn.gd when DC-05 T02 grew that suite past the file-length limit.
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func test_exactly_five_action_kinds() -> void:
 	# DC-11 T09 (cycle 8 P10) appends DECLINE.
 	assert_int(EngineAction.Kind.size()).is_equal(5)
@@ -46,11 +40,11 @@ func test_commit_copies_its_card_and_slot_lists() -> void:
 	var commit: EngineAction = EngineAction.commit(0, cards, slots)
 	cards.append(9)
 	slots.append(5)
-	assert_array(commit.cards).is_equal(_typed([3, 7]))
-	assert_array(commit.slots).is_equal(_typed([1, 2]))
+	assert_array(commit.cards).is_equal(Typed.ints([3, 7]))
+	assert_array(commit.slots).is_equal(Typed.ints([1, 2]))
 	var copied: EngineAction = commit.copy()
 	commit.slots.append(3)
-	assert_array(copied.slots).is_equal(_typed([1, 2]))
+	assert_array(copied.slots).is_equal(Typed.ints([1, 2]))
 
 
 func test_action_dict_round_trip() -> void:
@@ -88,8 +82,8 @@ func test_action_from_json_style_floats() -> void:
 	)
 	assert_object(parsed).is_not_null()
 	assert_int(parsed.seat).is_equal(1)
-	assert_array(parsed.cards).is_equal(_typed([3, 27]))
-	assert_array(parsed.slots).is_equal(_typed([0, 1]))
+	assert_array(parsed.cards).is_equal(Typed.ints([3, 27]))
+	assert_array(parsed.slots).is_equal(Typed.ints([0, 1]))
 	var choose: EngineAction = EngineAction.from_dict({"k": "choose", "s": 0.0, "z": 3.0, "i": 2.0})
 	assert_object(choose).is_not_null()
 	assert_int(choose.zone).is_equal(3)
@@ -101,7 +95,7 @@ func test_commit_dict_without_slots_reads_as_the_append_default() -> void:
 	# on its version, test_action_log).
 	var parsed: EngineAction = EngineAction.from_dict({"k": "commit", "s": 0, "c": [3]})
 	assert_object(parsed).is_not_null()
-	assert_array(parsed.cards).is_equal(_typed([3]))
+	assert_array(parsed.cards).is_equal(Typed.ints([3]))
 	assert_array(parsed.slots).is_empty()
 
 
@@ -167,7 +161,7 @@ func test_in_range_float_numbers_still_parse() -> void:
 	assert_object(parsed).is_not_null()
 	if parsed != null:
 		assert_int(parsed.seat).is_equal(0)
-		assert_array(parsed.cards).is_equal(_typed([3, 9007199254740992, -9007199254740992]))
+		assert_array(parsed.cards).is_equal(Typed.ints([3, 9007199254740992, -9007199254740992]))
 
 
 ## DC-07 P7: the set choice, its copy and its dictionary form round-trip; the decline (the
@@ -179,7 +173,7 @@ func test_choose_set_round_trips() -> void:
 	assert_int(chosen.kind).is_equal(EngineAction.Kind.CHOOSE_SET)
 	assert_int(chosen.seat).is_equal(0)
 	assert_int(chosen.zone).is_equal(1)
-	assert_array(chosen.indices).is_equal(_typed([0, 2]))
+	assert_array(chosen.indices).is_equal(Typed.ints([0, 2]))
 	assert_array(chosen.cards).is_empty()
 	assert_array(chosen.slots).is_empty()
 	var expected: Dictionary = {"k": "choose_set", "s": 0, "z": 1, "i": [0, 2]}
@@ -191,12 +185,12 @@ func test_choose_set_round_trips() -> void:
 	assert_int(back.kind).is_equal(EngineAction.Kind.CHOOSE_SET)
 	assert_int(back.seat).is_equal(0)
 	assert_int(back.zone).is_equal(1)
-	assert_array(back.indices).is_equal(_typed([0, 2]))
+	assert_array(back.indices).is_equal(Typed.ints([0, 2]))
 	assert_dict(back.to_dict()).is_equal(expected)
 	var copied: EngineAction = chosen.copy()
 	chosen.indices.append(3)
-	assert_array(copied.indices).is_equal(_typed([0, 2]))
-	var declined: EngineAction = EngineAction.choose_set(1, 1, _typed([]))
+	assert_array(copied.indices).is_equal(Typed.ints([0, 2]))
+	var declined: EngineAction = EngineAction.choose_set(1, 1, Typed.ints([]))
 	var expected_decline: Dictionary = {"k": "choose_set", "s": 1, "z": 1, "i": []}
 	assert_dict(declined.to_dict()).is_equal(expected_decline)
 	var declined_back: EngineAction = EngineAction.from_dict(expected_decline)
@@ -208,7 +202,7 @@ func test_choose_set_round_trips() -> void:
 	)
 	assert_object(floats).is_not_null()
 	if floats != null:
-		assert_array(floats.indices).is_equal(_typed([2, 0]))
+		assert_array(floats.indices).is_equal(Typed.ints([2, 0]))
 	# The other kinds carry no set.
 	assert_array(EngineAction.choose(0, 1, 2).indices).is_empty()
 

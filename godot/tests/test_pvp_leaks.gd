@@ -46,7 +46,7 @@ func test_a_crew_stats_change_on_a_pending_card_reaches_the_first_committer_only
 			assert_bool(neutral).override_failure_message("seat 1 sees %s" % key).is_true()
 	state.pending.clear()
 	state.pending_slots.clear()
-	StubAbilities.put_row(state, 0, _typed([card]), true)
+	StubAbilities.put_row(state, 0, Typed.ints([card]), true)
 	var revealed: StubAbilities.Recorder = _captain_on(state, cards, card)
 	var public: Array[MatchEvent] = revealed.of_kind(STATS)
 	assert_int(public.size()).is_equal(1)

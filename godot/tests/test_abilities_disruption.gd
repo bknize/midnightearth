@@ -32,12 +32,6 @@ func _db() -> CardDb:
 	return _cached_db
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _cards() -> MatchCards:
 	return StubAbilities.defs()
 
@@ -96,25 +90,25 @@ func _dross_into(state: MatchState, cards: MatchCards, seat: int, count: int) ->
 func test_hush_mutes_an_opposing_card_until_end_of_turn() -> void:
 	var cards: MatchCards = _cards()
 	var hush: int = 4
-	_put(cards, _typed([hush, hush + 1]), "di01")
+	_put(cards, Typed.ints([hush, hush + 1]), "di01")
 	var scout: int = OTHER + StubAbilities.SCOUT
-	var state: MatchState = StubAbilities.table(_typed([hush]), false)
-	StubAbilities.put_row(state, 1, _typed([scout]), false)
-	state.seats[1].deck.assign(_typed([OTHER + 8]))
+	var state: MatchState = StubAbilities.table(Typed.ints([hush]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([scout]), false)
+	state.seats[1].deck.assign(Typed.ints([OTHER + 8]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	assert_bool(Statuses.has(state, scout, Statuses.MUTED)).is_true()
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([hush]))
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([hush]))
 	assert_array(state.seats[1].hand).is_empty()
 	assert_array(rec.cards_of(SCORED)).contains([scout])
 	TurnFlow.end_statuses(state, _spare.record)
 	assert_bool(Statuses.has(state, scout, Statuses.MUTED)).is_false()
-	var two: MatchState = StubAbilities.table(_typed([hush + 1]), false)
-	StubAbilities.put_row(two, 1, _typed([OTHER, OTHER + 1]), false)
+	var two: MatchState = StubAbilities.table(Typed.ints([hush + 1]), false)
+	StubAbilities.put_row(two, 1, Typed.ints([OTHER, OTHER + 1]), false)
 	ScoreWalk.begin(two)
 	assert_bool(ScoreWalk.step(two, cards, MatchRng.new(SEED), _spare.record)).is_true()
 	assert_str(Choice.zone_name(Choice.zone_of(two.prompt))).is_equal("opponent_board")
-	assert_array(Choice.options_of(two.prompt)).is_equal(_typed([0, 1]))
+	assert_array(Choice.options_of(two.prompt)).is_equal(Typed.ints([0, 1]))
 
 
 # --- Muzzle ---------------------------------------------------------------------------
@@ -124,14 +118,14 @@ func test_hush_mutes_an_opposing_card_until_end_of_turn() -> void:
 func test_muzzle_squelches_an_opposing_card() -> void:
 	var cards: MatchCards = _cards()
 	var muzzle: int = 4
-	_put(cards, _typed([muzzle]), "di02")
+	_put(cards, Typed.ints([muzzle]), "di02")
 	var pebble: int = OTHER + StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([muzzle]), false)
-	StubAbilities.put_row(state, 1, _typed([pebble]), false)
+	var state: MatchState = StubAbilities.table(Typed.ints([muzzle]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([pebble]), false)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	assert_bool(Statuses.has(state, pebble, Statuses.SQUELCHED)).is_true()
-	assert_array(rec.cards_of(SCORED)).is_equal(_typed([muzzle]))
+	assert_array(rec.cards_of(SCORED)).is_equal(Typed.ints([muzzle]))
 	assert_int(state.scores[1]).is_equal(0)
 	TurnFlow.end_statuses(state, _spare.record)
 	assert_bool(Statuses.has(state, pebble, Statuses.SQUELCHED)).is_false()
@@ -142,13 +136,13 @@ func test_muzzle_squelches_an_opposing_card() -> void:
 func test_muzzle_wakes_on_squelch() -> void:
 	var cards: MatchCards = _cards()
 	var muzzle: int = 4
-	_put(cards, _typed([muzzle]), "di02")
+	_put(cards, Typed.ints([muzzle]), "di02")
 	var goat: int = OTHER + StubAbilities.SCAPEGOAT
-	var state: MatchState = StubAbilities.table(_typed([muzzle]), false)
-	StubAbilities.put_row(state, 1, _typed([goat]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([muzzle]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([goat]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([muzzle, goat]))
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([muzzle, goat]))
 	assert_bool(Statuses.has(state, goat, Statuses.SQUELCHED)).is_false()
 	assert_str(Statuses.exit_mark_of(state, goat)).is_equal(Statuses.CONDEMNED)
 
@@ -161,12 +155,12 @@ func test_muzzle_wakes_on_squelch() -> void:
 func test_litter_creates_three_dross_in_the_opponents_hand() -> void:
 	var cards: MatchCards = _cards()
 	var litter: int = 4
-	_put(cards, _typed([litter]), "di03")
-	var state: MatchState = StubAbilities.table(_typed([litter]), false)
+	_put(cards, Typed.ints([litter]), "di03")
+	var state: MatchState = StubAbilities.table(Typed.ints([litter]), false)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	var base: int = MatchCards.DROSS_BASE
-	assert_array(state.seats[1].hand).is_equal(_typed([base, base + 1, base + 2]))
+	assert_array(state.seats[1].hand).is_equal(Typed.ints([base, base + 1, base + 2]))
 	assert_array(state.seats[0].hand).is_empty()
 	var created: Array[MatchEvent] = rec.of_kind(CREATED)
 	assert_int(created.size()).is_equal(3)
@@ -183,7 +177,7 @@ func test_litter_creates_three_dross_in_the_opponents_hand() -> void:
 	assert_int(view.opponent_hand_count).is_equal(3)
 	assert_array(view.own_hand).is_empty()
 	var held: SeatView = SeatView.build(state, 1, -1, cards)
-	assert_array(held.own_hand).is_equal(_typed([base, base + 1, base + 2]))
+	assert_array(held.own_hand).is_equal(Typed.ints([base, base + 1, base + 2]))
 
 
 ## Litter Flags (CREATE) under rules 9 (cycle 14 R8, R10, C13): a Dross card is Owned by the
@@ -201,7 +195,7 @@ func test_a_discarded_dross_is_filed_and_can_be_shuffled_back() -> void:
 	TurnFlow.to_pile(
 		state, cards, rec.record, dross, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD_DOWN
 	)
-	assert_array(state.seats[1].pile).is_equal(_typed([dross]))
+	assert_array(state.seats[1].pile).is_equal(Typed.ints([dross]))
 	assert_array(state.seats[0].pile).is_empty()
 	assert_array(rec.of_kind(MatchEvent.Kind.DROSS_EXPIRED)).is_empty()
 	var filed: Array[MatchEvent] = rec.of_kind(MatchEvent.Kind.CARD_DISCARDED)
@@ -225,15 +219,15 @@ func test_a_discarded_dross_is_filed_and_can_be_shuffled_back() -> void:
 func test_dross_multiplies_the_holders_total_at_walk_end_once_per_dross() -> void:
 	var cards: MatchCards = _cards()
 	var pebble: int = OTHER + StubAbilities.PEBBLE
-	var one: MatchState = StubAbilities.table(_typed([StubAbilities.PEBBLE]), true)
-	StubAbilities.put_row(one, 1, _typed([pebble]), true)
+	var one: MatchState = StubAbilities.table(Typed.ints([StubAbilities.PEBBLE]), true)
+	StubAbilities.put_row(one, 1, Typed.ints([pebble]), true)
 	_dross_into(one, cards, 1, 1)
 	_walk(one, cards, StubAbilities.recorder())
 	assert_int(one.totals[0]).is_equal(30000)
 	assert_int(one.totals[1]).is_equal(22500)
 	assert_int(one.scores[1]).is_equal(2)
-	var two: MatchState = StubAbilities.table(_typed([StubAbilities.PEBBLE]), true)
-	StubAbilities.put_row(two, 1, _typed([pebble]), true)
+	var two: MatchState = StubAbilities.table(Typed.ints([StubAbilities.PEBBLE]), true)
+	StubAbilities.put_row(two, 1, Typed.ints([pebble]), true)
 	_dross_into(two, cards, 1, 2)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(two, cards, rec)
@@ -244,7 +238,7 @@ func test_dross_multiplies_the_holders_total_at_walk_end_once_per_dross() -> voi
 	assert_array(ended.payload["dross"]).is_equal([0, 2])
 	assert_array(ended.payload["totals"]).is_equal([30000, 16875])
 	# A Dross on a row, not in a hand, multiplies nothing.
-	var played: MatchState = StubAbilities.table(_typed([StubAbilities.PEBBLE]), true)
+	var played: MatchState = StubAbilities.table(Typed.ints([StubAbilities.PEBBLE]), true)
 	_dross_into(played, cards, 0, 1)
 	var on_row: int = played.seats[0].hand.pop_back()
 	played.seats[0].board.append(on_row)
@@ -273,14 +267,14 @@ func test_dross_costs_one_and_scores_zero() -> void:
 func test_saboteur_scores_for_the_opposing_seat() -> void:
 	var cards: MatchCards = _cards()
 	var saboteur: int = 4
-	_put(cards, _typed([saboteur]), "di04")
+	_put(cards, Typed.ints([saboteur]), "di04")
 	var pebble: int = StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([saboteur, pebble]), false)
-	StubAbilities.put_row(state, 1, _typed([OTHER]), false)
+	var state: MatchState = StubAbilities.table(Typed.ints([saboteur, pebble]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER]), false)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	assert_array(state.seats[0].board).is_equal(_typed([pebble]))
-	assert_array(state.seats[1].board).is_equal(_typed([OTHER, saboteur]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([pebble]))
+	assert_array(state.seats[1].board).is_equal(Typed.ints([OTHER, saboteur]))
 	assert_int(cards.origin_of(saboteur)).is_equal(0)
 	assert_int(state.controller_of(saboteur)).is_equal(1)
 	var changed: Array[MatchEvent] = rec.of_kind(CONTROL)
@@ -288,7 +282,7 @@ func test_saboteur_scores_for_the_opposing_seat() -> void:
 	assert_dict(changed[0].payload).is_equal(
 		{"card": saboteur, "owner": 0, "controller": 1, "from_seat": 0, "slot": 1}
 	)
-	assert_array(rec.cards_of(SCORED)).is_equal(_typed([pebble, OTHER, saboteur]))
+	assert_array(rec.cards_of(SCORED)).is_equal(Typed.ints([pebble, OTHER, saboteur]))
 	assert_int(state.totals[1]).is_equal(-7500)
 	assert_int(state.scores[1]).is_equal(-1)
 	assert_int(state.scores[0]).is_equal(3)
@@ -299,32 +293,32 @@ func test_saboteur_scores_for_the_opposing_seat() -> void:
 func test_saboteur_goes_to_its_owners_pile_at_round_end() -> void:
 	var cards: MatchCards = _cards()
 	var saboteur: int = 4
-	_put(cards, _typed([saboteur]), "di04")
-	var state: MatchState = StubAbilities.table(_typed([saboteur]), false)
-	StubAbilities.put_row(state, 1, _typed([OTHER]), false)
+	_put(cards, Typed.ints([saboteur]), "di04")
+	var state: MatchState = StubAbilities.table(Typed.ints([saboteur]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER]), false)
 	_walk(state, cards, StubAbilities.recorder())
 	var rng: MatchRng = MatchRng.new(SEED)
 	assert_bool(TurnFlow.end_turn(state, cards, rng, _spare.record)).is_false()
-	assert_array(state.seats[1].board).is_equal(_typed([OTHER, saboteur]))
+	assert_array(state.seats[1].board).is_equal(Typed.ints([OTHER, saboteur]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_int(TurnFlow.end_round(state, cards, rng, rec.record)).is_not_equal(
 		TurnFlow.ROUND_PAUSED
 	)
-	assert_array(state.seats[0].pile).is_equal(_typed([saboteur]))
-	assert_array(state.seats[1].pile).is_equal(_typed([OTHER]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([saboteur]))
+	assert_array(state.seats[1].pile).is_equal(Typed.ints([OTHER]))
 
 
 ## An Anchored Saboteur cannot be moved: it fizzles `no_target` and Scores for its Owner.
 func test_an_anchored_saboteur_stays() -> void:
 	var cards: MatchCards = _cards()
 	var saboteur: int = 4
-	_put(cards, _typed([saboteur]), "di04")
-	var state: MatchState = StubAbilities.table(_typed([saboteur]), false)
+	_put(cards, Typed.ints([saboteur]), "di04")
+	var state: MatchState = StubAbilities.table(Typed.ints([saboteur]), false)
 	var cease: Dictionary = Statuses.cessation(Statuses.CEASE_TURN)
 	Statuses.apply(state, cards, saboteur, Statuses.ANCHORED, cease, "test", _spare.record)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	assert_array(state.seats[0].board).is_equal(_typed([saboteur]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([saboteur]))
 	assert_str(_str_of(rec.of_kind(FIZZLED)[0], "reason")).is_equal(Abilities.REASON_NO_TARGET)
 	assert_int(state.totals[0]).is_equal(-22500)
 
@@ -337,16 +331,16 @@ func test_an_anchored_saboteur_stays() -> void:
 func test_hex_mutes_the_chosen_card_on_start() -> void:
 	var cards: MatchCards = _cards()
 	var hex: int = 4
-	_put(cards, _typed([hex]), "di05")
+	_put(cards, Typed.ints([hex]), "di05")
 	var pebble: int = OTHER + StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([hex]), false)
-	StubAbilities.put_row(state, 1, _typed([OTHER, pebble]), false)
+	var state: MatchState = StubAbilities.table(Typed.ints([hex]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER, pebble]), false)
 	var rng: MatchRng = MatchRng.new(SEED)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
 	assert_bool(ScoreWalk.step(state, cards, rng, rec.record)).is_true()
 	assert_str(Choice.zone_name(Choice.zone_of(state.prompt))).is_equal("both_boards")
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0, 1, 2]))
+	assert_array(Choice.options_of(state.prompt)).is_equal(Typed.ints([0, 1, 2]))
 	var picked: Array[int] = [2]
 	assert_bool(
 		TriggerQueue.answer(state, cards, rng, rec.record, Choice.Zone.BOTH_BOARDS, picked, false)
@@ -372,10 +366,10 @@ func test_hex_mutes_the_chosen_card_on_start() -> void:
 func test_hex_choice_ends_when_either_card_leaves_or_flips() -> void:
 	var cards: MatchCards = _cards()
 	var hex: int = 4
-	_put(cards, _typed([hex]), "di05")
+	_put(cards, Typed.ints([hex]), "di05")
 	var pebble: int = OTHER + StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([hex]), true)
-	StubAbilities.put_row(state, 1, _typed([pebble, OTHER]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([hex]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([pebble, OTHER]), true)
 	var rng: MatchRng = MatchRng.new(SEED)
 	state.chosen[hex] = pebble
 	StubAbilities.stub_mute(state, cards, hex, _spare.record)
@@ -401,18 +395,18 @@ func test_hex_choice_ends_when_either_card_leaves_or_flips() -> void:
 func test_jam_mutes_its_power_in_random_opposing_cards() -> void:
 	var cards: MatchCards = _cards()
 	var jam: int = 4
-	_put(cards, _typed([jam]), "di06")
-	var five: MatchState = StubAbilities.table(_typed([jam]), true)
-	StubAbilities.put_row(five, 1, _typed(range(OTHER, OTHER + 5)), true)
+	_put(cards, Typed.ints([jam]), "di06")
+	var five: MatchState = StubAbilities.table(Typed.ints([jam]), true)
+	StubAbilities.put_row(five, 1, Typed.ints(range(OTHER, OTHER + 5)), true)
 	five.first_seat = 0
 	_walk(five, cards, StubAbilities.recorder())
 	assert_int(_with_status(five, 1, Statuses.MUTED).size()).is_equal(3)
-	var two: MatchState = StubAbilities.table(_typed([jam]), true)
-	StubAbilities.put_row(two, 1, _typed([OTHER, OTHER + 1]), true)
+	var two: MatchState = StubAbilities.table(Typed.ints([jam]), true)
+	StubAbilities.put_row(two, 1, Typed.ints([OTHER, OTHER + 1]), true)
 	_walk(two, cards, StubAbilities.recorder())
 	assert_int(_with_status(two, 1, Statuses.MUTED).size()).is_equal(2)
-	var grown: MatchState = StubAbilities.table(_typed([jam]), true)
-	StubAbilities.put_row(grown, 1, _typed(range(OTHER, OTHER + 6)), true)
+	var grown: MatchState = StubAbilities.table(Typed.ints([jam]), true)
+	StubAbilities.put_row(grown, 1, Typed.ints(range(OTHER, OTHER + 6)), true)
 	grown.card_state_for(jam).power_delta = 2
 	_walk(grown, cards, StubAbilities.recorder())
 	assert_int(_with_status(grown, 1, Statuses.MUTED).size()).is_equal(5)
@@ -427,12 +421,12 @@ func test_stasis_keeps_your_squelch_until_it_leaves_the_row() -> void:
 	var cards: MatchCards = _cards()
 	var stasis: int = 4
 	var muzzle: int = 5
-	_put(cards, _typed([stasis]), "di07")
-	_put(cards, _typed([muzzle]), "di02")
+	_put(cards, Typed.ints([stasis]), "di07")
+	_put(cards, Typed.ints([muzzle]), "di02")
 	var pebble: int = OTHER + StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([stasis]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([stasis]), true)
 	state.seats[0].board.append(muzzle)
-	StubAbilities.put_row(state, 1, _typed([pebble]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([pebble]), true)
 	_walk(state, cards, StubAbilities.recorder())
 	assert_bool(Statuses.has(state, pebble, Statuses.SQUELCHED)).is_true()
 	TurnFlow.end_statuses(state, _spare.record)
@@ -448,21 +442,21 @@ func test_stasis_holds_a_silences_squelch_half_unless_squelched() -> void:
 	var stasis: int = 4
 	var eclipse: int = 5
 	var muzzle: int = 6
-	_put(cards, _typed([stasis]), "di07")
-	_put(cards, _typed([eclipse]), "di10")
-	_put(cards, _typed([muzzle]), "di02")
+	_put(cards, Typed.ints([stasis]), "di07")
+	_put(cards, Typed.ints([eclipse]), "di10")
+	_put(cards, Typed.ints([muzzle]), "di02")
 	var pebble: int = OTHER + StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([stasis]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([stasis]), true)
 	state.seats[0].board.append(eclipse)
-	StubAbilities.put_row(state, 1, _typed([pebble]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([pebble]), true)
 	_walk(state, cards, StubAbilities.recorder())
 	assert_bool(Statuses.has(state, pebble, Statuses.SILENCED)).is_true()
 	TurnFlow.end_statuses(state, _spare.record)
 	assert_bool(Statuses.has(state, pebble, Statuses.MUTED)).is_false()
 	assert_bool(Statuses.has(state, pebble, Statuses.SQUELCHED)).is_true()
-	var off: MatchState = StubAbilities.table(_typed([stasis]), true)
+	var off: MatchState = StubAbilities.table(Typed.ints([stasis]), true)
 	off.seats[0].board.append(muzzle)
-	StubAbilities.put_row(off, 1, _typed([pebble]), true)
+	StubAbilities.put_row(off, 1, Typed.ints([pebble]), true)
 	StubAbilities.stub_squelch(off, cards, stasis, _spare.record)
 	_walk(off, cards, StubAbilities.recorder())
 	assert_bool(Statuses.has(off, pebble, Statuses.SQUELCHED)).is_true()
@@ -478,10 +472,10 @@ func test_stasis_holds_a_silences_squelch_half_unless_squelched() -> void:
 func test_gag_squelches_permanently_then_condemns_itself() -> void:
 	var cards: MatchCards = _cards()
 	var gag: int = 4
-	_put(cards, _typed([gag]), "di08")
+	_put(cards, Typed.ints([gag]), "di08")
 	var pebble: int = OTHER + StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([gag]), true)
-	StubAbilities.put_row(state, 1, _typed([OTHER, pebble]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([gag]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER, pebble]), true)
 	var rng: MatchRng = MatchRng.new(SEED)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TurnFlow.on_commit(state, cards, rng, rec.record, 0)).is_true()
@@ -501,17 +495,17 @@ func test_gag_squelches_permanently_then_condemns_itself() -> void:
 func test_gags_squelch_follows_the_card_and_a_face_down_gag_waits() -> void:
 	var cards: MatchCards = _cards()
 	var gag: int = 4
-	_put(cards, _typed([gag, gag + 1]), "di08")
+	_put(cards, Typed.ints([gag, gag + 1]), "di08")
 	var pebble: int = OTHER + StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([gag]), true)
-	StubAbilities.put_row(state, 1, _typed([pebble]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([gag]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([pebble]), true)
 	var rng: MatchRng = MatchRng.new(SEED)
 	assert_bool(TurnFlow.on_commit(state, cards, rng, _spare.record, 0)).is_false()
 	assert_bool(Statuses.take_from_row(state, 1, pebble, _spare.record)).is_true()
 	TurnFlow.to_pile(state, cards, _spare.record, pebble, TurnFlow.FROM_ROW, TurnFlow.REASON_ROUND_END)
 	assert_bool(Statuses.has(state, pebble, Statuses.SQUELCHED)).is_true()
-	var face_down: MatchState = StubAbilities.table(_typed([gag + 1]), false)
-	StubAbilities.put_row(face_down, 1, _typed([pebble]), true)
+	var face_down: MatchState = StubAbilities.table(Typed.ints([gag + 1]), false)
+	StubAbilities.put_row(face_down, 1, Typed.ints([pebble]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TurnFlow.on_commit(face_down, cards, rng, rec.record, 0)).is_false()
 	assert_array(rec.of_kind(FIRED)).is_empty()
@@ -527,9 +521,9 @@ func test_gags_squelch_follows_the_card_and_a_face_down_gag_waits() -> void:
 func test_quorum_prompts_both_seats_in_order_and_mutes_the_rest() -> void:
 	var cards: MatchCards = _cards()
 	var quorum: int = 4
-	_put(cards, _typed([quorum]), "di09")
-	var state: MatchState = StubAbilities.table(_typed([quorum, 0, 1]), true)
-	StubAbilities.put_row(state, 1, _typed([OTHER, OTHER + 1, OTHER + 2]), true)
+	_put(cards, Typed.ints([quorum]), "di09")
+	var state: MatchState = StubAbilities.table(Typed.ints([quorum, 0, 1]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER, OTHER + 1, OTHER + 2]), true)
 	state.first_seat = 1
 	var rng: MatchRng = MatchRng.new(SEED)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
@@ -549,8 +543,8 @@ func test_quorum_prompts_both_seats_in_order_and_mutes_the_rest() -> void:
 		TriggerQueue.answer(state, cards, rng, rec.record, Choice.Zone.OWN_BOARD, second, false)
 	).is_false()
 	assert_int(rec.of_kind(PROMPTED).size()).is_equal(2)
-	assert_array(_with_status(state, 0, Statuses.MUTED)).is_equal(_typed([quorum]))
-	assert_array(_with_status(state, 1, Statuses.MUTED)).is_equal(_typed([OTHER]))
+	assert_array(_with_status(state, 0, Statuses.MUTED)).is_equal(Typed.ints([quorum]))
+	assert_array(_with_status(state, 1, Statuses.MUTED)).is_equal(Typed.ints([OTHER]))
 	TurnFlow.end_statuses(state, _spare.record)
 	assert_array(_with_status(state, 0, Statuses.MUTED)).is_empty()
 
@@ -560,9 +554,9 @@ func test_quorum_prompts_both_seats_in_order_and_mutes_the_rest() -> void:
 func test_quorum_skips_a_seat_with_two_or_fewer_revealed() -> void:
 	var cards: MatchCards = _cards()
 	var quorum: int = 4
-	_put(cards, _typed([quorum]), "di09")
-	var state: MatchState = StubAbilities.table(_typed([quorum, 0, 1]), true)
-	StubAbilities.put_row(state, 1, _typed([OTHER, OTHER + 1]), true)
+	_put(cards, Typed.ints([quorum]), "di09")
+	var state: MatchState = StubAbilities.table(Typed.ints([quorum, 0, 1]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER, OTHER + 1]), true)
 	state.seats[1].board.append(OTHER + 2)
 	var rng: MatchRng = MatchRng.new(SEED)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
@@ -572,9 +566,9 @@ func test_quorum_skips_a_seat_with_two_or_fewer_revealed() -> void:
 	assert_bool(
 		TriggerQueue.answer(state, cards, rng, rec.record, Choice.Zone.OWN_BOARD, kept, false)
 	).is_false()
-	assert_array(_with_status(state, 0, Statuses.MUTED)).is_equal(_typed([1]))
+	assert_array(_with_status(state, 0, Statuses.MUTED)).is_equal(Typed.ints([1]))
 	assert_array(_with_status(state, 1, Statuses.MUTED)).is_empty()
-	var small: MatchState = StubAbilities.table(_typed([quorum, 0]), true)
+	var small: MatchState = StubAbilities.table(Typed.ints([quorum, 0]), true)
 	var none: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TurnFlow.on_start(small, cards, rng, none.record)).is_false()
 	assert_str(_str_of(none.of_kind(FIZZLED)[0], "reason")).is_equal(Abilities.REASON_NO_TARGET)
@@ -590,9 +584,9 @@ func _limited_quorum_table(cards: MatchCards, quorum: int, uses: int, scope: Str
 	limited.scope = scope
 	var abilities: Array[CardAbility] = [limited]
 	var def: CardDef = StubAbilities.card_def("Quorum", abilities, 4, 5)
-	assert_bool(StubAbilities.give(cards, _typed([quorum]), def)).is_true()
-	var state: MatchState = StubAbilities.table(_typed([quorum, 0, 1]), true)
-	StubAbilities.put_row(state, 1, _typed([OTHER, OTHER + 1, OTHER + 2]), true)
+	assert_bool(StubAbilities.give(cards, Typed.ints([quorum]), def)).is_true()
+	var state: MatchState = StubAbilities.table(Typed.ints([quorum, 0, 1]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER, OTHER + 1, OTHER + 2]), true)
 	return state
 
 
@@ -637,8 +631,8 @@ func test_a_quorum_with_one_use_finishes_its_firing() -> void:
 	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_true()
 	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_false()
 	assert_int(Scoring.uses_left(quorum, state, cards)).is_equal(0)
-	assert_array(_with_status(state, 0, Statuses.MUTED)).is_equal(_typed([1]))
-	assert_array(_with_status(state, 1, Statuses.MUTED)).is_equal(_typed([OTHER + 2]))
+	assert_array(_with_status(state, 0, Statuses.MUTED)).is_equal(Typed.ints([1]))
+	assert_array(_with_status(state, 1, Statuses.MUTED)).is_equal(Typed.ints([OTHER + 2]))
 
 
 ## R6: a firing declined at its first prompt counts no use and has no effect. Quorum's prompts
@@ -680,16 +674,16 @@ func _assert_bot_answers(state: MatchState, cards: MatchCards, seat: int) -> voi
 func test_eclipse_silences_an_opposing_card() -> void:
 	var cards: MatchCards = _cards()
 	var eclipse: int = 4
-	_put(cards, _typed([eclipse]), "di10")
+	_put(cards, Typed.ints([eclipse]), "di10")
 	var scout: int = OTHER + StubAbilities.SCOUT
-	var state: MatchState = StubAbilities.table(_typed([eclipse]), false)
-	StubAbilities.put_row(state, 1, _typed([scout]), false)
-	state.seats[1].deck.assign(_typed([OTHER + 8]))
+	var state: MatchState = StubAbilities.table(Typed.ints([eclipse]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([scout]), false)
+	state.seats[1].deck.assign(Typed.ints([OTHER + 8]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	assert_bool(Statuses.has(state, scout, Statuses.SILENCED)).is_true()
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([eclipse]))
-	assert_array(rec.cards_of(SCORED)).is_equal(_typed([eclipse]))
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([eclipse]))
+	assert_array(rec.cards_of(SCORED)).is_equal(Typed.ints([eclipse]))
 	assert_array(state.seats[1].hand).is_empty()
 	assert_array(Statuses.badges(state, cards, scout)).contains(["Silenced"])
 	TurnFlow.end_statuses(state, _spare.record)
@@ -702,14 +696,14 @@ func test_eclipse_silences_an_opposing_card() -> void:
 func test_eclipse_against_ward_squelches_only() -> void:
 	var cards: MatchCards = _cards()
 	var eclipse: int = 4
-	_put(cards, _typed([eclipse]), "di10")
+	_put(cards, Typed.ints([eclipse]), "di10")
 	var goat: int = OTHER + StubAbilities.SCAPEGOAT
-	var state: MatchState = StubAbilities.table(_typed([eclipse]), false)
-	StubAbilities.put_row(state, 1, _typed([goat]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([eclipse]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([goat]), true)
 	var cease: Dictionary = Statuses.cessation(Statuses.CEASE_TURN)
 	Statuses.protect_seat(state, 1, Statuses.MUTED, cease)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	assert_bool(Statuses.has(state, goat, Statuses.MUTED)).is_false()
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([eclipse, goat]))
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([eclipse, goat]))
 	assert_str(Statuses.exit_mark_of(state, goat)).is_equal(Statuses.CONDEMNED)

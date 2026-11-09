@@ -45,12 +45,6 @@ func _defs() -> MatchCards:
 	return _cached_defs
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _entry(card: int, cost: int, power: int, mult: int, add: int, grown: bool) -> Dictionary:
 	return {
 		"card": card,
@@ -70,33 +64,33 @@ func _view() -> SeatView:
 	var view: SeatView = SeatView.new()
 	view.seat = 0
 	view.opponent = 1
-	view.own_hand = _typed([TWIN_A, TWIN_B, OTHER])
+	view.own_hand = Typed.ints([TWIN_A, TWIN_B, OTHER])
 	var row: Array[Dictionary] = [
 		_entry(TWIN_A, 2, 3, MatchRules.BONUS_ONE, 0, false),
 		_entry(TWIN_B, 1, 5, 150, 0, true),
 		_entry(OTHER, 3, 4, MatchRules.BONUS_ONE, 50, false),
 	]
 	view.own_hand_row = row
-	view.own_hand_costs = _typed([2, 1, 3])
-	view.own_board = _typed([8, 9])
-	view.opponent_board = _typed([MatchEvent.HIDDEN_CARD])
-	view.own_pile = _typed([12, 13, 14])
-	view.opponent_pile = _typed([T + 1])
+	view.own_hand_costs = Typed.ints([2, 1, 3])
+	view.own_board = Typed.ints([8, 9])
+	view.opponent_board = Typed.ints([MatchEvent.HIDDEN_CARD])
+	view.own_pile = Typed.ints([12, 13, 14])
+	view.opponent_pile = Typed.ints([T + 1])
 	view.opponent_hand_count = 5
 	view.opponent_pending_count = 0
-	view.deck_counts = _typed([20, 22])
-	view.scores = _typed([7, 9])
-	view.totals = _typed([70500, 91200])
-	view.wins = _typed([1, 0])
+	view.deck_counts = Typed.ints([20, 22])
+	view.scores = Typed.ints([7, 9])
+	view.totals = Typed.ints([70500, 91200])
+	view.wins = Typed.ints([1, 0])
 	view.round_number = 2
 	view.turn = 4
 	view.energy = 4
-	view.budgets = _typed([4, 6])
+	view.budgets = Typed.ints([4, 6])
 	return view
 
 
 func _commit(cards: Array, slots: Array = []) -> EngineAction:
-	return EngineAction.commit(0, _typed(cards), _typed(slots))
+	return EngineAction.commit(0, Typed.ints(cards), Typed.ints(slots))
 
 
 func _at(vector: PackedInt64Array, name: String) -> int:
@@ -261,13 +255,13 @@ func test_abilities_count_cards_with_an_ability_and_uses_left() -> void:
 	assert_int(able).is_greater_equal(0)
 	assert_int(plain).is_greater_equal(0)
 	var view: SeatView = _view()
-	view.own_hand = _typed([able, plain])
+	view.own_hand = Typed.ints([able, plain])
 	var row: Array[Dictionary] = [
 		_entry(able, 1, 1, MatchRules.BONUS_ONE, 0, false),
 		_entry(plain, 1, 1, MatchRules.BONUS_ONE, 0, false),
 	]
 	view.own_hand_row = row
-	view.own_hand_costs = _typed([1, 1])
+	view.own_hand_costs = Typed.ints([1, 1])
 	var both: PackedInt64Array = BotFeatures.of(view, _commit([able, plain]), cards)
 	assert_int(_at(both, "committed_abilities")).is_equal(1)
 	view.own_hand_row[0]["uses_left"] = 2
@@ -282,8 +276,8 @@ func test_a_sudden_death_round() -> void:
 	var view: SeatView = _view()
 	view.round_number = MatchRules.ROUNDS + 2
 	view.sudden_death = true
-	view.wins = _typed([3, 3])
-	view.totals = _typed([-150, 0])
+	view.wins = Typed.ints([3, 3])
+	view.totals = Typed.ints([-150, 0])
 	var vector: PackedInt64Array = BotFeatures.of(view, _commit([TWIN_A]), _defs())
 	assert_int(_at(vector, "round_number")).is_equal(9)
 	assert_int(_at(vector, "wins_diff")).is_equal(0)
@@ -291,7 +285,7 @@ func test_a_sudden_death_round() -> void:
 	assert_int(_at(vector, "opp_wins_needed")).is_equal(1)
 	# Integer division toward zero.
 	assert_int(_at(vector, "total_diff")).is_equal(-1)
-	view.wins = _typed([MatchRules.WINS_TO_TAKE + 1, 0])
+	view.wins = Typed.ints([MatchRules.WINS_TO_TAKE + 1, 0])
 	var past: PackedInt64Array = BotFeatures.of(view, _commit([TWIN_A]), _defs())
 	assert_int(_at(past, "wins_needed")).is_equal(0)
 	assert_int(_at(past, "wins_diff")).is_equal(MatchRules.WINS_TO_TAKE + 1)
@@ -300,7 +294,7 @@ func test_a_sudden_death_round() -> void:
 func test_the_opponents_pending_commit_and_the_view_without_costs() -> void:
 	var view: SeatView = _view()
 	view.opponent_pending_count = 2
-	view.own_hand_costs = _typed([])
+	view.own_hand_costs = Typed.ints([])
 	var vector: PackedInt64Array = BotFeatures.of(view, _commit([TWIN_A, OTHER]), _defs())
 	assert_int(_at(vector, "opp_pending")).is_equal(2)
 	# Costs fall back to the row entries' `cost`.
@@ -339,12 +333,6 @@ func test_the_same_view_and_candidate_give_the_same_vector() -> void:
 # --- The seed-1 pin -------------------------------------------------------------------
 
 
-func _typed_strings(values: Array) -> Array[String]:
-	var out: Array[String] = []
-	out.assign(values)
-	return out
-
-
 ## Seed 1 under its seeded pairing, played by two `random` bots to seat 1's first commit of
 ## Round 3 (no prompt open): test_rollout's position.
 func _position() -> MatchEngine:
@@ -352,7 +340,7 @@ func _position() -> MatchEngine:
 		POSITION_SEED,
 		CardDb.load_default(),
 		DeckList.load_default(),
-		_typed_strings(["", ""]),
+		Typed.strings(["", ""]),
 		CrewPool.load_default()
 	)
 	assert_bool(engine.start().ok).is_true()
@@ -402,7 +390,7 @@ func test_the_cached_pool_size_and_weight_vector_match_the_uncached() -> void:
 		POSITION_SEED,
 		CardDb.load_default(),
 		DeckList.load_default(),
-		_typed_strings(["", ""]),
+		Typed.strings(["", ""]),
 		CrewPool.load_default()
 	)
 	assert_bool(engine.start().ok).is_true()
@@ -440,7 +428,7 @@ func test_the_cached_pool_size_and_weight_vector_match_the_uncached() -> void:
 	var other: MatchCards = MatchCards.build(
 		CardDb.load_default(),
 		DeckList.load_default(),
-		_typed_strings(["greed", "greed"]),
+		Typed.strings(["greed", "greed"]),
 		CrewPool.load_default()
 	)
 	assert_object(MatchCards.pool_of(other)).is_not_same(MatchCards.pool_of(cards))
@@ -459,8 +447,8 @@ func test_the_base_and_a_patch_equal_the_whole_vector() -> void:
 		view.free_first = granted
 		var none: Array[int] = []
 		var kept: Array[EngineAction] = RandomBot.candidates_for(view, cards)
-		kept.append(EngineAction.commit(0, _typed([OTHER, TWIN_A]), none))
-		kept.append(EngineAction.commit(0, _typed([TWIN_A]), _typed([2])))
+		kept.append(EngineAction.commit(0, Typed.ints([OTHER, TWIN_A]), none))
+		kept.append(EngineAction.commit(0, Typed.ints([TWIN_A]), Typed.ints([2])))
 		_assert_patches(view, kept, cards)
 	var compared: int = 0
 	for match_seed: int in range(1, 6):
@@ -474,7 +462,7 @@ func _compare_over_a_match(match_seed: int) -> int:
 		match_seed,
 		CardDb.load_default(),
 		DeckList.load_default(),
-		_typed_strings(["", ""]),
+		Typed.strings(["", ""]),
 		CrewPool.load_default()
 	)
 	assert_bool(engine.start().ok).is_true()
