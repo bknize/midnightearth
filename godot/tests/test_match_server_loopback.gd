@@ -17,8 +17,6 @@ const STAMP: String = "r7-0123456789abcdef"
 const T0_MS: int = 1794087912000
 const STEP_MS: int = 1
 const FRAME_BUDGET: int = 300
-## For the cases that open many real sockets at once: the frames are real, the clock is not.
-const SLOW_BUDGET: int = 3000
 const SEED: int = 7
 const ACTIONS: int = 10
 const FLOOD: int = 30
@@ -194,13 +192,16 @@ func test_a_connection_past_the_total_cap_is_refused() -> void:
 ## refused `server_full` by the room cap, not turned away at the door (R38).
 func test_a_ninth_host_from_one_address_hears_server_full() -> void:
 	var hosts: Array[Client] = []
+	# One at a time, accepted before the next: nine connects with no accept between them can
+	# overflow the listen backlog, and the last socket then closes before reaching the server.
 	for _i: int in range(RoomRegistry.MAX_ROOMS + 1):
-		hosts.append(_connect())
-	assert_bool(await _pump_until(func() -> bool: return _all_open(hosts), SLOW_BUDGET, 0)).is_true()
+		var host: Client = _connect()
+		hosts.append(host)
+		assert_bool(await _pump_until(func() -> bool: return host.is_open(), FRAME_BUDGET, 0)).is_true()
 	for at: int in range(hosts.size()):
 		hosts[at].send(_hello("Host%d" % at, "install-host-%d" % at))
 	var welcomed: bool = await _pump_until(
-		func() -> bool: return _all_have(hosts, NetProtocol.T_WELCOME), SLOW_BUDGET, 0
+		func() -> bool: return _all_have(hosts, NetProtocol.T_WELCOME), FRAME_BUDGET, 0
 	)
 	assert_bool(welcomed).is_true()
 	var rooms: Array[Client] = []
@@ -208,13 +209,13 @@ func test_a_ninth_host_from_one_address_hears_server_full() -> void:
 		hosts[at].send({"t": NetProtocol.T_HOST, "deck": "greed"})
 		rooms.append(hosts[at])
 	var hosted: bool = await _pump_until(
-		func() -> bool: return _all_have(rooms, NetProtocol.T_HOSTED), SLOW_BUDGET, 0
+		func() -> bool: return _all_have(rooms, NetProtocol.T_HOSTED), FRAME_BUDGET, 0
 	)
 	assert_bool(hosted).is_true()
 	var ninth: Client = hosts[RoomRegistry.MAX_ROOMS]
 	ninth.send({"t": NetProtocol.T_HOST, "deck": "greed"})
 	var refused: bool = await _pump_until(
-		func() -> bool: return ninth.count(NetProtocol.T_REFUSED) > 0, SLOW_BUDGET, 0
+		func() -> bool: return ninth.count(NetProtocol.T_REFUSED) > 0, FRAME_BUDGET, 0
 	)
 	assert_bool(refused).is_true()
 	var reason: String = ninth.last(NetProtocol.T_REFUSED).get("reason", "")
