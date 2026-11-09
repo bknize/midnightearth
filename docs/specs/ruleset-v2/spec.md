@@ -4,7 +4,7 @@ tags: [spec, ruleset-v2, rules, vault, design]
 status: approved
 related: ["[[specs/ruleset-v2/plan]]", "[[specs/ruleset-v2/tasks]]", "[[cards/Cards]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[planning/phase-3-game-loop]]", "[[specs/cycle-5-walk-cursor/spec]]", "[[specs/cycle-8-ramp-bounce-crew/spec]]", "[[planning/phase-1-tech-stack]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-09
 uid: bb79af3f-db95-4aa5-998a-cccaeb6fe93c
 linear: https://linear.app/night-science-llc/project/ruleset-v2-hardened-vocabulary-resolution-chart-new-card-set-7f65436c0b01
 supersedes:
@@ -390,18 +390,18 @@ of the T07 fix, flagged); board-scoped statuses also end on un-reveal
 
 ## Definition of done
 
-- [ ] The seven notes exist under `docs/rules/` with P5 frontmatter and fresh uids, linked
+- [x] The seven notes exist under `docs/rules/` with P5 frontmatter and fresh uids, linked
       from [[home]] (R66).
-- [ ] Every one of R1's terms has a glossary entry and R2's retired words are listed.
-- [ ] The resolution chart walks a turn end to end with every drain point and the budget
+- [x] Every one of R1's terms has a glossary entry and R2's retired words are listed.
+- [x] The resolution chart walks a turn end to end with every drain point and the budget
       (R42–R46), and each scenario above can be traced through it.
-- [ ] `cards-v2` lists 90 cards (6 × 10 tagged plus 30 evergreen), every salvaged card and
+- [x] `cards-v2` lists 90 cards (6 × 10 tagged plus 30 evergreen), every salvaged card and
       idea from [[cards/Cards]] accounted for (used, merged or dropped with a reason).
-- [ ] `crew-v2` lists ten Crew; `test-decks` lists six 40-card decks with three Crew each
+- [x] `crew-v2` lists ten Crew; `test-decks` lists six 40-card decks with three Crew each
       and the fixture disclaimer.
-- [ ] The reviewer's vocabulary audit reports no unresolved word (R69).
-- [ ] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new (R68).
-- [ ] `make check` is green (no code is touched; this confirms nothing slipped in).
-- [ ] No screenshot: a vault-only set (P7 applies to visible features).
-- [ ] Ben has read each note and signed it off.
-- [ ] Spec, plan and tasks signed off by Ben and committed before the notes are written.
+- [x] The reviewer's vocabulary audit reports no unresolved word (R69).
+- [x] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new (R68).
+- [x] `make check` is green (no code is touched; this confirms nothing slipped in).
+- [x] No screenshot: a vault-only set (P7 applies to visible features).
+- [x] Ben has read each note and signed it off.
+- [x] Spec, plan and tasks signed off by Ben and committed before the notes are written.

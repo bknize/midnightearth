@@ -4,7 +4,7 @@ tags: [spec, cycle-10-review-tools, tooling, review, cleanup]
 status: approved
 related: ["[[specs/cycle-10-review-tools/plan]]", "[[specs/cycle-10-review-tools/tasks]]", "[[planning/phase-1-tech-stack]]", "[[planning/phase-2-dev-tools]]", "[[planning/cycles]]", "[[decisions/0002-one-branch-per-cycle]]", "[[specs/cycle-9-rules-v2/spec]]"]
 created: 2026-11-06
-updated: 2026-11-07
+updated: 2026-11-09
 uid: cd9d730d-f266-4831-9b26-1a01ba6e5cab
 linear: https://linear.app/night-science-llc/project/cycle-10-review-tools-in-the-cycle-and-one-cleanup-pass-da55e6ed55be
 supersedes:
@@ -256,16 +256,16 @@ Three rounds, every recommendation taken except round 3 Q3.
 
 ## Definition of done
 
-- [ ] ADR 0004 exists with P5 frontmatter and a MOC row; `CLAUDE.md`, the cycle skill and
+- [x] ADR 0004 exists with P5 frontmatter and a MOC row; `CLAUDE.md`, the cycle skill and
   the reviewer's agent file carry R13, R16 and R17.
-- [ ] DC-14 merged into `master`, `master` merged into the cycle branch, golden line pinned
+- [x] DC-14 merged into `master`, `master` merged into the cycle branch, golden line pinned
   for the pass and recorded in the tasks note (T03).
-- [ ] C1 to C6 committed per R26 with their gate summaries; C1 to C3 with sweep summaries
+- [x] C1 to C6 committed per R26 with their gate summaries; C1 to C3 with sweep summaries
   showing every log replays, leak scan clean, `stamp=match`, golden unchanged.
-- [ ] Every finding fixed or filed per R4 and R31; `engine/data/*.json` untouched
+- [x] Every finding fixed or filed per R4 and R31; `engine/data/*.json` untouched
   (`git diff master -- godot/engine/data` empty).
-- [ ] `make check` is green on the cycle branch at `/cycle test`; `make sweep` summary
+- [x] `make check` is green on the cycle branch at `/cycle test`; `make sweep` summary
   pasted.
-- [ ] No screenshot (tooling cycle; waiver as cycle 1 C12).
-- [ ] Constitution Check passes (see plan).
-- [ ] Spec, plan and tasks signed off by Ben and committed before implementation begins.
+- [x] No screenshot (tooling cycle; waiver as cycle 1 C12).
+- [x] Constitution Check passes (see plan).
+- [x] Spec, plan and tasks signed off by Ben and committed before implementation begins.

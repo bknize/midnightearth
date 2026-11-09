@@ -14,7 +14,7 @@ supersedes:
 
 > How a Midnight Earth match runs today, from the first deal to the last Round: the Turn, the Walk and its walking total, statuses, movement, the trigger queue, the actions a seat can take, the events the engine reports and what each seat may know.
 
-Written from the code in `godot/engine/` as of DC-14 (rules version 7, log format 5). The design canon is in [[rules/rules-moc]]; this guide is its as-built counterpart, and where the build reads the canon differently the difference is called out in [[#Where the build differs from the canon]]. Where a spec and the code differ, the code wins. Cards, Crew and decks are in [[systems/cards-crew-decks]]; the one bot is in [[systems/bot-training]]. How the rules were built is in the DC-13 and DC-14 rows of [[planning/cycles]]. Every capitalised word is defined in [[rules/glossary]].
+Written from the code in `godot/engine/` as of DC-20 (rules version 10, log format 5). The design canon is in [[rules/rules-moc]]; this guide is its as-built counterpart, and where the build reads the canon differently the difference is called out in [[#Where the build differs from the canon]]. Where a spec and the code differ, the code wins. Cards, Crew and decks are in [[systems/cards-crew-decks]]; the one bot is in [[systems/bot-training]]. How the rules were built is in the DC-13 and DC-14 rows of [[planning/cycles]]. Every capitalised word is defined in [[rules/glossary]].
 
 ## The shape of a match
 

@@ -4,7 +4,7 @@ tags: [tasks, cycle-7-bot-players, engine, bot, tooling]
 status: approved
 related: ["[[specs/cycle-7-bot-players/spec]]", "[[specs/cycle-7-bot-players/plan]]", "[[decisions/0002-one-branch-per-cycle]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-04
-updated: 2026-11-05
+updated: 2026-11-09
 uid: 27b7fad5-c575-47db-a846-43c4dbc1e707
 linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
@@ -66,25 +66,25 @@ own cycle on `cycle-7b-bot-players` cut from `master` after A merges (plan, Risk
 
 Owned by the orchestrator, on `cycle-7-bot-players`, editor opened on the cycle worktree.
 
-- [ ] `make check` exits 0, test stage under 30 s of gdUnit time (C15); record the case
+- [x] `make check` exits 0, test stage under 30 s of gdUnit time (C15); record the case
       count. The sweep line
       reads `bot=tuned p95_us=… p99_us=… stamp=match` with `p99_us < 10000`; record
       `slowest_us` (C14).
-- [ ] Re-pin the seed-1 golden under the tuned bot: smoke and `Board: match ended …` lines
+- [x] Re-pin the seed-1 golden under the tuned bot: smoke and `Board: match ended …` lines
       carry `bot=tuned` and agree across headless `--fixed-fps 60 --autoplay`, the
       `test_match_driver` pin and an editor run; record the line in [[planning/cycles]].
-- [ ] `--bot=greedy` reproduces cycle 6's golden line (R5); `--bot=nope` and
+- [x] `--bot=greedy` reproduces cycle 6's golden line (R5); `--bot=nope` and
       `--bot=random --bot-level=3` log an error and print no `Main ready`; with the weights
       file renamed one `Bot weights:` line prints and `Main ready` follows.
-- [ ] Worker smoke (T06's check) exits 0; `make bot-selftest` passes; `make bot-eval
+- [x] Worker smoke (T06's check) exits 0; `make bot-selftest` passes; `make bot-eval
       BOT=greedy REF=greedy_v1` is PASS; `make bot-eval` (tuned vs greedy_v1) prints its
       summary and exits 0 in about ten minutes; paste the line into the cycles row and the
       ledger; note the first-committer win rate.
-- [ ] Stamp provision: with `RULES_VERSION` bumped in a scratch worktree, the sweep prints
+- [x] Stamp provision: with `RULES_VERSION` bumped in a scratch worktree, the sweep prints
       `stamp=MISMATCH` and the gate stays green; `make bot-eval` says so on its first line.
-- [ ] MCP on seed 1 against the tuned bot: seat 1's first commit lands and flips; **one
+- [x] MCP on seed 1 against the tuned bot: seat 1's first commit lands and flips; **one
       screenshot** `godot/reports/DC-NN/tuned-bot-first-commit.png`.
-- [ ] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new; the `/cycle
+- [x] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new; the `/cycle
       test` skill carries the R36 step; NSC-74 closes with the sweep numbers.
 
 ## Verification task B (18)
@@ -94,17 +94,17 @@ Owned by the orchestrator, on `cycle-7b-bot-players`.
 - [ ] `make check` exits 0; `make sweep` and `make sweep BOT=matrix` each print their line
       with `p99_us` under 10000 (the sweep left the gate, NSC-133, decision 2b). The
       matrix defaults are k 6, k_opp 3, samples 2, rm_iterations 50 (C16; k_opp 4 measured 10.9 ms); if the p99 still
-      misses 10 ms, the orchestrator brings the next step down back to Ben.
+      misses 10 ms, the orchestrator brings the next step down back to Ben. (superseded: the matrix bot and `make sweep BOT=matrix` are gone (DC-13), DC-20 T19)
 - [ ] `make bot-eval` (tuned, trained weights, vs greedy_v1) PASS as a gainer; `make
       bot-eval BOT=matrix` vs greedy_v1 PASS and vs the tuned best-so-far PASS (R54); the
-      three lines in the ledger and the cycles row.
-- [ ] One match from the training run replays from its log to an equal state (the driver's
+      three lines in the ledger and the cycles row. (superseded: the tuned, trained and matrix bots are gone (DC-13), DC-20 T19)
+- [x] One match from the training run replays from its log to an equal state (the driver's
       sample check, re-run by hand on one file).
 - [ ] `make bot-train HOURS=0.2 LABEL=smoke` resumes from a checkpoint after an
       interruption (the default label is `<bot>-<stamp>` and a checkpoint of another stamp
-      is refused, C16); a candidate pending at the interruption is re-promoted first.
-- [ ] The calibration table is in the ledger (R55).
-- [ ] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new.
+      is refused, C16); a candidate pending at the interruption is re-promoted first. (superseded: `make bot-train` was deleted in DC-16, DC-20 T19)
+- [ ] The calibration table is in the ledger (R55). (superseded: calibration was deleted in DC-16, DC-20 T19)
+- [x] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new.
 
 ## Linear (exercised 2026-11-04)
 

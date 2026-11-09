@@ -4,7 +4,7 @@ tags: [spec, cycle-7-bot-players, engine, bot, tooling]
 status: approved
 related: ["[[specs/cycle-7-bot-players/plan]]", "[[specs/cycle-7-bot-players/tasks]]", "[[specs/cycle-6-constructed-decks/spec]]", "[[specs/cycle-4-card-effects/spec]]", "[[specs/cycle-1-match-engine/spec]]", "[[planning/phase-3-game-loop]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-04
-updated: 2026-11-05
+updated: 2026-11-09
 uid: 9586d342-7d13-4094-b199-d93b9f7d6a9a
 linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
@@ -373,22 +373,22 @@ orchestrator exactly which two commands to run before merging.
 ## Definition of done
 
 Milestone A
-- [ ] R1–R38 and R56–R57 each covered by a named gdUnit4 case, the sweep line, the boot
+- [x] R1–R38 and R56–R57 each covered by a named gdUnit4 case, the sweep line, the boot
       log, a harness run or a step of the verification.
-- [ ] `make check` green, test stage under 30 s of gdUnit time (C15); sweep line shows
+- [x] `make check` green, test stage under 30 s of gdUnit time (C15); sweep line shows
       `bot=tuned`, p99 under 10 ms (C14), `stamp=match`; the seed-1 golden re-pinned under
       the tuned bot.
-- [ ] `make bot-eval` exits 0 with its summary line pasted into the cycles log; the ledger
+- [x] `make bot-eval` exits 0 with its summary line pasted into the cycles log; the ledger
       has its first two rows (greedy_v1 frozen, tuned v1 shipped).
-- [ ] One screenshot: the board at the tuned bot's first commit.
-- [ ] The `/cycle test` checklist carries R36.
+- [x] One screenshot: the board at the tuned bot's first commit.
+- [x] The `/cycle test` checklist carries R36.
 
 Milestone B
-- [ ] R39–R55 covered as above.
+- [ ] R39–R55 covered as above. (superseded: tuned and matrix bots, the trainer and calibration were removed by the rules-v2 bot strip (DC-13), DC-20 T19)
 - [ ] A training run of at least one promotion: SPRT pass lines against both references,
-      the weights committed, one training match replayed from its log to an equal state.
+      the weights committed, one training match replayed from its log to an equal state. (superseded: training run and its promotion: the genetic trainer was removed, no weights were promoted, DC-20 T19)
 - [ ] The matrix bot passes the gainer test against both references (R54); its sweep line
-      is under 10 ms.
-- [ ] The calibration table is in the ledger.
-- [ ] Constitution Check passes (see plan).
+      is under 10 ms. (superseded: the matrix bot was removed by the rules-v2 bot strip (DC-13), DC-20 T19)
+- [ ] The calibration table is in the ledger. (superseded: calibration and the levels were deleted in DC-16, DC-20 T19)
+- [x] Constitution Check passes (see plan).
 - [x] Spec, plan and tasks signed off by Ben (2026-11-04); committed before implementation begins.
