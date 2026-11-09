@@ -13,8 +13,10 @@ extends RefCounted
 ## `complete` false.
 ##
 ## Static and pure apart from file I/O: every time is a UTC Unix time in seconds the caller
-## passes; nothing here reads the clock. JSON is parsed with JSON.new().parse(), never
-## JSON.parse_string(), and a corrupt file is skipped with a warning, never an error.
+## passes; the one clock read is unix_ms_now(), which anchors the server's timestamps (R28:
+## every timeout runs on the monotonic clock, wall-clock time is for log timestamps only).
+## JSON is parsed with JSON.new().parse(), never JSON.parse_string(), and a corrupt file is
+## skipped with a warning, never an error.
 
 const MODE_PVP: String = "pvp"
 const TMP_SUFFIX: String = ".tmp"
@@ -34,6 +36,16 @@ const ENGINE_REASONS: Array[String] = [
 const WHOLE_LIMIT: float = 9.0e15
 ## "YYYYMMDDTHHMMSSZ": the time part of a match id.
 const STAMP_LENGTH: int = 16
+## R33: the writer's JSON is one line whose `log` (the big part) is the last key, so every key
+## before it, `end` included, sits in this many leading bytes (players and the 10 disconnects
+## are bounded); the orphan scan reads no more than this to tell a running match from a
+## finished one.
+const HEADER_BYTES: int = 16384
+const LOG_KEY_MARK: String = ',"log":'
+## header_state(): the file has an `end`, has none, or the header cannot tell.
+const HEADER_ENDED: int = 1
+const HEADER_RUNNING: int = 0
+const HEADER_UNKNOWN: int = -1
 
 const KEY_MATCH_ID: String = "match_id"
 const KEY_ROOM: String = "room"
@@ -66,6 +78,12 @@ const KEY_RECONNECTED: String = "reconnected"
 const PAYLOAD_ROUNDS: String = "rounds_played"
 
 # --- Times and names --------------------------------------------------------------------
+
+
+## The wall clock as Unix milliseconds, UTC: read once by the server to anchor its monotonic
+## clock, so log timestamps are real times (the only wall-clock read in the server, R28).
+static func unix_ms_now() -> int:
+	return int(Time.get_unix_time_from_system() * 1000.0)
 
 
 ## "2026-11-07T21:45:12Z" for `unix_s`.
@@ -286,8 +304,32 @@ static func _promote_lone_tmps(dated: String) -> void:
 			push_warning("PvpLog: cannot promote %s (error %d)" % [tmp, err])
 
 
-## Marks the log at `path` interrupted when it has no end; whether it was marked.
+## Whether the file at `path` carries an `end`, read from its first HEADER_BYTES only (R33):
+## the text up to the `log` key closed into an object. HEADER_UNKNOWN when the file is
+## missing, has no `log` key in that prefix (an old or hand-edited file) or the prefix is not
+## JSON; the caller then reads the whole file.
+static func header_state(path: String) -> int:
+	var target: String = ProjectSettings.globalize_path(path)
+	var file: FileAccess = FileAccess.open(target, FileAccess.READ)
+	if file == null:
+		return HEADER_UNKNOWN
+	var head: String = file.get_buffer(HEADER_BYTES).get_string_from_utf8()
+	file.close()
+	var cut: int = head.find(LOG_KEY_MARK)
+	if cut < 0:
+		return HEADER_UNKNOWN
+	var header: Dictionary = _parse_object(head.substr(0, cut) + "}")
+	if header.is_empty():
+		return HEADER_UNKNOWN
+	return HEADER_ENDED if has_end(header) else HEADER_RUNNING
+
+
+## Marks the log at `path` interrupted when it has no end; whether it was marked. A file whose
+## header already shows an end is not read any further (R33).
 static func _mark_interrupted(path: String) -> bool:
+	var state: int = header_state(path)
+	if state == HEADER_ENDED:
+		return false
 	var record: Dictionary = read(path)
 	if record.is_empty():
 		push_warning("PvpLog: skipped unreadable log %s" % path)

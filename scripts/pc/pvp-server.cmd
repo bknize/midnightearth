@@ -5,6 +5,9 @@ rem (and the first time through the trainer-runner queue) as the non-admin user 
 rem cmd.exe re-reads a running .cmd by byte offset: never overwrite this file while the
 rem server runs. Stop the task first, copy, then start it again.
 rem A second start while port 8766 is already listening does nothing.
+rem The server writes %PVP_OUT%\server.log itself (--log=), opening and closing it per line and
+rem rotating it at 8 MiB (3 past files), so cmd must not hold it open with a redirect.
+rem stdout and stderr (engine warnings, errors) go to console.log, moved aside at each start.
 netstat -ano | findstr /R /C:":8766 .*LISTENING" >nul
 if %ERRORLEVEL% EQU 0 (
   echo pvp server already listening on 8766
@@ -19,4 +22,5 @@ if not defined PVP_BUILD for /f %%i in ('git -C "%PVP_REPO%" rev-parse HEAD 2^>n
 if not defined PVP_BUILD set PVP_BUILD=unknown
 if not exist %PVP_OUT% mkdir %PVP_OUT%
 if not exist %PVP_LOGS% mkdir %PVP_LOGS%
-"%GODOT_BIN%" --headless --path "%PVP_REPO%\godot" -s res://server/server_main.gd -- --port=8766 --logs=%PVP_LOGS% --build=%PVP_BUILD% >> %PVP_OUT%\server.log 2>&1
+if exist %PVP_OUT%\console.log move /y %PVP_OUT%\console.log %PVP_OUT%\console.log.1 >nul
+"%GODOT_BIN%" --headless --path "%PVP_REPO%\godot" -s res://server/server_main.gd -- --port=8766 --logs=%PVP_LOGS% --build=%PVP_BUILD% --log=%PVP_OUT%\server.log >> %PVP_OUT%\console.log 2>&1

@@ -155,8 +155,8 @@ func opponent_deck() -> String:
 	return _opponent_deck
 
 
-## `events` messages received since `started`: the accepted actions of either seat seen
-## live (a resync's history is not counted).
+## `events` messages dealt since `started`: the accepted actions of either seat. A resync
+## carries the server's count, so a rejoined client's number matches the host's (R32).
 func actions_seen() -> int:
 	return _actions_seen
 
@@ -450,6 +450,7 @@ func _on_resync(message: Dictionary) -> void:
 	_rejoining = false
 	_attempting = false
 	_phase = Phase.PLAYING
+	_actions_seen = maxi(_actions_seen, NetCodec.int_at(message, NetProtocol.KEY_ACTIONS))
 	var events: Array[MatchEvent] = NetCodec.events_of(message)
 	_take(events)
 	# The history replaces anything held for a board that has not started yet.

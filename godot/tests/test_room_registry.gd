@@ -138,3 +138,29 @@ func test_the_shipped_factory_plays_only_shipped_decks_on_a_31_bit_seed() -> voi
 	var drawn: int = seed_text.to_int()
 	assert_int(drawn).is_greater(0)
 	assert_int(drawn).is_less_equal(RoomRegistry.SEED_MASK)
+
+
+## R27: five wrong codes from one address within a minute start a minute of cooling for that
+## address only; the cooling ends on time.
+func test_five_wrong_codes_in_a_minute_cool_the_address_for_a_minute() -> void:
+	var registry: RoomRegistry = _registry()
+	var cooled: bool = false
+	for at: int in range(RoomRegistry.MAX_MISSES):
+		assert_bool(registry.is_cooling("10.0.0.1", T0_MS + at * 1000)).is_false()
+		cooled = registry.note_miss("10.0.0.1", T0_MS + at * 1000)
+		assert_bool(cooled).is_equal(at == RoomRegistry.MAX_MISSES - 1)
+	var started: int = T0_MS + (RoomRegistry.MAX_MISSES - 1) * 1000
+	assert_bool(registry.is_cooling("10.0.0.1", started + 1)).is_true()
+	assert_bool(registry.is_cooling("10.0.0.2", started + 1)).is_false()
+	var last_cooling: int = started + RoomRegistry.COOLING_MS - 1
+	assert_bool(registry.is_cooling("10.0.0.1", last_cooling)).is_true()
+	assert_bool(registry.is_cooling("10.0.0.1", last_cooling + 1)).is_false()
+
+
+## R27: misses spread past the window never add up to a cooling.
+func test_misses_spread_over_more_than_a_minute_do_not_cool_the_address() -> void:
+	var registry: RoomRegistry = _registry()
+	for at: int in range(RoomRegistry.MAX_MISSES * 2):
+		var when: int = T0_MS + at * 30001
+		assert_bool(registry.note_miss("10.0.0.1", when)).is_false()
+		assert_bool(registry.is_cooling("10.0.0.1", when)).is_false()

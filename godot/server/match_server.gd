@@ -5,8 +5,11 @@ extends Node
 ## Connection per peer, polled every frame. Text frames carry one NetProtocol message each.
 ## Every message is checked here (token bucket, size, NetCodec shape, handshake order) and
 ## routed to the RoomRegistry and its MatchRooms, which are pure; each Outbound they return
-## goes to its connection. The clock is read only in _process (Unix ms, UTC) and handed
-## down as `now_ms`, so a suite drives poll(now_ms) on a fake clock.
+## goes to its connection. The clock is read only in _process and handed down as `now_ms`,
+## so a suite drives poll(now_ms) on a fake clock. clock_ms() is monotonic (R28): the wall
+## clock is read once, at the first call, to anchor Unix milliseconds for the log's
+## timestamps, and Time.get_ticks_msec() carries it on, so a wall-clock change never fires or
+## delays a timeout, grace period or reconnect window.
 ##
 ## Hardening (R35 to R37, P10): a connection that sends a frame past
 ## NetProtocol.MAX_MESSAGE_BYTES, more than `max_per_s` messages within any one second
@@ -78,7 +81,15 @@ const LINE_PREFIX: String = "PVP server: "
 const ENDING_KINDS: Array[String] = [
 	NetProtocol.T_CLOSED, NetProtocol.T_ABANDONED, NetProtocol.T_EXPIRED
 ]
+## The `closed` reason of a client whose `resync` outgrew MAX_SERVER_MESSAGE_BYTES (R30).
+const REASON_RESYNC_TOO_LARGE: String = "resync_too_large"
+## The refusal detail of a join from an address in its cooling period (R27).
+const DETAIL_COOLING: String = "cooling"
 const PHASE_NAMES: Array[String] = ["waiting", "started", "finished", "closed"]
+
+## The wall clock (Unix ms) and the tick count when clock_ms() first ran.
+static var _anchor_unix_ms: int = -1
+static var _anchor_ticks_ms: int = 0
 
 ## The handshake stamp (BotStamp.current()) every `hello` must carry, and the build.
 var stamp: String = ""
@@ -96,6 +107,8 @@ var close_grace_ms: int = CLOSE_GRACE_MS
 var refusal_grace_ms: int = REFUSAL_GRACE_MS
 ## No stdout lines (the suites).
 var quiet: bool = false
+## A file the lines go to instead of stdout, rotated at ServerLog.MAX_BYTES; "" prints.
+var log_path: String = ""
 ## func(deck_ids: Array[String]) -> MatchEngine for every room, set before listen(); the
 ## shipped data on a seed from the server's RNG when not valid. A Callable does not keep
 ## its object alive: the caller holds that object.
@@ -108,11 +121,18 @@ var _rng: RandomNumberGenerator = null
 var _conns: Dictionary[int, Connection] = {}
 var _next_id: int = 1
 var _rooms: Array[TrackedRoom] = []
+## The last poll's clock: for a send that closes its connection.
+var _now_ms: int = 0
 
 
-## Unix time in milliseconds, UTC: the clock _process hands to poll().
+## Unix milliseconds, UTC, advanced by the monotonic clock: the clock _process hands to
+## poll(). Wall-clock changes after the first call do not move it.
 static func clock_ms() -> int:
-	return int(Time.get_unix_time_from_system() * 1000.0)
+	var ticks: int = Time.get_ticks_msec()
+	if _anchor_unix_ms < 0:
+		_anchor_unix_ms = PvpLog.unix_ms_now()
+		_anchor_ticks_ms = ticks
+	return _anchor_unix_ms + (ticks - _anchor_ticks_ms)
 
 
 ## Starts listening on `port` (0 picks a free one, see get_local_port) at `bind_address`,
@@ -167,11 +187,12 @@ func stop() -> void:
 		_tcp = null
 
 
-## One server step at `now_ms` (Unix ms, UTC): accept, read and route every connection,
+## One server step at `now_ms` (Unix ms, UTC, monotonic): accept, read and route every connection,
 ## the rooms' timers, and the logs.
 func poll(now_ms: int) -> void:
 	if _tcp == null:
 		return
+	_now_ms = now_ms
 	_accept(now_ms)
 	for id: int in _ids():
 		if _conns.has(id):
@@ -478,10 +499,16 @@ func _on_host(conn: Connection, message: Dictionary, now_ms: int) -> void:
 ## `join` or `rejoin` (R11, R46): the room under the code takes `conn` on a seat.
 func _on_join(conn: Connection, kind: String, message: Dictionary, now_ms: int) -> void:
 	# A code off the alphabet is never looked up or echoed (S4).
+	if registry.is_cooling(conn.address, now_ms):
+		_send(conn, _refused(NetProtocol.REASON_UNKNOWN_ROOM, DETAIL_COOLING))
+		return
 	var code: String = NetCodec.room_code(NetCodec.text_at(message, NetProtocol.KEY_CODE))
 	var room: MatchRoom = null if code == "" else registry.room_of(code)
 	if room == null:
 		_send(conn, _refused(NetProtocol.REASON_UNKNOWN_ROOM, code))
+		if registry.note_miss(conn.address, now_ms):
+			var cooling_s: int = floori(float(RoomRegistry.COOLING_MS) / 1000.0)
+			_say("address %s refused for %d s after wrong room codes" % [conn.address, cooling_s])
 		return
 	var out: Array[MatchRoom.Outbound] = []
 	if kind == NetProtocol.T_JOIN:
@@ -516,6 +543,16 @@ func _send(conn: Connection, message: Dictionary) -> void:
 	if conn.peer.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		return
 	var text: String = NetCodec.encode(message)
+	if text == "" and NetCodec.text_at(message, NetProtocol.KEY_T) == NetProtocol.T_RESYNC:
+		# R30: the history outgrew the send limit: say why and close, never drop it silently.
+		_say("conn %d resync too large" % conn.id)
+		var closed: Dictionary = {
+			NetProtocol.KEY_T: NetProtocol.T_CLOSED,
+			NetProtocol.KEY_REASON: REASON_RESYNC_TOO_LARGE,
+		}
+		_send(conn, closed)
+		_close_conn(conn, REASON_RESYNC_TOO_LARGE, CLOSE_POLICY, refusal_grace_ms, _now_ms)
+		return
 	if text == "":
 		push_warning("MatchServer: a '%s' message did not encode" % NetCodec.text_at(message, "t"))
 		return
@@ -582,8 +619,14 @@ func _ids() -> Array[int]:
 
 
 func _say(line: String) -> void:
-	if not quiet:
-		print(LINE_PREFIX + line)
+	if quiet:
+		return
+	if log_path != "":
+		var err: int = ServerLog.append(log_path, LINE_PREFIX + line)
+		if err != OK:
+			push_warning("MatchServer: server log not written (error %d)" % err)
+		return
+	print(LINE_PREFIX + line)
 
 
 static func _refused(reason: String, detail: String) -> Dictionary:
