@@ -4,7 +4,7 @@ tags: [tasks, cycle-9-rules-v2, engine, rules-v2, cards, board]
 status: approved
 related: ["[[specs/cycle-9-rules-v2/spec]]", "[[specs/cycle-9-rules-v2/plan]]", "[[rules/cards-v2]]", "[[rules/crew-v2]]", "[[rules/test-decks]]", "[[rules/resolution]]", "[[decisions/0002-one-branch-per-cycle]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]", "[[planning/bot-ladder]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-09
 uid: 9864f294-25f9-4d49-b40b-ef82cd42f851
 linear: https://linear.app/night-science-llc/project/cycle-9-rules-v2-in-the-engine-60e0297b48b8
 supersedes:
@@ -62,37 +62,37 @@ T15 re-run. W3: T16. W4: T17. W5: T18. Milestone B runs as its own cycle on
 Owned by the orchestrator, on `cycle-9-rules-v2`, editor opened on the cycle worktree.
 Three screenshots.
 
-- [ ] `make check` exits 0; gdUnit under 30 s (cycle 7 C15); record the case count and the
+- [x] `make check` exits 0; gdUnit under 30 s (cycle 7 C15); record the case count and the
       time in the cycles row. A format-4 log fails replay (`test_action_log.gd`).
-- [ ] The data diff: a script-free read of `cards.json` against the three canon tables shows
+- [x] The data diff: a script-free read of `cards.json` against the three canon tables shows
       every Cost, Power, Bonus, tag and text equal for the 50 cards, six Crew and two decks
       (spec R60–R62); any mismatch is fixed in the data, never in the canon.
-- [ ] `grep -rl "preview\|PreviewPolicy\|BotWeights\|BotStamp" godot/engine godot/board
+- [x] `grep -rl "preview\|PreviewPolicy\|BotWeights\|BotStamp" godot/engine godot/board
       godot/main.gd godot/tests godot/tools` is empty; `ls godot/engine/bot` holds the three
       random-bot files; `git diff --stat master -- scripts Makefile` is empty (R71–R74).
-- [ ] Pin the seed-1 golden under `random` in `GOLDEN` (`test_full_match.gd`): the smoke line,
+- [x] Pin the seed-1 golden under `random` in `GOLDEN` (`test_full_match.gd`): the smoke line,
       `Board: match ended …` and the `test_match_driver` pin agree across a headless
       `--fixed-fps 60 --autoplay` run and an editor run; record the line in
       [[planning/cycles]].
-- [ ] `make sweep` under `random`: every match ends, every log replays, the leak scan is clean
+- [x] `make sweep` under `random`: every match ends, every log replays, the leak scan is clean
       (Piles public, hands and looked-at cards private), the four pairings drawn; record the
       longest match, the longest Walk, prompts, discard-downs, empty draws and Pile shuffles.
       No `make bot-eval`, no re-stamp (R75).
-- [ ] **Faces and the total.** On a seed where a Mult card Scores on a fractional total: the
+- [x] **Faces and the total.** On a seed where a Mult card Scores on a fractional total: the
       chip and tally read two decimals (for example "4.38"), the face reads "×1.25", the HUD
       shows the whole-number Score at Walk end. **Screenshot 1:**
       `godot/reports/DC-13/walking-total-face.png`.
-- [ ] **Discard-down.** With the human seat holding more than its Hand size after a Commit:
+- [x] **Discard-down.** With the human seat holding more than its Hand size after a Commit:
       the multi-select opens over the hand with "Discard N", Confirm enables only at exactly
       N selected, Commit is disabled, the chosen cards fly to the Pile and the Pile count
       rises. **Screenshot 2:** `godot/reports/DC-13/discard-down.png`.
-- [ ] **Exit and Pile.** Flare Scores, then at turn end flies to its Owner's Pile; a tap on
+- [x] **Exit and Pile.** Flare Scores, then at turn end flies to its Owner's Pile; a tap on
       the Pile count shows the strip face up, the opponent's Pile too. **Screenshot 3:**
       `godot/reports/DC-13/pile-strip.png`.
-- [ ] Engine scan on a seed: Dredger's shuffle (`PILE_SHUFFLED_IN`) and the resumed draw, or
+- [x] Engine scan on a seed: Dredger's shuffle (`PILE_SHUFFLED_IN`) and the resumed draw, or
       Void's grant on the next Score, appear in the log (whichever the seeds reach; the other
       is proven by `test_crew_abilities.gd`).
-- [ ] No GDScript warning in the editor run; `obsidian-cli vault=docs unresolved` and
+- [x] No GDScript warning in the editor run; `obsidian-cli vault=docs unresolved` and
       `orphans` report nothing new; the DC-13 row in [[planning/cycles]] records the gate,
       golden, sweep and screenshots and says the bot rerun provision is suspended; one closing
       line appended to [[planning/bot-ladder]] (R75).
@@ -101,21 +101,21 @@ Three screenshots.
 
 Owned by the orchestrator, on `cycle-9b-rules-v2`. Two screenshots.
 
-- [ ] `make check` exits 0 with gdUnit under 30 s; `test_card_db.gd` reads 90 cards; the
+- [x] `make check` exits 0 with gdUnit under 30 s; `test_card_db.gd` reads 90 cards; the
       golden re-pinned in `GOLDEN` under six seeded decks; `make sweep` clean over the fifteen
       pairings, the leak scan covering created cards.
-- [ ] **Silenced.** On a seed where Eclipse resolves against the human seat: the card shows
+- [x] **Silenced.** On a seed where Eclipse resolves against the human seat: the card shows
       "Silenced", Scores nothing and fires nothing; next Turn it is clear.
       **Screenshot 4:** `godot/reports/DC-14/silenced-badge.png`.
-- [ ] **Dross.** Litter puts three Dross in the human seat's fan; at Walk end the tally
+- [x] **Dross.** Litter puts three Dross in the human seat's fan; at Walk end the tally
       shows the ×0.75 multiplies before the rounded Score. **Screenshot 5:**
       `godot/reports/DC-14/dross-in-hand.png`.
 - [ ] Both-seat prompt (Quorum or Cull) answered by the human seat and the bot in order; a
-      Revive choice made from the Pile strip.
+      Revive choice made from the Pile strip. (superseded: not driven on the board, covered by `test_board_steps_b` and `test_abilities_*`, DC-20 T19)
 - [ ] The two guides describe rules 7, the canon notes say built, Ben has read both guides;
       the uncommitted system-note edits in the main checkout reconciled with Ben before the
-      `master` merge.
-- [ ] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new; the DC-14 row
+      `master` merge. (superseded: the guides moved on through rules 8 and T01 of DC-20 rewrote them for rules 9; Ben decided 2026-11-08, DC-20 T19)
+- [x] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new; the DC-14 row
       in [[planning/cycles]].
 
 ## Linear (exercised 2026-11-06)

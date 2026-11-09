@@ -4,7 +4,7 @@ tags: [system, cards, crew, decks]
 status: growing
 related: ["[[systems/systems-moc]]", "[[systems/game-loop]]", "[[systems/bot-training]]", "[[rules/rules-moc]]", "[[rules/cards-v2]]", "[[rules/crew-v2]]", "[[rules/test-decks]]", "[[planning/cycles]]", "[[specs/cycle-9-rules-v2/spec]]"]
 created: 2026-11-05
-updated: 2026-11-08
+updated: 2026-11-09
 uid: 692bf835-9b24-4738-9df5-6a5ed267a33e
 linear: https://linear.app/night-science-llc/issue/NSC-160
 supersedes:
@@ -14,7 +14,7 @@ supersedes:
 
 > What a card is made of, how its abilities work, what the 90 cards, the ten Crew and the six decks do, and how to add new content without breaking the game.
 
-All of Midnight Earth's content lives in three JSON files under `godot/engine/data/`: `cards.json` (the card pool, format 5: 90 cards, plus Dross, which only an ability makes), `crew.json` (the Crew pool, format 2: 10 Crew) and `decks.json` (format 3: six decks, each 40 cards plus 3 Crew). The engine loads and checks all three before any match can start. If any check fails, nothing plays. This note describes those files and the code that gives them meaning, as the code stands after DC-14 (rules version 7). It is the as-built counterpart of the design canon in [[rules/rules-moc]]: the cards are [[rules/cards-v2]], the Crew [[rules/crew-v2]] and the decks [[rules/test-decks]]. Where the build reads the canon differently, [[#Where the build differs from the canon]] says so. Every capitalised word is defined in [[rules/glossary]].
+All of Midnight Earth's content lives in three JSON files under `godot/engine/data/`: `cards.json` (the card pool, format 5: 90 cards, plus Dross, which only an ability makes), `crew.json` (the Crew pool, format 2: 10 Crew) and `decks.json` (format 3: six decks, each 40 cards plus 3 Crew). The engine loads and checks all three before any match can start. If any check fails, nothing plays. This note describes those files and the code that gives them meaning, as the code stands after DC-14 (rules version 10). It is the as-built counterpart of the design canon in [[rules/rules-moc]]: the cards are [[rules/cards-v2]], the Crew [[rules/crew-v2]] and the decks [[rules/test-decks]]. Where the build reads the canon differently, [[#Where the build differs from the canon]] says so. Every capitalised word is defined in [[rules/glossary]].
 
 How a match runs (Rounds, Turns, the Walk, the trigger queue, events) is in [[systems/game-loop]]. The one bot is in [[systems/bot-training]]. How the cards were built is in the DC-13 and DC-14 rows of [[planning/cycles]].
 

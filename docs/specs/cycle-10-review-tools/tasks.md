@@ -4,7 +4,7 @@ tags: [tasks, cycle-10-review-tools, tooling, review, cleanup]
 status: approved
 related: ["[[specs/cycle-10-review-tools/spec]]", "[[specs/cycle-10-review-tools/plan]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]", "[[decisions/0002-one-branch-per-cycle]]"]
 created: 2026-11-06
-updated: 2026-11-07
+updated: 2026-11-09
 uid: 3ccb76be-2914-468b-80ff-3f0555b8e293
 linear: https://linear.app/night-science-llc/project/cycle-10-review-tools-in-the-cycle-and-one-cleanup-pass-da55e6ed55be
 supersedes:
@@ -90,21 +90,21 @@ Owned by the orchestrator, on `cycle-10-review-tools`. Tooling cycle: no screens
 (spec Non-goals; cycle 1 C12 waiver). The new step itself is **not** run on this cycle's
 own diff (spec R12, Ben round 3 3b); its first real run is the next cycle's `/cycle test`.
 
-- [ ] `scripts/check.sh` exits 0 on the cycle branch; stage summary pasted into the cycle
+- [x] `scripts/check.sh` exits 0 on the cycle branch; stage summary pasted into the cycle
   row.
-- [ ] `make sweep`: every log replays, leak scan clean, `stamp=match`, golden line equal to
+- [x] `make sweep`: every log replays, leak scan clean, `stamp=match`, golden line equal to
   the one pinned at T03; summary lines pasted.
-- [ ] `git log master..cycle-10-review-tools --oneline` shows the T01/T02 commits, the T03
+- [x] `git log master..cycle-10-review-tools --oneline` shows the T01/T02 commits, the T03
   merge, and for each chunk its `review fixes` and/or `simplify` commit, none for C6
   simplify.
-- [ ] `git diff master -- godot/engine/data godot/addons scripts` is empty.
-- [ ] `grep -n "code-review\|simplify\|ultra" CLAUDE.md .claude/skills/cycle/SKILL.md
+- [x] `git diff master -- godot/engine/data godot/addons scripts` is empty.
+- [x] `grep -n "code-review\|simplify\|ultra" CLAUDE.md .claude/skills/cycle/SKILL.md
   .claude/agents/reviewer.md` shows R13, R16, R17 in place; ADR 0004 listed in the
   decisions MOC.
-- [ ] Every `/code-review` finding across C1 to C6 is either in a commit or in a Backlog
+- [x] Every `/code-review` finding across C1 to C6 is either in a commit or in a Backlog
   issue labelled `spec/cycle-10-review-tools` (R31): counts per chunk recorded in the cycle
   row.
-- [ ] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new; the cycle row in
+- [x] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new; the cycle row in
   [[planning/cycles]] records the gate, the sweep, the golden, the finding counts, the P1
   outcome and any skill skip (R11).
 

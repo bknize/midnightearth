@@ -14,6 +14,9 @@ R1–R9). This file is the short version every agent must obey.
 | `godot/engine/` | Pure match engine (from cycle 1) | Typed GDScript, deterministic, seeded RNG, serializable action log (D4) |
 | `godot/net/` | Client network code (from cycle 12) | Protocol, codec, `NetClient`, `RemoteMatchSource`, the headless bot client; typed GDScript, no engine state on the client (ADR 0005) |
 | `godot/server/` | PVP match server (from cycle 12) | Headless, server-authoritative, runs on the testing PC; rooms, hardening, PVP logs; no clock or RNG inside `godot/engine/` (ADR 0005) |
+| `godot/title/` | Title and PVP entry screens (from cycle 12) | Title screen, waiting screen, device `Identity`, `PvpSession`; `main.gd` owns the flow, and the screens only raise signals |
+| `trainer/` | Bot trainer service and learner (from cycle 11) | Python 3 standard library plus `mcp` and, for `fit`, numpy; runs on the training PC as an MCP service (labelling runs, `fit`, run store); unit tests with `make trainer-test`; setup in `trainer/windows/SETUP.md` |
+| `scripts/pc/` | Files deployed to the training PC | Windows `.cmd` launchers (the PVP server start script); copied by hand or through the runner queue, never run on the Mac |
 | `godot/addons/` | Vendored third-party code | Never edit except through a patch recorded in `addons/THIRD_PARTY_LICENSES.md` |
 | `godot/tests/` | gdUnit4 suites | One suite per engine module |
 | `godot/art/` | Approved art (`/art approve`) | Git LFS; every image has an entry in `art/manifest.json` (ADR 0003) |

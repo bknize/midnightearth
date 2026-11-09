@@ -4,7 +4,7 @@ tags: [tasks, cycle-12-multiplayer, scene, tooling, server, pvp, logs]
 status: approved
 related: ["[[specs/cycle-12-multiplayer/spec]]", "[[specs/cycle-12-multiplayer/plan]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]", "[[planning/bot-trainer-spike]]"]
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-09
 uid: 266ba239-b351-4742-9fc8-d4cb4154c6b6
 linear: https://linear.app/night-science-llc/project/cycle-12-pvp-through-a-match-server-on-the-testing-pc-130cdbdf69c0
 supersedes:
@@ -49,45 +49,45 @@ rebased onto it before its merge (T07's `main.gd` change is the two `board.drive
 Task T14, owned by the orchestrator, from the Mac against the server on the PC (spec I;
 Ben, round 2 Q3 and round 3 Q2b):
 
-- [ ] `make check` exits 0 on the cycle branch (T10's suite included; gdUnit under 30 s);
+- [x] `make check` exits 0 on the cycle branch (T10's suite included; gdUnit under 30 s);
       `make sweep` unchanged from its last recorded summary; the golden lines unchanged in
       the engine smoke, `test_full_match`, `test_match_driver` and a headless
       `--fixed-fps 60 -- --autoplay --seed=1` board run (R62).
-- [ ] The server on the PC answers: `server.log` shows `PVP server ready port=8766
+- [x] The server on the PC answers: `server.log` shows `PVP server ready port=8766
       stamp=r7-… protocol=1 logs=C:\Users\trainer\pvp-logs`, the stamp equal to the Mac's
       `BotStamp.current()`.
-- [ ] Editor on the cycle worktree: `Main ready`, no errors or warnings; title screen with
+- [x] Editor on the cycle worktree: `Main ready`, no errors or warnings; title screen with
       the name and server fields (`--server=192.168.68.63:8766` or typed), Host → one-column
       picker → waiting screen with the code (screenshot 1 and 2).
-- [ ] `godot --headless --path godot -- --join=<code> --server=192.168.68.63:8766` from the
+- [x] `godot --headless --path godot -- --join=<code> --server=192.168.68.63:8766` from the
       Mac joins; both boards start within a second; the editor plays seat 0 through the
       MCP: a commit, a prompt answer, a wrong-time commit rejected (`WRONG_SEAT` warning,
       cards unstage, energy flash), "Waiting for bot:random…" while the bot is awaited,
       the opponent's name in the HUD (screenshot 3); the match ends, the result panel offers
       Leave only, Leave returns to the title screen; the bot client prints `PVP client: …`
       and exits 0.
-- [ ] Over SSH: the match's file exists under `C:\Users\trainer\pvp-logs\<date>\`, `complete:
+- [x] Over SSH: the match's file exists under `C:\Users\trainer\pvp-logs\<date>\`, `complete:
       true`, `players[1].kind == "bot"`, and its `log` field replays on the Mac
       (`ActionLog.from_json().replay()` through a one-off headless script or the T04 suite's
       helper) to the file's action count.
-- [ ] Hardening probes against the live server (a one-off headless probe script, deleted
+- [x] Hardening probes against the live server (a one-off headless probe script, deleted
       before the gate): a 20 KiB message, 30 messages in one second, a connection that
       sends nothing for 5 s, a `hello` with another stamp, an `act` naming the other seat
       (applied to the sender's seat), a ninth `host` with eight rooms live (`server_full`).
       Every other connection keeps working; `server.log` names each close with its reason.
-- [ ] Reconnect: the bot client killed mid-match and restarted with `--join=<code>` within
+- [x] Reconnect: the bot client killed mid-match and restarted with `--join=<code>` within
       two minutes rejoins (its `hello` carries the same install id from `user://`); the
       editor saw "Connection with bot:random lost; waiting up to 2 minutes" then "bot:random
       is back"; the log's `disconnects` has one entry with `reconnected: true`.
-- [ ] Abandonment: the bot client killed and not restarted; after two minutes the editor
+- [x] Abandonment: the bot client killed and not restarted; after two minutes the editor
       shows "bot:random left; the match is abandoned" with Leave; the file ends with `end:
       {reason: "abandoned"}`, `complete: false`, no action appended; the code is free (a
       new `host` may receive it).
 - [ ] Ben's checklist complete (T12): firewall rule, router forward, CGNAT result (equal /
       not equal), scheduled task, the public address handed out. No match from outside the
-      LAN is run in the cycle (round 3, 2b).
+      LAN is run in the cycle (round 3, 2b). (moved to NSC-248, Ben's router steps; Ben decided 2026-11-08, DC-20 T19)
 - [ ] Three screenshots (R71) attached to the Linear status update.
-- [ ] The cycle's row in [[planning/cycles]]; `obsidian-cli vault=docs unresolved` and
+- [x] The cycle's row in [[planning/cycles]]; `obsidian-cli vault=docs unresolved` and
       `orphans` report nothing new.
 
 ## Review and deployment decisions (DC-19, 2026-11-07)

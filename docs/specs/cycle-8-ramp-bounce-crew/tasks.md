@@ -4,7 +4,7 @@ tags: [tasks, cycle-8-ramp-bounce-crew, engine, board, cards]
 status: approved
 related: ["[[specs/cycle-8-ramp-bounce-crew/spec]]", "[[specs/cycle-8-ramp-bounce-crew/plan]]", "[[specs/cycle-7-bot-players/tasks]]", "[[decisions/0002-one-branch-per-cycle]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-04
-updated: 2026-11-05
+updated: 2026-11-09
 uid: 74041068-ca8e-4595-97eb-c4819afd258a
 linear: https://linear.app/night-science-llc/project/cycle-8-ramp-bounce-crew-c3fe684d879f
 supersedes:
@@ -99,23 +99,23 @@ Outcome (2026-11-05): all boxes checked; the gate, golden, sweep, bot rerun and 
 
 Owned by the orchestrator, on `cycle-8b-ramp-bounce-crew`. Two screenshots.
 
-- [ ] `make check` exits 0 with gdUnit under 30 s; a format-3 log fails replay; the golden
+- [x] `make check` exits 0 with gdUnit under 30 s; a format-3 log fails replay; the golden
       re-pinned in `GOLDEN_TUNED` if the Crew changed it; the sweep clean with `p99_us` under
       10 ms; the frozen-fixture stamp digest re-pinned over the three fixtures (cards, decks,
       crew); the rerun provision as in A (plan P18: `make bot-eval`, hand re-stamp, ledger
       row), or `make bot-train` if cycle 7 milestone B has merged by then (R58).
-- [ ] **Crew line.** Both sides show three Crew with names; on a Ruin seat Salvager reads
+- [x] **Crew line.** Both sides show three Crew with names; on a Ruin seat Salvager reads
       "1 left", then "spent" after a use; Veil's badge persists across rounds. **Screenshot
       3:** `godot/reports/DC-11/crew-line.png`.
-- [ ] **Decline.** On a Salvager prompt the eligible hand cards glow, the reader shows
+- [x] **Decline.** On a Salvager prompt the eligible hand cards glow, the reader shows
       "Discard" and a Skip button is visible; Skip closes the prompt with no discard and the
       log carries `decline`; on a Veil prompt accepting flips the row face down and none is
       destroyed. **Screenshot 4:** `godot/reports/DC-11/optional-prompt-skip.png`.
-- [ ] **Turn start.** With Echo (Shade) on turn 4 the prompt opens before staging, Commit is
+- [x] **Turn start.** With Echo (Shade) on turn 4 the prompt opens before staging, Commit is
       disabled, a choice flips the card and Lookout draws; after the prompt the hand drags
       again.
-- [ ] Bot vs bot on every deck pairing and Crew ends with no rejected action (the sweep).
-- [ ] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new.
+- [x] Bot vs bot on every deck pairing and Crew ends with no rejected action (the sweep).
+- [x] `obsidian-cli vault=docs unresolved` and `orphans` report nothing new.
 
 ## Linear (exercised 2026-11-04)
 

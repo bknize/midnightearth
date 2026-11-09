@@ -4,7 +4,7 @@ tags: [tasks, ruleset-v2, rules, vault, design]
 status: approved
 related: ["[[specs/ruleset-v2/spec]]", "[[specs/ruleset-v2/plan]]", "[[cards/Cards]]", "[[planning/phase-1-tech-stack]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-09
 uid: 0ed7d2ea-9a29-4b9c-aeca-c6aadb17f836
 linear: https://linear.app/night-science-llc/project/ruleset-v2-hardened-vocabulary-resolution-chart-new-card-set-7f65436c0b01
 supersedes:
@@ -37,17 +37,17 @@ Fixes from T7 are re-dispatched to the owning task's implementer, one commit eac
 
 Task 8, owned by the orchestrator:
 
-- [ ] `make check` exits 0 (no code was touched; this proves nothing slipped into `godot/`).
-- [ ] `git status` shows only `docs/rules/`, `docs/home.md`, `docs/specs/ruleset-v2/` and
+- [x] `make check` exits 0 (no code was touched; this proves nothing slipped into `godot/`).
+- [x] `git status` shows only `docs/rules/`, `docs/home.md`, `docs/specs/ruleset-v2/` and
       `docs/specs/specs-moc.md` changed on the branch, plus Ben's pre-existing edits to the
       two system notes untouched.
 - [ ] Every canon note has P5 frontmatter, `type: reference`, a fresh uid, and opens with
-      the "design, not yet built" sentence naming its as-built guide (R67).
-- [ ] The spec's definition-of-done list is checked line by line against the notes.
-- [ ] No screenshot: a vault-only set (P7 covers visible features).
-- [ ] `obsidian-cli vault=docs unresolved` and `obsidian-cli vault=docs orphans` report
+      the "design, not yet built" sentence naming its as-built guide (R67). (superseded: the canon notes are built, so the 'design, not yet built' opener no longer applies (DC-13, DC-14), DC-20 T19)
+- [x] The spec's definition-of-done list is checked line by line against the notes.
+- [x] No screenshot: a vault-only set (P7 covers visible features).
+- [x] `obsidian-cli vault=docs unresolved` and `obsidian-cli vault=docs orphans` report
       nothing new for `docs/rules/` or `docs/specs/ruleset-v2/` (R68).
-- [ ] Ben has read each of the seven notes and said so; his changes are applied as T7-style
+- [x] Ben has read each of the seven notes and said so; his changes are applied as T7-style
       fix commits before the branch merges.
 
 ## Linear (exercised 2026-11-06)

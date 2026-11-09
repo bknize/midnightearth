@@ -4,7 +4,7 @@ tags: [spec, cycle-9-rules-v2, engine, rules-v2, cards, board]
 status: approved
 related: ["[[specs/cycle-9-rules-v2/plan]]", "[[specs/cycle-9-rules-v2/tasks]]", "[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[rules/rules-v2]]", "[[rules/resolution]]", "[[rules/cards-v2]]", "[[rules/crew-v2]]", "[[rules/test-decks]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[planning/cycles]]", "[[planning/bot-ladder]]", "[[planning/phase-1-tech-stack]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-09
 uid: 8bcbf874-aa7e-4696-9bb8-acb7bbe843e0
 linear: https://linear.app/night-science-llc/project/cycle-9-rules-v2-in-the-engine-60e0297b48b8
 supersedes:
@@ -478,27 +478,27 @@ Each is traceable through [[rules/resolution]]; the nine canon scenarios there h
 
 Milestone A (DC-13):
 
-- [ ] `make check` is green with gdUnit under 30 s; a format-4 log fails replay (R65, R84).
-- [ ] The three data files hold exactly the 50 cards, two decks and six Crew of the canon,
+- [x] `make check` is green with gdUnit under 30 s; a format-4 log fails replay (R65, R84).
+- [x] The three data files hold exactly the 50 cards, two decks and six Crew of the canon,
       and a diff of the card table against [[rules/cards-v2]] shows no difference in Cost,
       Power, Bonus, tag or text (R60 to R62).
-- [ ] Every requirement of sections A to I has a gdUnit case, stub abilities standing in
+- [x] Every requirement of sections A to I has a gdUnit case, stub abilities standing in
       where milestone A's content has no card for it (statuses, Fleeting, Fade, retriggers,
       Scores twice, the budget).
-- [ ] `make sweep` under `random` is clean (R85) and the golden is pinned (R86).
-- [ ] `godot/engine/bot/` holds the random bot only; `grep -rl preview godot/engine` is empty
+- [x] `make sweep` under `random` is clean (R85) and the golden is pinned (R86).
+- [x] `godot/engine/bot/` holds the random bot only; `grep -rl preview godot/engine` is empty
       (R71, R72); `scripts/bot/` and the Makefile are unchanged (`git diff --stat` on them is
       empty) (R74).
-- [ ] Three Godot MCP screenshots (P7): a v2 face with a two-decimal chip and tally, the
+- [x] Three Godot MCP screenshots (P7): a v2 face with a two-decimal chip and tally, the
       discard-down multi-select with Commit disabled, the Pile strip after a Condemned exit.
-- [ ] Constitution Check passes (see plan).
-- [ ] Spec, plan and tasks signed off by Ben and committed before implementation begins.
+- [x] Constitution Check passes (see plan).
+- [x] Spec, plan and tasks signed off by Ben and committed before implementation begins.
 
 Milestone B (DC-14):
 
-- [ ] The 90 cards, six decks and ten Crew are in and every Flags note in [[rules/cards-v2]]
+- [x] The 90 cards, six decks and ten Crew are in and every Flags note in [[rules/cards-v2]]
       has a test; `make sweep` over six decks is clean; the golden is re-pinned.
-- [ ] [[systems/game-loop]] and [[systems/cards-crew-decks]] describe rules version 7 and
+- [x] [[systems/game-loop]] and [[systems/cards-crew-decks]] describe rules version 7 and
       the canon notes' `status` says built.
-- [ ] Two screenshots: a Silenced badge on a card the opponent Eclipsed, and Dross in hand
+- [x] Two screenshots: a Silenced badge on a card the opponent Eclipsed, and Dross in hand
       with the Walk-end multiply shown in the tally.

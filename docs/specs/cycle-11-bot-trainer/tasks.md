@@ -4,7 +4,7 @@ tags: [tasks, cycle-11-bot-trainer, engine, tooling, bot, training, windows, mcp
 status: approved
 related: ["[[specs/cycle-11-bot-trainer/spec]]", "[[specs/cycle-11-bot-trainer/plan]]", "[[planning/bot-trainer-architecture]]", "[[planning/bot-ladder]]", "[[planning/cycles]]", "[[planning/phase-1-tech-stack]]"]
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-09
 uid: 091e8cb1-63a1-43fe-9c19-8554d6a5fc73
 linear: https://linear.app/night-science-llc/project/cycle-11-bot-trainer-cycle-a-play-outs-ladder-from-random-trainer-11ab3927f350
 supersedes:
@@ -50,13 +50,13 @@ day of agent work, M about a day, L more.
 
 Task T07 (A1) and task T14 (A2), owned by the orchestrator:
 
-- [ ] `make check` exits 0 (both milestones); `make trainer-test` exits 0 on both machines (A2).
-- [ ] End-to-end proof by lines: `bot-eval:` summary near 0.500 with `stamp=r7-…`; the
+- [x] `make check` exits 0 (both milestones); `make trainer-test` exits 0 on both machines (A2).
+- [x] End-to-end proof by lines: `bot-eval:` summary near 0.500 with `stamp=r7-…`; the
       seed-1 rollout pin; the 20-position worker digest equal on 1 and 8 workers (A1); the
       MCP run, stop and resume with equal digests, the 401, the Mac re-label equal to the
       PC's values (A2).
-- [ ] No screenshot: engine and tooling cycle (spec R60), proof by text lines.
-- [ ] `obsidian-cli vault=docs unresolved` reports nothing new.
+- [x] No screenshot: engine and tooling cycle (spec R60), proof by text lines.
+- [x] `obsidian-cli vault=docs unresolved` reports nothing new.
 
 ## Waves (a proposal for `/cycle plan`)
 
