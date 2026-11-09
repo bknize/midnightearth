@@ -85,21 +85,15 @@ func _pairing(engine: MatchEngine) -> String:
 	return "%s/%s" % [ids[0], ids[1]]
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _state_list(state: Dictionary, key: String, seat: int) -> Array[int]:
 	var per_seat: Array = state[key]
 	var raw: Array = per_seat[seat]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _state_ints(state: Dictionary, key: String) -> Array[int]:
 	var raw: Array = state[key]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _state_int(state: Dictionary, key: String) -> int:
@@ -615,7 +609,7 @@ func _summary(run: FullMatchRun) -> Dictionary:
 	var reason: String = run.end_payload["reason"]
 	var rounds: int = run.end_payload["rounds_played"]
 	var raw_wins: Array = run.end_payload["wins"]
-	var wins: Array[int] = _typed(raw_wins)
+	var wins: Array[int] = Typed.ints(raw_wins)
 	return {
 		"decks": run.pairing,
 		"winner": winner,

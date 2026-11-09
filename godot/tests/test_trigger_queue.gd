@@ -18,12 +18,6 @@ const GUARD: int = 100
 # --- Helpers --------------------------------------------------------------------------
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 ## Stub-deck definitions (`crew` per seat) whose extra verb table is `verbs`.
 func _cards(verbs: StubAbilities.StubVerbs, crew: Array[String] = StubAbilities.CREW) -> MatchCards:
 	var cards: MatchCards = StubAbilities.defs(crew)
@@ -103,14 +97,14 @@ func test_a_stub_on_score_appends_one_batch_and_finishes_before_either_fires() -
 	var a: int = 0
 	var b: int = 1
 	var c: int = 2
-	_give(cards, _typed([a]), "Waker", _ability("on_score", StubAbilities.VERB_WAKE_MOVED))
+	_give(cards, Typed.ints([a]), "Waker", _ability("on_score", StubAbilities.VERB_WAKE_MOVED))
 	var watcher: Array[CardAbility] = _ability(
 		"on_moved", StubAbilities.VERB_RECORD, 0, "other_own"
 	)
-	_give(cards, _typed([b, c]), "Watcher", watcher)
-	var state: MatchState = StubAbilities.table(_typed([a, b, c]), true)
+	_give(cards, Typed.ints([b, c]), "Watcher", watcher)
+	var state: MatchState = StubAbilities.table(Typed.ints([a, b, c]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	var batch: Dictionary = TriggerQueue.wake(state, cards, "on_score", _typed([a]))
+	var batch: Dictionary = TriggerQueue.wake(state, cards, "on_score", Typed.ints([a]))
 	assert_int(state.queue.size()).is_equal(1)
 	var first: int = batch["id"]
 	assert_bool(TriggerQueue.drain(state, cards, MatchRng.new(SEED), rec.record, "D8")).is_false()
@@ -118,8 +112,8 @@ func test_a_stub_on_score_appends_one_batch_and_finishes_before_either_fires() -
 		"done 0", "fire %d batch %d" % [b, first + 1], "fire %d batch %d" % [c, first + 1]
 	]
 	assert_array(verbs.trace).is_equal(expected)
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([a, b, c]))
-	assert_array(_ints(rec.events, FIRED, "resolution")).is_equal(_typed([1, 2, 3]))
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([a, b, c]))
+	assert_array(_ints(rec.events, FIRED, "resolution")).is_equal(Typed.ints([1, 2, 3]))
 	assert_bool(state.queue.is_empty()).is_true()
 
 
@@ -136,13 +130,15 @@ func test_condemned_mid_batch_fires_once_and_muted_mid_batch_does_not() -> void:
 	var y: int = 1
 	var m: int = 2
 	var z: int = 3
-	_give(cards, _typed([x]), "Condemner", _ability("on_start", StubAbilities.VERB_CONDEMN_SLOT, 1))
-	_give(cards, _typed([y, z]), "Plain", _ability("on_start", StubAbilities.VERB_RECORD))
-	_give(cards, _typed([m]), "Muter", _ability("on_start", StubAbilities.VERB_MUTE_SLOT, 3))
-	var state: MatchState = StubAbilities.table(_typed([x, y, m, z]), true)
+	_give(
+		cards, Typed.ints([x]), "Condemner", _ability("on_start", StubAbilities.VERB_CONDEMN_SLOT, 1)
+	)
+	_give(cards, Typed.ints([y, z]), "Plain", _ability("on_start", StubAbilities.VERB_RECORD))
+	_give(cards, Typed.ints([m]), "Muter", _ability("on_start", StubAbilities.VERB_MUTE_SLOT, 3))
+	var state: MatchState = StubAbilities.table(Typed.ints([x, y, m, z]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TurnFlow.on_start(state, cards, MatchRng.new(SEED), rec.record)).is_false()
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([x, y, m]))
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([x, y, m]))
 	assert_array(rec.of_kind(FIZZLED)).is_empty()
 	assert_str(Statuses.exit_mark_of(state, y)).is_equal(Statuses.CONDEMNED)
 	assert_bool(Statuses.has(state, z, Statuses.MUTED)).is_true()
@@ -162,12 +158,14 @@ func test_order_is_first_seat_cards_then_second_seat_cards_then_crew_by_slot() -
 	var p1: int = OTHER
 	var x: int = OTHER + 1
 	var any: Array[CardAbility] = _ability("on_score", StubAbilities.VERB_RECORD, 0, "any")
-	_give(cards, _typed([p0, q0, p1, x]), "Any", any)
+	_give(cards, Typed.ints([p0, q0, p1, x]), "Any", any)
 	var state: MatchState = MatchState.new(SEED)
 	state.first_seat = 1
-	StubAbilities.put_row(state, 0, _typed([p0, q0]), true)
-	StubAbilities.put_row(state, 1, _typed([p1, x]), true)
-	var listed: Array[Dictionary] = TriggerQueue.watchers(state, cards, "on_score", _typed([x]), -1)
+	StubAbilities.put_row(state, 0, Typed.ints([p0, q0]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([p1, x]), true)
+	var listed: Array[Dictionary] = TriggerQueue.watchers(
+		state, cards, "on_score", Typed.ints([x]), -1
+	)
 	var shape: Array = []
 	for entry: Dictionary in listed:
 		shape.append([entry["kind"], entry["seat"], entry["card"], entry["crew_slot"]])
@@ -181,10 +179,12 @@ func test_order_is_first_seat_cards_then_second_seat_cards_then_crew_by_slot() -
 	]
 	assert_array(shape).is_equal(expected)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	TriggerQueue.wake(state, cards, "on_score", _typed([x]))
+	TriggerQueue.wake(state, cards, "on_score", Typed.ints([x]))
 	assert_bool(TriggerQueue.drain(state, cards, MatchRng.new(SEED), rec.record, "D8")).is_false()
-	assert_array(_kinds(rec.events)).is_equal(_typed([FIRED, FIRED, FIRED, FIRED, FIZZLED, FIZZLED]))
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([p1, x, p0, q0]))
+	assert_array(_kinds(rec.events)).is_equal(
+		Typed.ints([FIRED, FIRED, FIRED, FIRED, FIZZLED, FIZZLED])
+	)
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([p1, x, p0, q0]))
 	var crew: Array[String] = []
 	for event: MatchEvent in rec.of_kind(FIZZLED):
 		crew.append(_str_of(event, "crew"))
@@ -204,9 +204,9 @@ func test_two_stubs_feeding_each_other_stop_at_fifty_and_the_next_pulse_starts_a
 	var a: int = 0
 	var b: int = 1
 	var feed: Array[CardAbility] = _ability("on_score", StubAbilities.VERB_FEED, 0, "any")
-	_give(cards, _typed([a, b]), "Feeder", feed)
+	_give(cards, Typed.ints([a, b]), "Feeder", feed)
 	var state: MatchState = MatchState.new(SEED)
-	StubAbilities.put_row(state, 0, _typed([a, b]), true)
+	StubAbilities.put_row(state, 0, Typed.ints([a, b]), true)
 	var pebbles: Array[int] = [OTHER + StubAbilities.PEBBLE, OTHER + StubAbilities.PEBBLE + 1]
 	StubAbilities.put_row(state, 1, pebbles, true)
 	var rng: MatchRng = MatchRng.new(SEED)
@@ -232,7 +232,7 @@ func test_two_stubs_feeding_each_other_stop_at_fifty_and_the_next_pulse_starts_a
 	# The next pulse (seat 1's slot 0, a Pebble both stubs react to) starts at 0.
 	var next: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(ScoreWalk.step(state, cards, rng, next.record)).is_false()
-	assert_array(next.cards_of(SCORED).slice(0, 1)).is_equal(_typed([pebbles[0]]))
+	assert_array(next.cards_of(SCORED).slice(0, 1)).is_equal(Typed.ints([pebbles[0]]))
 	assert_array(_ints(next.events, FIRED, "resolution")).is_equal(expected)
 	assert_int(_fizzles(next, Abilities.REASON_EXHAUSTED).size()).is_equal(
 		MatchRules.TRIGGER_BUDGET + 2
@@ -247,18 +247,18 @@ func test_a_muted_pop_counts_one_toward_the_budget() -> void:
 	var m: int = 0
 	var x: int = 1
 	var any: Array[CardAbility] = _ability("on_score", StubAbilities.VERB_RECORD, 0, "any")
-	_give(cards, _typed([m, x]), "Any", any)
-	var state: MatchState = StubAbilities.table(_typed([m, x]), true)
+	_give(cards, Typed.ints([m, x]), "Any", any)
+	var state: MatchState = StubAbilities.table(Typed.ints([m, x]), true)
 	StubAbilities.stub_mute(state, cards, m, Callable())
 	state.walk.resolutions = MatchRules.TRIGGER_BUDGET - 1
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	TriggerQueue.wake(state, cards, "on_score", _typed([x]))
+	TriggerQueue.wake(state, cards, "on_score", Typed.ints([x]))
 	assert_bool(TriggerQueue.drain(state, cards, MatchRng.new(SEED), rec.record, "D8")).is_false()
 	assert_array(rec.of_kind(FIRED)).is_empty()
 	var exhausted: Array[int] = []
 	for event: MatchEvent in _fizzles(rec, Abilities.REASON_EXHAUSTED):
 		exhausted.append(_int_of(event, "card"))
-	assert_array(exhausted).is_equal(_typed([x]))
+	assert_array(exhausted).is_equal(Typed.ints([x]))
 	assert_int(state.walk.resolutions).is_equal(MatchRules.TRIGGER_BUDGET)
 
 
@@ -271,15 +271,15 @@ func test_a_muted_entry_left_when_the_budget_runs_out_stays_silent() -> void:
 	var m: int = 1
 	var y: int = 2
 	var any: Array[CardAbility] = _ability("on_score", StubAbilities.VERB_RECORD, 0, "any")
-	_give(cards, _typed([x, m, y]), "Any", any)
-	var state: MatchState = StubAbilities.table(_typed([x, m, y]), true)
+	_give(cards, Typed.ints([x, m, y]), "Any", any)
+	var state: MatchState = StubAbilities.table(Typed.ints([x, m, y]), true)
 	StubAbilities.stub_mute(state, cards, m, Callable())
 	state.walk.resolutions = MatchRules.TRIGGER_BUDGET - 1
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	TriggerQueue.wake(state, cards, "on_score", _typed([x]))
+	TriggerQueue.wake(state, cards, "on_score", Typed.ints([x]))
 	assert_bool(TriggerQueue.drain(state, cards, MatchRng.new(SEED), rec.record, "D8")).is_false()
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([x]))
-	assert_array(rec.cards_of(FIZZLED)).is_equal(_typed([y]))
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([x]))
+	assert_array(rec.cards_of(FIZZLED)).is_equal(Typed.ints([y]))
 	assert_int(_fizzles(rec, Abilities.REASON_EXHAUSTED).size()).is_equal(1)
 	assert_bool(state.queue.is_empty()).is_true()
 
@@ -295,13 +295,13 @@ func test_the_resumed_draw_survives_an_exhausted_budget() -> void:
 	var x: int = 1
 	var y: int = 2
 	var refilled: int = StubAbilities.PEBBLE
-	_give(cards, _typed([r]), "Refiller", _ability("on_empty_draw", StubAbilities.VERB_REFILL))
-	_give(cards, _typed([x, y]), "Plain", _ability("on_empty_draw", StubAbilities.VERB_RECORD))
-	var state: MatchState = StubAbilities.table(_typed([r, x, y]), true)
+	_give(cards, Typed.ints([r]), "Refiller", _ability("on_empty_draw", StubAbilities.VERB_REFILL))
+	_give(cards, Typed.ints([x, y]), "Plain", _ability("on_empty_draw", StubAbilities.VERB_RECORD))
+	var state: MatchState = StubAbilities.table(Typed.ints([r, x, y]), true)
 	var piles: MatchState.SeatPiles = state.seats[0]
 	piles.deck.clear()
 	piles.hand.clear()
-	piles.pile.assign(_typed([refilled]))
+	piles.pile.assign(Typed.ints([refilled]))
 	state.walk.resolutions = MatchRules.TRIGGER_BUDGET - 1
 	var context: Dictionary = {TriggerQueue.KEY_THEN_DRAW: 0}
 	var none: Array[int] = []
@@ -309,22 +309,22 @@ func test_the_resumed_draw_survives_an_exhausted_budget() -> void:
 	assert_dict(batch).is_not_empty()
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TriggerQueue.drain(state, cards, MatchRng.new(SEED), rec.record, "D8")).is_false()
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([r]))
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([r]))
 	assert_array(_ints(rec.events, FIRED, "resolution")).is_equal(
-		_typed([MatchRules.TRIGGER_BUDGET])
+		Typed.ints([MatchRules.TRIGGER_BUDGET])
 	)
 	var exhausted: Array[int] = []
 	for event: MatchEvent in _fizzles(rec, Abilities.REASON_EXHAUSTED):
 		exhausted.append(_int_of(event, "card"))
-	assert_array(exhausted).is_equal(_typed([x, y, -1]))
+	assert_array(exhausted).is_equal(Typed.ints([x, y, -1]))
 	# The denied draw: once, after the last exhausted entry, from the refilled Deck.
 	var kinds: Array[int] = _kinds(rec.events)
 	var drawn: Array[int] = rec.cards_of(MatchEvent.Kind.CARD_DRAWN)
-	assert_array(drawn).is_equal(_typed([refilled]))
+	assert_array(drawn).is_equal(Typed.ints([refilled]))
 	assert_int(kinds.find(MatchEvent.Kind.CARD_DRAWN)).is_greater(kinds.rfind(FIZZLED))
 	var last: int = kinds[kinds.size() - 1]
 	assert_int(last).is_equal(MatchEvent.Kind.CARD_DRAWN)
-	assert_array(piles.hand).is_equal(_typed([refilled]))
+	assert_array(piles.hand).is_equal(Typed.ints([refilled]))
 	assert_array(piles.deck).is_empty()
 	assert_int(TriggerQueue.spent(state)).is_equal(MatchRules.TRIGGER_BUDGET)
 	assert_bool(state.queue.is_empty()).is_true()
@@ -343,15 +343,15 @@ func test_stub_retrigger_adds_one_extra_resolution_with_a_fresh_prompt_and_n() -
 	var s: int = 0
 	var d: int = 1
 	var o: int = OTHER
-	_give(cards, _typed([s]), "Encore", _ability("on_reveal", StubAbilities.VERB_RETRIGGER))
-	_give(cards, _typed([d]), "Picker", _ability("on_reveal", StubAbilities.VERB_DISCARD_PICK))
+	_give(cards, Typed.ints([s]), "Encore", _ability("on_reveal", StubAbilities.VERB_RETRIGGER))
+	_give(cards, Typed.ints([d]), "Picker", _ability("on_reveal", StubAbilities.VERB_DISCARD_PICK))
 	var opposing: Array[CardAbility] = _ability(
 		"on_reveal", StubAbilities.VERB_RECORD, 0, "opposing"
 	)
-	_give(cards, _typed([o]), "Watcher", opposing)
+	_give(cards, Typed.ints([o]), "Watcher", opposing)
 	var state: MatchState = MatchState.new(SEED)
-	StubAbilities.put_row(state, 0, _typed([s, d]), false)
-	StubAbilities.put_row(state, 1, _typed([o]), true)
+	StubAbilities.put_row(state, 0, Typed.ints([s, d]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([o]), true)
 	var hand: Array[int] = [StubAbilities.PEBBLE, StubAbilities.PEBBLE + 1, StubAbilities.MOTE + 2]
 	state.seats[0].hand.assign(hand)
 	var rng: MatchRng = MatchRng.new(SEED)
@@ -359,7 +359,7 @@ func test_stub_retrigger_adds_one_extra_resolution_with_a_fresh_prompt_and_n() -
 	var early: StubAbilities.Recorder = StubAbilities.recorder()
 	# Pulse 1: s reveals and sets the retrigger (once: never to itself); o fires once.
 	assert_bool(ScoreWalk.step(state, cards, rng, early.record)).is_false()
-	assert_array(early.cards_of(FIRED)).is_equal(_typed([s, o]))
+	assert_array(early.cards_of(FIRED)).is_equal(Typed.ints([s, o]))
 	# Pulse 2: o Scores.
 	assert_bool(ScoreWalk.step(state, cards, rng, early.record)).is_false()
 	# Pulse 3: d reveals; its On reveal prompts over three hand cards (D7).
@@ -395,7 +395,7 @@ func test_stub_retrigger_adds_one_extra_resolution_with_a_fresh_prompt_and_n() -
 	var expected_n: Array[String] = ["n 1", "n 2"]
 	assert_array(traced).is_equal(expected_n)
 	assert_array(state.seats[0].pile).is_equal(
-		_typed([StubAbilities.PEBBLE, StubAbilities.MOTE + 2])
+		Typed.ints([StubAbilities.PEBBLE, StubAbilities.MOTE + 2])
 	)
 	assert_int(state.card_state_for(d).power_delta).is_equal(3)
 
@@ -411,9 +411,9 @@ func test_stub_scores_twice_runs_the_score_stage_twice() -> void:
 	var cards: MatchCards = _cards(verbs)
 	var t: int = 0
 	var m: int = 1
-	_give(cards, _typed([t]), "Reprise", _ability("on_reveal", StubAbilities.VERB_SCORES_TWICE))
-	_give(cards, _typed([m]), "Scorer", _ability("on_score", StubAbilities.VERB_RECORD), 2)
-	var state: MatchState = StubAbilities.table(_typed([t, m]), false)
+	_give(cards, Typed.ints([t]), "Reprise", _ability("on_reveal", StubAbilities.VERB_SCORES_TWICE))
+	_give(cards, Typed.ints([m]), "Scorer", _ability("on_score", StubAbilities.VERB_RECORD), 2)
+	var state: MatchState = StubAbilities.table(Typed.ints([t, m]), false)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
 	assert_bool(ScoreWalk.run(state, cards, MatchRng.new(SEED), rec.record)).is_false()
@@ -424,7 +424,7 @@ func test_stub_scores_twice_runs_the_score_stage_twice() -> void:
 	assert_array(shape).is_equal([[t, 1], [m, 1], [m, 2]])
 	var kinds: Array[int] = _kinds(rec.events)
 	var at: int = kinds.find(SCORED, kinds.find(SCORED) + 1)
-	assert_array(kinds.slice(at, at + 4)).is_equal(_typed([SCORED, SCORED, FIRED, FIRED]))
+	assert_array(kinds.slice(at, at + 4)).is_equal(Typed.ints([SCORED, SCORED, FIRED, FIRED]))
 	assert_int(state.walk.scored_count[0]).is_equal(3)
 	assert_int(state.scores[0]).is_equal(1 + 2 + 2)
 
@@ -450,20 +450,20 @@ func test_on_commit_brackets_and_on_start_for_revealed_cards_only() -> void:
 	var h2: int = 1
 	var r1: int = 2
 	var r2: int = 3
-	_give(cards, _typed([h1, h2, OTHER]), "Layaway", in_hand)
-	_give(cards, _typed([r1, r2, OTHER + 2]), "Idler", on_row)
+	_give(cards, Typed.ints([h1, h2, OTHER]), "Layaway", in_hand)
+	_give(cards, Typed.ints([r1, r2, OTHER + 2]), "Idler", on_row)
 	var state: MatchState = MatchState.new(SEED)
-	StubAbilities.put_row(state, 0, _typed([r1, r2]), false)
+	StubAbilities.put_row(state, 0, Typed.ints([r1, r2]), false)
 	state.seats[0].revealed[r1] = true
-	StubAbilities.put_row(state, 1, _typed([OTHER + 2]), true)
-	state.seats[0].hand.assign(_typed([h1, h2]))
-	state.seats[1].hand.assign(_typed([OTHER]))
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER + 2]), true)
+	state.seats[0].hand.assign(Typed.ints([h1, h2]))
+	state.seats[1].hand.assign(Typed.ints([OTHER]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	TurnFlow.accept_commit(state, cards, rec.record, 0, _typed([h2]), _typed([2]))
+	TurnFlow.accept_commit(state, cards, rec.record, 0, Typed.ints([h2]), Typed.ints([2]))
 	var rng: MatchRng = MatchRng.new(SEED)
 	var commit: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TurnFlow.on_commit(state, cards, rng, commit.record, 0)).is_false()
-	assert_array(commit.cards_of(FIRED)).is_equal(_typed([r1, h1]))
+	assert_array(commit.cards_of(FIRED)).is_equal(Typed.ints([r1, h1]))
 	var fired: Array[MatchEvent] = commit.of_kind(FIRED)
 	assert_int(fired[0].owner_seat).is_equal(MatchEvent.PUBLIC)
 	# C14: a trigger fired from the hand is public and names its card for both seats.
@@ -472,7 +472,7 @@ func test_on_commit_brackets_and_on_start_for_revealed_cards_only() -> void:
 	assert_str(_str_of(fired[1], "moment")).is_equal("on_commit")
 	var start: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TurnFlow.on_start(state, cards, rng, start.record)).is_false()
-	assert_array(start.cards_of(FIRED)).is_equal(_typed([r1, OTHER + 2]))
+	assert_array(start.cards_of(FIRED)).is_equal(Typed.ints([r1, OTHER + 2]))
 
 
 # --- Q9, R56: a prompt pauses the Walk; replay ----------------------------------------
@@ -498,7 +498,7 @@ func _hand_of(engine: MatchEngine, seat: int) -> Array[int]:
 	var state: Dictionary = engine.full_state()
 	var hands: Array = state["hand"]
 	var hand: Array = hands[seat]
-	return _typed(hand)
+	return Typed.ints(hand)
 
 
 ## Turn 1: the first seat commits one card, the second passes and discards down; the Walk

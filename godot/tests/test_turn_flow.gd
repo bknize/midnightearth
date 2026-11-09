@@ -34,12 +34,6 @@ func _defs() -> MatchCards:
 	return _cached_defs
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _started(match_seed: int) -> MatchEngine:
 	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
@@ -50,7 +44,7 @@ func _seat_list(engine: MatchEngine, key: String, seat: int) -> Array[int]:
 	var state: Dictionary = engine.full_state()
 	var per_seat: Array = state[key]
 	var raw: Array = per_seat[seat]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _of_kind(events: Array[MatchEvent], kind: int) -> Array[MatchEvent]:
@@ -116,7 +110,7 @@ func test_match_start_deals_four_cards_and_leaves_36() -> void:
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		assert_int(piles.hand.size()).is_equal(MatchRules.OPENING_HAND)
 		assert_int(piles.deck.size()).is_equal(36)
-		var all: Array[int] = _typed(piles.hand + piles.deck)
+		var all: Array[int] = Typed.ints(piles.hand + piles.deck)
 		all.sort()
 		for index: int in range(MatchRules.DECK_SIZE):
 			assert_int(all[index]).is_equal(seat * MatchRules.DECK_SIZE + index)
@@ -158,7 +152,7 @@ func test_both_seats_draw_first_seat_first() -> void:
 ## such event kind exists) and the hand is unchanged.
 func test_an_empty_deck_draws_nothing_and_emits_draw_empty() -> void:
 	var state: MatchState = MatchState.new(SEED)
-	state.seats[1].hand.assign(_typed([40, 41]))
+	state.seats[1].hand.assign(Typed.ints([40, 41]))
 	var recorder: Recorder = _recorder()
 	assert_bool(TurnFlow.draw(state, _defs(), MatchRng.new(SEED), recorder.record, 1)).is_false()
 	# DRAW_EMPTY, then the On empty draw drain (D1): the fixture's Void fires (DC-13 T07).
@@ -169,16 +163,16 @@ func test_an_empty_deck_draws_nothing_and_emits_draw_empty() -> void:
 	var crew_kinds: Array[int] = [MatchEvent.Kind.TRIGGER_FIRED, MatchEvent.Kind.CREW_FIRED]
 	for event: MatchEvent in recorder.events.slice(1):
 		assert_bool(crew_kinds.has(event.kind)).is_true()
-	assert_array(state.seats[1].hand).is_equal(_typed([40, 41]))
+	assert_array(state.seats[1].hand).is_equal(Typed.ints([40, 41]))
 	assert_bool(MatchEvent.Kind.keys().has("CARD_BURNED")).is_false()
 	# The resumed draw (Q11) finds the Deck still empty: nothing, and no second DRAW_EMPTY.
 	assert_bool(TurnFlow.resumed_draw(state, recorder.record, 1)).is_false()
 	assert_int(recorder.events.size()).is_equal(seen)
 	# Once the Deck holds a card, the resumed draw takes it.
-	state.seats[1].deck.assign(_typed([42]))
+	state.seats[1].deck.assign(Typed.ints([42]))
 	assert_bool(TurnFlow.resumed_draw(state, recorder.record, 1)).is_true()
 	assert_int(recorder.events[seen].kind).is_equal(MatchEvent.Kind.CARD_DRAWN)
-	assert_array(state.seats[1].hand).is_equal(_typed([40, 41, 42]))
+	assert_array(state.seats[1].hand).is_equal(Typed.ints([40, 41, 42]))
 
 
 ## Rules 9 (cycle 14 R16, NSC-186): TURN_STARTED says which seat starts its Turn with a
@@ -186,8 +180,8 @@ func test_an_empty_deck_draws_nothing_and_emits_draw_empty() -> void:
 ## learns it without the SeatView. An event change only: nothing else moves.
 func test_turn_started_carries_free_first_per_seat() -> void:
 	var state: MatchState = MatchState.new(SEED)
-	state.seats[0].deck.assign(_typed([0, 1]))
-	state.seats[1].deck.assign(_typed([40, 41]))
+	state.seats[0].deck.assign(Typed.ints([0, 1]))
+	state.seats[1].deck.assign(Typed.ints([40, 41]))
 	state.energy.free_first[1] = true
 	var recorder: Recorder = _recorder()
 	assert_bool(TurnFlow.begin_turn(state, _defs(), MatchRng.new(SEED), recorder.record)).is_false()
@@ -255,7 +249,7 @@ func test_pantry_read_on_the_row_makes_hand_size_6() -> void:
 	assert_bool(defs.is_valid()).override_failure_message(defs.build_error()).is_true()
 	var state: MatchState = MatchState.new(SEED)
 	assert_int(TurnFlow.hand_size(state, defs, 0)).is_equal(MatchRules.HAND_SIZE)
-	state.seats[0].board.assign(_typed([0]))
+	state.seats[0].board.assign(Typed.ints([0]))
 	assert_int(TurnFlow.hand_size(state, defs, 0)).is_equal(MatchRules.HAND_SIZE)
 	state.seats[0].revealed[0] = true
 	assert_int(TurnFlow.hand_size(state, defs, 0)).is_equal(6)
@@ -264,13 +258,13 @@ func test_pantry_read_on_the_row_makes_hand_size_6() -> void:
 	state.seats[0].revealed[1] = true
 	assert_int(TurnFlow.hand_size(state, defs, 0)).is_equal(8)
 	var view: SeatView = SeatView.build(state, 1, -1, defs)
-	assert_array(view.hand_sizes).is_equal(_typed([8, MatchRules.HAND_SIZE]))
+	assert_array(view.hand_sizes).is_equal(Typed.ints([8, MatchRules.HAND_SIZE]))
 
 
 ## With six cards in hand and Pantry read, a Pass opens no discard-down.
 func test_no_discard_down_within_the_hand_size() -> void:
 	var state: MatchState = MatchState.new(SEED)
-	state.seats[0].hand.assign(_typed([4, 5, 6, 7]))
+	state.seats[0].hand.assign(Typed.ints([4, 5, 6, 7]))
 	var recorder: Recorder = _recorder()
 	assert_bool(TurnFlow.open_discard_down(state, _defs(), recorder.record, 0)).is_false()
 	assert_dict(state.prompt).is_empty()
@@ -311,7 +305,7 @@ func test_a_hand_of_six_after_a_one_card_commit_discards_exactly_one() -> void:
 	assert_bool(Choice.is_optional_prompt(prompt)).is_false()
 	assert_str(Choice.resume_of(prompt)).is_equal(Choice.RESUME_COMMIT)
 	assert_str(Choice.step_of(prompt)).is_equal(TurnFlow.STEP_FIRST_DISCARD)
-	assert_array(Choice.options_of(prompt)).is_equal(_typed([0, 1, 2, 3, 4]))
+	assert_array(Choice.options_of(prompt)).is_equal(Typed.ints([0, 1, 2, 3, 4]))
 	assert_str(_payload_str(opened[0], "text")).is_equal("Discard 1")
 	var view: SeatView = engine.view_for(first)
 	assert_int(view.prompt.get("exact", -1)).is_equal(1)
@@ -319,16 +313,16 @@ func test_a_hand_of_six_after_a_one_card_commit_discards_exactly_one() -> void:
 	var zone: int = Choice.Zone.OWN_HAND
 	var none: Array[int] = []
 	var bad_set: int = EngineError.Code.BAD_SET
-	_assert_rejected(engine, EngineAction.choose_set(first, zone, _typed([0, 1])), bad_set)
+	_assert_rejected(engine, EngineAction.choose_set(first, zone, Typed.ints([0, 1])), bad_set)
 	_assert_rejected(engine, EngineAction.choose_set(first, zone, none), bad_set)
-	_assert_rejected(engine, EngineAction.choose_set(first, zone, _typed([5])), bad_set)
+	_assert_rejected(engine, EngineAction.choose_set(first, zone, Typed.ints([5])), bad_set)
 	var wrong: int = EngineError.Code.WRONG_SEAT
 	_assert_rejected(engine, EngineAction.commit(1 - first, none), wrong)
 	_assert_rejected(engine, EngineAction.commit(first, none), wrong)
 	var single: int = EngineError.Code.NOT_ELIGIBLE
 	_assert_rejected(engine, EngineAction.choose(first, zone, 0), single)
 	var target: int = piles.hand[2]
-	var answered: ApplyResult = engine.apply(EngineAction.choose_set(first, zone, _typed([2])))
+	var answered: ApplyResult = engine.apply(EngineAction.choose_set(first, zone, Typed.ints([2])))
 	assert_bool(answered.ok).is_true()
 	var discarded: Array[MatchEvent] = _of_kind(answered.events, MatchEvent.Kind.CARD_DISCARDED)
 	assert_int(discarded.size()).is_equal(1)
@@ -342,14 +336,14 @@ func test_a_hand_of_six_after_a_one_card_commit_discards_exactly_one() -> void:
 			"pile_index": 0,
 		}
 	)
-	assert_array(_seat_list(engine, "pile", first)).is_equal(_typed([target]))
+	assert_array(_seat_list(engine, "pile", first)).is_equal(Typed.ints([target]))
 	assert_int(_seat_list(engine, "hand", first).size()).is_equal(MatchRules.HAND_SIZE)
 	assert_bool(_seat_list(engine, "hand", first).has(target)).is_false()
 	assert_dict(engine.open_prompt()).is_empty()
 	assert_int(engine.awaited_seat()).is_equal(1 - first)
 	# Both seats see the Discard in the Pile.
 	for seat: int in range(2):
-		assert_array(engine.view_for(seat).pile_of(first)).is_equal(_typed([target]))
+		assert_array(engine.view_for(seat).pile_of(first)).is_equal(Typed.ints([target]))
 
 
 ## An illegal action changes nothing (EngineError code `code`).
@@ -392,7 +386,7 @@ func test_a_pass_is_accepted_and_committed_count_is_0() -> void:
 	assert_bool(is_pass).is_true()
 	assert_int(_payload_int(committed, "cost")).is_equal(0)
 	var raw_counts: Array = engine.full_state()["committed_count"]
-	var counts: Array[int] = _typed(raw_counts)
+	var counts: Array[int] = Typed.ints(raw_counts)
 	assert_int(counts[first]).is_equal(0)
 	engine.apply(FixtureDecks.discard_answer(engine))
 	var second: int = 1 - first
@@ -412,12 +406,12 @@ func test_committed_count_records_the_commit_until_the_next_turn() -> void:
 	var state: MatchState = MatchState.new(SEED)
 	state.turn = 1
 	state.first_seat = 0
-	state.seats[0].hand.assign(_typed([0, 4]))
+	state.seats[0].hand.assign(Typed.ints([0, 4]))
 	var recorder: Recorder = _recorder()
-	TurnFlow.accept_commit(state, _defs(), recorder.record, 0, _typed([0]), _typed([0]))
-	assert_array(state.committed_count).is_equal(_typed([1, 0]))
-	assert_array(state.pending).is_equal(_typed([0]))
-	assert_array(state.seats[0].hand).is_equal(_typed([4]))
+	TurnFlow.accept_commit(state, _defs(), recorder.record, 0, Typed.ints([0]), Typed.ints([0]))
+	assert_array(state.committed_count).is_equal(Typed.ints([1, 0]))
+	assert_array(state.pending).is_equal(Typed.ints([0]))
+	assert_array(state.seats[0].hand).is_equal(Typed.ints([4]))
 	var committed: MatchEvent = recorder.events[0]
 	assert_int(committed.owner_seat).is_equal(0)
 	var keys: Array = committed.payload.keys()
@@ -428,11 +422,11 @@ func test_committed_count_records_the_commit_until_the_next_turn() -> void:
 ## Placement (R43): committed cards take their slots and the row's cards keep their order.
 func test_merge_row_places_cards_at_their_slots() -> void:
 	var state: MatchState = MatchState.new(SEED)
-	state.seats[0].board.assign(_typed([10, 11]))
-	TurnFlow.merge_row(state, 0, _typed([20, 21]), _typed([0, 3]))
-	assert_array(state.seats[0].board).is_equal(_typed([20, 10, 11, 21]))
-	TurnFlow.merge_row(state, 0, _typed([22]), _typed([2]))
-	assert_array(state.seats[0].board).is_equal(_typed([20, 10, 22, 11, 21]))
+	state.seats[0].board.assign(Typed.ints([10, 11]))
+	TurnFlow.merge_row(state, 0, Typed.ints([20, 21]), Typed.ints([0, 3]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([20, 10, 11, 21]))
+	TurnFlow.merge_row(state, 0, Typed.ints([22]), Typed.ints([2]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([20, 10, 22, 11, 21]))
 
 
 # --- R2, R20, R31: Round end ------------------------------------------------------------
@@ -444,14 +438,14 @@ func test_merge_row_places_cards_at_their_slots() -> void:
 func test_round_end_sends_both_rows_to_their_owners_piles() -> void:
 	var state: MatchState = MatchState.new(SEED)
 	state.first_seat = 1
-	state.seats[0].board.assign(_typed([3, 45]))
-	state.seats[1].board.assign(_typed([41, 42]))
+	state.seats[0].board.assign(Typed.ints([3, 45]))
+	state.seats[1].board.assign(Typed.ints([41, 42]))
 	state.seats[0].revealed[3] = true
 	state.seats[1].revealed[41] = true
-	state.seats[0].hand.assign(_typed([5, 6]))
-	state.seats[1].hand.assign(_typed([47]))
-	state.seats[0].deck.assign(_typed([7]))
-	state.seats[1].pile.assign(_typed([49]))
+	state.seats[0].hand.assign(Typed.ints([5, 6]))
+	state.seats[1].hand.assign(Typed.ints([47]))
+	state.seats[0].deck.assign(Typed.ints([7]))
+	state.seats[1].pile.assign(Typed.ints([49]))
 	state.card_state_for(41).power_delta = 2
 	state.scores.assign([4, 9])
 	state.turn_wins.assign([2, 3])  # C13: more Turn wins take the Round.
@@ -466,21 +460,21 @@ func test_round_end_sends_both_rows_to_their_owners_piles() -> void:
 		assert_str(_payload_str(event, "reason")).is_equal(TurnFlow.REASON_ROUND_END)
 		assert_str(_payload_str(event, "from")).is_equal(TurnFlow.FROM_ROW)
 	# Seat 1 committed first: its row (41, 42), then seat 0's (3, 45).
-	assert_array(order).is_equal(_typed([41, 42, 3, 45]))
+	assert_array(order).is_equal(Typed.ints([41, 42, 3, 45]))
 	assert_int(_payload_int(discarded[3], "owner")).is_equal(1)
-	assert_array(state.seats[1].pile).is_equal(_typed([49, 41, 42, 45]))
-	assert_array(state.seats[0].pile).is_equal(_typed([3]))
+	assert_array(state.seats[1].pile).is_equal(Typed.ints([49, 41, 42, 45]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([3]))
 	for seat: int in range(2):
 		assert_array(state.seats[seat].board).is_empty()
 		assert_bool(state.seats[seat].revealed.is_empty()).is_true()
 	assert_bool(state.card_states.is_empty()).is_true()
-	assert_array(state.seats[0].hand).is_equal(_typed([5, 6]))
-	assert_array(state.seats[1].hand).is_equal(_typed([47]))
-	assert_array(state.seats[0].deck).is_equal(_typed([7]))
+	assert_array(state.seats[0].hand).is_equal(Typed.ints([5, 6]))
+	assert_array(state.seats[1].hand).is_equal(Typed.ints([47]))
+	assert_array(state.seats[0].deck).is_equal(Typed.ints([7]))
 	var ended: MatchEvent = recorder.events[recorder.events.size() - 1]
 	assert_int(ended.kind).is_equal(MatchEvent.Kind.ROUND_ENDED)
 	assert_int(_payload_int(ended, "winner")).is_equal(1)
-	assert_array(state.wins).is_equal(_typed([0, 1]))
+	assert_array(state.wins).is_equal(Typed.ints([0, 1]))
 
 
 ## Rules 9 (cycle 14 R10, R11, C13): at Round end, after ROUND_ENDED, every Dross card of
@@ -505,11 +499,11 @@ func test_round_end_removes_every_round_dross_card() -> void:
 	assert_int(on_row).is_equal(MatchCards.DROSS_BASE + 4)
 	var other: int = MatchRules.DECK_SIZE
 	state.first_seat = 0
-	state.seats[0].hand.assign(_typed([3, kept, in_hand]))
-	state.seats[0].pile.assign(_typed([in_pile, 4]))
-	state.seats[0].deck.assign(_typed([5, 6]))
-	state.seats[1].board.assign(_typed([on_row]))
-	state.seats[1].deck.assign(_typed([other + 1, in_deck, other + 2, other + 3]))
+	state.seats[0].hand.assign(Typed.ints([3, kept, in_hand]))
+	state.seats[0].pile.assign(Typed.ints([in_pile, 4]))
+	state.seats[0].deck.assign(Typed.ints([5, 6]))
+	state.seats[1].board.assign(Typed.ints([on_row]))
+	state.seats[1].deck.assign(Typed.ints([other + 1, in_deck, other + 2, other + 3]))
 	state.turn_wins.assign([1, 0])
 	var rng: MatchRng = MatchRng.new(SEED)
 	var stream_before: int = rng.state
@@ -522,7 +516,7 @@ func test_round_end_removes_every_round_dross_card() -> void:
 		order.append(_payload_int(event, "card"))
 		assert_int(event.owner_seat).is_equal(MatchEvent.PUBLIC)
 		assert_str(_payload_str(event, "reason")).is_equal(TurnFlow.REASON_ROUND_END)
-	assert_array(order).is_equal(_typed([in_deck, in_hand, in_pile, on_row]))
+	assert_array(order).is_equal(Typed.ints([in_deck, in_hand, in_pile, on_row]))
 	assert_dict(expired[0].payload).is_equal(
 		{"owner": 1, "card": in_deck, "from": "deck", "reason": "round_end"}
 	)
@@ -537,12 +531,12 @@ func test_round_end_removes_every_round_dross_card() -> void:
 		if recorder.events[at].kind == MatchEvent.Kind.ROUND_ENDED:
 			ended_at = at
 	assert_int(ended_at).is_equal(recorder.events.size() - 1 - expired.size())
-	assert_array(state.seats[0].hand).is_equal(_typed([3, kept]))
-	assert_array(state.seats[0].pile).is_equal(_typed([4]))
-	assert_array(state.seats[0].deck).is_equal(_typed([5, 6]))
+	assert_array(state.seats[0].hand).is_equal(Typed.ints([3, kept]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([4]))
+	assert_array(state.seats[0].deck).is_equal(Typed.ints([5, 6]))
 	assert_array(state.seats[1].board).is_empty()
 	assert_array(state.seats[1].pile).is_empty()
-	assert_array(state.seats[1].deck).is_equal(_typed([other + 1, other + 2, other + 3]))
+	assert_array(state.seats[1].deck).is_equal(Typed.ints([other + 1, other + 2, other + 3]))
 	for card: int in [in_deck, in_hand, in_pile, on_row]:
 		assert_object(cards.def_of(card)).is_null()
 		assert_int(cards.origin_of(card)).is_equal(-1)
@@ -553,7 +547,7 @@ func test_round_end_removes_every_round_dross_card() -> void:
 ## A Round with no Dross card ends exactly as before: no DROSS_EXPIRED, ROUND_ENDED last.
 func test_round_end_without_dross_emits_no_expiry() -> void:
 	var state: MatchState = MatchState.new(SEED)
-	state.seats[0].hand.assign(_typed([5]))
+	state.seats[0].hand.assign(Typed.ints([5]))
 	var recorder: Recorder = _recorder()
 	TurnFlow.end_round(state, _defs(), MatchRng.new(SEED), recorder.record)
 	assert_array(_of_kind(recorder.events, MatchEvent.Kind.DROSS_EXPIRED)).is_empty()
@@ -578,9 +572,9 @@ func test_budget_is_the_turn_plus_grants_and_turn_end_settles_them() -> void:
 	assert_int(TurnFlow.budget(state, _defs(), 2)).is_equal(0)
 	var recorder: Recorder = _recorder()
 	assert_bool(TurnFlow.end_turn(state, _defs(), MatchRng.new(SEED), recorder.record)).is_false()
-	assert_array(state.energy.grants).is_equal(_typed([0, 2]))
-	assert_array(state.energy.next_turn_grants).is_equal(_typed([0, 0]))
-	assert_array(state.energy.spent).is_equal(_typed([0, 0]))
+	assert_array(state.energy.grants).is_equal(Typed.ints([0, 2]))
+	assert_array(state.energy.next_turn_grants).is_equal(Typed.ints([0, 0]))
+	assert_array(state.energy.spent).is_equal(Typed.ints([0, 0]))
 	var ended: MatchEvent = recorder.events[recorder.events.size() - 1]
 	assert_int(ended.kind).is_equal(MatchEvent.Kind.TURN_ENDED)
 	assert_int(_payload_int(ended, "winner")).is_equal(-1)

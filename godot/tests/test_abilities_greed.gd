@@ -27,12 +27,6 @@ func _db() -> CardDb:
 	return _cached_db
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 ## Stub-deck definitions, the queue stubs `verbs` installed when given.
 func _cards(verbs: StubAbilities.StubVerbs = null) -> MatchCards:
 	var cards: MatchCards = StubAbilities.defs()
@@ -75,16 +69,16 @@ func _str_of(event: MatchEvent, key: String) -> String:
 func test_ember_prompts_with_two_hand_cards() -> void:
 	var cards: MatchCards = _cards()
 	var ember: int = 0
-	_put(cards, _typed([ember]), "gr01")
-	var state: MatchState = StubAbilities.table(_typed([ember]), false)
-	state.seats[0].hand.assign(_typed([8, 9]))
+	_put(cards, Typed.ints([ember]), "gr01")
+	var state: MatchState = StubAbilities.table(Typed.ints([ember]), false)
+	state.seats[0].hand.assign(Typed.ints([8, 9]))
 	var rng: MatchRng = MatchRng.new(SEED)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
 	assert_bool(ScoreWalk.step(state, cards, rng, rec.record)).is_true()
 	assert_int(rec.of_kind(PROMPTED).size()).is_equal(1)
 	assert_str(Choice.zone_name(Choice.zone_of(state.prompt))).is_equal("own_hand")
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0, 1]))
+	assert_array(Choice.options_of(state.prompt)).is_equal(Typed.ints([0, 1]))
 	assert_bool(Choice.is_multi_prompt(state.prompt)).is_false()
 	assert_bool(Choice.is_optional_prompt(state.prompt)).is_false()
 	assert_str(Choice.step_of(state.prompt)).is_equal("D7")
@@ -92,8 +86,8 @@ func test_ember_prompts_with_two_hand_cards() -> void:
 	assert_bool(
 		TriggerQueue.answer(state, cards, rng, rec.record, Choice.Zone.OWN_HAND, picked, false)
 	).is_false()
-	assert_array(state.seats[0].hand).is_equal(_typed([8]))
-	assert_array(state.seats[0].pile).is_equal(_typed([9]))
+	assert_array(state.seats[0].hand).is_equal(Typed.ints([8]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([9]))
 	var discarded: Array[MatchEvent] = rec.of_kind(DISCARDED)
 	assert_int(discarded.size()).is_equal(1)
 	assert_str(_str_of(discarded[0], "from")).is_equal(TurnFlow.FROM_HAND)
@@ -106,23 +100,23 @@ func test_ember_prompts_with_two_hand_cards() -> void:
 func test_ember_auto_chooses_with_one_and_fizzles_with_none() -> void:
 	var cards: MatchCards = _cards()
 	var ember: int = 0
-	_put(cards, _typed([ember, ember + 1]), "gr01")
-	var state: MatchState = StubAbilities.table(_typed([ember]), false)
-	state.seats[0].hand.assign(_typed([8]))
+	_put(cards, Typed.ints([ember, ember + 1]), "gr01")
+	var state: MatchState = StubAbilities.table(Typed.ints([ember]), false)
+	state.seats[0].hand.assign(Typed.ints([8]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	assert_array(rec.of_kind(PROMPTED)).is_empty()
 	assert_array(state.seats[0].hand).is_empty()
-	assert_array(state.seats[0].pile).is_equal(_typed([8]))
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([ember]))
-	var empty: MatchState = StubAbilities.table(_typed([ember + 1]), false)
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([8]))
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([ember]))
+	var empty: MatchState = StubAbilities.table(Typed.ints([ember + 1]), false)
 	var none: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(empty, cards, none)
 	var fizzled: Array[MatchEvent] = none.of_kind(FIZZLED)
 	assert_int(fizzled.size()).is_equal(1)
 	assert_str(_str_of(fizzled[0], "verb")).is_equal("discard_own")
 	assert_str(_str_of(fizzled[0], "reason")).is_equal(Abilities.REASON_NO_TARGET)
-	assert_array(none.cards_of(SCORED)).is_equal(_typed([ember + 1]))
+	assert_array(none.cards_of(SCORED)).is_equal(Typed.ints([ember + 1]))
 
 
 # --- Flare ----------------------------------------------------------------------------
@@ -133,16 +127,16 @@ func test_ember_auto_chooses_with_one_and_fizzles_with_none() -> void:
 func test_flare_condemns_itself_and_still_scores() -> void:
 	var cards: MatchCards = _cards()
 	var flare: int = StubAbilities.FLARE
-	var state: MatchState = StubAbilities.table(_typed([flare]), false)
+	var state: MatchState = StubAbilities.table(Typed.ints([flare]), false)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	assert_str(Statuses.exit_mark_of(state, flare)).is_equal(Statuses.CONDEMNED)
-	assert_array(rec.cards_of(SCORED)).is_equal(_typed([flare]))
+	assert_array(rec.cards_of(SCORED)).is_equal(Typed.ints([flare]))
 	assert_int(state.scores[0]).is_equal(5)
 	var ended: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(TurnFlow.end_turn(state, cards, MatchRng.new(SEED), ended.record)).is_false()
 	assert_array(state.seats[0].board).is_empty()
-	assert_array(state.seats[0].pile).is_equal(_typed([flare]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([flare]))
 	var discarded: Array[MatchEvent] = ended.of_kind(DISCARDED)
 	assert_int(discarded.size()).is_equal(1)
 	assert_str(_str_of(discarded[0], "reason")).is_equal(TurnFlow.REASON_CONDEMNED)
@@ -156,12 +150,12 @@ func test_courier_draws_for_its_own_seat() -> void:
 	var cards: MatchCards = _cards()
 	var courier: int = OTHER + StubAbilities.COURIER
 	var state: MatchState = MatchState.new(SEED)
-	StubAbilities.put_row(state, 1, _typed([courier]), true)
-	state.seats[0].deck.assign(_typed([8]))
-	state.seats[1].deck.assign(_typed([OTHER + 8]))
+	StubAbilities.put_row(state, 1, Typed.ints([courier]), true)
+	state.seats[0].deck.assign(Typed.ints([8]))
+	state.seats[1].deck.assign(Typed.ints([OTHER + 8]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	assert_array(state.seats[1].hand).is_equal(_typed([OTHER + 8]))
+	assert_array(state.seats[1].hand).is_equal(Typed.ints([OTHER + 8]))
 	assert_array(state.seats[0].hand).is_empty()
 	var drawn: Array[MatchEvent] = rec.of_kind(DRAWN)
 	assert_int(drawn.size()).is_equal(1)
@@ -174,16 +168,16 @@ func test_courier_draws_for_its_own_seat() -> void:
 func test_bounty_draws_for_the_opponent() -> void:
 	var cards: MatchCards = _cards()
 	var bounty: int = 0
-	_put(cards, _typed([bounty]), "gr08")
-	var state: MatchState = StubAbilities.table(_typed([bounty]), true)
-	state.seats[0].deck.assign(_typed([8]))
-	state.seats[1].deck.assign(_typed([OTHER + 8, OTHER + 9]))
+	_put(cards, Typed.ints([bounty]), "gr08")
+	var state: MatchState = StubAbilities.table(Typed.ints([bounty]), true)
+	state.seats[0].deck.assign(Typed.ints([8]))
+	state.seats[1].deck.assign(Typed.ints([OTHER + 8, OTHER + 9]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	assert_array(state.seats[1].hand).is_equal(_typed([OTHER + 8]))
-	assert_array(state.seats[1].deck).is_equal(_typed([OTHER + 9]))
+	assert_array(state.seats[1].hand).is_equal(Typed.ints([OTHER + 8]))
+	assert_array(state.seats[1].deck).is_equal(Typed.ints([OTHER + 9]))
 	assert_array(state.seats[0].hand).is_empty()
-	assert_array(state.seats[0].deck).is_equal(_typed([8]))
+	assert_array(state.seats[0].deck).is_equal(Typed.ints([8]))
 	var drawn: Array[MatchEvent] = rec.of_kind(DRAWN)
 	assert_int(drawn.size()).is_equal(1)
 	assert_int(drawn[0].owner_seat).is_equal(1)
@@ -204,10 +198,10 @@ func test_jackpot_discards_every_hand_card_each_a_batch() -> void:
 		StubAbilities.ability("on_discard", StubAbilities.VERB_RECORD, 0, "any")
 	]
 	assert_bool(
-		StubAbilities.give(cards, _typed([watcher]), StubAbilities.card_def("Watcher", abilities))
+		StubAbilities.give(cards, Typed.ints([watcher]), StubAbilities.card_def("Watcher", abilities))
 	).is_true()
-	_put(cards, _typed([jackpot]), "gr10")
-	var state: MatchState = StubAbilities.table(_typed([watcher, jackpot]), false)
+	_put(cards, Typed.ints([jackpot]), "gr10")
+	var state: MatchState = StubAbilities.table(Typed.ints([watcher, jackpot]), false)
 	state.seats[0].revealed[watcher] = true
 	var hand: Array[int] = [8, 9, 2]
 	state.seats[0].hand.assign(hand)

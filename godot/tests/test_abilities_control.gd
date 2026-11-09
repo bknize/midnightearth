@@ -45,12 +45,6 @@ func _db() -> CardDb:
 	return _cached_db
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _cards(verbs: StubAbilities.StubVerbs = null) -> MatchCards:
 	var cards: MatchCards = StubAbilities.defs()
 	if verbs != null:
@@ -112,8 +106,8 @@ func _watcher() -> CardDef:
 func test_eddy_add_grows_once_per_move_until_end_of_turn() -> void:
 	var cards: MatchCards = _cards()
 	var eddy: int = 0
-	_put(cards, _typed([eddy]), "ct01")
-	var state: MatchState = StubAbilities.table(_typed([eddy, 1]), true)
+	_put(cards, Typed.ints([eddy]), "ct01")
+	var state: MatchState = StubAbilities.table(Typed.ints([eddy, 1]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	var rng: MatchRng = MatchRng.new(SEED)
 	assert_int(Scoring.stats(eddy, state, cards).add()).is_equal(25)
@@ -137,15 +131,15 @@ func test_eddy_add_grows_once_per_move_until_end_of_turn() -> void:
 func test_pin_anchors_until_it_leaves_its_row() -> void:
 	var cards: MatchCards = _cards()
 	var pin: int = 0
-	_put(cards, _typed([pin]), "ct02")
-	var state: MatchState = StubAbilities.table(_typed([pin]), false)
-	StubAbilities.put_row(state, 1, _typed([OTHER, OTHER + 1]), true)
+	_put(cards, Typed.ints([pin]), "ct02")
+	var state: MatchState = StubAbilities.table(Typed.ints([pin]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER, OTHER + 1]), true)
 	var rng: MatchRng = MatchRng.new(SEED)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
 	assert_bool(ScoreWalk.step(state, cards, rng, rec.record)).is_true()
 	assert_str(Choice.zone_name(Choice.zone_of(state.prompt))).is_equal("both_boards")
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0, 1, 2]))
+	assert_array(Choice.options_of(state.prompt)).is_equal(Typed.ints([0, 1, 2]))
 	var zone: int = Choice.Zone.BOTH_BOARDS
 	var picked: Array[int] = [2]
 	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, picked, false)).is_false()
@@ -167,28 +161,28 @@ func test_shepherd_swaps_with_an_eligible_card_and_the_cursor_decides() -> void:
 	var cards: MatchCards = _cards()
 	var shepherd: int = 0
 	var brace: int = StubAbilities.BRACE
-	_put(cards, _typed([shepherd]), "ct03")
-	var state: MatchState = StubAbilities.table(_typed([shepherd, 1, brace]), false)
+	_put(cards, Typed.ints([shepherd]), "ct03")
+	var state: MatchState = StubAbilities.table(Typed.ints([shepherd, 1, brace]), false)
 	state.seats[0].revealed[1] = true
 	state.seats[0].revealed[brace] = true
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	assert_array(state.seats[0].board).is_equal(_typed([1, shepherd, brace]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([1, shepherd, brace]))
 	assert_int(rec.of_kind(MOVED).size()).is_equal(2)
-	assert_array(rec.cards_of(SCORED)).is_equal(_typed([1, shepherd, brace]))
+	assert_array(rec.cards_of(SCORED)).is_equal(Typed.ints([1, shepherd, brace]))
 
 
 ## An Anchored Shepherd cannot swap: it fizzles `no_target` and the row stays.
 func test_anchored_shepherd_fizzles() -> void:
 	var cards: MatchCards = _cards()
 	var shepherd: int = 0
-	_put(cards, _typed([shepherd]), "ct03")
-	var state: MatchState = StubAbilities.table(_typed([shepherd, 1]), false)
+	_put(cards, Typed.ints([shepherd]), "ct03")
+	var state: MatchState = StubAbilities.table(Typed.ints([shepherd, 1]), false)
 	state.seats[0].revealed[1] = true
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	Statuses.apply(state, cards, shepherd, Statuses.ANCHORED, _turn(), "test", rec.record)
 	_walk(state, cards, rec)
-	assert_array(state.seats[0].board).is_equal(_typed([shepherd, 1]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([shepherd, 1]))
 	var fizzled: Array[MatchEvent] = rec.of_kind(FIZZLED)
 	assert_int(fizzled.size()).is_equal(1)
 	assert_str(_str_of(fizzled[0], "reason")).is_equal(Abilities.REASON_NO_TARGET)
@@ -207,15 +201,15 @@ func test_skip_moves_after_d7_and_its_on_moved_drains_in_d8() -> void:
 	var eddy: int = 1
 	var mote: int = 2
 	var brace: int = StubAbilities.BRACE
-	_put(cards, _typed([skip]), "ct04")
-	_put(cards, _typed([eddy]), "ct01")
-	var state: MatchState = StubAbilities.table(_typed([skip, eddy, brace, mote]), false)
+	_put(cards, Typed.ints([skip]), "ct04")
+	_put(cards, Typed.ints([eddy]), "ct01")
+	var state: MatchState = StubAbilities.table(Typed.ints([skip, eddy, brace, mote]), false)
 	state.seats[0].revealed[brace] = true
 	state.seats[0].revealed[mote] = true
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	Statuses.apply(state, cards, skip, Statuses.ANCHORED, _turn(), "test", rec.record)
 	_walk(state, cards, rec)
-	assert_array(state.seats[0].board).is_equal(_typed([skip, mote, brace, eddy]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([skip, mote, brace, eddy]))
 	var revealed: int = _at(rec, REVEALED, eddy)
 	var moved: int = _at(rec, MOVED, eddy)
 	var landed: int = _at(rec, SCORED, mote)
@@ -223,7 +217,7 @@ func test_skip_moves_after_d7_and_its_on_moved_drains_in_d8() -> void:
 	assert_bool(revealed >= 0 and revealed < moved).is_true()
 	assert_bool(moved < landed).is_true()
 	assert_bool(landed < woke).is_true()
-	assert_array(rec.cards_of(SCORED)).is_equal(_typed([skip, mote, brace, eddy]))
+	assert_array(rec.cards_of(SCORED)).is_equal(Typed.ints([skip, mote, brace, eddy]))
 	assert_int(Scoring.stats(eddy, state, cards).add()).is_equal(50)
 	assert_int(state.walk.hook_pending).is_equal(0)
 	assert_int(state.walk.hook_card).is_equal(-1)
@@ -235,12 +229,12 @@ func test_skip_does_not_move_an_anchored_card() -> void:
 	var cards: MatchCards = _cards()
 	var skip: int = 0
 	var brace: int = StubAbilities.BRACE
-	_put(cards, _typed([skip]), "ct04")
-	var state: MatchState = StubAbilities.table(_typed([skip, brace, 1]), false)
+	_put(cards, Typed.ints([skip]), "ct04")
+	var state: MatchState = StubAbilities.table(Typed.ints([skip, brace, 1]), false)
 	state.seats[0].revealed[1] = true
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	assert_array(state.seats[0].board).is_equal(_typed([skip, brace, 1]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([skip, brace, 1]))
 	assert_array(rec.of_kind(MOVED)).is_empty()
 	assert_int(state.walk.hook_pending).is_equal(0)
 
@@ -256,25 +250,25 @@ func test_fence_condemns_a_card_that_would_wrap_and_wakes_no_on_moved() -> void:
 	var fence: int = 0
 	var eddy: int = OTHER + 1
 	var nudge: int = OTHER + StubAbilities.NUDGE
-	_put(cards, _typed([fence]), "ct05")
-	_put(cards, _typed([eddy]), "ct01")
-	var state: MatchState = StubAbilities.table(_typed([fence]), true)
-	StubAbilities.put_row(state, 1, _typed([eddy, nudge]), false)
+	_put(cards, Typed.ints([fence]), "ct05")
+	_put(cards, Typed.ints([eddy]), "ct01")
+	var state: MatchState = StubAbilities.table(Typed.ints([fence]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([eddy, nudge]), false)
 	state.seats[1].revealed[eddy] = true
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	assert_str(Statuses.exit_mark_of(state, nudge)).is_equal(Statuses.CONDEMNED)
-	assert_array(state.seats[1].board).is_equal(_typed([eddy, nudge]))
+	assert_array(state.seats[1].board).is_equal(Typed.ints([eddy, nudge]))
 	assert_array(rec.of_kind(MOVED)).is_empty()
 	assert_int(_at(rec, FIRED, eddy, "on_moved")).is_equal(-1)
-	var open: MatchState = StubAbilities.table(_typed([fence]), true)
-	StubAbilities.put_row(open, 1, _typed([eddy, nudge]), false)
+	var open: MatchState = StubAbilities.table(Typed.ints([fence]), true)
+	StubAbilities.put_row(open, 1, Typed.ints([eddy, nudge]), false)
 	open.seats[1].revealed[eddy] = true
 	var quiet: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(StubAbilities.stub_squelch(open, cards, fence, quiet.record).ok()).is_true()
 	_walk(open, cards, quiet)
 	assert_str(Statuses.exit_mark_of(open, nudge)).is_empty()
-	assert_array(open.seats[1].board).is_equal(_typed([nudge, eddy]))
+	assert_array(open.seats[1].board).is_equal(Typed.ints([nudge, eddy]))
 	assert_bool(_at(quiet, FIRED, eddy, "on_moved") >= 0).is_true()
 
 
@@ -284,13 +278,13 @@ func test_fence_does_nothing_on_a_ringless_row() -> void:
 	var cards: MatchCards = _cards()
 	var fence: int = 0
 	var nudge: int = OTHER + StubAbilities.NUDGE
-	_put(cards, _typed([fence]), "ct05")
-	var state: MatchState = StubAbilities.table(_typed([fence]), true)
-	StubAbilities.put_row(state, 1, _typed([nudge]), false)
+	_put(cards, Typed.ints([fence]), "ct05")
+	var state: MatchState = StubAbilities.table(Typed.ints([fence]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([nudge]), false)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	assert_str(Statuses.exit_mark_of(state, nudge)).is_empty()
-	assert_array(state.seats[1].board).is_equal(_typed([nudge]))
+	assert_array(state.seats[1].board).is_equal(Typed.ints([nudge]))
 	assert_array(rec.of_kind(MOVED)).is_empty()
 	assert_array(rec.of_kind(MatchEvent.Kind.EXIT_MARKED)).is_empty()
 
@@ -300,12 +294,12 @@ func test_fence_lets_an_inner_move_happen() -> void:
 	var cards: MatchCards = _cards()
 	var fence: int = 0
 	var nudge: int = StubAbilities.NUDGE
-	_put(cards, _typed([fence]), "ct05")
-	var state: MatchState = StubAbilities.table(_typed([nudge, 1, fence]), false)
+	_put(cards, Typed.ints([fence]), "ct05")
+	var state: MatchState = StubAbilities.table(Typed.ints([nudge, 1, fence]), false)
 	state.seats[0].revealed[1] = true
 	state.seats[0].revealed[fence] = true
 	_walk(state, cards, StubAbilities.recorder())
-	assert_array(state.seats[0].board).is_equal(_typed([1, nudge, fence]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([1, nudge, fence]))
 	assert_str(Statuses.exit_mark_of(state, nudge)).is_empty()
 
 
@@ -316,11 +310,11 @@ func test_fence_lets_an_inner_move_happen() -> void:
 func test_herald_is_x1_5_in_the_rightmost_slot() -> void:
 	var cards: MatchCards = _cards()
 	var herald: int = 0
-	_put(cards, _typed([herald]), "ct06")
-	var right: MatchState = StubAbilities.table(_typed([1, herald]), true)
+	_put(cards, Typed.ints([herald]), "ct06")
+	var right: MatchState = StubAbilities.table(Typed.ints([1, herald]), true)
 	assert_int(Scoring.stats(herald, right, cards).mult()).is_equal(150)
 	assert_int(Scoring.stats(herald, right, cards).bonus_value()).is_equal(15000)
-	var left: MatchState = StubAbilities.table(_typed([herald, 1]), true)
+	var left: MatchState = StubAbilities.table(Typed.ints([herald, 1]), true)
 	assert_int(Scoring.stats(herald, left, cards).mult()).is_equal(100)
 	assert_bool(StubAbilities.stub_squelch(right, cards, herald, Callable()).ok()).is_true()
 	assert_int(Scoring.stats(herald, right, cards).mult()).is_equal(100)
@@ -341,14 +335,14 @@ func test_level_sets_each_row_to_its_lowest_revealed_power() -> void:
 	var pebble: int = StubAbilities.PEBBLE
 	var wisp: int = StubAbilities.WISP
 	var saboteur: int = OTHER
-	_put(cards, _typed([level]), "ct07")
+	_put(cards, Typed.ints([level]), "ct07")
 	var none: Array[CardAbility] = []
 	var sabotage: CardDef = StubAbilities.card_def("Saboteur", none, SABOTEUR_POWER)
-	assert_bool(StubAbilities.give(cards, _typed([saboteur]), sabotage)).is_true()
-	var state: MatchState = StubAbilities.table(_typed([level, pebble, 1, wisp]), false)
+	assert_bool(StubAbilities.give(cards, Typed.ints([saboteur]), sabotage)).is_true()
+	var state: MatchState = StubAbilities.table(Typed.ints([level, pebble, 1, wisp]), false)
 	for card: int in [level, pebble, 1]:
 		state.seats[0].revealed[card] = true
-	StubAbilities.put_row(state, 1, _typed([saboteur, OTHER + pebble]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([saboteur, OTHER + pebble]), true)
 	for card: int in [level, pebble, 1]:
 		assert_int(Scoring.stats(card, state, cards).power).is_equal(2)
 	assert_int(Scoring.stats(wisp, state, cards).power).is_equal(1)
@@ -370,16 +364,16 @@ func test_level_skips_a_face_down_card_until_it_is_revealed() -> void:
 	var cards: MatchCards = _cards()
 	var level: int = 0
 	var pebble: int = StubAbilities.PEBBLE
-	_put(cards, _typed([level]), "ct07")
+	_put(cards, Typed.ints([level]), "ct07")
 	var none: Array[CardAbility] = []
 	var seven: CardDef = StubAbilities.card_def("Seven", none, 7)
 	var own_seven: int = 1
 	var their_seven: int = OTHER + 1
-	assert_bool(StubAbilities.give(cards, _typed([own_seven, their_seven]), seven)).is_true()
-	var state: MatchState = StubAbilities.table(_typed([level, pebble, own_seven]), false)
+	assert_bool(StubAbilities.give(cards, Typed.ints([own_seven, their_seven]), seven)).is_true()
+	var state: MatchState = StubAbilities.table(Typed.ints([level, pebble, own_seven]), false)
 	for card: int in [level, pebble]:
 		state.seats[0].revealed[card] = true
-	StubAbilities.put_row(state, 1, _typed([OTHER, their_seven]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER, their_seven]), false)
 	state.seats[1].revealed[OTHER] = true
 	assert_int(Scoring.stats(own_seven, state, cards).power).is_equal(7)
 	assert_int(Scoring.stats(their_seven, state, cards).power).is_equal(7)
@@ -402,26 +396,26 @@ func test_shake_row_keeps_a_chosen_anchored_card() -> void:
 	var cards: MatchCards = _cards()
 	var brace: int = StubAbilities.BRACE
 	var pebble: int = StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([1, brace, pebble, 2]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([1, brace, pebble, 2]), true)
 	var chosen: Array[int] = [brace, pebble]
 	var moved: Array[int] = AbilitiesGraveyardControl.shake_row(state, cards, 0, chosen, Callable())
-	assert_array(state.seats[0].board).is_equal(_typed([pebble, brace, 1, 2]))
-	assert_array(moved).is_equal(_typed([pebble, 1]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([pebble, brace, 1, 2]))
+	assert_array(moved).is_equal(Typed.ints([pebble, 1]))
 
 
 ## Adjacent chosen cards step left together: A B C with B and C chosen becomes B C A; the
 ## leftmost chosen card wraps to the rightmost slot.
 func test_shake_row_adjacent_chosen_step_together() -> void:
 	var cards: MatchCards = _cards()
-	var state: MatchState = StubAbilities.table(_typed([1, 2, 3]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([1, 2, 3]), true)
 	var chosen: Array[int] = [2, 3]
 	var moved: Array[int] = AbilitiesGraveyardControl.shake_row(state, cards, 0, chosen, Callable())
-	assert_array(state.seats[0].board).is_equal(_typed([2, 3, 1]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([2, 3, 1]))
 	assert_int(moved.size()).is_equal(3)
-	var wrap: MatchState = StubAbilities.table(_typed([1, 2, 3]), true)
+	var wrap: MatchState = StubAbilities.table(Typed.ints([1, 2, 3]), true)
 	var first: Array[int] = [1]
 	AbilitiesGraveyardControl.shake_row(wrap, cards, 0, first, Callable())
-	assert_array(wrap.seats[0].board).is_equal(_typed([3, 2, 1]))
+	assert_array(wrap.seats[0].board).is_equal(Typed.ints([3, 2, 1]))
 
 
 ## Shake's reveal over two rows of four: a random two of each move; Brace never moves; every
@@ -431,12 +425,12 @@ func test_shake_moves_half_of_each_row_as_one_on_moved_batch() -> void:
 	var cards: MatchCards = _cards(verbs)
 	var shake: int = 0
 	var brace: int = StubAbilities.BRACE
-	_put(cards, _typed([shake]), "ct08")
+	_put(cards, Typed.ints([shake]), "ct08")
 	var watchers: Array[int] = [1, 2, OTHER, OTHER + 1, OTHER + 2, OTHER + 3]
 	assert_bool(StubAbilities.give(cards, watchers, _watcher())).is_true()
-	var state: MatchState = StubAbilities.table(_typed([shake, 1, brace, 2]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([shake, 1, brace, 2]), true)
 	state.seats[0].revealed.erase(shake)
-	StubAbilities.put_row(state, 1, _typed([OTHER, OTHER + 1, OTHER + 2, OTHER + 3]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER, OTHER + 1, OTHER + 2, OTHER + 3]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
 	assert_bool(ScoreWalk.step(state, cards, MatchRng.new(SEED), rec.record)).is_false()
@@ -471,14 +465,14 @@ func test_tempest_reverses_the_opposing_row_around_an_anchor() -> void:
 	var tempest: int = 0
 	var brace: int = OTHER + StubAbilities.BRACE
 	var pebble: int = OTHER + StubAbilities.PEBBLE
-	_put(cards, _typed([tempest]), "ct09")
-	var state: MatchState = StubAbilities.table(_typed([tempest]), false)
-	StubAbilities.put_row(state, 1, _typed([OTHER, brace, pebble, OTHER + 1]), true)
+	_put(cards, Typed.ints([tempest]), "ct09")
+	var state: MatchState = StubAbilities.table(Typed.ints([tempest]), false)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER, brace, pebble, OTHER + 1]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
 	assert_bool(ScoreWalk.step(state, cards, MatchRng.new(SEED), rec.record)).is_false()
-	assert_array(state.seats[1].board).is_equal(_typed([OTHER + 1, brace, pebble, OTHER]))
-	assert_array(rec.cards_of(MOVED)).is_equal(_typed([OTHER + 1, OTHER]))
+	assert_array(state.seats[1].board).is_equal(Typed.ints([OTHER + 1, brace, pebble, OTHER]))
+	assert_array(rec.cards_of(MOVED)).is_equal(Typed.ints([OTHER + 1, OTHER]))
 
 
 # --- Cull -----------------------------------------------------------------------------
@@ -490,7 +484,7 @@ func test_tempest_reverses_the_opposing_row_around_an_anchor() -> void:
 func test_cull_prompts_both_seats_and_condemns_the_rest() -> void:
 	var cards: MatchCards = _cards()
 	var cull: int = 0
-	_put(cards, _typed([cull]), "ct10")
+	_put(cards, Typed.ints([cull]), "ct10")
 	var own: Array[int] = [cull, 1, 2, 3, 4, 5, 6]
 	var state: MatchState = StubAbilities.table(own, true)
 	state.seats[0].revealed.erase(cull)
@@ -507,7 +501,7 @@ func test_cull_prompts_both_seats_and_condemns_the_rest() -> void:
 	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_true()
 	assert_int(state.prompt.get("seat", -1)).is_equal(1)
 	assert_str(Choice.zone_name(Choice.zone_of(state.prompt))).is_equal("own_board")
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0, 1, 2, 3, 4, 5]))
+	assert_array(Choice.options_of(state.prompt)).is_equal(Typed.ints([0, 1, 2, 3, 4, 5]))
 	var view: SeatView = SeatView.build(state, 1, 1, cards)
 	var bot: RandomBot = RandomBot.new(7, cards)
 	var action: EngineAction = bot.choose(view, null)
@@ -518,7 +512,7 @@ func test_cull_prompts_both_seats_and_condemns_the_rest() -> void:
 	assert_bool(
 		TriggerQueue.answer(state, cards, rng, rec.record, action.zone, action.indices, false)
 	).is_false()
-	assert_array(_marked(state, own)).is_equal(_typed([5, 6]))
+	assert_array(_marked(state, own)).is_equal(Typed.ints([5, 6]))
 	var dropped: Array[int] = _marked(state, enemy)
 	assert_int(dropped.size()).is_equal(1)
 	assert_bool(action.indices.has(enemy.find(dropped[0]))).is_false()
@@ -529,7 +523,7 @@ func test_cull_prompts_both_seats_and_condemns_the_rest() -> void:
 func test_cull_leaves_a_row_of_five_alone() -> void:
 	var cards: MatchCards = _cards()
 	var cull: int = 0
-	_put(cards, _typed([cull, cull + 1]), "ct10")
+	_put(cards, Typed.ints([cull, cull + 1]), "ct10")
 	var own: Array[int] = [cull, 2, 3, 4, 5, 6]
 	var state: MatchState = StubAbilities.table(own, true)
 	state.seats[0].revealed.erase(cull)
@@ -542,9 +536,9 @@ func test_cull_leaves_a_row_of_five_alone() -> void:
 	var zone: int = Choice.Zone.OWN_BOARD
 	var kept: Array[int] = [1, 2, 3, 4, 5]
 	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_false()
-	assert_array(_marked(state, own)).is_equal(_typed([cull]))
+	assert_array(_marked(state, own)).is_equal(Typed.ints([cull]))
 	assert_array(_marked(state, enemy)).is_empty()
-	var small: MatchState = StubAbilities.table(_typed([cull + 1, 2]), false)
+	var small: MatchState = StubAbilities.table(Typed.ints([cull + 1, 2]), false)
 	var none: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(small, cards, none)
 	var fizzled: Array[MatchEvent] = none.of_kind(FIZZLED)
@@ -574,7 +568,7 @@ func test_one_cull_firing_counts_one_use_over_its_two_prompts() -> void:
 		limited.scope = scope
 		var abilities: Array[CardAbility] = [limited]
 		var def: CardDef = StubAbilities.card_def("Cull", abilities, 7, 7)
-		assert_bool(StubAbilities.give(cards, _typed([cull]), def)).is_true()
+		assert_bool(StubAbilities.give(cards, Typed.ints([cull]), def)).is_true()
 		var own: Array[int] = [cull, 1, 2, 3, 4, 5, 6]
 		var state: MatchState = StubAbilities.table(own, true)
 		state.seats[0].revealed.erase(cull)
@@ -591,8 +585,8 @@ func test_one_cull_firing_counts_one_use_over_its_two_prompts() -> void:
 		assert_int(Scoring.uses_left(cull, state, cards)).is_equal(1)
 		assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, kept, false)).is_false()
 		assert_int(Scoring.uses_left(cull, state, cards)).is_equal(1)
-		assert_array(_marked(state, own)).is_equal(_typed([5, 6]))
-		assert_array(_marked(state, enemy)).is_equal(_typed([OTHER + 5]))
+		assert_array(_marked(state, own)).is_equal(Typed.ints([5, 6]))
+		assert_array(_marked(state, enemy)).is_equal(Typed.ints([OTHER + 5]))
 
 
 # --- The random bot over every prompt -------------------------------------------------

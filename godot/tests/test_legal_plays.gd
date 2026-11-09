@@ -20,12 +20,6 @@ func _defs() -> MatchCards:
 	return FixtureDecks.defs(_db())
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 ## validate() for a commit appended to an empty row, with no free first card: the
 ## pre-DC-05 shape of the cycle-1 checks below.
 func _check(proposal: Array[int], hand: Array[int], budget: int, db: MatchCards) -> int:
@@ -70,7 +64,7 @@ func test_every_enumerated_set_is_within_budget_and_validates() -> void:
 	var hand: Array[int] = [0, 4, 8, 11, 14, 16, 18]
 	for energy: int in range(1, MatchRules.TURNS + 1):
 		for s: Array in LegalPlays.enumerate(hand, energy, db):
-			var cards: Array[int] = _typed(s)
+			var cards: Array[int] = Typed.ints(s)
 			assert_int(LegalPlays.total_cost(cards, db)).is_less_equal(energy)
 			assert_int(_check(cards, hand, energy, db)).is_equal(EngineError.Code.NONE)
 
@@ -93,7 +87,7 @@ func test_order_is_ascending_bitmask_over_hand_order() -> void:
 	var expected: Array[Array] = [[], [0], [1], [0, 1], [2], [0, 2], [1, 2], [0, 1, 2]]
 	assert_int(sets.size()).is_equal(expected.size())
 	for i: int in range(expected.size()):
-		assert_array(_typed(sets[i])).is_equal(_typed(expected[i]))
+		assert_array(Typed.ints(sets[i])).is_equal(Typed.ints(expected[i]))
 
 
 func test_order_skips_unaffordable_masks() -> void:
@@ -102,7 +96,7 @@ func test_order_skips_unaffordable_masks() -> void:
 	var masks: Array[int] = LegalPlays.enumerate_masks(hand, 5, _defs())
 	var expected: Array[int] = [0, 1, 2, 3, 4, 6]
 	assert_array(masks).is_equal(expected)
-	assert_array(LegalPlays.subset(hand, 6)).is_equal(_typed([0, 12]))
+	assert_array(LegalPlays.subset(hand, 6)).is_equal(Typed.ints([0, 12]))
 
 
 func test_enumeration_is_stable_across_calls() -> void:
@@ -120,17 +114,17 @@ func test_empty_set_always_first() -> void:
 	var db: MatchCards = _defs()
 	var hands: Array[Array] = [[], [18], [18, 38], [0, 4, 8, 11, 14, 16, 18]]
 	for h: Array in hands:
-		var hand: Array[int] = _typed(h)
+		var hand: Array[int] = Typed.ints(h)
 		for energy: int in range(0, MatchRules.TURNS + 1):
 			var sets: Array[Array] = LegalPlays.enumerate(hand, energy, db)
 			assert_int(sets.size()).is_greater_equal(1)
-			assert_array(_typed(sets[0])).is_empty()
+			assert_array(Typed.ints(sets[0])).is_empty()
 
 
 func test_empty_or_unaffordable_hand_has_only_the_pass() -> void:
 	var sets: Array[Array] = LegalPlays.enumerate([], 7, _defs())
 	assert_int(sets.size()).is_equal(1)
-	assert_array(_typed(sets[0])).is_empty()
+	assert_array(Typed.ints(sets[0])).is_empty()
 	var hand: Array[int] = [18, 38]
 	var masks: Array[int] = LegalPlays.enumerate_masks(hand, 6, _defs())
 	var expected: Array[int] = [0]
@@ -231,8 +225,8 @@ func test_failed_card_db_prices_nothing() -> void:
 ## validate() of `proposal` (all in hand, ample budget) at `slots` on a row of
 ## `row_size` played cards.
 func _with_slots(proposal: Array, slots: Array, row_size: int) -> int:
-	var cards: Array[int] = _typed(proposal)
-	return LegalPlays.validate(cards, _typed(slots), cards, row_size, 99, false, _defs())
+	var cards: Array[int] = Typed.ints(proposal)
+	return LegalPlays.validate(cards, Typed.ints(slots), cards, row_size, 99, false, _defs())
 
 
 func test_slots_within_the_resulting_row_are_accepted() -> void:
@@ -298,8 +292,8 @@ func test_slots_checked_after_membership_and_before_budget() -> void:
 
 
 func test_append_slots_fill_the_right_end() -> void:
-	assert_array(LegalPlays.append_slots(3, 2)).is_equal(_typed([3, 4]))
-	assert_array(LegalPlays.append_slots(0, 3)).is_equal(_typed([0, 1, 2]))
+	assert_array(LegalPlays.append_slots(3, 2)).is_equal(Typed.ints([3, 4]))
+	assert_array(LegalPlays.append_slots(0, 3)).is_equal(Typed.ints([0, 1, 2]))
 	assert_array(LegalPlays.append_slots(4, 0)).is_empty()
 	for row_size: int in range(0, 6):
 		for count: int in range(0, 4):
@@ -404,12 +398,12 @@ func test_a_budget_2_commit_of_a_cost_3_card_needs_its_reduction() -> void:
 	var proposal: Array[int] = [8]
 	var slots: Array[int] = LegalPlays.append_slots(0, 1)
 	var reduced: Array[int] = _effective(hand, {8: 1})
-	assert_array(reduced).is_equal(_typed([2, 1]))
+	assert_array(reduced).is_equal(Typed.ints([2, 1]))
 	assert_int(LegalPlays.validate_with(proposal, slots, hand, reduced, 0, 2, false)).is_equal(
 		EngineError.Code.NONE
 	)
 	var printed: Array[int] = _effective(hand, {})
-	assert_array(printed).is_equal(_typed([3, 1]))
+	assert_array(printed).is_equal(Typed.ints([3, 1]))
 	assert_int(LegalPlays.validate_with(proposal, slots, hand, printed, 0, 2, false)).is_equal(
 		EngineError.Code.OVER_BUDGET
 	)
@@ -433,7 +427,7 @@ func test_with_variants_equal_the_printed_ones_on_def_costs() -> void:
 		)
 	var proposals: Array[Array] = [[18, 0], [8], [], [4, 11]]
 	for raw: Array in proposals:
-		var proposal: Array[int] = _typed(raw)
+		var proposal: Array[int] = Typed.ints(raw)
 		var proposal_costs: Array[int] = LegalPlays.def_costs(proposal, db)
 		var slots: Array[int] = LegalPlays.append_slots(0, proposal.size())
 		for free_first: bool in [false, true]:
@@ -453,11 +447,11 @@ func test_with_variants_equal_the_printed_ones_on_def_costs() -> void:
 ## cost is unpriced (-1).
 func test_commit_cost_with_free_first_and_unpriced() -> void:
 	var cards: Array[int] = [18, 0]
-	assert_int(LegalPlays.commit_cost_with(cards, _typed([5, 1]), false)).is_equal(6)
-	assert_int(LegalPlays.commit_cost_with(cards, _typed([5, 1]), true)).is_equal(1)
-	assert_int(LegalPlays.commit_cost_with(cards, _typed([5, -1]), false)).is_equal(-1)
-	assert_int(LegalPlays.commit_cost_with(cards, _typed([5]), false)).is_equal(-1)
-	assert_int(LegalPlays.commit_cost_with(_typed([]), _typed([]), true)).is_equal(0)
+	assert_int(LegalPlays.commit_cost_with(cards, Typed.ints([5, 1]), false)).is_equal(6)
+	assert_int(LegalPlays.commit_cost_with(cards, Typed.ints([5, 1]), true)).is_equal(1)
+	assert_int(LegalPlays.commit_cost_with(cards, Typed.ints([5, -1]), false)).is_equal(-1)
+	assert_int(LegalPlays.commit_cost_with(cards, Typed.ints([5]), false)).is_equal(-1)
+	assert_int(LegalPlays.commit_cost_with(Typed.ints([]), Typed.ints([]), true)).is_equal(0)
 
 
 # --- Cycle 9 (DC-13 T03): the discard-down's size (R13, R14, plan P12) -----------------

@@ -43,12 +43,6 @@ func _defs() -> MatchCards:
 	return _cached_defs
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 ## A hand-built state at seat 0's commit: seat 0 holds 0..2 with 20..22 in its Deck and 12
 ## face down on its row; seat 1 holds T+1, T+2 and a Dross card (owner 1), T+20 and T+21
 ## in its Deck, and on its row FADED face down with a Fade mark, LOOKED face down but looked
@@ -60,16 +54,16 @@ func _state() -> MatchState:
 	state.turn = 3
 	state.first_seat = 0
 	state.phase = MatchState.Phase.AWAIT_FIRST
-	state.seats[0].hand.assign(_typed([0, 1, 2]))
-	state.seats[0].deck.assign(_typed([20, 21, 22]))
-	state.seats[0].board.assign(_typed([OWN_DOWN]))
-	state.seats[0].pile.assign(_typed([4]))
+	state.seats[0].hand.assign(Typed.ints([0, 1, 2]))
+	state.seats[0].deck.assign(Typed.ints([20, 21, 22]))
+	state.seats[0].board.assign(Typed.ints([OWN_DOWN]))
+	state.seats[0].pile.assign(Typed.ints([4]))
 	state.seats[0].looked[LOOKED] = true
-	state.seats[1].hand.assign(_typed([T + 1, T + 2, DROSS]))
-	state.seats[1].deck.assign(_typed([T + 20, T + 21]))
-	state.seats[1].board.assign(_typed([FADED, LOOKED, SHOWN]))
+	state.seats[1].hand.assign(Typed.ints([T + 1, T + 2, DROSS]))
+	state.seats[1].deck.assign(Typed.ints([T + 20, T + 21]))
+	state.seats[1].board.assign(Typed.ints([FADED, LOOKED, SHOWN]))
 	state.seats[1].revealed[SHOWN] = true
-	state.seats[1].pile.assign(_typed([T + 4]))
+	state.seats[1].pile.assign(Typed.ints([T + 4]))
 	state.card_state_for(FADED).exit_mark = Statuses.FADE
 	state.memory_for(T + 1).power = 2
 	state.next_dross_id = DROSS + 1  # The Dross's record is MatchCards' (_engine_on).
@@ -92,7 +86,7 @@ func _position() -> MatchEngine:
 		POSITION_SEED,
 		CardDb.load_default(),
 		DeckList.load_default(),
-		_typed_strings(["", ""]),
+		Typed.strings(["", ""]),
 		CrewPool.load_default()
 	)
 	assert_bool(engine.start().ok).is_true()
@@ -112,12 +106,6 @@ func _position() -> MatchEngine:
 		actions += 1
 	fail("seed 1 never reached seat 1's Round 3 commit")
 	return engine
-
-
-func _typed_strings(values: Array) -> Array[String]:
-	var out: Array[String] = []
-	out.assign(values)
-	return out
 
 
 ## The commit seat 1's own `random` bot would play at the position.
@@ -157,18 +145,18 @@ func _zone(full: Dictionary, key: String, seat: int) -> Array[int]:
 func test_hidden_sets_from_seat_0_skip_the_looked_and_revealed_cards() -> void:
 	var engine: MatchEngine = _engine_on(_state())
 	var sets: Array[Array] = Rollout.hidden_sets(engine, 0)
-	assert_array(sets[0]).is_equal(_typed([20, 21, 22]))
+	assert_array(sets[0]).is_equal(Typed.ints([20, 21, 22]))
 	# The other hand (the Dross too), the face-down Fade card and the other Deck; not
 	# LOOKED (looked at) nor SHOWN (revealed).
-	assert_array(sets[1]).is_equal(_typed([T + 1, T + 2, T + 20, T + 21, FADED, DROSS]))
+	assert_array(sets[1]).is_equal(Typed.ints([T + 1, T + 2, T + 20, T + 21, FADED, DROSS]))
 
 
 func test_hidden_sets_from_seat_1_hold_the_other_hand_row_and_deck() -> void:
 	var engine: MatchEngine = _engine_on(_state())
 	var sets: Array[Array] = Rollout.hidden_sets(engine, 1)
 	# Seat 0's hand, its face-down 12 (seat 1 has not looked) and its Deck.
-	assert_array(sets[0]).is_equal(_typed([0, 1, 2, OWN_DOWN, 20, 21, 22]))
-	assert_array(sets[1]).is_equal(_typed([T + 20, T + 21]))
+	assert_array(sets[0]).is_equal(Typed.ints([0, 1, 2, OWN_DOWN, 20, 21, 22]))
+	assert_array(sets[1]).is_equal(Typed.ints([T + 20, T + 21]))
 
 
 func test_hidden_sets_leave_out_the_deck_top_of_an_open_delve() -> void:
@@ -189,17 +177,17 @@ func test_hidden_sets_leave_out_the_deck_top_of_an_open_delve() -> void:
 		"step": "D1",
 	}
 	var engine: MatchEngine = _engine_on(state)
-	assert_array(engine.view_for(0).deck_top).is_equal(_typed([20, 21]))
-	assert_array(Rollout.hidden_sets(engine, 0)[0]).is_equal(_typed([22]))
+	assert_array(engine.view_for(0).deck_top).is_equal(Typed.ints([20, 21]))
+	assert_array(Rollout.hidden_sets(engine, 0)[0]).is_equal(Typed.ints([22]))
 
 
 func test_hidden_sets_include_the_other_seats_face_down_commit() -> void:
 	var state: MatchState = _state()
 	state.first_seat = 1
 	state.phase = MatchState.Phase.AWAIT_SECOND
-	state.seats[1].hand.assign(_typed([T + 1]))
-	state.pending.assign(_typed([T + 2]))
-	state.pending_slots.assign(_typed([3]))
+	state.seats[1].hand.assign(Typed.ints([T + 1]))
+	state.pending.assign(Typed.ints([T + 2]))
+	state.pending_slots.assign(Typed.ints([3]))
 	var engine: MatchEngine = _engine_on(state)
 	assert_int(engine.awaited_seat()).is_equal(0)
 	assert_array(Rollout.hidden_sets(engine, 0)[1]).contains([T + 2])
@@ -231,7 +219,7 @@ func test_a_paused_entry_pins_card_ids_only() -> void:
 	# Pinned: the subject T+20, Quorum's kept T+21 and the woken DROSS. Not pinned: the
 	# amount, the stage, the crew slot and the resolution number, though each equals a
 	# hidden card's id.
-	assert_array(Rollout.hidden_sets(engine, 0)[1]).is_equal(_typed([T + 1, T + 2, FADED]))
+	assert_array(Rollout.hidden_sets(engine, 0)[1]).is_equal(Typed.ints([T + 1, T + 2, FADED]))
 
 
 # --- Determinized copies --------------------------------------------------------------
@@ -248,8 +236,8 @@ func test_a_copy_keeps_the_seats_view_and_moves_records_with_their_owners() -> v
 		assert_dict(copy.view_for(0).to_dict()).is_equal(view)
 		var full: Dictionary = copy.full_state()
 		# Known zones keep their cards.
-		assert_array(_zone(full, "hand", 0)).is_equal(_typed([0, 1, 2]))
-		assert_array(_zone(full, "board", 0)).is_equal(_typed([OWN_DOWN]))
+		assert_array(_zone(full, "hand", 0)).is_equal(Typed.ints([0, 1, 2]))
+		assert_array(_zone(full, "board", 0)).is_equal(Typed.ints([OWN_DOWN]))
 		var row: Array[int] = _zone(full, "board", 1)
 		assert_int(row[1]).is_equal(LOOKED)
 		assert_int(row[2]).is_equal(SHOWN)
@@ -509,7 +497,7 @@ func test_sample_indices_draws_k_distinct_ascending_indices() -> void:
 		seen[index] = true
 	assert_int(seen.size()).is_equal(8)
 	assert_array(Rollout.sample_indices(20, 8, LABEL_SEED)).is_equal(picked)
-	assert_array(Rollout.sample_indices(5, 8, LABEL_SEED)).is_equal(_typed([0, 1, 2, 3, 4]))
+	assert_array(Rollout.sample_indices(5, 8, LABEL_SEED)).is_equal(Typed.ints([0, 1, 2, 3, 4]))
 	assert_array(Rollout.sample_indices(0, 8, LABEL_SEED)).is_empty()
 	assert_array(Rollout.sample_indices(20, 0, LABEL_SEED)).is_empty()
 

@@ -50,12 +50,6 @@ func _defs() -> MatchCards:
 	return _cached_defs
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _started(match_seed: int) -> MatchEngine:
 	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
@@ -66,7 +60,7 @@ func _hand(engine: MatchEngine, seat: int) -> Array[int]:
 	var state: Dictionary = engine.full_state()
 	var per_seat: Array = state["hand"]
 	var raw: Array = per_seat[seat]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _cost_of(cards: Array[int]) -> int:
@@ -91,7 +85,7 @@ func _script_action(engine: MatchEngine, player: int) -> EngineAction:
 	if seat == player:
 		# The fixture's cards are plain bodies (DC-13 T02), so no set opens a prompt.
 		var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _defs())
-		cards = _typed(sets[sets.size() - 1])
+		cards = Typed.ints(sets[sets.size() - 1])
 	var slots: Array[int] = LegalPlays.append_slots(_row_size(engine, seat), cards.size())
 	return EngineAction.commit(seat, cards, slots)
 
@@ -223,9 +217,9 @@ func _log_of(match_seed: int, actions: Array[EngineAction]) -> ActionLog:
 func _sample_actions() -> Array[EngineAction]:
 	var none: Array[int] = []
 	var actions: Array[EngineAction] = [
-		EngineAction.commit(0, _typed([3, 7]), _typed([0, 2])),
+		EngineAction.commit(0, Typed.ints([3, 7]), Typed.ints([0, 2])),
 		EngineAction.commit(1, none),
-		EngineAction.commit(1, _typed([39, 20, 21]), _typed([1, 2, 5])),
+		EngineAction.commit(1, Typed.ints([39, 20, 21]), Typed.ints([1, 2, 5])),
 		EngineAction.choose(0, 1, 2),
 		EngineAction.concede(1),
 		EngineAction.concede(0),
@@ -296,7 +290,7 @@ func test_log_holds_versions_seed_and_accepted_actions_only() -> void:
 		var wrong: ApplyResult = engine.apply(EngineAction.commit(1 - engine.awaited_seat(), none))
 		assert_bool(wrong.ok).is_false()
 		var unknown: ApplyResult = engine.apply(
-			EngineAction.commit(engine.awaited_seat(), _typed([99]))
+			EngineAction.commit(engine.awaited_seat(), Typed.ints([99]))
 		)
 		assert_bool(unknown.ok).is_false()
 		var action: EngineAction = _script_action(engine, index % 2)
@@ -426,8 +420,8 @@ func test_numbers_come_back_as_ints() -> void:
 	var first: EngineAction = parsed.actions[0]
 	assert_int(first.kind).is_equal(EngineAction.Kind.COMMIT)
 	assert_int(first.seat).is_equal(1)
-	assert_array(first.cards).is_equal(_typed([3, 21]))
-	assert_array(first.slots).is_equal(_typed([0, 2]))
+	assert_array(first.cards).is_equal(Typed.ints([3, 21]))
+	assert_array(first.slots).is_equal(Typed.ints([0, 2]))
 	var second: EngineAction = parsed.actions[1]
 	assert_int(second.kind).is_equal(EngineAction.Kind.CONCEDE)
 	assert_int(second.seat).is_equal(0)
@@ -522,7 +516,7 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 		SEED,
 		actions,
 		bad_index,
-		EngineAction.commit(seat, _typed([foreign])),
+		EngineAction.commit(seat, Typed.ints([foreign])),
 		EngineError.Code.CARD_NOT_IN_HAND,
 		true
 	)
@@ -530,7 +524,7 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 		SEED,
 		actions,
 		bad_index,
-		EngineAction.commit(seat, _typed([99])),
+		EngineAction.commit(seat, Typed.ints([99])),
 		EngineError.Code.CARD_NOT_IN_HAND,
 		true
 	)
@@ -540,7 +534,7 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 		SEED,
 		actions,
 		bad_index,
-		EngineAction.commit(seat, _typed([hand[0], hand[0]])),
+		EngineAction.commit(seat, Typed.ints([hand[0], hand[0]])),
 		EngineError.Code.DUPLICATE_CARD,
 		true
 	)
@@ -811,7 +805,7 @@ func test_bad_slots_fail_replay_at_their_index() -> void:
 	var card: Array[int] = [_hand(at, seat)[0]]
 	var beyond: int = _row_size(at, seat) + 1
 	for slots: Array in [[beyond], [-1], [0, 1]]:
-		var bad: EngineAction = EngineAction.commit(seat, card, _typed(slots))
+		var bad: EngineAction = EngineAction.commit(seat, card, Typed.ints(slots))
 		_assert_rejected_at(SEED, actions, bad_index, bad, EngineError.Code.BAD_SLOTS, true)
 
 
@@ -1061,7 +1055,7 @@ func test_in_range_card_numbers_in_entries_parse() -> void:
 	if parsed != null:
 		assert_int(parsed.actions.size()).is_equal(1)
 		assert_int(parsed.actions[0].seat).is_equal(1)
-		assert_array(parsed.actions[0].cards).is_equal(_typed([3, 27, 9007199254740992]))
+		assert_array(parsed.actions[0].cards).is_equal(Typed.ints([3, 27, 9007199254740992]))
 
 
 func _one_entry_log(entry: String) -> String:
