@@ -4,7 +4,7 @@ tags: [tasks, cycle-14-backlog, engine, board, pvp, trainer, tooling, vault]
 status: approved
 related: ["[[specs/cycle-14-backlog/spec]]", "[[specs/cycle-14-backlog/plan]]", "[[planning/phase-1-tech-stack]]", "[[planning/bot-ladder]]", "[[planning/cycles]]", "[[decisions/0002-one-branch-per-cycle]]"]
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-09
 uid: b651b610-2175-4087-a64f-d9651ab6a9ca
 linear: https://linear.app/night-science-llc/project/cycle-14-backlog-sweep-1f4a4af95173
 supersedes:
@@ -38,8 +38,8 @@ the typed-strict traps and the rule that no `.gd` file names both a class and it
 | 12 | Board core cleanup (NSC-189, P14): split step dispatch, seven flags to a phase enum, `BoardStep` fields, `PILE_SHOW`, `exit_to` enum, behaviour-preserving | scene | NSC-189 | 10 | all `test_board_*.gd` suites green unchanged in count; seed-1 board line equals the pin; no file names both `MatchSource` and `MatchDriver` | implementer |
 | 13 | Board UI cleanup (NSC-190, P14): zone string compares, launch args read once, strip ownership and the rest of the list | scene | NSC-190 | 12 | `test_deck_strip_layout.gd`, `test_lift_layout.gd`, `test_staging*.gd`, `test_prompt_host.gd` green; seed-1 board line equals the pin | implementer |
 | 14 | Tooling (R41, R42, P16): `worktree-sweep.sh` keeps unmerged and foreign worktrees and saves screenshots before removal; the edit hook finds `~/.local/bin` and prints its missing-gdlint line | tooling | NSC-75, NSC-57 | – | a planted unmerged worktree and a planted foreign worktree print `kept`; a merged one with a planted `.png` prints `removed` and the file is in `reports/screenshots/<branch>/`; the hook with an empty PATH prints the line and exits 0 | implementer |
-| 15 | Trainer Python (R34, R35, R38, R39, P13): NSC-245's Python items including the pair weighting recorded in the fit record; NSC-209 explicit flush; NSC-231 orchestrator check over SSH noted in the task | trainer | NSC-245 (Python half), NSC-209, NSC-231 | 9, night 2 ended | `trainer/tests` green on the Mac; `make fit` on two recorded runs prints the weighting; the play-out worker answers with stdout unbuffered under `python -u` and without; NSC-231 numbers written in the task notes | implementer |
-| 16 | Trainer Godot side of NSC-245 (P13): `LinearBot` pass candidate; `match_worker` `_weights_stamp` | engine, tools | NSC-245 (Godot half) | 9, night 2 ended | `test_linear_bot.gd` pass candidate case; `make sweep BOT=linear` counters recorded (not pinned), `p99_us` recorded; `test_match_worker_records.gd` stamp case | implementer-engine |
+| 15 | Trainer Python (R34, R35, R38, R39, P13): NSC-245's Python items including the pair weighting recorded in the fit record; NSC-209 explicit flush; NSC-231 orchestrator check over SSH noted in the task | trainer | NSC-245 (Python half), NSC-209, NSC-231 | 9 (C14: before night 2) | `trainer/tests` green on the Mac; `make fit` on two recorded runs prints the weighting; the play-out worker answers with stdout unbuffered under `python -u` and without; NSC-231 numbers written in the task notes | implementer |
+| 16 | Trainer Godot side of NSC-245 (P13): `LinearBot` pass candidate; `match_worker` `_weights_stamp` | engine, tools | NSC-245 (Godot half) | 9 (C14: before night 2) | `test_linear_bot.gd` pass candidate case; `make sweep BOT=linear` counters recorded (not pinned), `p99_us` recorded; `test_match_worker_records.gd` stamp case | implementer-engine |
 | 17 | Trainer code items of NSC-233 (R36, R37, P13): store-owned run state machine, `ActiveRun`, restart loop, one Godot path, one sampling path, shared stamp module, `argparse`, run-row counters, pool_key memo, feature base, power iteration on XtX; protocol, hello, label reply and schema untouched | trainer | NSC-233 (code items; the protocol and schema items stay in P-NSC-16 under the training milestone) | 15 | `trainer/tests` green on the Mac and the PC; the 20-position label digest before and after, equal or explained; `trainer/server.py` hello and label reply byte-identical; `fits` schema unchanged | implementer |
 | 18 | Tests (R43, R44, P15): one `_typed()` helper in `tests/fixtures/typed.gd`, the 22 copies gone; gdUnit under 30 s with every suite still run, using the orchestrator's per-suite timings | tests | NSC-191, NSC-251 | 7, 11, 13, 16 | `grep -c "func _typed" godot/tests` is 1; `make check` test stage reports the gdUnit time under 30 s; case count equal to the sum before the task | implementer |
 | 19 | Documents (R46, R47, P17): `docs/systems/bot-training.md` rewritten from the code; `CLAUDE.md` rows for `trainer/`, `godot/title/`, `scripts/pc/`; cycles.md "Planned next" refreshed; DoD boxes in finished specs ticked or superseded; the two Ben boxes listed for the orchestrator | vault | NSC-204, NSC-252 | 17 | the guide names no deleted tool (`bot-train`, `bot-calibrate`, levels); `obsidian-cli vault=docs unresolved` and `orphans` nothing new; the two boxes decided by Ben and recorded in NSC-252 | implementer |
@@ -127,8 +127,8 @@ and gain a `## Spec (cycle-14-backlog)` section naming their task; new issues ar
 | 12 | NSC-189 | NSC-188, NSC-58 |
 | 13 | NSC-190 | NSC-189 |
 | 14 | NSC-75, NSC-57 | – |
-| 15 | NSC-209, NSC-231, NSC-245 (Python half) | NSC-255, NSC-243 (night 2) |
-| 16 | NSC-245 (Godot half) | NSC-255, NSC-243 (night 2) |
+| 15 | NSC-209, NSC-231, NSC-245 (Python half) | NSC-255 |
+| 16 | NSC-245 (Godot half) | NSC-255 |
 | 17 | NSC-233 (code items) | NSC-209, NSC-231, NSC-245 |
 | 18 | NSC-191, NSC-251 | NSC-185, NSC-246, NSC-190, NSC-245 |
 | 19 | NSC-204, NSC-252 | NSC-233 |

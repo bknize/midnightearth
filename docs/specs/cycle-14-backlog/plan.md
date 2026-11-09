@@ -4,7 +4,7 @@ tags: [plan, cycle-14-backlog, engine, board, pvp, trainer, tooling, vault]
 status: approved
 related: ["[[specs/cycle-14-backlog/spec]]", "[[specs/cycle-14-backlog/tasks]]", "[[planning/phase-1-tech-stack]]", "[[planning/bot-ladder]]", "[[planning/cycles]]", "[[decisions/0002-one-branch-per-cycle]]", "[[decisions/0004-review-tools-in-the-cycle]]", "[[decisions/0005-match-server-for-pvp]]", "[[specs/cycle-13-bot-trainer-b/plan]]", "[[specs/cycle-12-multiplayer/plan]]"]
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-09
 uid: 5879f247-28b2-4618-b63d-84d7477e1b10
 linear: https://linear.app/night-science-llc/project/cycle-14-backlog-sweep-1f4a4af95173
 supersedes:
@@ -50,7 +50,7 @@ choice, the choice is in the decisions table so tasks.md can point at it.
 | P15 | Tests and the budget (R43, R44) | The `_typed()` helper lives in `godot/tests/fixtures/typed.gd` (a static helper, no `class_name` clash: the file names one class only). The budget task runs last among code tasks; the orchestrator gives the implementer the per-suite timings from `godot/reports/test.log`, and the implementer trims the slowest suites (fewer seeds in sweeps that are not the 50-seed sweep, shared fixtures, no sleeps) without dropping a case. |
 | P16 | Tooling (R41, R42) | `worktree-sweep.sh` lists worktrees with `git worktree list --porcelain`, removes only those whose branch is `git merge-base --is-ancestor` of the target and whose path lies under this checkout's `.worktrees` (or the path the Makefile uses), and before removal moves `*.png` under the worktree's `godot/reports/` and screenshot folder to `reports/screenshots/<branch>/` in the main checkout. The edit hook prepends `~/.local/bin` to PATH and prints `edit hook: gdlint not found, lint skipped` when it is still missing. |
 | P17 | Documents (R45–R48) | The canon task writes the rulings in `docs/rules/` and the two systems guides; the docs task rewrites `docs/systems/bot-training.md` from the code after the trainer wave, adds the three `CLAUDE.md` rows, refreshes "Planned next", ticks or supersedes DoD boxes and lists the two Ben boxes for the orchestrator's question. The ladder row and the cycles row are the orchestrator's at T09 and T20. |
-| P18 | Night 2 and the PC (R40, R50) | After T09 the orchestrator syncs the cycle branch commit to the PC, redeploys the server (`stamp=r9-857b165d5a5d755e` in `server.log`) and tells Ben night 2 may start. Nothing is synced to the PC during a night; the trainer wave (T15–T17) runs when night 2 has ended. DC-20 closes at T20 regardless of night 3. |
+| P18 | Night 2 and the PC (R40, R50) | After T09 the orchestrator syncs the cycle branch commit to the PC, redeploys the server (`stamp=r9-857b165d5a5d755e` in `server.log`) and tells Ben night 2 may start. Nothing is synced to the PC during a night; the trainer wave (T15–T17) runs before night 2 (C14). DC-20 closes at T20 regardless of nights 2 and 3. |
 
 ## Interfaces and contracts
 
@@ -116,8 +116,8 @@ Trainer:
 | Wave | Tasks | Runs when | Notes |
 |---|---|---|---|
 | 1 rules | T01 ∥ T02 ∥ T03 ∥ T05 → T04 → T06 → T07 → T08 (review) → T09 (stamp chores) | first | T02 and T04 both edit `trigger_queue.gd`, so T04 waits; T03 carries `RULES_VERSION` 9 and the one re-pin; T09 syncs the PC and night 2 may start |
-| 2 sweep | T10 → T12 → T13 (board chain) ∥ T11 (PVP) ∥ T14 (tooling) | after T09, alongside night 2 | no PC sync during the night |
-| 3 trainer | T15 ∥ T16 → T17 | after night 2 ends, before night 3 | label digest before and after |
+| 2 sweep | T10 → T12 → T13 (board chain) ∥ T11 (PVP) ∥ T14 (tooling) | after T09 | no PC sync during a night |
+| 3 trainer | T15 ∥ T16 → T17 | before night 2 (C14) | label digest before and after |
 | 4 close | T18 (tests, budget) → T19 (docs) → T20 (verification) | after waves 2 and 3 | T18 is last among code tasks (it touches many suites) |
 
 ## Constitution Check

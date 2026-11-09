@@ -4,7 +4,7 @@ tags: [spec, cycle-14-backlog, engine, board, pvp, trainer, tooling, vault]
 status: approved
 related: ["[[specs/cycle-14-backlog/plan]]", "[[specs/cycle-14-backlog/tasks]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]", "[[planning/bot-ladder]]", "[[rules/resolution]]", "[[rules/cards-v2]]", "[[rules/crew-v2]]", "[[rules/glossary]]", "[[decisions/0005-match-server-for-pvp]]", "[[specs/cycle-13-bot-trainer-b/spec]]", "[[specs/cycle-12-multiplayer/spec]]", "[[specs/cycle-10-review-tools/spec]]", "[[systems/bot-training]]", "[[specs/specs-moc]]"]
 created: 2026-11-08
-updated: 2026-11-08
+updated: 2026-11-09
 uid: c8aa5fd2-7c20-4eb7-a929-fcf46d9068f3
 linear: https://linear.app/night-science-llc/project/cycle-14-backlog-sweep-1f4a4af95173
 supersedes:
@@ -166,7 +166,7 @@ the stale documents.
 ### E. The trainer (between training nights)
 
 - R34. The fit shall weight paired positions as NSC-245 describes, and shall report the
-  weighting in the fit record, so night 3's fits are reproducible (C10).
+  weighting in the fit record, so later fits are reproducible (C10).
 - R35. The trainer shall apply the remaining NSC-245 items: `validate_runs` rejects mixed
   policies, the Windows lock uses `os.replace`, the large-hand path matches the Godot side,
   fit validation runs outside the lock, the Makefile honours `WEIGHTS`, power iteration
@@ -185,7 +185,8 @@ the stale documents.
   the batch and worker sizing it settles on (NSC-231); anything needing admin is noted, not
   done.
 - R40. The trainer wave shall land only between training nights, never during one, and
-  nothing shall be synced to the PC while a night runs (Ben, 2026-11-08).
+  nothing shall be synced to the PC while a night runs (Ben, 2026-11-08). It lands before
+  night 2 (C14).
 
 ### F. Tooling
 
@@ -255,6 +256,7 @@ The interview:
 | C11 | R3 Q3: when does night 2 start, and where does the trainer wave sit? | 3a: night 2 once the rules wave has merged and been deployed to the PC; the trainer wave after night 2, before night 3 (R40, R50) |
 | C12 | R3 Q4: all the cleanup, or local items only? | 4a: all of it, the structural items as their own tasks (NSC-185, NSC-189, NSC-190) |
 | C13 | After the T03 merge (Ben, 2026-11-08): "'Dross' is the term we will use for 'created cards'. Twin's copies are Dross cards. Let's make the default rule 'dross cards disappear at the end of a round' to make Reliquary useful." Then 1a 2a 3c | 1a: at Round end every `round` Dross leaves every zone (hand, rows, Pile, Deck), after the award and before the next draws, one `DROSS_EXPIRED` each; 2a: lifetimes `round` (default) and `match`, `until_piled` dropped; 3c: full rename in code (`created` → Dross: `record_created`, `CardDef.created`, `CARD_EXPIRED` → `DROSS_EXPIRED`) as well as the canon. Supersedes C9's `until_piled` default (R9–R11) |
+| C14 | After T13 (Ben, 2026-11-09, 1a; PvP testing put off, so night 2 had not started): which order for the trainer wave and night 2? | 1a: the trainer wave now, before night 2, overriding C11's order; DC-20 no longer waits on a night. Accepted: night 2 trains on the new pair weighting while F0 (`d9c99be2c60b`) was fit under the old one, so comparing iterations is less clean; the training checkout syncs after T17; F0 still needs a re-stamp or refit before night 2; night 2 still waits on PvP testing |
 
 Facts corrected during the interview: the PC's PVP server already ran stamp
 `r8-857b165d5a5d755e` (redeployed at `master` cc2b695, 80 gate suites green), so the only
@@ -321,7 +323,7 @@ redeploy this cycle is the one C9 brings.
 - [ ] Board fixes R19–R25 verified in the editor on the cycle worktree, one screenshot each
   for the deck note, the Crew beat, the free first card and the abandoned PVP board.
 - [ ] PVP server R26–R33 proven by the loopback suites and the server log text.
-- [ ] Trainer R34–R39 landed between nights 2 and 3; trainer tests green on the Mac and the
+- [ ] Trainer R34–R39 landed before night 2 (C14); trainer tests green on the Mac and the
   PC; the label digest recorded before and after R36.
 - [ ] Tooling R41–R44: a planted unmerged worktree survives a sweep; the hook prints its
   missing-gdlint line; gdUnit under 30 s; no `_typed()` copies left.
