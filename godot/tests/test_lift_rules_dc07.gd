@@ -1,6 +1,6 @@
 class_name TestLiftRulesDc07
 extends GdUnitTestSuite
-## LiftRules (R52) for the unreveal, exit, grouped-move and Pile step kinds.
+## LiftRules (R52) for the unreveal, exit, grouped-move and Pile-hide step kinds.
 
 
 func _named(kind: int, seat: int, card: int) -> BoardStep:
@@ -26,6 +26,6 @@ func test_a_grouped_move_touches_a_held_card_it_names_or_whose_row_it_moves() ->
 
 
 func test_the_pile_steps_never_touch() -> void:
-	for kind: int in [BoardStep.Kind.PILE_SHOW, BoardStep.Kind.PILE_HIDE]:
-		var step: BoardStep = _named(kind, 0, 5)
-		assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.ROW, true)).is_false()
+	var step: BoardStep = _named(BoardStep.Kind.PILE_HIDE, 0, 5)
+	assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.ROW, true)).is_false()
+	assert_bool(LiftRules.step_touches(step, 5, LiftRules.Place.ROW, false)).is_false()

@@ -16,8 +16,6 @@ func test_a_card_created_in_the_viewers_hand_is_a_draw_with_the_face() -> void:
 	assert_int(step.kind).is_equal(BoardStep.Kind.DRAW)
 	assert_int(step.seat).is_equal(0)
 	assert_int(step.card).is_equal(200)
-	assert_bool(step.created).is_true()
-	assert_str(step.def_id).is_equal("dross")
 
 
 func test_a_card_created_in_the_opponents_hand_is_a_count() -> void:
@@ -179,5 +177,5 @@ func test_a_hidden_exit_carries_its_row_and_slot() -> void:
 	assert_int(step.seat).is_equal(1)
 	assert_int(step.from_seat).is_equal(1)
 	assert_int(step.slot).is_equal(2)
-	assert_str(step.exit_to).is_equal("hand")
+	assert_int(step.exit_to).is_equal(BoardStep.ExitTo.HAND)
 	assert_str(step.word).is_empty()

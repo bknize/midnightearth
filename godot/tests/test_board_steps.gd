@@ -90,7 +90,7 @@ func test_exit_to_pile_flies_to_the_owners_pile() -> void:
 	)
 	var step: BoardStep = BoardEvents.one(event)
 	assert_int(step.kind).is_equal(BoardStep.Kind.EXIT)
-	assert_str(step.exit_to).is_equal("pile")
+	assert_int(step.exit_to).is_equal(BoardStep.ExitTo.PILE)
 	assert_int(step.seat).is_equal(1)
 	assert_int(step.card).is_equal(9)
 	assert_str(step.word).is_equal("Condemned")
@@ -100,14 +100,14 @@ func test_exit_to_hand_is_a_return_and_face_down_is_a_flip() -> void:
 	var back: BoardStep = BoardEvents.one(
 		BoardEvents.make("EXIT_RESOLVED", {"card": 9, "mark": "fleeting", "owner": 0, "to": "hand"})
 	)
-	assert_str(back.exit_to).is_equal("hand")
+	assert_int(back.exit_to).is_equal(BoardStep.ExitTo.HAND)
 	assert_int(back.seat).is_equal(0)
 	var flip: BoardStep = BoardEvents.one(
 		BoardEvents.make(
 			"EXIT_RESOLVED", {"card": 9, "mark": "fade", "owner": 1, "to": "face_down"}
 		)
 	)
-	assert_str(flip.exit_to).is_equal("face_down")
+	assert_int(flip.exit_to).is_equal(BoardStep.ExitTo.FACE_DOWN)
 
 
 func test_status_set_yields_a_status_step_with_the_word() -> void:
@@ -186,13 +186,9 @@ func _prompt(seat: int, exact: int) -> MatchEvent:
 	)
 
 
-func test_a_prompt_opened_carries_exact_and_step() -> void:
+func test_a_prompt_opened_carries_its_zone_and_options() -> void:
 	var step: BoardStep = BoardEvents.one(_prompt(0, 2))
 	assert_int(step.kind).is_equal(BoardStep.Kind.PROMPT)
-	assert_int(step.exact).is_equal(2)
-	var drain: String = step.step
-	assert_str(drain).is_equal("D4")
-	assert_bool(step.multi).is_true()
 	assert_str(step.zone).is_equal("own_hand")
 	assert_array(step.options).is_equal([0, 1, 2])
 	assert_float(step.duration).is_equal(0.0)
@@ -234,7 +230,6 @@ func test_a_trigger_fired_lifts_the_card_and_a_crew_trigger_has_no_step() -> voi
 	)
 	var step: BoardStep = BoardEvents.one(fired)
 	assert_int(step.kind).is_equal(BoardStep.Kind.EFFECT)
-	assert_str(step.trigger).is_equal("on_reveal")
 	var crew: MatchEvent = BoardEvents.make(
 		"TRIGGER_FIRED",
 		{"seat": 0, "card": -1, "crew": "void", "moment": "on_empty_draw", "verb": "x"}
@@ -393,10 +388,10 @@ func test_every_new_duration_at_speed_four_is_a_quarter() -> void:
 
 
 func test_pile_steps_take_a_quarter_second_over_speed() -> void:
-	var shown: BoardStep = BoardSteps.pile_step(true, 4.0)
-	assert_int(shown.kind).is_equal(BoardStep.Kind.PILE_SHOW)
-	assert_float(shown.duration).is_equal_approx(0.25 / 4.0, EPSILON)
-	assert_int(BoardSteps.pile_step(false, 1.0).kind).is_equal(BoardStep.Kind.PILE_HIDE)
+	var fast: BoardStep = BoardSteps.pile_hide_step(4.0)
+	assert_int(fast.kind).is_equal(BoardStep.Kind.PILE_HIDE)
+	assert_float(fast.duration).is_equal_approx(0.25 / 4.0, EPSILON)
+	assert_float(BoardSteps.pile_hide_step(1.0).duration).is_equal_approx(0.25, EPSILON)
 
 
 func test_a_private_card_looked_is_a_look_step_for_the_looking_seat_only() -> void:
@@ -541,7 +536,6 @@ func test_crew_fired_is_a_crew_fire_step_with_the_uses_left() -> void:
 	assert_int(mine.slot).is_equal(0)
 	assert_str(mine.crew).is_equal("scout")
 	assert_str(mine.verb).is_equal("draw")
-	assert_str(mine.trigger).is_equal("on_start")
 	assert_int(mine.uses_left).is_equal(2)
 	assert_int(BoardEvents.one(event, 1.0, 0).seat).is_equal(1)
 

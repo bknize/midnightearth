@@ -98,8 +98,7 @@ func _live_board() -> Board:
 	var opening: Array[MatchEvent] = driver.begin()
 	assert_bool(opening.is_empty()).is_false()
 	board.source = driver
-	board._input_locked = false
-	board._awaited = true
+	board._phase = Board.InputPhase.AWAITING
 	return board
 
 
@@ -139,10 +138,10 @@ func test_a_tap_after_the_match_is_over_does_not_lift() -> void:
 	assert_bool(board.may_act()).is_false()
 
 
-func test_a_halted_board_refuses_the_tap_and_the_drag() -> void:
+func test_a_paused_board_refuses_the_tap_and_the_drag() -> void:
 	var board: Board = _live_board()
 	var card: BoardCard = _hand_card(board)
-	board._halted = true
+	board._paused = true
 	board._on_pointer_tapped(Vector2.ZERO, card)
 	assert_bool(board.card_lift.is_holding()).is_false()
 	assert_bool(board.may_act()).is_false()

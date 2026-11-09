@@ -26,6 +26,9 @@ signal leave_requested
 ## Emitted when the result panel's Rematch is pressed; main starts a fresh local source.
 signal rematch_requested
 
+## Who may act on the table (see `_phase`).
+enum InputPhase { LOCKED, AWAITING, ENDED }
+
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
 const NORMAL_SPEED: float = 1.0
@@ -50,7 +53,7 @@ var catching_up: bool = false
 ## True while any step is queued or running (R39).
 var input_locked: bool:
 	get:
-		return _input_locked or _paused
+		return _phase == InputPhase.LOCKED or _paused
 
 ## Seconds divisor for every step: 1 normally, 4 under autoplay.
 var speed: float = NORMAL_SPEED
@@ -61,11 +64,12 @@ var staging: Staging = Staging.new()
 var _cards: CardDb = null
 var _crew: CrewPool = CrewPool.load_default()  # Each deck's three Crew (cycle 8 R42).
 var _autoplay: bool = false
-var _input_locked: bool = true
-## Whether seat 0 is awaited; refreshed once per step in _advance(), false while steps run.
-var _awaited: bool = false
+## Who may act: LOCKED while steps are queued or running, AWAITING once the runner has drained
+## and seat 0 is awaited (set in _advance()), ENDED when the match is over and the runner is
+## done. `_running` stays its own flag: _advance() emits player_turn_started in AWAITING while
+## the runner is still running, and a handler that submits re-enters it.
+var _phase: InputPhase = InputPhase.LOCKED
 var _running: bool = false
-var _halted: bool = false
 ## Bumped by start_source so a runner from an earlier match stops touching the table.
 var _serial: int = 0
 ## The node-owned wait behind _wait(): counted down in _process, so it always resumes.
@@ -232,10 +236,8 @@ func _reset_for_match() -> void:
 	_end_wait()
 	card_lift.drop_now()
 	_running = false
-	_halted = false
 	_closed = false
-	_input_locked = true
-	_awaited = false
+	_phase = InputPhase.LOCKED
 	_paused = false
 	_in_flight = false
 	_deferring_run = false
@@ -304,7 +306,7 @@ func _pvp() -> bool:
 ## changing nothing, while input is locked or the source refuses it (its code is in
 ## `_last_error`).
 func submit_player(action: EngineAction) -> bool:
-	if _input_locked or source == null or source.is_over() or _halted or _closed:
+	if _phase == InputPhase.LOCKED or source == null or source.is_over() or _closed:
 		return false
 	return _submit(action)
 
@@ -312,30 +314,27 @@ func submit_player(action: EngineAction) -> bool:
 ## True while the player may drag and commit (R18): no step queued or running, not under
 ## autoplay, the match not over, the pause menu closed, and the player awaited.
 func may_act() -> bool:
-	if source == null or _autoplay or _input_locked or _paused or _halted or _closed:
+	if source == null or _autoplay or _phase == InputPhase.LOCKED or _paused or _closed:
 		return false
 	if card_lift.is_holding() or source.is_over():
 		return false
-	return _awaited
+	return _phase == InputPhase.AWAITING
 
 
 ## Sends an action with no lock check, then queues its steps. The one door to the match for
 ## the player, shared by commit and concede. A local source answers inside the call; a remote
 ## one later, and input stays locked until it does (R22).
 func _submit(action: EngineAction) -> bool:
-	var was_locked: bool = _input_locked
-	var was_awaited: bool = _awaited
+	var was_phase: InputPhase = _phase
 	_rejected = false
-	_input_locked = true
-	_awaited = false
+	_phase = InputPhase.LOCKED
 	_in_flight = true
 	_deferring_run = true
 	_refresh_commit_enabled()
 	source.submit(action)
 	_deferring_run = false
 	if _rejected:
-		_input_locked = was_locked
-		_awaited = was_awaited
+		_phase = was_phase
 		_refresh_commit_enabled()
 		return false
 	# A concede ends the match under an open prompt; the runner then plays on.
@@ -358,7 +357,7 @@ func _on_events_ready(events: Array[MatchEvent]) -> void:
 	_enqueue(events)
 	if _pile_hide_pending:
 		_pile_hide_pending = false
-		_queue.append(BoardSteps.pile_step(false, speed))
+		_queue.append(BoardSteps.pile_hide_step(speed))
 	if not _deferring_run:
 		_run()
 
@@ -375,8 +374,7 @@ func _on_action_rejected(code: int) -> void:
 	if not staging.cards().is_empty():
 		hud.flash_energy()
 	_unstage_all()
-	_input_locked = false
-	_awaited = true
+	_phase = InputPhase.AWAITING
 	_refresh_commit_enabled()
 
 
@@ -411,8 +409,7 @@ func _on_catch_up(events: Array[MatchEvent], _view: SeatView) -> void:
 	_end_wait()
 	card_lift.drop_now()
 	_running = false
-	_input_locked = true
-	_awaited = false
+	_phase = InputPhase.LOCKED
 	_paused = false
 	_in_flight = false
 	_deferring_run = false
@@ -455,7 +452,7 @@ func _run() -> void:
 	if _running or not is_inside_tree():
 		return
 	_running = true
-	_input_locked = true
+	_phase = InputPhase.LOCKED
 	_refresh_commit_enabled()
 	var serial: int = _serial
 	while true:
@@ -472,27 +469,26 @@ func _run() -> void:
 			break
 	_running = false
 	if source.is_over():
-		_input_locked = false
+		_phase = InputPhase.ENDED
 	_refresh_commit_enabled()
 
 
 ## Called when the queue runs dry: a local bot moves, a remote opponent is waited for, or the
 ## player is awaited. Anything it enqueues is picked up by the runner.
 func _advance() -> void:
-	if _halted or source.is_over() or _in_flight:
+	if source.is_over() or _in_flight:
 		return
 	if catching_up:
 		_finish_catch_up()
 	if source.advance():
-		_awaited = false
+		_phase = InputPhase.LOCKED
 		return
 	if not source.is_player_awaited():
 		if _pvp():
 			hud.set_waiting(source.opponent_name())
 		return
 	hud.set_waiting("")
-	_awaited = true
-	_input_locked = false
+	_phase = InputPhase.AWAITING
 	_refresh_commit_enabled()
 	player_turn_started.emit()
 
@@ -588,14 +584,8 @@ func _apply(step: BoardStep) -> void:
 			hud.set_wins(step.wins)
 		BoardStep.Kind.MATCH_END:
 			_match_end(step)
-		_:
-			_apply_effect(step)
-
-
-## The effect steps (P18, R53). BOT_WAIT is only its duration. PROMPT opens the prompt; the
-## runner holds in _play(), not here.
-func _apply_effect(step: BoardStep) -> void:
-	match step.kind:
+		# The effect steps (P18, R53). BOT_WAIT is only its duration. PROMPT opens the prompt;
+		# the runner holds in _play(), not here.
 		BoardStep.Kind.EFFECT, BoardStep.Kind.TELEGRAPH:
 			_fx.effect(step)
 		BoardStep.Kind.FIZZLE:
@@ -628,8 +618,6 @@ func _apply_effect(step: BoardStep) -> void:
 			_arrivals.place(step)
 		BoardStep.Kind.CONTROL:
 			_fx.control(step)
-		BoardStep.Kind.PILE_SHOW:
-			_on_pile_pressed(step.seat)
 		BoardStep.Kind.PILE_HIDE:
 			_prompt.hide_strip(step.duration)
 			_fx.strip = null
@@ -749,7 +737,7 @@ func _answer(submitted: bool) -> void:
 	var strip_up: bool = _prompt.strip_up()
 	if _answered_events:
 		if strip_up:
-			_queue.append(BoardSteps.pile_step(false, speed))
+			_queue.append(BoardSteps.pile_hide_step(speed))
 	else:
 		# A remote answer is still on its way: input stays locked until it lands.
 		_in_flight = true
@@ -777,7 +765,7 @@ func _on_confirm_pressed() -> void:
 
 ## A Pile count was tapped (R78): the Pile face up in the strip, or the strip away.
 func _on_pile_pressed(seat: int) -> void:
-	if source == null or _halted:
+	if source == null:
 		return
 	_prompt.toggle_pile(seat, source.view())
 	_fx.strip = _prompt.strip_collection()
@@ -850,7 +838,7 @@ func _make_strategy(role: BoardDragStrategy.Role) -> BoardDragStrategy:
 
 
 func _is_locked() -> bool:
-	return _input_locked or card_lift.is_holding()
+	return _phase == InputPhase.LOCKED or card_lift.is_holding()
 
 
 ## True when the card (a seat-0 BoardCard; anything else is false) fits in the energy left
@@ -1072,7 +1060,7 @@ func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
 	if card_lift.is_holding():
 		card_lift.put_down()
 		return
-	if _paused or _drag_card != null or _halted or _closed or source == null or source.is_over():
+	if _paused or _drag_card != null or _closed or source == null or source.is_over():
 		return
 	var card: BoardCard = LiftRules.card_from_hit(hit)
 	if card == null:
