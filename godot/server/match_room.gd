@@ -133,6 +133,14 @@ func join(conn: int, identity: Dictionary, deck: String, now_ms: int) -> Array[O
 	return _start(now_ms)
 
 
+## Whether a `rejoin` carrying `install_id` would be served: the match is in play or over and
+## a seat that has not left holds that install id (R48). Changes nothing.
+func holds_seat_for(install_id: String) -> bool:
+	if _phase != Phase.RUNNING and _phase != Phase.FINISHED:
+		return false
+	return _rejoin_seat(install_id) >= 0
+
+
 ## Reattaches `conn` to the seat whose install id `identity` carries (R46): `resync` with
 ## the seat's whole redacted history and its view, and `opponent back` to the other seat
 ## when the seat had dropped. A seat still holding an older connection hands over to `conn`

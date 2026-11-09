@@ -1,6 +1,7 @@
 """The run loop (plan P14, R33 to R36) and the local `run` command."""
 import argparse
 import json
+import sqlite3
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -156,9 +157,18 @@ def execute(store: Store, run_id: str, farm: Farm,
         state, error = _execute(store, run_id, farm, cfg, stamp, should_stop, progress, active,
                                 lambda: active.session() >= cfg.hours * 3600.0)
     finally:
-        store.add_active(run_id, active.read())
+        _add_active(store, run_id, active.read())
     store.finish(run_id, state, error)
     return state
+
+
+def _add_active(store: Store, run_id: str, seconds: float) -> None:
+    """Add the session's active time. It is a statistic: a database error (a locked file) is
+    reported to stderr and never decides the run's outcome or masks an exception in flight."""
+    try:
+        store.add_active(run_id, seconds)
+    except sqlite3.Error as e:
+        print("run %s: active time not recorded: %s" % (run_id, e), file=sys.stderr)
 
 
 def _execute(store: Store, run_id: str, farm: Farm, cfg: RunConfig, stamp: str,

@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -407,6 +408,20 @@ class RunTest(unittest.TestCase):
         # clock reads: start 0, settle 10, hours check 20, settle 30, final settle 40; the
         # settlements add up to the whole session.
         self.assertEqual((store.get_run("r1") or {})["active_s"], 40.0)
+
+    def test_active_time_failure_does_not_decide_the_outcome(self) -> None:
+        store = self.store("a")
+        self.new_run(store, positions=40)
+        locked = sqlite3.OperationalError("database is locked")
+        err = io.StringIO()
+        with make_farm(2) as farm, mock.patch.object(store, "add_active", side_effect=locked), \
+                contextlib.redirect_stderr(err):
+            state = execute(store, "r1", farm)
+        self.assertEqual(state, "done")
+        run = store.get_run("r1") or {}
+        self.assertEqual(run["state"], "done")
+        self.assertTrue(store.digest("r1"))
+        self.assertIn("active time not recorded", err.getvalue())
 
     def test_restarts_join_the_batch_commit(self) -> None:
         store = self.store("r")

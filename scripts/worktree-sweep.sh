@@ -110,18 +110,25 @@ for rec in "${records[@]}"; do
     keep "$label" "uncommitted changes: $(printf '%s\n' "$dirt" | head -3 | tr '\n' ' ')"
     continue
   fi
-  echo "remove  $label"
   shots="$path/godot/reports"
+  shots_moved=1
   if [ -d "$shots" ]; then
     dest="$main_wt/reports/screenshots/$branch"
     while IFS= read -r -d '' png; do
       rel="${png#"$shots"/}"
       echo "    screenshot $rel -> reports/screenshots/$branch/"
       if [ "$apply" -eq 1 ]; then
-        mkdir -p "$dest/$(dirname "$rel")" && mv "$png" "$dest/$rel" || status=1
+        mkdir -p "$dest/$(dirname "$rel")" && mv "$png" "$dest/$rel" || shots_moved=0
       fi
     done < <(find "$shots" -type f -name '*.png' -print0)
   fi
+  # Removing the worktree would delete a screenshot that could not be moved.
+  if [ "$shots_moved" -eq 0 ]; then
+    status=1
+    keep "$label" "a screenshot could not be moved to reports/screenshots/$branch/"
+    continue
+  fi
+  echo "remove  $label"
   if act git worktree remove --force "$path"; then
     removed=$((removed + 1))
     case "$branch" in

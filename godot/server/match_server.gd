@@ -83,7 +83,8 @@ const ENDING_KINDS: Array[String] = [
 ]
 ## The `closed` reason of a client whose `resync` outgrew MAX_SERVER_MESSAGE_BYTES (R30).
 const REASON_RESYNC_TOO_LARGE: String = "resync_too_large"
-## The refusal detail of a join from an address in its cooling period (R27).
+## The refusal detail of a join, or a rejoin that names no seat, from an address in its cooling
+## period (R27).
 const DETAIL_COOLING: String = "cooling"
 const PHASE_NAMES: Array[String] = ["waiting", "started", "finished", "closed"]
 
@@ -499,11 +500,19 @@ func _on_host(conn: Connection, message: Dictionary, now_ms: int) -> void:
 ## `join` or `rejoin` (R11, R46): the room under the code takes `conn` on a seat.
 func _on_join(conn: Connection, kind: String, message: Dictionary, now_ms: int) -> void:
 	# A code off the alphabet is never looked up or echoed (S4).
-	if registry.is_cooling(conn.address, now_ms):
-		_send(conn, _refused(NetProtocol.REASON_UNKNOWN_ROOM, DETAIL_COOLING))
-		return
 	var code: String = NetCodec.room_code(NetCodec.text_at(message, NetProtocol.KEY_CODE))
 	var room: MatchRoom = null if code == "" else registry.room_of(code)
+	if registry.is_cooling(conn.address, now_ms):
+		# R27: a cooling address is refused, except a `rejoin` that names a seat of an existing
+		# room (a dropped player must get its seat back). Any other rejoin is refused alike, so
+		# it cannot probe room codes around the cooling, and a refusal here is not a miss.
+		var seated: bool = false
+		if kind == NetProtocol.T_REJOIN and room != null:
+			var install_id: String = NetCodec.text_at(conn.identity, NetProtocol.KEY_INSTALL_ID)
+			seated = room.holds_seat_for(install_id)
+		if not seated:
+			_send(conn, _refused(NetProtocol.REASON_UNKNOWN_ROOM, DETAIL_COOLING))
+			return
 	if room == null:
 		_send(conn, _refused(NetProtocol.REASON_UNKNOWN_ROOM, code))
 		if registry.note_miss(conn.address, now_ms):

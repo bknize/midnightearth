@@ -322,6 +322,51 @@ func test_five_wrong_room_codes_cool_the_address_for_a_minute() -> void:
 	assert_bool(started).is_true()
 
 
+## R27: a cooling address still serves a `rejoin` that names a seat of an existing room; a
+## plain `join`, and a `rejoin` with an install id no seat holds, stay refused.
+func test_a_seated_players_rejoin_is_served_while_its_address_cools() -> void:
+	var players: Array[Client] = await _start_match()
+	var eve: Client = _connect()
+	assert_bool(await _pump_until(func() -> bool: return eve.is_open())).is_true()
+	eve.send(_hello("Eve", "install-eve"))
+	assert_bool(
+		await _pump_until(func() -> bool: return eve.count(NetProtocol.T_WELCOME) > 0)
+	).is_true()
+	for _i: int in range(RoomRegistry.MAX_MISSES):
+		var before: int = eve.count(NetProtocol.T_REFUSED)
+		eve.send({"t": NetProtocol.T_JOIN, "code": "ZZZZ", "deck": "ramp"})
+		await _pump_until(func() -> bool: return eve.count(NetProtocol.T_REFUSED) > before)
+	# A plain join to the real room is refused as cooling.
+	var refused: int = eve.count(NetProtocol.T_REFUSED)
+	eve.send({"t": NetProtocol.T_JOIN, "code": _code, "deck": "ramp"})
+	await _pump_until(func() -> bool: return eve.count(NetProtocol.T_REFUSED) > refused)
+	assert_str(eve.last(NetProtocol.T_REFUSED).get("detail", "")).is_equal(
+		MatchServer.DETAIL_COOLING
+	)
+	# A rejoin with an install id no seat holds is refused as cooling too.
+	refused = eve.count(NetProtocol.T_REFUSED)
+	eve.send({"t": NetProtocol.T_REJOIN, "code": _code})
+	await _pump_until(func() -> bool: return eve.count(NetProtocol.T_REFUSED) > refused)
+	assert_str(eve.last(NetProtocol.T_REFUSED).get("detail", "")).is_equal(
+		MatchServer.DETAIL_COOLING
+	)
+	assert_int(eve.count(NetProtocol.T_RESYNC)).is_equal(0)
+	# The host's seat, on a new connection from the same cooling address, is served.
+	var back: Client = _connect()
+	assert_bool(await _pump_until(func() -> bool: return back.is_open())).is_true()
+	back.send(_hello("Ana", "install-ana"))
+	assert_bool(
+		await _pump_until(func() -> bool: return back.count(NetProtocol.T_WELCOME) > 0)
+	).is_true()
+	back.send({"t": NetProtocol.T_REJOIN, "code": _code})
+	var served: bool = await _pump_until(
+		func() -> bool: return back.count(NetProtocol.T_RESYNC) > 0
+	)
+	assert_bool(served).is_true()
+	assert_int(back.count(NetProtocol.T_REFUSED)).is_equal(0)
+	assert_int(players.size()).is_equal(2)
+
+
 ## R30: a `resync` past the 1 MiB send limit closes its client `resync_too_large` instead of
 ## vanishing; the other seat is untouched.
 func test_a_resync_over_the_send_limit_closes_its_client() -> void:
