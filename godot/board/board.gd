@@ -32,6 +32,8 @@ enum InputPhase { LOCKED, AWAITING, ENDED }
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
 const NORMAL_SPEED: float = 1.0
+## How long a deck note stays (R19): its own time, long enough to read past the step that made it.
+const DECK_NOTE_TIME: float = 2.0
 ## The launch flag the stand-alone verify scenes read (VerifyStart); main reads it for the board.
 const AUTOPLAY_ARG: String = "--autoplay"
 ## Where a row's tally rests: past the right end of the row, and toward the camera.
@@ -603,10 +605,10 @@ func _apply(step: BoardStep) -> void:
 		BoardStep.Kind.LOOK:
 			_fx.look(step)
 		BoardStep.Kind.EMPTY_DRAW:
-			hud.note_deck(step.seat, "Deck empty", step.duration)
+			hud.note_deck(step.seat, "Deck empty", DECK_NOTE_TIME / speed)
 		BoardStep.Kind.SHUFFLE_IN:
 			_arrivals.shuffle_in(step)
-			hud.note_deck(step.seat, "Pile shuffled in", step.duration)
+			hud.note_deck(step.seat, "Pile shuffled in", DECK_NOTE_TIME / speed)
 		BoardStep.Kind.ENERGY_GRANT:
 			# Tithe's grant lands next Turn: this Turn's Energy stays as it is.
 			if step.seat == BoardSteps.OWN_SIDE and not step.next_turn:

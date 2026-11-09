@@ -34,10 +34,10 @@ var _vector: PackedInt64Array = PackedInt64Array()
 var _prompts: RandomBot = null
 
 
-## `weights` null takes BotWeights.defaults().
-func _init(bot_seed: int, cards: MatchCards, weights: BotWeights) -> void:
+## `p_weights` null takes BotWeights.defaults().
+func _init(bot_seed: int, cards: MatchCards, p_weights: BotWeights) -> void:
 	super(bot_seed, cards)
-	_weights = weights if weights != null else BotWeights.defaults()
+	_weights = p_weights if p_weights != null else BotWeights.defaults()
 	_vector = _weights.vector_for(_cards)
 	_prompts = RandomBot.new(bot_seed, cards)
 
@@ -107,11 +107,11 @@ func candidates(view: SeatView) -> Array[EngineAction]:
 	return out
 
 
-## The integer sum of `features` times `weights`, over the shorter of the two.
-static func score(features: PackedInt64Array, weights: PackedInt64Array) -> int:
+## The integer sum of `features` times `vector`, over the shorter of the two.
+static func score(features: PackedInt64Array, vector: PackedInt64Array) -> int:
 	var total: int = 0
-	for index: int in range(mini(features.size(), weights.size())):
-		var weight: int = weights[index]
+	for index: int in range(mini(features.size(), vector.size())):
+		var weight: int = vector[index]
 		if weight != 0:
 			total += features[index] * weight
 	return total
