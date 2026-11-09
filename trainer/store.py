@@ -49,10 +49,7 @@ CREATE TABLE IF NOT EXISTS runs (
   stamp TEXT NOT NULL, "commit" TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
   last_error TEXT NOT NULL DEFAULT '', restarts INTEGER NOT NULL DEFAULT 0,
   checkpoint REAL NOT NULL DEFAULT 0, active_s REAL NOT NULL DEFAULT 0,
-  feature_set TEXT NOT NULL DEFAULT '', n_positions INTEGER NOT NULL DEFAULT 0,
-  n_labels INTEGER NOT NULL DEFAULT 0, n_rollouts INTEGER NOT NULL DEFAULT 0,
-  n_skipped INTEGER NOT NULL DEFAULT 0, n_batches INTEGER NOT NULL DEFAULT 0,
-  digest TEXT NOT NULL DEFAULT '');
+  feature_set TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS positions (
   run_id TEXT NOT NULL, "index" INTEGER NOT NULL, seed INTEGER NOT NULL, decks TEXT NOT NULL,
   prefix_len INTEGER NOT NULL, seat INTEGER NOT NULL, batch INTEGER NOT NULL,
@@ -71,7 +68,8 @@ CREATE TABLE IF NOT EXISTS fits (
 """
 # The run row's counters (kept by commit_batch, in the batch's own transaction, so reading a
 # run's progress costs one row) and the digest of a finished run. Added together, and
-# backfilled, by _migrate_counters.
+# backfilled, by _migrate_counters, which also adds them to a new database: this is their one
+# list.
 _COUNTER_COLUMNS = (("n_positions", "INTEGER NOT NULL DEFAULT 0"),
                     ("n_labels", "INTEGER NOT NULL DEFAULT 0"),
                     ("n_rollouts", "INTEGER NOT NULL DEFAULT 0"),

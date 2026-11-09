@@ -488,11 +488,10 @@ class Service:
             # Active time only: stored seconds plus the live session since its last
             # settlement (`updated` moves with each one), never the stopped gaps.
             elapsed = max(0.0, float(run["active_s"]))
-            if live is not None:
-                elapsed += max(0.0, now - float(run["updated"]))
             rate = 0.0
             eta: Optional[float] = None
             if live is not None:
+                elapsed += max(0.0, now - float(run["updated"]))
                 span = now - live.started
                 new = c["positions"] - live.done0
                 if span > 0 and new > 0:

@@ -527,12 +527,14 @@ static func award_round(state: MatchState, cards: MatchCards, sink: Callable) ->
 ## shuffled and no random draw is made. No Commit waits here: the second seat's Commit empties
 ## `pending` before the Walk, and a Round only ends after a Walk.
 static func expire_dross(state: MatchState, cards: MatchCards, sink: Callable) -> void:
-	if cards == null:
-		return
+	if cards == null or state.next_dross_id == MatchCards.DROSS_BASE:
+		return  # No Dross card was made in this Match.
 	var expiring: Array[int] = []
 	for card: int in _all_cards(state):
+		if not MatchCards.is_dross(card):
+			continue
 		var def: CardDef = cards.def_of(card)
-		if MatchCards.is_dross(card) and def != null and def.expires_at_round_end():
+		if def != null and def.expires_at_round_end():
 			expiring.append(card)
 	expiring.sort()
 	for card: int in expiring:
@@ -567,20 +569,16 @@ static func _take_anywhere(state: MatchState, card: int, sink: Callable) -> Stri
 			if Statuses.take_from_row(state, seat, card, sink):
 				pass  # Revealed or not, it leaves the row.
 			return FROM_ROW
-		for held: Array[int] in [piles.hand, piles.pile, piles.deck]:
-			if held.has(card):
-				held.erase(card)
-				return _zone_name(piles, held)
+		if piles.hand.has(card):
+			piles.hand.erase(card)
+			return FROM_HAND
+		if piles.pile.has(card):
+			piles.pile.erase(card)
+			return FROM_PILE
+		if piles.deck.has(card):
+			piles.deck.erase(card)
+			return FROM_DECK
 	return ""
-
-
-## The DROSS_EXPIRED `from` of `held`, one of `piles`' hand, Pile or Deck.
-static func _zone_name(piles: MatchState.SeatPiles, held: Array[int]) -> String:
-	if is_same(held, piles.hand):
-		return FROM_HAND
-	if is_same(held, piles.pile):
-		return FROM_PILE
-	return FROM_DECK
 
 
 ## The seat with the higher of `values`, or -1 when they are equal.

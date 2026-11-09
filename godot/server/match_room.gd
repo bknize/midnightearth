@@ -487,7 +487,7 @@ func _rejoin_seat(install_id: String) -> int:
 func _drops_of(seat: int) -> int:
 	var count: int = 0
 	for entry: Dictionary in _disconnects:
-		var entry_seat: int = entry.get("seat", -1)
+		var entry_seat: int = entry.get(PvpLog.KEY_SEAT, -1)
 		if entry_seat == seat:
 			count += 1
 	return count
@@ -497,9 +497,9 @@ func _drops_of(seat: int) -> int:
 func _mark_reconnected(seat: int) -> void:
 	for at: int in range(_disconnects.size() - 1, -1, -1):
 		var entry: Dictionary = _disconnects[at]
-		var entry_seat: int = entry.get("seat", -1)
+		var entry_seat: int = entry.get(PvpLog.KEY_SEAT, -1)
 		if entry_seat == seat:
-			entry["reconnected"] = true
+			entry[PvpLog.KEY_RECONNECTED] = true
 			return
 
 

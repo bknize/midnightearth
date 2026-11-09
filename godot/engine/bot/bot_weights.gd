@@ -73,14 +73,10 @@ static func defaults() -> BotWeights:
 ## `load_error` set (see the class comment).
 @warning_ignore("shadowed_global_identifier")
 static func load(path: String) -> BotWeights:
-	if not FileAccess.file_exists(path):
-		return _failed("weights file not found: %s" % path)
-	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return _failed("weights file unreadable: %s" % path)
-	var text: String = file.get_as_text()
-	file.close()
-	return from_json(text)
+	var file: JsonLoad = JsonLoad.read(path, "weights file")
+	if file.error != "":
+		return _failed(file.error)
+	return from_json(file.text)
 
 
 ## load(`path`) once per path per process; the same object on every later call, so callers

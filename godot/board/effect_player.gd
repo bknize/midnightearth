@@ -375,11 +375,11 @@ func discard(step: BoardStep) -> void:
 ## DROSS_EXPIRED (R25): the card leaves the table with a fly-off, from the hand or a row. A
 ## card in a Pile or Deck, or one the board does not show, is a no-op; the Pile count stays.
 func expire(step: BoardStep) -> void:
-	if step.zone == "hand":
+	if step.zone == TurnFlow.FROM_HAND:
 		var card: BoardCard = _hand_card(step.seat, step.card)
 		if card != null:
 			_sweep_off(_hand_of(step.seat), card, step.duration)
-	elif step.zone == "row":
+	elif step.zone == TurnFlow.FROM_ROW:
 		_sweep_off_any_row(step.card, step.duration)
 
 

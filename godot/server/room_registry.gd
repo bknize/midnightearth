@@ -109,7 +109,6 @@ func is_cooling(address: String, now_ms: int) -> bool:
 ## Records a wrong room code from `address` at `now_ms`; true when this miss is the one that
 ## starts its cooling period (MAX_MISSES within MISS_WINDOW_MS).
 func note_miss(address: String, now_ms: int) -> bool:
-	_forget_old_misses(now_ms)
 	var times: Array[int] = []
 	var earlier: Array[int] = []
 	if _misses.has(address):
@@ -161,6 +160,8 @@ func codes() -> Array[String]:
 ## Drops the misses older than the window and the cooling periods that have ended, so a
 ## scan from many addresses does not grow the tables for ever.
 func _forget_old_misses(now_ms: int) -> void:
+	if _misses.is_empty() and _cooling_until.is_empty():
+		return
 	var stale: Array[String] = []
 	for address: String in _misses:
 		var times: Array = _misses[address]

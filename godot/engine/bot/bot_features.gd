@@ -183,12 +183,12 @@ static func base(view: SeatView, cards: MatchCards) -> PackedInt64Array:
 static func patched(
 	common: PackedInt64Array, view: SeatView, action: EngineAction, cards: MatchCards
 ) -> PackedInt64Array:
-	var out: PackedInt64Array = common.duplicate()
 	var committed: Array[int] = []
 	if action != null and action.kind == EngineAction.Kind.COMMIT:
 		committed.assign(action.cards)
-	if committed.is_empty() or out.size() < COMPACT.size():
-		return out
+	if committed.is_empty() or common.size() < COMPACT.size():
+		return common  # Copy-on-write: a caller that changes it does not change `common`.
+	var out: PackedInt64Array = common.duplicate()
 	_fill_committed(out, view, action, committed, cards)
 	_drop_kept(out, view, committed)
 	out[F.OWN_ROW_AFTER] += committed.size()
