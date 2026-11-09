@@ -312,7 +312,7 @@ func submit_player(action: EngineAction) -> bool:
 ## True while the player may drag and commit (R18): no step queued or running, not under
 ## autoplay, the match not over, the pause menu closed, and the player awaited.
 func may_act() -> bool:
-	if source == null or _autoplay or _input_locked or _paused or _halted:
+	if source == null or _autoplay or _input_locked or _paused or _halted or _closed:
 		return false
 	if card_lift.is_holding() or source.is_over():
 		return false
@@ -381,6 +381,8 @@ func _on_action_rejected(code: int) -> void:
 
 
 func _on_connection_changed(state: String, detail: String) -> void:
+	if _closed:
+		return
 	hud.show_connection(state, detail)
 	_connection_left = CONNECTION_NOTE_TIME if state == MatchSource.STATE_OPPONENT_BACK else 0.0
 
@@ -392,6 +394,8 @@ func _on_match_closed(reason: String) -> void:
 		return
 	_closed = true
 	_paused = false
+	_connection_left = 0.0
+	hud.show_connection("", "")
 	if card_lift.is_holding():
 		card_lift.put_down()
 	hud.show_pause(false, true)
@@ -566,11 +570,16 @@ func _apply(step: BoardStep) -> void:
 			_tally.show_multiplied(_tracker.dross_before(step.dross), _tracker.tally)
 			_tally.fly_in(step.scores, hud, $Camera3D as Camera3D, speed)
 		BoardStep.Kind.TURN_END:
+			_free_first = false
 			_refresh_scores()
 		BoardStep.Kind.OPPONENT_COMMIT:
 			_arrivals.opponent_commit(step)
 		BoardStep.Kind.PLAYER_COMMIT:
 			_arrivals.player_commit(step, speed)
+			if step.count > 0 and _free_first:
+				# The free card is committed: the first-card-free note goes (R21).
+				_free_first = false
+				_refresh_staging_ui()
 		BoardStep.Kind.PULSE:
 			_fx.pulse(step)
 			_pulse_chips(step)
@@ -630,6 +639,8 @@ func _apply_effect(step: BoardStep) -> void:
 			_fx.return_card(step)
 		BoardStep.Kind.DISCARD:
 			_fx.discard(step)
+		BoardStep.Kind.DROSS_EXPIRE:
+			_fx.expire(step)
 		BoardStep.Kind.PROMPT:
 			_open_prompt(step)
 		BoardStep.Kind.DECLINE:
@@ -1061,7 +1072,7 @@ func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
 	if card_lift.is_holding():
 		card_lift.put_down()
 		return
-	if _paused or _drag_card != null:
+	if _paused or _drag_card != null or _halted or _closed or source == null or source.is_over():
 		return
 	var card: BoardCard = LiftRules.card_from_hit(hit)
 	if card == null:

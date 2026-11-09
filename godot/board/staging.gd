@@ -53,11 +53,20 @@ func clear_view_costs() -> void:
 	_view_costs.clear()
 
 
-## True when a card of this cost, staged at the right end, fits in the energy left (R14).
+## True when a card of this cost fits in the energy left (R14): at the right end, or, when
+## the first card is free, at slot 0, where it becomes the free card and every card already
+## staged pays (the same rule `insert` applies).
 func can_afford(cost: int) -> bool:
-	if _free_first and _row.is_empty():
+	if cost <= energy_left():
 		return true
-	return cost <= energy_left()
+	if not _free_first:
+		return false
+	if _row.is_empty():
+		return true
+	var all_paid: int = 0
+	for card: int in _row:
+		all_paid += _costs[card]
+	return all_paid <= _energy
 
 
 ## Stages the card at the index, clamped to 0..size. Returns false, changing nothing,

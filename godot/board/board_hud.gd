@@ -53,6 +53,9 @@ var _shown: Array[int] = [0, 0]
 var _count_tweens: Array[Tween] = [null, null]
 ## Each seat's pending deck-note clear, so a newer note replaces the older one's timer.
 var _note_tweens: Array[Tween] = [null, null]
+## Each seat's Pile count and its deck note ("" when none), so set_piles keeps a note (R19).
+var _pile_counts: Array[int] = [0, 0]
+var _deck_notes: Array[String] = ["", ""]
 
 @onready var _score_label_0: Label = %ScoreLabel0
 @onready var _score_label_1: Label = %ScoreLabel1
@@ -157,7 +160,16 @@ func score_label_text(seat: int) -> String:
 ## Each side's Pile count (R78), seat 0 first. A tap on a count asks for that Pile's strip.
 func set_piles(counts: Array[int]) -> void:
 	for seat: int in range(mini(counts.size(), _pile_labels.size())):
-		_pile_labels[seat].text = "Pile %d" % counts[seat]
+		_pile_counts[seat] = counts[seat]
+		_show_pile(seat)
+
+
+## The seat's Pile label: its count, then its deck note while one is on.
+func _show_pile(seat: int) -> void:
+	var text: String = "Pile %d" % _pile_counts[seat]
+	if _deck_notes[seat] != "":
+		text = "%s - %s" % [text, _deck_notes[seat]]
+	_pile_labels[seat].text = text
 
 
 ## The text of `seat`'s Pile count label.
@@ -169,9 +181,8 @@ func pile_label_text(seat: int) -> String:
 func note_deck(seat: int, text: String, seconds: float) -> void:
 	if seat < 0 or seat >= _pile_labels.size():
 		return
-	var label: Label = _pile_labels[seat]
-	var base: String = label.text.split(" - ")[0]
-	label.text = "%s - %s" % [base, text]
+	_deck_notes[seat] = text
+	_show_pile(seat)
 	var older: Tween = _note_tweens[seat]
 	if older != null and older.is_valid():
 		older.kill()
@@ -184,8 +195,8 @@ func note_deck(seat: int, text: String, seconds: float) -> void:
 
 
 func _clear_deck_note(seat: int) -> void:
-	var label: Label = _pile_labels[seat]
-	label.text = label.text.split(" - ")[0]
+	_deck_notes[seat] = ""
+	_show_pile(seat)
 
 
 func _on_pile_input(event: InputEvent, seat: int) -> void:
@@ -219,6 +230,11 @@ func set_energy(left: int, total: int, free_first: bool = false) -> void:
 	_energy_label.text = "Energy %d / %d" % [left, total]
 	if free_first:
 		_energy_label.text += " - first card free"
+
+
+## The energy label's text.
+func energy_label_text() -> String:
+	return _energy_label.text
 
 
 func flash_energy() -> void:

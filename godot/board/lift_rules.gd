@@ -45,7 +45,7 @@ static func step_touches(
 			return step.from_hand and held_id >= 0 and step.card == held_id
 		BoardStep.Kind.STATS, BoardStep.Kind.STATUS, BoardStep.Kind.UNREVEAL, \
 		BoardStep.Kind.EXIT, BoardStep.Kind.CONTROL, BoardStep.Kind.RETURN, \
-		BoardStep.Kind.DISCARD:
+		BoardStep.Kind.DISCARD, BoardStep.Kind.DROSS_EXPIRE:
 			# Restat, re-badge, flip down, leave the row or the hand: the step names the held
 			# card (R9).
 			return held_id >= 0 and step.card == held_id
