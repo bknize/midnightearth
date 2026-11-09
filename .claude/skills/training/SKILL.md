@@ -8,7 +8,7 @@ allowed-tools: Read, Edit, Write, Bash, Grep, Glob
 
 The orchestrator's verbs for the bot autopilot on the training PC (cycle 16, spec
 `docs/specs/cycle-16-training-autopilot/`). Read `CLAUDE.md` first. The MCP server is
-`bot-trainer` (`.mcp.json`); the SSH alias is `PC`.
+`bot-trainer` (`.mcp.json`); the SSH alias is `midnight-pc` (the setup notes write `PC`).
 
 ## Rules
 
@@ -45,7 +45,7 @@ Only after Ben approved the content in chat (R32).
    `trainer/knobs.py`.
 2. Validate locally from the repo root, and stop on any problem:
    `python3 -I -c 'import json,sys; sys.path.insert(0,"."); from trainer.knobs import check_bounds; d=json.load(open(sys.argv[1])); assert d.get("approved_by")=="Ben"; print(check_bounds(d.get("bounds",{})) or "ok")' <file>`
-3. Copy it with one `scp <file> PC:C:/Users/trainer/me/inbox/steering.json`.
+3. Copy it with one `scp <file> midnight-pc:C:/Users/trainer/me/inbox/steering.json`.
 4. Record it in the "steering in force" section of `docs/systems/training-digest.md`.
 5. Tell Ben it takes effect at the next block boundary, where the autopilot validates it; an
    invalid file is refused there (`refused-<n>.json`) and the old steering stays.
@@ -60,7 +60,7 @@ and get his go-ahead first. Then run `status`.
 
 ## stop
 
-Call `autopilot_stop()`. If the MCP is down, `ssh PC` and run `autopilot-stop.cmd`, or create
+Call `autopilot_stop()`. If the MCP is down, `ssh midnight-pc` and run `autopilot-stop.cmd`, or create
 `C:\Users\trainer\trainer-data\autopilot\STOP`. It stops at the next safe point, not at once.
 Confirm with `autopilot_status`, or read `autopilot\state.json` over SSH.
 

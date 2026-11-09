@@ -3,15 +3,17 @@
 #
 #   scripts/training-pull.sh        (or: make training-digest)
 #
-# One scp over the `PC` SSH alias, then the trainer's digest command. Run only when Ben asks
+# One scp over the PC's SSH alias (`midnight-pc` in ~/.ssh/config; the docs write `PC`), then the trainer's digest command. Run only when Ben asks
 # (R43). Environment:
-#   TRAINING_FINDINGS_REMOTE  scp source, default PC:C:/Users/trainer/trainer-data/autopilot/findings.jsonl
+#   TRAINING_PC               SSH host alias of the training PC, default midnight-pc
+#   TRAINING_FINDINGS_REMOTE  scp source, default $TRAINING_PC:C:/Users/trainer/trainer-data/autopilot/findings.jsonl
 #   TRAINING_DIGEST_DIR       target directory, default godot/reports/bot/autopilot
 #   SCP                       the scp command (a test stubs it)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REMOTE="${TRAINING_FINDINGS_REMOTE:-PC:C:/Users/trainer/trainer-data/autopilot/findings.jsonl}"
+PC_HOST="${TRAINING_PC:-midnight-pc}"
+REMOTE="${TRAINING_FINDINGS_REMOTE:-$PC_HOST:C:/Users/trainer/trainer-data/autopilot/findings.jsonl}"
 DIR="${TRAINING_DIGEST_DIR:-$ROOT/godot/reports/bot/autopilot}"
 SCP_CMD="${SCP:-scp}"
 
