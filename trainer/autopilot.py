@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from trainer import findings, knobs
+from trainer import findings, knobs, steering
 from trainer import judge as judge_mod
 from trainer.store import ACTIVE, LIVE_FIT, weights_path, write_atomic
 
@@ -115,8 +115,10 @@ class Autopilot:
                  data_dir: Optional[Any] = None, clock: Callable[[], float] = time.time,
                  sleep: Callable[[float], None] = time.sleep,
                  disk_free_gb: Optional[Callable[[], float]] = None,
-                 feature_set_fn: Optional[Callable[[], str]] = None) -> None:
+                 feature_set_fn: Optional[Callable[[], str]] = None,
+                 inbox: Optional[Any] = None) -> None:
         self.service = service
+        self.inbox = inbox  # a directory; None means steering.inbox_path()'s default
         self.data_dir = Path(data_dir if data_dir is not None else service.data_dir)
         self.dir = self.data_dir / "autopilot"
         self.clock = clock
@@ -281,9 +283,18 @@ class Autopilot:
         self._clear_stop()
         self._save()
 
-    def _apply_steering(self) -> None:
-        """Hook for the steering inbox (task T07); nothing to apply here."""
-        return None
+    def _apply_steering(self) -> Any:
+        """Take a steering file from the inbox at a block boundary (R29). Returns the notes
+        and refusals for the next entry; an invalid file leaves the steering in force (R31)."""
+        st = self.state
+        n = (st["steering"] or 0) + 1
+        new, refusal = steering.take(self.data_dir, self.inbox, st["bounds"], n)
+        if refusal is not None:
+            return [], [refusal]
+        if new is None:
+            return [], []
+        st.update(bounds=new.bounds, pins=new.pins, avoid=new.avoid, notes=new.notes, steering=n)
+        return ["steering %d applied (approved by %s)" % (n, new.approved_by)], []
 
     # the loop
 
@@ -394,7 +405,7 @@ class Autopilot:
 
     def _plan_next(self, entry: Dict[str, Any]) -> None:
         st = self.state
-        self._apply_steering()
+        steer_notes, steer_refused = self._apply_steering()
         has = bool(st["champion"])
         plan: Dict[str, Any]
         refused: List[Dict[str, Any]] = []
@@ -420,6 +431,8 @@ class Autopilot:
             plan, source, advisor_info, trial, refused, notes = self._advise(entry)
             if trial is not None:
                 kind = "trial"
+        notes = steer_notes + notes
+        refused = steer_refused + refused
         st.update(block=st["block"] + 1, kind=kind, plan=plan, plan_source=source,
                   plan_notes=notes, refused=refused, trial=trial, advisor=advisor_info,
                   block_started=None, deadline=None, entry=None, stage="label", fault="",
@@ -432,17 +445,34 @@ class Autopilot:
         entries, _ = self.log.read()
         plateau = st["plateau_count"] >= self.cfg.plateau_blocks
         last_plan: Dict[str, Any] = dict(st["last_plan"])
+        pins: Dict[str, Any] = st["pins"]
+        offered = {k: v for k, v in st["bounds"].items() if k not in pins}  # pins not offered
+        advisor_notes = list(st["notes"]) + [
+            "Avoid %s: %s" % (k, ", ".join(repr(v) for v in vs)) for k, vs in st["avoid"].items()]
         try:
-            advice = self.advisor.advise(st["block"] + 1, entries[-FLOOR_BLOCKS:], st["bounds"],
-                                         st["extras"], st["pins"], st["notes"], plateau,
+            advice = self.advisor.advise(st["block"] + 1, entries[-FLOOR_BLOCKS:], offered,
+                                         st["extras"], pins, advisor_notes, plateau,
                                          last_plan, has)
         except Exception as e:
             return (last_plan, "fallback", None, None, [],
                     ["advisor raised %s: %s; kept the last plan" % (type(e).__name__, e)])
         proposed = dict(advice.plan) if isinstance(advice.plan, dict) else advice.plan
+        avoided: List[Dict[str, Any]] = []
         if isinstance(proposed, dict):
-            proposed.update(st["pins"])
-        val = knobs.validate(proposed, last_plan, st["bounds"], st["extras"], self._fit_ok)
+            for name in list(proposed):
+                if name in pins:
+                    del proposed[name]
+                elif proposed[name] in st["avoid"].get(name, []):
+                    avoided.append({"knob": name, "value": proposed.pop(name),
+                                    "reason": "avoided by steering %s" % st["steering"]})
+        # A carried-over value that new bounds exclude is moved inside them, never run as is.
+        base = {k: knobs.clamp(k, v, st["bounds"]) if not knobs.in_bounds(
+            k, v, st["bounds"]) and v not in st["extras"].get(k, [])
+            and not k.endswith("_weights") else v
+            for k, v in last_plan.items() if k in knobs.KNOBS}
+        val = knobs.validate(proposed, base, st["bounds"], st["extras"], self._fit_ok)
+        val.plan.update(pins)
+        val.refused = avoided + val.refused
         notes: List[str] = list(val.notes)
         source = "advisor"
         if advice.source == "fallback":
