@@ -1,15 +1,20 @@
+import contextlib
+import io
 import json
+import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 from unittest import mock
 
 from trainer.config import RunConfig
 from trainer.farm import Farm, FarmError, RequestFailed
-from trainer.run import execute, ordered_pairings
+from trainer.run import cli_run, execute, ordered_pairings
 from trainer.seeds import play_seed
 from trainer.store import Store
 
@@ -402,6 +407,97 @@ class RunTest(unittest.TestCase):
         # clock reads: start 0, settle 10, hours check 20, settle 30, final settle 40; the
         # settlements add up to the whole session.
         self.assertEqual((store.get_run("r1") or {})["active_s"], 40.0)
+
+    def test_restarts_join_the_batch_commit(self) -> None:
+        store = self.store("r")
+        self.new_run(store, positions=20)
+        with make_farm(1, 30.0, "--crash-after", "3") as farm:
+            self.assertEqual(execute(store, "r1", farm), "done")
+            counted = farm.restarts
+        self.assertGreater(counted, 0)
+        self.assertEqual((store.get_run("r1") or {})["restarts"], counted)
+
+    def test_a_stop_while_queued_stays_visible_until_the_run_finishes(self) -> None:
+        store = self.store("s")
+        self.new_run(store, positions=20)
+        store.set_state("r1", "stopping")
+        seen: List[str] = []
+
+        def stop() -> bool:
+            seen.append((store.get_run("r1") or {})["state"])
+            return True
+
+        with make_farm(1) as farm:
+            self.assertEqual(execute(store, "r1", farm, should_stop=stop), "stopped")
+        self.assertEqual(seen, ["stopping"])
+
+    def test_a_done_run_stays_done(self) -> None:
+        store = self.store("d")
+        self.new_run(store, positions=20)
+        with make_farm(1) as farm:
+            self.assertEqual(execute(store, "r1", farm), "done")
+            before = store.get_run("r1") or {}
+            self.assertEqual(execute(store, "r1", farm), "done")
+        after = store.get_run("r1") or {}
+        self.assertEqual((after["state"], after["digest"]), ("done", before["digest"]))
+
+
+class IdleSlotTest(unittest.TestCase):
+    def test_idle_slots_wake_at_once_when_the_farm_stops(self) -> None:
+        farm = make_farm(3)
+        farm.start()
+        slots = list(farm._threads)
+        self.assertTrue(all(t.is_alive() for t in slots))
+        began = time.monotonic()
+        farm.stop()
+        self.assertLess(time.monotonic() - began, 10.0)
+        self.assertFalse(any(t.is_alive() for t in slots))
+        with self.assertRaises(FarmError):  # later requests fail at once
+            farm.request({"kind": "play", "seed": "1"})
+
+
+class CliTest(unittest.TestCase):
+    def call(self, *args: str) -> Tuple[int, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli_run(list(args))
+        return code, out.getvalue()
+
+    def test_no_config_is_usage_and_exit_2(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            code, text = self.call("--data", d)
+            self.assertEqual(code, 2)
+            self.assertIn("usage: python -I trainer run", text)
+            self.assertEqual(list(Path(d).iterdir()), [])
+
+    def test_unknown_resume_is_exit_3(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            code, text = self.call("--resume", "nope", "--data", d)
+            self.assertEqual(code, 3)
+            self.assertIn("no run nope", text)
+
+    def test_unknown_flag_is_exit_2(self) -> None:
+        with mock.patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit) as caught:
+            cli_run(["--bogus"])
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_missing_godot_says_so(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "run.json"
+            path.write_text(json.dumps(config(positions=20)), encoding="utf-8")
+            with mock.patch.dict(os.environ, {"GODOT_BIN": str(Path(d) / "no-such-godot")}):
+                code, text = self.call("--config", str(path), "--data", str(Path(d) / "data"))
+        self.assertEqual(code, 3)
+        self.assertIn("Godot not found", text)
+
+    def test_the_command_line_runs_from_the_repo_root_under_python_i(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            done = subprocess.run(
+                [sys.executable, "-I", "trainer", "run", "--resume", "nope", "--data", d],
+                cwd=str(Path(__file__).resolve().parent.parent.parent), capture_output=True,
+                text=True, timeout=60, check=False)
+        self.assertEqual(done.returncode, 3, done.stderr)
+        self.assertIn("no run nope", done.stdout)
 
 
 if __name__ == "__main__":

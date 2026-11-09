@@ -133,19 +133,22 @@ static func label(
 	weights_path: String = ""
 ) -> Array[Dictionary]:
 	# The view and the hidden sets are the same for every play-out of the position, and so
-	# is each determinization's mapping for every candidate (NSC-210): work them out once.
-	# Each play-out still gets its own state copy and, through from_state, its own
-	# MatchCards copy, since the cards a play-out creates must not reach the next one.
+	# is each determinization's relabelled state for every candidate (NSC-210, NSC-233): work
+	# them out once. Each play-out still gets its own copy of that state and, through
+	# from_state, its own MatchCards copy, since what a play-out changes and the cards it
+	# creates must not reach the next one.
 	var view: SeatView = engine.view_for(seat)
 	var det_seeds: Array[int] = []
-	var mappings: Array = []
+	var deals: Array[MatchState] = []
 	if view != null:
 		var sets: Array[Array] = _hidden_of(engine.state_copy(), engine.match_cards(), view)
 		for det: int in range(determinizations):
 			var parts: Array[int] = [det]
 			var det_seed: int = MatchRng.derive_seed(label_seed, parts)
 			det_seeds.append(det_seed)
-			mappings.append(_mapping_of(sets, det_seed))
+			var deal: MatchState = engine.state_copy()
+			_relabel(deal, _mapping_of(sets, det_seed))
+			deals.append(deal)
 	var out: Array[Dictionary] = []
 	for index: int in range(candidates.size()):
 		var values: Array[int] = []
@@ -154,9 +157,7 @@ static func label(
 			var played: Dictionary = {"rejected": true}
 			if view != null:
 				var det_seed: int = det_seeds[det]
-				# _mapping_of's typed dictionary, read without a copy: _relabel only reads it.
-				var mapping: Dictionary[int, int] = mappings[det]
-				var copy: MatchEngine = _built(engine, engine.state_copy(), mapping, det_seed)
+				var copy: MatchEngine = _on_state(engine, deals[det].duplicate(), det_seed)
 				played = play(
 					copy, seat, candidates[index], policy, det_seed, DEFAULT_CAP, weights_path
 				)
@@ -206,12 +207,17 @@ static func _mapping_of(sets: Array[Array], det_seed: int) -> Dictionary[int, in
 
 
 ## The determinized copy: `state` (a copy of `engine`'s, taken over) relabelled through
-## `mapping`, around a copy of `engine`'s cards, its stream seeded
-## MatchRng.derive_seed(det_seed, [ROLLOUT_TAG]) (P7).
+## `mapping`, see _on_state.
 static func _built(
 	engine: MatchEngine, state: MatchState, mapping: Dictionary[int, int], det_seed: int
 ) -> MatchEngine:
 	_relabel(state, mapping)
+	return _on_state(engine, state, det_seed)
+
+
+## An engine on `state` (already relabelled, taken over), around a copy of `engine`'s cards,
+## its stream seeded MatchRng.derive_seed(det_seed, [ROLLOUT_TAG]) (P7).
+static func _on_state(engine: MatchEngine, state: MatchState, det_seed: int) -> MatchEngine:
 	var stream_parts: Array[int] = [ROLLOUT_TAG]
 	var stream_seed: int = MatchRng.derive_seed(det_seed, stream_parts)
 	return MatchEngine.from_state(state, engine.match_cards(), stream_seed)

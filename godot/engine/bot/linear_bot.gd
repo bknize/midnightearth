@@ -63,10 +63,11 @@ func choose(view: SeatView, _engine: MatchEngine) -> EngineAction:
 	if kept.is_empty():
 		var none: Array[int] = []
 		return EngineAction.commit(view.seat, none, none)
+	var common: PackedInt64Array = BotFeatures.base(view, _cards)
 	var best: int = 0
 	var tied: Array[int] = []
 	for index: int in range(kept.size()):
-		var value: int = score(BotFeatures.of(view, kept[index], _cards), _vector)
+		var value: int = score(BotFeatures.patched(common, view, kept[index], _cards), _vector)
 		if tied.is_empty() or value > best:
 			best = value
 			tied.clear()

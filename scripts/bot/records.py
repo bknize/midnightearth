@@ -1,13 +1,17 @@
 """JSONL record reading, merging, aggregates (spec R27) and the stamp (R33, plan P8)."""
-import hashlib
 import json
 import math
 import os
 import re
-from pathlib import Path
+import sys
 from typing import Any, Dict, Iterable, List, Union
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if REPO_ROOT not in sys.path:  # `python -I` leaves it off
+    sys.path.append(REPO_ROOT)
+
+from trainer import repo  # noqa: E402
+
 GODOT_DIR = os.path.join(REPO_ROOT, "godot")
 DATA_DIR = os.path.join(GODOT_DIR, "engine", "data")
 CARDS_PATH = os.path.join(DATA_DIR, "cards.json")
@@ -20,25 +24,14 @@ Z95 = 1.96
 
 
 def rules_version(path: PathLike = RULES_PATH) -> int:
-    """RULES_VERSION as match_rules.gd declares it. The file is read as bytes and decoded, so
-    a CRLF checkout (Windows) reads the same as an LF one (the Mac)."""
-    text = Path(path).read_bytes().decode("utf-8")
-    m = re.search(r"^const\s+RULES_VERSION\s*:\s*int\s*=\s*(\d+)", text, re.M)
-    if m is None:
-        raise ValueError("RULES_VERSION not found in %s" % os.fspath(path))
-    return int(m.group(1))
+    """RULES_VERSION as match_rules.gd declares it (trainer/repo.py)."""
+    return repo.rules_version(path)
 
 
 def current_stamp(cards: PathLike = CARDS_PATH, decks: PathLike = DECKS_PATH,
                   rules: PathLike = RULES_PATH, crew: PathLike = CREW_PATH) -> str:
-    """`r<RULES_VERSION>-` and the first 16 hex digits of SHA-256 over the bytes of the card
-    pool, the deck list and the Crew pool files, in that order (cycle 11 R1, plan P1): the
-    same string as the engine's BotStamp.current() for the same files. Paths may be str or
-    pathlib paths in the platform's own form; the files are hashed as raw bytes."""
-    h = hashlib.sha256()
-    for p in (cards, decks, crew):
-        h.update(Path(p).read_bytes())
-    return "r%d-%s" % (rules_version(rules), h.hexdigest()[:16])
+    """The stamp over the shipped files by default (trainer/repo.py)."""
+    return repo.current_stamp(cards, decks, rules, crew)
 
 
 def read_records(path: str) -> List[Dict[str, Any]]:

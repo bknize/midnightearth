@@ -198,9 +198,12 @@ func _label(request: Dictionary, began: int) -> Dictionary:
 	)
 	var dicts: Array = []
 	var features: Array = []
+	var common: PackedInt64Array = BotFeatures.base(view, engine.match_cards())
 	for action: EngineAction in chosen:
 		dicts.append(action.to_dict())
-		var vector: PackedInt64Array = BotFeatures.of(view, action, engine.match_cards())
+		var vector: PackedInt64Array = BotFeatures.patched(
+			common, view, action, engine.match_cards()
+		)
 		features.append(Array(vector))
 	var hand: Array = _hand_of(view, engine.match_cards())
 	var value_list: Array = []
