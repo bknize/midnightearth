@@ -95,3 +95,61 @@ func test_percentile_is_nearest_rank() -> void:
 	assert_int(MatchWorkerRecords.percentile(values, 0.95)).is_equal(5)
 	assert_int(MatchWorkerRecords.percentile(values, 0.5)).is_equal(3)
 	assert_int(MatchWorkerRecords.percentile(PackedInt64Array(), 0.95)).is_equal(0)
+
+
+func _write_weights(path: String, text: String) -> void:
+	var file: FileAccess = FileAccess.open(path, FileAccess.WRITE)
+	file.store_string(text)
+	file.close()
+
+
+func _stamped(stamp: String) -> String:
+	var weights: BotWeights = BotWeights.defaults()
+	weights.stamp = stamp
+	return weights.to_json()
+
+
+func _stamp_of(bot_a: String, bot_b: String, path_a: String, path_b: String) -> String:
+	var bot_names: Array[String] = [bot_a, bot_b]
+	var paths: Array[String] = [path_a, path_b]
+	return MatchWorkerRecords.weights_stamp_of(bot_names, paths)
+
+
+## NSC-245: a side whose bot takes no weights is ignored whatever its file holds; a `linear`
+## side's stale file is MISMATCH, its current file match, and a missing or broken file BROKEN
+## whichever side holds it and whatever the other holds. The committed file counts too: broken,
+## it would have a `linear` side with no flag play the defaults under `none`.
+func test_weights_stamp_reads_only_the_sides_that_take_weights() -> void:
+	var current: String = "user://test_worker_weights_current.json"
+	var stale: String = "user://test_worker_weights_stale.json"
+	var broken: String = "user://test_worker_weights_broken.json"
+	var missing: String = "user://test_worker_weights_missing.json"
+	_write_weights(current, _stamped(BotStamp.current()))
+	_write_weights(stale, _stamped(BotStamp.current() + "-old"))
+	_write_weights(broken, '{"version": 2, "bot": "linear"')
+	BotWeights.forget_cached()
+	var none: String = MatchWorkerRecords.WEIGHTS_NONE
+	var matched: String = MatchWorkerRecords.WEIGHTS_MATCH
+	var mismatch: String = MatchWorkerRecords.WEIGHTS_MISMATCH
+	var bad: String = MatchWorkerRecords.WEIGHTS_BROKEN
+	assert_str(_stamp_of("random", "random", "", "")).is_equal(none)
+	assert_str(_stamp_of("linear", "random", "", "")).is_equal(none)
+	assert_str(_stamp_of("random", "random", stale, missing)).is_equal(none)
+	assert_str(_stamp_of("random", "linear", stale, "")).is_equal(none)
+	assert_str(_stamp_of("random", "linear", broken, current)).is_equal(matched)
+	assert_str(_stamp_of("linear", "random", current, stale)).is_equal(matched)
+	assert_str(_stamp_of("linear", "linear", current, "")).is_equal(matched)
+	assert_str(_stamp_of("linear", "random", stale, "")).is_equal(mismatch)
+	assert_str(_stamp_of("linear", "linear", current, stale)).is_equal(mismatch)
+	assert_str(_stamp_of("linear", "random", missing, "")).is_equal(bad)
+	assert_str(_stamp_of("random", "linear", "", broken)).is_equal(bad)
+	assert_str(_stamp_of("linear", "linear", stale, broken)).is_equal(bad)
+	assert_str(_stamp_of("linear", "linear", broken, stale)).is_equal(bad)
+	var not_json: BotWeights = BotWeights.from_json("{")
+	assert_str(not_json.load_error).is_not_empty()
+	BotWeights._cache[BotWeights.DEFAULT_PATH] = not_json
+	assert_str(_stamp_of("linear", "random", "", "")).is_equal(bad)
+	assert_str(_stamp_of("random", "random", "", "")).is_equal(none)
+	BotWeights.forget_cached()
+	for path: String in [current, stale, broken]:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

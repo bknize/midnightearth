@@ -7,7 +7,9 @@ extends BotPlayer
 ## Commits: the candidates are RandomBot.candidates_for(view, cards) when the hand is
 ## enumerable (LegalPlays.ENUMERATE_MAX cards or fewer); when they number more than the
 ## weights' `k`, `k` of them are kept, drawn uniformly (a shuffle of their indices, the first
-## `k` kept in ascending order) from decision_rng(view, COMMIT_TAG). A hand too large to
+## `k` kept in ascending order) from decision_rng(view, COMMIT_TAG), except that the pass
+## always survives (NSC-245): it takes the last kept place when the shuffle cut it, for no
+## extra draw, so the other kept candidates stay a uniform draw. A hand too large to
 ## enumerate is sampled as `random` samples it: `k` draws of RandomBot.large_hand_commit from
 ## that same generator, duplicates dropped, in draw order (R6). Every kept candidate is scored
 ## in 64-bit integers; the highest wins and a tie is broken by one pick_index over the tied
@@ -94,6 +96,9 @@ func candidates(view: SeatView) -> Array[EngineAction]:
 	rng.shuffle_in_place(indices)
 	var picked: Array[int] = []
 	picked.assign(indices.slice(0, k))
+	# candidates_for lists the pass first: mask 0 is always legal.
+	if not picked.has(0):
+		picked[k - 1] = 0
 	picked.sort()
 	var out: Array[EngineAction] = []
 	for index: int in picked:
