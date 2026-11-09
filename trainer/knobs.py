@@ -93,6 +93,34 @@ def _in_bounds(name: str, value: Any, bounds: Dict[str, List[Any]]) -> bool:
     return bool(b[0] <= value <= b[1])
 
 
+def check_value(name: str, value: Any) -> str:
+    """Why `value` is not a legal value for knob `name` ("" when it is): unknown knob, wrong
+    type, or past the hard limit. Weights names are not checked against the fit store."""
+    if name not in _TABLE:
+        return "unknown knob"
+    if not _type_ok(name, value):
+        return "wrong type"
+    if not _in_hard(name, value):
+        return "past the hard limit"
+    return ""
+
+
+def in_bounds(name: str, value: Any, bounds: Dict[str, List[Any]]) -> bool:
+    """Whether `value` lies inside the bounds for a known knob."""
+    return _in_bounds(name, value, bounds)
+
+
+def clamp(name: str, value: Any, bounds: Dict[str, List[Any]]) -> Any:
+    """`value` moved inside the bounds: the nearest end for numbers, the first allowed name
+    for choices and weights."""
+    b = bounds.get(name, _TABLE[name]["bounds"])
+    if _in_bounds(name, value, bounds):
+        return value
+    if _TABLE[name]["kind"] in (CHOICE, WEIGHTS):
+        return b[0]
+    return b[0] if value < b[0] else b[1]
+
+
 def check_bounds(bounds: Any) -> List[str]:
     """Problems with a bounds mapping (empty when fine): unknown knob, malformed bound, a bound
     past the hard limit, lo above hi."""
