@@ -168,9 +168,10 @@ the stale documents.
 - R34. The fit shall weight paired positions as NSC-245 describes, and shall report the
   weighting in the fit record, so later fits are reproducible (C10).
 - R35. The trainer shall apply the remaining NSC-245 items: `validate_runs` rejects mixed
-  policies, the Windows lock uses `os.replace`, the large-hand path matches the Godot side,
-  fit validation runs outside the lock, the Makefile honours `WEIGHTS`, power iteration
-  starts from a stated vector, `match_worker` reports its weights stamp, the farm records the
+  policies, the Windows lock uses `os.replace`, the two large-hand paths are documented where they
+  differ (changing either moves labels or the `linear` sweep), fit validation and creation
+  are atomic under the lock, the Makefile honours `WEIGHTS`, power iteration starts from a
+  stated vector, `match_worker` reports its weights stamp, the farm records the
   feature set, and `LinearBot` offers the pass candidate.
 - R36. The trainer shall own one run state machine (store-owned, one `ActiveRun`, one
   restart loop, one Godot path, one sampling path, a shared stamp module, `argparse`,
