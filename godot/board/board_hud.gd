@@ -452,8 +452,8 @@ static func reason_text(reason: String, winner: int, rounds: int) -> String:
 			return "Won in sudden death"
 		"stalemate":
 			if winner >= 0:
-				return "Both seats out of cards: higher total Score"
-			return "Both seats out of cards: total Scores level"
+				return "Sudden death deadlocked: higher total Score"
+			return "Sudden death deadlocked: total Scores level"
 		"concede":
 			return "You conceded" if winner == 1 else "Opponent conceded"
 	push_warning("Unknown match end reason: %s" % reason)

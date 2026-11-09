@@ -525,8 +525,9 @@ func _turn_over() -> void:
 ## - a seat on 4 wins ends it, reason wins;
 ## - after Round 7, the seat with more wins takes it, reason rounds;
 ## - a tied sudden-death Round ends it, reason stalemate, when both Decks and hands are
-##   empty (spec C12) or when neither seat committed a card all Round (rules 8, cycle 13 C9
-##   (Ben, 2026-11-08)): the higher Match total Score wins, equal totals draw (winner -1).
+##   empty (spec C12), when neither seat committed a card all Round (rules 8, cycle 13 C9
+##   (Ben, 2026-11-08)) or when it is the third in a row to tie (rules 10, cycle 14 C15):
+##   the higher Match total Score wins, equal totals draw (winner -1).
 ## Otherwise the next Round starts; past Round 7 it is a sudden-death Round. A match end
 ## leaves the table as it stands.
 func _after_round(winner: int) -> void:
@@ -549,16 +550,21 @@ func _after_round(winner: int) -> void:
 	_begin_round()
 
 
-## Stalemate after a tied sudden-death Round, when either:
+## Stalemate after a tied sudden-death Round, when any of:
 ## - (Ben, spec C12) both Decks and both hands are empty and no seat can refill (review 3a:
 ##   a seat whose Crew shuffles its Pile in on an empty draw, with a non-empty Pile, can
-##   still play); or
+##   still play);
 ## - (rules 8, cycle 13 C9 (Ben, 2026-11-08)) neither seat committed a card all Round
-##   (`round_committed` 0), whatever the seats still hold. A tied Round with any card
-##   committed goes on to the next Round.
+##   (`round_committed` 0), whatever the seats still hold; or
+## - (rules 10, cycle 14 C15 (Ben, 2026-11-09)) it is the third sudden-death Round in a row
+##   to tie. A won sudden-death Round ends the Match, so every sudden-death Round before this
+##   one tied and the Round number alone counts them.
+## Any other tied Round goes on to the next Round.
 ## The higher Match total Score (`match_scores`) takes the Match; equal totals draw.
 func _stalled() -> bool:
 	if _state.round_committed == 0:
+		return true
+	if _state.round_number - MatchRules.ROUNDS >= MatchRules.SUDDEN_DEATH_TIES:
 		return true
 	for seat: int in range(_state.seats.size()):
 		var held: MatchState.SeatPiles = _state.seats[seat]

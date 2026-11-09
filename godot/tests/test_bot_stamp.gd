@@ -17,15 +17,15 @@ const CHANGED_CREW: String = "user://test_bot_stamp_crew.json"
 const MISSING: String = "res://engine/data/none.json"
 
 
-## Rules 9 since DC-20 T03 (cycle 14 R12).
-func test_shape_is_r9_and_16_lowercase_hex() -> void:
+## Rules 10 since DC-20 T17a (cycle 14 R54, C15).
+func test_shape_is_r10_and_16_lowercase_hex() -> void:
 	var stamp: String = BotStamp.current()
 	var shape: RegEx = RegEx.create_from_string("^r(\\d+)-[0-9a-f]{16}$")
 	var found: RegExMatch = shape.search(stamp)
 	assert_object(found).is_not_null()
 	if found != null:
 		assert_str(found.get_string(1)).is_equal(str(MatchRules.RULES_VERSION))
-	assert_str(stamp.substr(0, 3)).is_equal("r9-")
+	assert_str(stamp.substr(0, 4)).is_equal("r10-")
 
 
 func test_fixture_stamp_equals_the_pinned_digest() -> void:
@@ -71,10 +71,10 @@ func test_a_missing_file_gives_empty() -> void:
 	assert_str(BotStamp.current(CardDb.DEFAULT_PATH, DeckList.DEFAULT_PATH, MISSING)).is_empty()
 
 
-## Rules 9 (DC-20 T03, cycle 14 R12): the shipped data's stamp, the digest unchanged since
-## cards.json, decks.json and crew.json are not edited.
-func test_current_is_the_rules_9_stamp() -> void:
-	assert_str(BotStamp.current()).is_equal("r9-857b165d5a5d755e")
+## Rules 10 (DC-20 T17a, cycle 14 R54, C15): the shipped data's stamp, the digest unchanged
+## since cards.json, decks.json and crew.json are not edited.
+func test_current_is_the_rules_10_stamp() -> void:
+	assert_str(BotStamp.current()).is_equal("r10-857b165d5a5d755e")
 
 
 ## Stable across calls.

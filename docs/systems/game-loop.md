@@ -4,7 +4,7 @@ tags: [system, game-loop, engine]
 status: growing
 related: ["[[systems/systems-moc]]", "[[systems/cards-crew-decks]]", "[[systems/bot-training]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[rules/rules-v2]]", "[[rules/resolution]]", "[[planning/cycles]]", "[[planning/phase-3-game-loop]]"]
 created: 2026-11-05
-updated: 2026-11-08
+updated: 2026-11-09
 uid: 50267112-4326-429c-b245-ff481bd6da6b
 linear: https://linear.app/night-science-llc/issue/NSC-160
 supersedes:
@@ -22,7 +22,7 @@ A Match is two seats, 0 and 1. Each seat plays a 40-card Deck and brings three C
 
 | Unit | Rule |
 |---|---|
-| Match | First seat to **4** Round wins. After Round 7 the seat with more Round wins takes it. While the seats are level, **sudden-death** Rounds follow until one is won. A Match that can no longer progress ends on a **stalemate** (below). |
+| Match | First seat to **4** Round wins. After Round 7 the seat with more Round wins takes it. While the seats are level, **sudden-death** Rounds follow until one is won. A tied sudden-death Round ends the Match on a **stalemate** (below) when no card was committed all Round, when both Decks and both hands are empty with no refill, or when it is the third in a row to tie, so a Match is over after Round 10 at the latest. |
 | Round | **7** Turns. A Round goes to the seat that won **more of its Turns**; equal Turn wins award no Round win. Nothing is dealt, refilled or reshuffled at Round start. At Round end both rows go to the Piles. |
 | Turn | Each seat draws 1 card, then On start triggers fire, then both seats Commit (each followed by its discard-down), then the Walk scores both rows, then turn end. |
 | Energy | **Energy equals the Turn number**: 1 on Turn 1, 7 on Turn 7, plus any Energy an ability grants that Turn. Unspent Energy is lost. |
@@ -122,7 +122,12 @@ After Turn 7, `TurnFlow.end_round()` sends **every card on both rows to its Owne
 1. A won **sudden-death** Round ends the Match (reason `sudden_death`).
 2. A seat on **4 wins** ends it (`wins`).
 3. After **Round 7**, the seat with more Round wins takes it (`rounds`).
-4. A **tied sudden-death Round with both Decks and both hands empty** is a **stalemate** (spec C12): no later Round can be won. The seat with the higher sum of its Walk Scores over the whole Match wins (`stalemate`); equal sums draw (winner -1). A seat whose Crew shuffles its Pile into its Deck (Dredger) and whose Pile is not empty is not stalled.
+4. A **tied sudden-death Round** is a **stalemate** (`MatchEngine._stalled()`) when any of these holds:
+   - **Both Decks and both hands are empty** (spec C12): no later Round can be won. A seat whose Crew shuffles its Pile into its Deck (Dredger) and whose Pile is not empty is not stalled.
+   - **Neither seat committed a card all Round** (rules 8, cycle 13 C9), whatever the seats still hold.
+   - **It is the third sudden-death Round in a row to tie** (rules 10, cycle 14 C15; `MatchRules.SUDDEN_DEATH_TIES`), so Round 10 is the last. A won sudden-death Round has already ended the Match at check 1, so every earlier one tied and the Round number alone counts them.
+
+   The seat with the higher sum of its Walk Scores over the whole Match wins (`stalemate`); equal sums draw (winner -1).
 
 Otherwise the next Round starts. **Concede** (`concede`) ends it at once; the unfinished Round does not count as played.
 
@@ -336,7 +341,7 @@ These are places where the code reads the canon in a particular way. The code is
 
 - **Rounding.** [[rules/rules-v2]] says nothing is rounded between Scores. The build is integer, so it rounds to the nearest ten-thousandth after each multiply (spec C3), and Bonus values to the hundredth. Only the final Score is rounded to a whole number.
 - **Rounds and Turn wins.** The glossary and spec C13 say a Round goes to more Turn wins; the code reads `turn_wins`.
-- **Stalemate** (spec C12) is not in [[rules/rules-v2]]. It ends a Match that can no longer progress, on the Match's summed Walk Scores.
+- **Stalemate** (spec C12; cycle 13 C9; cycle 14 C15). [[rules/rules-v2]] states only its limit, the third tied sudden-death Round in a row. The two earlier conditions, empty Decks and hands or no card committed all Round, are the build's. All three end the Match on its summed Walk Scores.
 - **Muted triggers and the budget.** A Muted card's trigger is dropped silently when it comes up, but the pop still counts one against the 50 (the canon says only that every taken trigger counts). After the budget is spent a Muted entry stays silent.
 - **Hand triggers** are public (spec C14); [[rules/rules-v2]] section 8 was amended to say so.
 - **Dross** is the term for every card an ability creates (Litter's Dross card, Twin's copies; C13). The Dross card sits in `cards.json` as a Dross definition (the pool key stays `"created": true`, `CardDef.dross`), so the pool file holds 91 entries: 90 cards and Dross. It is never in a Deck. A Dross card has an Owner from creation and moves like any card within the Round (a Discard files it in its Owner's Pile; a Pile shuffle may put it in a Deck). It lasts until the end of the Round: `TurnFlow.expire_dross()`, run by `award_round()` after `ROUND_ENDED` and before the next Round (the final Round included), removes every Dross card of lifetime `round` from hand, row, Pile or Deck, in ascending id, with one public `DROSS_EXPIRED {owner, card, from, reason: round_end}` each and no random draw. A few last the whole Match (lifetime `match`).

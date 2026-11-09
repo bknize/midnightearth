@@ -42,9 +42,9 @@ class StampTest(unittest.TestCase):
         as_path = records.current_stamp(FIXTURE_CARDS, FIXTURE_DECKS, crew=FIXTURE_CREW)
         self.assertEqual(as_str, as_path)
 
-    def test_the_rules_version_is_nine(self) -> None:
-        self.assertEqual(records.rules_version(), 9)
-        self.assertEqual(records.rules_version(Path(records.RULES_PATH)), 9)
+    def test_the_rules_version_is_ten(self) -> None:
+        self.assertEqual(records.rules_version(), 10)
+        self.assertEqual(records.rules_version(Path(records.RULES_PATH)), 10)
 
     def test_a_crlf_rules_file_reads_the_same(self) -> None:
         tmp = tempfile.mkdtemp()
@@ -63,7 +63,7 @@ class StampTest(unittest.TestCase):
                                          crew=records.CREW_PATH)
         self.assertEqual(records.current_stamp(), explicit)
         self.assertRegex(explicit, records.STAMP_RE)
-        self.assertTrue(explicit.startswith("r9-"))
+        self.assertTrue(explicit.startswith("r10-"))
         self.assertEqual(explicit, engine_equivalent(Path(records.CARDS_PATH),
                                                      Path(records.DECKS_PATH),
                                                      Path(records.CREW_PATH)))

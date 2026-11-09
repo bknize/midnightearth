@@ -15,6 +15,19 @@ func test_sudden_death() -> void:
 	assert_str(BoardHud.reason_text("sudden_death", 1, 9)).is_equal("Won in sudden death")
 
 
+## Every stalemate comes after a tied sudden-death Round, whichever condition ended it (C15).
+func test_stalemate_with_a_winner() -> void:
+	assert_str(BoardHud.reason_text("stalemate", 1, 10)).is_equal(
+		"Sudden death deadlocked: higher total Score"
+	)
+
+
+func test_stalemate_drawn() -> void:
+	assert_str(BoardHud.reason_text("stalemate", -1, 10)).is_equal(
+		"Sudden death deadlocked: total Scores level"
+	)
+
+
 func test_concede_by_you() -> void:
 	assert_str(BoardHud.reason_text("concede", 1, 2)).is_equal("You conceded")
 
