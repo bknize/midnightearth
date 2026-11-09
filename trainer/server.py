@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from trainer.autopilot import Autopilot
 from trainer.config import FitConfig, RunConfig
 from trainer.farm import Farm, FarmError, worker_command
 from trainer.fit import REPORT_NAME, FitError, run_fit, validate_runs
@@ -167,7 +168,9 @@ class Service:
                  run_fn: Optional[RunFn] = None,
                  commit_fn: Optional[Callable[[], str]] = None,
                  fit_fn: Optional[FitFn] = None,
-                 restart_fn: Optional[Callable[[], None]] = None) -> None:
+                 restart_fn: Optional[Callable[[], None]] = None,
+                 autopilot_factory: Optional[Callable[["Service"], Autopilot]] = None,
+                 resume_autopilot: bool = False) -> None:
         self.root = Path(root) if root is not None else default_root()
         self.store = Store(data_dir)
         self.data_dir = self.store.data_dir
@@ -192,10 +195,15 @@ class Service:
         # the checkout holds after a later sync.
         self.service_commit = (commit_fn or (lambda: git_head() or "unknown"))()
         self._run: Optional[ActiveRun] = None
+        self.autopilot: Autopilot = (autopilot_factory or Autopilot)(self)
+        if resume_autopilot:  # R37: only `serve` asks, so plain constructions spawn no thread
+            self.autopilot.resume_if_running()
 
     def close(self, timeout: float = 60.0) -> None:
         """Signal stop, wait up to `timeout` for the run thread, then stop the farm (which
         fails the run's requests so the thread ends) and wait a little more."""
+        # The autopilot first: it drives runs and fits, and keeps `running` in its state file.
+        self.autopilot.shutdown(min(timeout, 30.0))
         handle = self._run
         if handle is not None:
             handle.stop.set()
@@ -309,6 +317,9 @@ class Service:
         # The claim is taken under the lock; the minutes of git and Godot work run outside
         # it, so run_status and the other tools stay answerable.
         with self.lock:
+            if self.autopilot.state.get("running"):
+                return {"error": "the training autopilot is running (block %s); stop it with "
+                                 "autopilot_stop first" % self.autopilot.state.get("block")}
             active = self._active()
             if active:
                 return {"error": "run %s is active; stop it before syncing" % active}
@@ -641,6 +652,30 @@ class Service:
             return {"fit_id": fit_id, "state": "queued", "stamp": stamp,
                     "feature_set": feature_set, "runs": sorted(cfg.runs)}
 
+    # the autopilot (spec R36 to R38)
+
+    def autopilot_start(self, config: Dict[str, Any]) -> Reply:
+        with self.lock:
+            active = self._active()
+            if active:
+                return {"error": "run %s is active; stop it before starting the autopilot"
+                                 % active}
+            fit_id = self.store.active_fit_id()
+            if fit_id:
+                return {"error": "fit %s is active; wait for it before starting the autopilot"
+                                 % fit_id}
+        return self.autopilot.start(config)
+
+    def autopilot_stop(self) -> Reply:
+        return self.autopilot.stop()
+
+    def autopilot_status(self) -> Reply:
+        return self.autopilot.status()
+
+    def get_findings(self, after: int = 0) -> Reply:
+        entries, problems = self.autopilot.log.read(after)
+        return {"entries": entries, "problems": problems}
+
     def _fit_job(self, fit_id: str, cfg: FitConfig, stop: threading.Event) -> None:
         store = Store(self.data_dir, recover_on_open=False)
         try:
@@ -790,6 +825,26 @@ def build_mcp(service: Service) -> Any:
         return guarded(service.fit)(config)
 
     @mcp.tool()
+    def autopilot_start(config: Dict[str, Any]) -> Dict[str, Any]:
+        """Start the training autopilot; refused while a run or fit is active."""
+        return guarded(service.autopilot_start)(config)
+
+    @mcp.tool()
+    def autopilot_stop() -> Dict[str, Any]:
+        """Stop the autopilot at a safe point; the block is written as interrupted."""
+        return guarded(service.autopilot_stop)()
+
+    @mcp.tool()
+    def autopilot_status() -> Dict[str, Any]:
+        """Whether the autopilot runs, its block, stage, champion and last findings entry."""
+        return guarded(service.autopilot_status)()
+
+    @mcp.tool()
+    def get_findings(after: int = 0) -> Dict[str, Any]:
+        """Findings entries with a block number above `after`, and any unreadable lines."""
+        return guarded(service.get_findings)(after)
+
+    @mcp.tool()
     def get_artifact(fit_id: str, name: str = "weights") -> Dict[str, Any]:
         """A fit's weights file or report (name: weights or report) as base64 with sha256."""
         return guarded(service.get_artifact)(fit_id, name)
@@ -927,7 +982,7 @@ def serve(args: List[str]) -> int:
     except RuntimeError as e:
         print(str(e), file=sys.stderr)
         return 1
-    service = Service(data_dir)
+    service = Service(data_dir, resume_autopilot=True)
     restart = threading.Event()
     try:
         import uvicorn
