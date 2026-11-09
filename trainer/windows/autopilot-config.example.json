@@ -1,0 +1,10 @@
+{
+  "server_path": "C:\\Users\\trainer\\tools\\llama\\llama-server.exe",
+  "model_path": "C:\\Users\\trainer\\tools\\models\\model.gguf",
+  "host": "127.0.0.1",
+  "port": 8080,
+  "server_args": ["-c", "40960", "-np", "4", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja"],
+  "health_timeout_s": 300,
+  "reply_timeout_s": 300,
+  "model_name": "model"
+}
