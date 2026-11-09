@@ -97,16 +97,7 @@ func show_crew(crew_name: String, text: String) -> void:
 	_bonus_label.visible = false
 	_grown_mark.visible = false
 	if badge == null:
-		badge = Label3D.new()
-		badge.name = "Badge"
-		badge.pixel_size = 0.01
-		badge.double_sided = false
-		badge.outline_size = 0
-		badge.font_size = BADGE_FONT_SIZE
-		badge.modulate = BADGE_COLOR
-		badge.position = BADGE_POSITION
-		var mesh: Node3D = $CardMesh as Node3D
-		mesh.add_child(badge)
+		badge = _mesh_label("Badge", BADGE_FONT_SIZE, BADGE_COLOR, BADGE_POSITION)
 
 
 ## Sets the badge text; an empty text hides it (an unlimited Crew shows none, R60).
@@ -174,17 +165,8 @@ func set_badges(words: Array[String]) -> void:
 	if _badges == null:
 		if words.is_empty():
 			return
-		_badges = Label3D.new()
-		_badges.name = "Badges"
-		_badges.pixel_size = 0.01
-		_badges.double_sided = false
-		_badges.outline_size = 0
-		_badges.font_size = STATUS_FONT_SIZE
-		_badges.modulate = STATUS_COLOR
+		_badges = _mesh_label("Badges", STATUS_FONT_SIZE, STATUS_COLOR, STATUS_POSITION)
 		_badges.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-		_badges.position = STATUS_POSITION
-		var mesh: Node3D = $CardMesh as Node3D
-		mesh.add_child(_badges)
 	_badges.text = "\n".join(words)
 	_badges.visible = not words.is_empty()
 
@@ -277,19 +259,25 @@ func set_look_mark(on: bool) -> void:
 	if _look_mark == null:
 		if not on:
 			return
-		_look_mark = Label3D.new()
-		_look_mark.name = "LookMark"
+		_look_mark = _mesh_label("LookMark", LOOK_FONT_SIZE, LOOK_COLOR, LOOK_POSITION)
 		_look_mark.text = "LOOK"
-		_look_mark.pixel_size = 0.01
-		_look_mark.double_sided = false
-		_look_mark.outline_size = 0
-		_look_mark.font_size = LOOK_FONT_SIZE
-		_look_mark.modulate = LOOK_COLOR
-		_look_mark.position = LOOK_POSITION
 		_look_mark.rotation.y = PI
-		var mesh: Node3D = $CardMesh as Node3D
-		mesh.add_child(_look_mark)
 	_look_mark.visible = on
+
+
+## A one-sided Label3D added under the card mesh, for the badge, the status words and the mark.
+func _mesh_label(label_name: String, size: int, colour: Color, at: Vector3) -> Label3D:
+	var label: Label3D = Label3D.new()
+	label.name = label_name
+	label.pixel_size = 0.01
+	label.double_sided = false
+	label.outline_size = 0
+	label.font_size = size
+	label.modulate = colour
+	label.position = at
+	var mesh: Node3D = $CardMesh as Node3D
+	mesh.add_child(label)
+	return label
 
 
 func has_look_mark() -> bool:

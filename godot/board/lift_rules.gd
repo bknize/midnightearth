@@ -6,10 +6,9 @@ extends RefCounted
 enum Place { HAND, ROW, OPPONENT_ROW, OPPONENT_HAND, CREW }
 
 
-## R1, R2, R11: may this card be lifted? Decided from the card's own state alone (its
-## place and whether it is face up), so a later feature can widen the rule here without
-## touching the board.
-static func may_lift(_place: Place, face_up: bool) -> bool:
+## R1, R2, R11: may this card be lifted? Decided from the card's own state alone (whether it is
+## face up), so a later feature can widen the rule here without touching the board.
+static func may_lift(face_up: bool) -> bool:
 	return face_up
 
 

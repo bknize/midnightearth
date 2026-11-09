@@ -73,7 +73,7 @@ func test_a_pile_zone_prompt_carries_its_zone_for_the_strip() -> void:
 	)
 	var step: BoardStep = BoardEvents.one(event)
 	assert_int(step.kind).is_equal(BoardStep.Kind.PROMPT)
-	assert_bool(PromptRules.is_pile_zone(step.zone)).is_true()
+	assert_bool(PromptRules.is_pile_zone(Choice.zone_from_name(step.zone))).is_true()
 	assert_array(step.options).is_equal([0, 2])
 	assert_str(PromptRules.action_label("revive")).is_equal("Revive")
 
