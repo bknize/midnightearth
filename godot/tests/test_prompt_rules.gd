@@ -271,12 +271,30 @@ func test_the_discard_down_banner_and_button_read_discard_n() -> void:
 
 
 func test_pile_zones_name_the_seats_whose_piles_the_strip_shows() -> void:
-	assert_bool(PromptRules.is_pile_zone("own_pile")).is_true()
-	assert_bool(PromptRules.is_pile_zone("own_hand")).is_false()
-	assert_array(PromptRules.pile_seats("own_pile", 0)).is_equal([0])
-	assert_array(PromptRules.pile_seats("opponent_pile", 0)).is_equal([1])
-	assert_array(PromptRules.pile_seats("both_piles", 0)).is_equal([0, 1])
-	assert_array(PromptRules.pile_seats("own_hand", 0)).is_empty()
+	assert_bool(PromptRules.is_pile_zone(Choice.Zone.OWN_PILE)).is_true()
+	assert_bool(PromptRules.is_pile_zone(Choice.Zone.OWN_HAND)).is_false()
+	assert_array(PromptRules.pile_seats(Choice.Zone.OWN_PILE, 0)).is_equal([0])
+	assert_array(PromptRules.pile_seats(Choice.Zone.OPPONENT_PILE, 0)).is_equal([1])
+	assert_array(PromptRules.pile_seats(Choice.Zone.BOTH_PILES, 0)).is_equal([0, 1])
+	assert_array(PromptRules.pile_seats(Choice.Zone.OWN_HAND, 0)).is_empty()
+
+
+func test_every_zone_classifies_as_its_name_did() -> void:
+	for zone: int in range(Choice.ZONE_NAMES.size()):
+		var label: String = Choice.zone_name(zone)
+		assert_bool(PromptRules.is_pile_zone(zone)).is_equal(label.contains("pile"))
+		assert_bool(PromptRules.is_deck_top_zone(zone)).is_equal(label == "own_deck_top")
+		var seats: Array[int] = PromptRules.pile_seats(zone, 0)
+		if not label.contains("pile"):
+			assert_array(seats).is_empty()
+		elif label.begins_with("own"):
+			assert_array(seats).is_equal([0])
+		elif label.begins_with("opponent"):
+			assert_array(seats).is_equal([1])
+		else:
+			assert_array(seats).is_equal([0, 1])
+	assert_bool(PromptRules.is_pile_zone(Choice.NO_ZONE)).is_false()
+	assert_array(PromptRules.pile_seats(Choice.NO_ZONE, 0)).is_empty()
 
 
 func test_a_pile_prompt_glows_no_row_card_and_routes_strip_entries() -> void:
@@ -307,6 +325,6 @@ func test_a_crew_prompt_banner_names_the_crew() -> void:
 func test_a_delve_prompt_names_the_deck_top_and_glows_no_row_card() -> void:
 	var prompt: Dictionary = _prompt("own_deck_top", [0, 1, 2])
 	assert_str(PromptRules.zone_name_of(prompt)).is_equal("own_deck_top")
-	assert_bool(PromptRules.is_deck_top_zone("own_deck_top")).is_true()
-	assert_bool(PromptRules.is_deck_top_zone("own_hand")).is_false()
+	assert_bool(PromptRules.is_deck_top_zone(Choice.Zone.OWN_DECK_TOP)).is_true()
+	assert_bool(PromptRules.is_deck_top_zone(Choice.Zone.OWN_HAND)).is_false()
 	assert_int(PromptRules.glow_set(prompt, _view(OWN_SIZE)).size()).is_equal(0)

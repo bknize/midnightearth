@@ -9,6 +9,8 @@ extends RefCounted
 const PLAYER_COMMIT_TIME: float = 0.25
 
 var fx: EffectPlayer = null
+## The Pile strip, owned by the prompt host.
+var strip: DeckStrip = null
 ## Where cards enter from.
 var entry_marker: Marker3D = null
 ## Returns a fresh BoardCard.
@@ -87,9 +89,7 @@ func place(step: BoardStep) -> void:
 	var from_strip: Card3D = _strip_card(step.card)
 	if from_strip != null:
 		start = from_strip.global_position
-		var index: int = fx.strip.cards.find(from_strip)
-		var removed: Card3D = fx.strip.remove_card(index)
-		removed.queue_free()
+		strip.drop_card(from_strip)
 	var card: BoardCard = _land(step, start)
 	if card == null:
 		return
@@ -111,9 +111,7 @@ func shuffle_in(step: BoardStep) -> void:
 		var held: Card3D = _strip_card(id)
 		if held == null:
 			continue
-		var index: int = fx.strip.cards.find(held)
-		var removed: Card3D = fx.strip.remove_card(index)
-		removed.queue_free()
+		strip.drop_card(held)
 
 
 ## A new card inserted at the step's slot of its seat's row, starting at `start`.
@@ -135,13 +133,7 @@ func _land(step: BoardStep, start: Vector3) -> BoardCard:
 
 ## The Pile strip's card showing instance `id`, or null.
 func _strip_card(id: int) -> Card3D:
-	if fx.strip == null or not is_instance_valid(fx.strip):
-		return null
-	for candidate: Card3D in fx.strip.cards:
-		var named: BoardCard = candidate as BoardCard
-		if named != null and named.instance_id == id:
-			return candidate
-	return null
+	return null if strip == null else strip.card_of(id)
 
 
 func _make() -> BoardCard:

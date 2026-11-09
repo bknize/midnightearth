@@ -68,16 +68,9 @@ func _first_card_commit() -> BoardStep:
 # --- may_lift -------------------------------------------------------------------------
 
 
-func test_may_lift_is_face_up_only_for_every_place() -> void:
-	var places: Array[LiftRules.Place] = [
-		LiftRules.Place.HAND,
-		LiftRules.Place.ROW,
-		LiftRules.Place.OPPONENT_ROW,
-		LiftRules.Place.OPPONENT_HAND,
-	]
-	for place: LiftRules.Place in places:
-		assert_bool(LiftRules.may_lift(place, true)).is_true()
-		assert_bool(LiftRules.may_lift(place, false)).is_false()
+func test_may_lift_is_face_up_only() -> void:
+	assert_bool(LiftRules.may_lift(true)).is_true()
+	assert_bool(LiftRules.may_lift(false)).is_false()
 
 
 # --- step_touches ---------------------------------------------------------------------
@@ -241,7 +234,7 @@ func test_a_re_pulse_of_the_held_card_touches_it() -> void:
 
 
 func test_a_crew_lifts_to_read_and_a_crew_firing_sets_a_held_crew_down() -> void:
-	assert_bool(LiftRules.may_lift(LiftRules.Place.CREW, true)).is_true()
+	assert_bool(LiftRules.may_lift(true)).is_true()
 	var step: BoardStep = BoardStep.new()
 	step.kind = BoardStep.Kind.CREW_FIRE
 	assert_bool(LiftRules.step_touches(step, -1, LiftRules.Place.CREW, false)).is_true()

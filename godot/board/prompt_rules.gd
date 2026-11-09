@@ -49,31 +49,30 @@ static func zone_name_of(prompt: Dictionary) -> String:
 	return Choice.zone_name(Choice.zone_of(prompt))
 
 
-## Whether a zone name is the Deck top of a Delve prompt (private, read from the view).
-static func is_deck_top_zone(zone_label: String) -> bool:
-	return zone_label == Choice.zone_name(Choice.Zone.OWN_DECK_TOP)
+## Whether a `Choice.Zone` is the Deck top of a Delve prompt (private, read from the view).
+static func is_deck_top_zone(zone: int) -> bool:
+	return zone == Choice.Zone.OWN_DECK_TOP
 
 
-## Whether a zone name is a Pile ("own_pile", "opponent_pile", "both_piles"): the board lays
+## Whether a `Choice.Zone` is a Pile ("own_pile", "opponent_pile", "both_piles"): the board lays
 ## the Pile strip out for such a prompt (R78).
-static func is_pile_zone(zone_label: String) -> bool:
-	return zone_label.contains("pile")
+static func is_pile_zone(zone: int) -> bool:
+	return Choice.is_pile(zone)
 
 
-## The seats whose Piles a Pile zone shows, in strip order, for the asked seat: an "own"
-## zone the asked seat's, an "opponent" zone the other's, "both" the asked seat's then the
-## other's. Empty for a zone that is not a Pile.
-static func pile_seats(zone_label: String, asked: int) -> Array[int]:
+## The seats whose Piles a Pile zone shows, in strip order, for the asked seat: an own zone
+## the asked seat's, an opponent zone the other's, both the asked seat's then the other's.
+## Empty for a zone that is not a Pile.
+static func pile_seats(zone: int, asked: int) -> Array[int]:
 	var out: Array[int] = []
-	if not is_pile_zone(zone_label):
-		return out
-	if zone_label.begins_with("own"):
-		out.append(asked)
-	elif zone_label.begins_with("opponent"):
-		out.append(1 - asked)
-	else:
-		out.append(asked)
-		out.append(1 - asked)
+	match zone:
+		Choice.Zone.OWN_PILE:
+			out.append(asked)
+		Choice.Zone.OPPONENT_PILE:
+			out.append(1 - asked)
+		Choice.Zone.BOTH_PILES:
+			out.append(asked)
+			out.append(1 - asked)
 	return out
 
 

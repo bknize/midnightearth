@@ -32,6 +32,7 @@ enum InputPhase { LOCKED, AWAITING, ENDED }
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")
 const AUTOPLAY_SPEED: float = 4.0
 const NORMAL_SPEED: float = 1.0
+## The launch flag the stand-alone verify scenes read (VerifyStart); main reads it for the board.
 const AUTOPLAY_ARG: String = "--autoplay"
 ## Where a row's tally rests: past the right end of the row, and toward the camera.
 const TALLY_OFFSET: Vector3 = Vector3(14.5, 0.0, 1.0)
@@ -163,8 +164,7 @@ func _ready() -> void:
 		push_error("Card data failed to load: %s" % _cards.load_error())
 		return
 	_setup_effects()
-	var args: PackedStringArray = OS.get_cmdline_user_args()
-	_autoplay = autoplay or args.has(AUTOPLAY_ARG)
+	_autoplay = autoplay
 	speed = AUTOPLAY_SPEED if _autoplay else NORMAL_SPEED
 
 
@@ -215,6 +215,7 @@ func _setup_effects() -> void:
 	_fx.committed_ids = _committed_ids
 	_fx.face_down_ids = _face_down_ids
 	_arrivals.fx = _fx
+	_arrivals.strip = _prompt.strip
 	_arrivals.entry_marker = _entry
 	_arrivals.spawn = _spawn_card
 	_prompt.wire(_collections(), card_lift, hud, _row_glow.material_override)
@@ -232,6 +233,7 @@ func start_source(new_source: MatchSource) -> void:
 
 ## Clears the runner, the queue and the table state for a new match.
 func _reset_for_match() -> void:
+	_autoplay = autoplay  # The launcher (main or VerifyStart) sets it before the source starts.
 	_serial += 1
 	_end_wait()
 	card_lift.drop_now()
@@ -620,7 +622,6 @@ func _apply(step: BoardStep) -> void:
 			_fx.control(step)
 		BoardStep.Kind.PILE_HIDE:
 			_prompt.hide_strip(step.duration)
-			_fx.strip = null
 		BoardStep.Kind.MOVE:
 			_fx.move(step)
 		BoardStep.Kind.RETURN:
@@ -708,7 +709,6 @@ func _open_prompt(step: BoardStep) -> void:
 	if catching_up:
 		_finish_catch_up()
 	_prompt.open(open, step.text, source.view())
-	_fx.strip = _prompt.strip_collection()
 	_refresh_commit_enabled()
 
 
@@ -724,7 +724,6 @@ func _prompt_queued() -> bool:
 ## the Pile strip up for a choice that flies a card out of it (PILE_HIDE clears it).
 func _close_prompt(keep_strip: bool = false) -> void:
 	_prompt.close(keep_strip)
-	_fx.strip = _prompt.strip_collection()
 	prompt_resolved.emit()
 
 
@@ -768,7 +767,6 @@ func _on_pile_pressed(seat: int) -> void:
 	if source == null:
 		return
 	_prompt.toggle_pile(seat, source.view())
-	_fx.strip = _prompt.strip_collection()
 
 
 ## The Skip button (R63): declines the optional prompt.
@@ -1068,7 +1066,7 @@ func _on_pointer_tapped(_position: Vector2, hit: Object) -> void:
 	var place: int = _place_of(card)
 	if place < 0:
 		return
-	if LiftRules.may_lift(place as LiftRules.Place, not card.face_down):
+	if LiftRules.may_lift(not card.face_down):
 		card_lift.lift(card)
 
 

@@ -29,8 +29,6 @@ var view_source: Callable = Callable()
 ## The engine seat the local player holds. Steps carry table seats (0 = the player's side);
 ## only a seat read from a raw event needs this to be turned into one.
 var viewer: int = 0
-## The Pile strip (a Pile prompt or a tap on a Pile count); null while there is none.
-var strip: CardCollection3D = null
 ## The board's zone-glow material, copied per card for CHOICE_SHOW (and T12's prompts).
 var glow_material: Material = null
 ## Seat 0's cards by instance id, committed ids, and ids lying face down (board-owned).
@@ -519,16 +517,15 @@ func _forget(id: int) -> void:
 	face_down_ids.erase(id)
 
 
-## Forgets the id books and the strip, for a new match or a table clear.
+## Forgets the id books, for a new match or a table clear.
 func reset() -> void:
 	player_cards.clear()
 	committed_ids.clear()
 	face_down_ids.clear()
-	strip = null
 
 
 ## A new Round clears the rows only: hands persist (rules 7), so the player's hand cards keep
-## their ids; the committed and face-down books and the strip are dropped.
+## their ids; the committed and face-down books are dropped.
 func reset_rows() -> void:
 	var stale: Array[int] = []
 	for id: int in player_cards.keys():
@@ -538,7 +535,6 @@ func reset_rows() -> void:
 		_forget(id)
 	committed_ids.clear()
 	face_down_ids.clear()
-	strip = null
 
 
 # --- Card motions (shared with the board) --------------------------------------------------
@@ -613,7 +609,7 @@ func move_card(
 func flip_down(card: BoardCard, duration: float) -> void:
 	var mesh: Node3D = card.get_node("CardMesh") as Node3D
 	var tween: Tween = card.create_tween()
-	_add_tween(tween, mesh, ^"rotation:y", PI, maxf(duration, MIN_TWEEN_TIME))
+	add_tween(tween, mesh, ^"rotation:y", PI, maxf(duration, MIN_TWEEN_TIME))
 	var err: int = tween.finished.connect(_flag_face_down.bind(card))
 	if err != OK:
 		card.face_down = true
@@ -622,7 +618,7 @@ func flip_down(card: BoardCard, duration: float) -> void:
 func _flip_up(card: BoardCard, duration: float) -> void:
 	var mesh: Node3D = card.get_node("CardMesh") as Node3D
 	var tween: Tween = card.create_tween()
-	_add_tween(tween, mesh, ^"rotation:y", 0.0, maxf(duration, MIN_TWEEN_TIME))
+	add_tween(tween, mesh, ^"rotation:y", 0.0, maxf(duration, MIN_TWEEN_TIME))
 	var err: int = tween.finished.connect(_unflag_face_down.bind(card))
 	if err != OK:
 		card.face_down = false
@@ -632,15 +628,15 @@ func _lift_and_settle(card: BoardCard, duration: float) -> void:
 	var mesh: Node3D = card.get_node("CardMesh") as Node3D
 	var half: float = maxf(duration, MIN_TWEEN_TIME) / 2.0
 	var tween: Tween = card.create_tween()
-	_add_tween(tween, mesh, ^"position:z", REVEAL_LIFT, half)
-	_add_tween(tween, mesh, ^"position:z", 0.0, half)
+	add_tween(tween, mesh, ^"position:z", REVEAL_LIFT, half)
+	add_tween(tween, mesh, ^"position:z", 0.0, half)
 
 
 ## Sweeps a card from where it is to the exit marker and frees it.
 func fly_out(card: Card3D, duration: float) -> void:
 	_stop_card_tweens(card)
 	var tween: Tween = card.create_tween()
-	_add_tween(
+	add_tween(
 		tween, card, ^"global_position", exit_marker.global_position, maxf(duration, MIN_TWEEN_TIME)
 	)
 	var err: int = tween.finished.connect(card.queue_free)
@@ -664,7 +660,8 @@ func _stop_card_tweens(card: Card3D) -> void:
 			running.kill()
 
 
-func _add_tween(
+## Adds one sine-eased property step to `tween` (HandTelegraph shares it).
+static func add_tween(
 	tween: Tween, target: Object, property: NodePath, value: Variant, duration: float
 ) -> void:
 	var tweener: PropertyTweener = tween.tween_property(target, property, value, duration)

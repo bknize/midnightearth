@@ -43,8 +43,6 @@ var _table_prompt: Dictionary = {}
 var _lit: Array[BoardCard] = []
 ## The option each lit card stands for, parallel to _lit.
 var _lit_options: Array[int] = []
-## Whether the strip's callback submitted a choice, for press() to hand back.
-var _strip_submitted: bool = false
 
 
 ## Hands over the table: the four collections (hand, row, opponent row, opponent hand), the
@@ -80,16 +78,19 @@ func open(prompt: Dictionary, text: String, view: SeatView) -> void:
 	hud.show_prompt(PromptRules.banner_for(_prompt, text, _crew_name()))
 	card_lift.set_rest_alpha(DIM_ALPHA)
 	var own_size: int = view.own_board.size()
-	for spot: CardSpot in PromptRules.spots(_table_prompt, own_size):
+	var raw_options: Array = _prompt.get("options", [])
+	var found: Array[CardSpot] = PromptRules.spots(_table_prompt, own_size)
+	for i: int in range(found.size()):
+		var spot: CardSpot = found[i]
 		var card: BoardCard = card_at(spot)
 		if card == null:
 			push_warning("PromptHost: no card at seat %d slot %d" % [spot.seat, spot.slot])
 			continue
 		card.set_glow(glow_material, GLOW_ALPHA)
 		_lit.append(card)
-		_lit_options.append(PromptRules.option_at(spot, _table_prompt, own_size))
-	var zone_label: String = PromptRules.zone_name_of(_prompt)
-	if PromptRules.is_pile_zone(zone_label) or PromptRules.is_deck_top_zone(zone_label):
+		var option: int = raw_options[i] if i < raw_options.size() else -1
+		_lit_options.append(option)
+	if _chooses_from_strip():
 		_open_strip(view)
 	if is_multi():
 		hud.show_confirm(
@@ -120,11 +121,6 @@ func strip_up() -> bool:
 	return strip.is_up()
 
 
-## The strip's collection for the effect player, or null while there is none.
-func strip_collection() -> CardCollection3D:
-	return strip.collection if strip.is_up() else null
-
-
 ## Slides the strip away (PILE_HIDE).
 func hide_strip(seconds: float) -> void:
 	strip.hide(seconds)
@@ -138,7 +134,7 @@ func drop() -> void:
 	selected.clear()
 	_lit.clear()
 	_lit_options.clear()
-	strip = DeckStrip.new()
+	strip.forget()
 
 
 ## Clears the banner, the glows, the selection and the dim (R57). The strip stays when
@@ -248,12 +244,8 @@ func press() -> bool:
 		return false
 	if routed.kind != PromptRules.Tap.CHOOSE:
 		return false
-	if strip.is_up():
-		# A strip entry is picked through the strip's callback, which submits it.
-		_strip_submitted = false
-		if not strip.choose(routed.index):
-			return false
-		return _strip_submitted
+	if strip.is_up() and not strip.may_choose(routed.index):
+		return false
 	var zone: int = Choice.zone_of(_prompt)
 	source.submit_choice(zone, routed.index)
 	return true
@@ -284,8 +276,8 @@ func skip() -> bool:
 ## The open prompt's Crew name, or "" for a card prompt (R66).
 ## Whether the open prompt's options are in the strip (a Pile or the top of a Deck).
 func _chooses_from_strip() -> bool:
-	var zone_label: String = PromptRules.zone_name_of(_prompt)
-	return PromptRules.is_pile_zone(zone_label) or PromptRules.is_deck_top_zone(zone_label)
+	var zone: int = Choice.zone_of(_prompt)
+	return PromptRules.is_pile_zone(zone) or PromptRules.is_deck_top_zone(zone)
 
 
 func _crew_name() -> String:
@@ -315,15 +307,15 @@ func _refresh_selection() -> void:
 ## cards the same way, read from the view's private `deck_top`.
 func _open_strip(view: SeatView) -> void:
 	var asked: int = _prompt.get("seat", 0)
-	var label: String = PromptRules.zone_name_of(_prompt)
-	var seats: Array[int] = PromptRules.pile_seats(label, asked)
+	var zone: int = Choice.zone_of(_prompt)
+	var seats: Array[int] = PromptRules.pile_seats(zone, asked)
 	var options: Array[int] = []
 	var raw: Array = _prompt.get("options", [])
 	for entry: Variant in raw:
 		var option: int = entry
 		options.append(option)
-	if PromptRules.is_deck_top_zone(label):
-		_show_entries(view.deck_top, [], options, view)
+	if PromptRules.is_deck_top_zone(zone):
+		_show_entries(view.deck_top, options, view)
 		return
 	_show_piles(seats, options, view)
 
@@ -346,33 +338,18 @@ func toggle_pile(seat: int, view: SeatView) -> void:
 
 func _show_piles(seats: Array[int], eligible: Array[int], view: SeatView) -> void:
 	var entries: Array[int] = []
-	var piles: Array[Vector2i] = []
 	for seat: int in seats:
-		var ids: Array[int] = view.pile_of(seat)
-		for i: int in range(ids.size()):
-			entries.append(ids[i])
-			piles.append(Vector2i(BoardSteps.table_seat(seat, viewer), i))
-	_show_entries(entries, piles, eligible, view)
+		entries.append_array(view.pile_of(seat))
+	_show_entries(entries, eligible, view)
 
 
-func _show_entries(
-	entries: Array[int], piles: Array[Vector2i], eligible: Array[int], view: SeatView
-) -> void:
+func _show_entries(entries: Array[int], eligible: Array[int], view: SeatView) -> void:
 	var def_of: Callable = Callable()
 	if source != null:
 		def_of = source.match_cards().def_of
 	strip.aspect = _aspect()
 	strip.show(
-		strip_parent,
-		entries,
-		eligible,
-		spawn,
-		def_of,
-		glow_material,
-		_on_strip_choice,
-		0.25,
-		piles,
-		_pile_entry.bind(view)
+		strip_parent, entries, eligible, spawn, def_of, glow_material, 0.25, _pile_entry.bind(view)
 	)
 
 
@@ -391,12 +368,6 @@ static func _pile_entry(id: int, view: SeatView) -> Dictionary:
 		var entry: Dictionary = found
 		return entry
 	return {}
-
-
-func _on_strip_choice(index: int) -> void:
-	var zone: int = Choice.zone_of(_prompt)
-	source.submit_choice(zone, index)
-	_strip_submitted = true
 
 
 func _lift(card: BoardCard, option: int) -> void:
