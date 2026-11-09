@@ -17,8 +17,10 @@ from trainer.config import RunConfig
 from trainer.farm import Farm
 from trainer.fit import FitError
 from trainer.store import Store
-from trainer.server import (BearerMiddleware, Service, TokenError, acquire_serve_lock,
-                            build_app, build_mcp, check_bearer, load_token, numpy_version)
+from trainer.server import (RESTART_EXIT, RESTART_LOOP_ENV, ActiveRun, BearerMiddleware, Service,
+                            TokenError,
+                            acquire_serve_lock, build_app, build_mcp, check_bearer, exit_later,
+                            load_token, numpy_version, serve)
 
 STUB = str(Path(__file__).resolve().parent / "stub_worker.py")
 STAMP = "r7-stub"
@@ -343,7 +345,9 @@ class ServiceTest(unittest.TestCase):
         svc = self.fit_service(gate=gate)
         rid = self.done_run(svc)
         fid = svc.fit({"runs": [rid]})["fit_id"]
-        svc.store.set_state(rid, "stopped")  # as if the run had been stopped before the fit
+        # as if the run had been stopped before the fit (done never leaves through the machine)
+        svc.store.db.execute("UPDATE runs SET state = 'stopped' WHERE id = ?", (rid,))
+        svc.store.db.commit()
         err = svc.resume_run(rid)["error"]
         self.assertIn("fit %s" % fid, err)
         gate.set()
@@ -460,19 +464,58 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(self.wait(rid)["state"], "done")
         self.assertIn("error", self.svc.stop_run(rid))
         self.assertEqual(self.svc.run_status(rid)["state"], "done")
-        self.assertFalse(self.svc.store.request_stop(rid))
+        self.assertFalse(self.svc.store.set_state(rid, "stopping"))
 
     def test_no_live_state_without_a_thread(self) -> None:
         rid = self.svc.store.create_run(cfg_dict(), STAMP, "abc", state="stopping")
         self.assertEqual(self.svc.stop_run(rid)["state"], "stopped")
+        # a run thread that ends early, however it ends, finishes its run as failed
         run = self.svc.store.create_run(cfg_dict(positions=5), STAMP, "abc", state="running")
-        self.svc._finalize(self.svc.store, run, threading.Event())
+
+        def raising(cfg: RunConfig, log_dir: Path) -> Farm:
+            raise SystemExit(1)  # not an Exception: only the thread's last resort catches it
+
+        self.svc._farm_factory = raising
+        handle = ActiveRun(run, 0)
+        with self.assertRaises(SystemExit):
+            self.svc._run_thread(handle)
         self.assertEqual(self.svc.run_status(run)["state"], "failed")
-        run2 = self.svc.store.create_run(cfg_dict(positions=5), STAMP, "abc", state="stopping")
-        flag = threading.Event()
-        flag.set()
-        self.svc._finalize(self.svc.store, run2, flag)
-        self.assertEqual(self.svc.run_status(run2)["state"], "stopped")
+        self.assertIn("run thread ended", self.svc.run_status(run)["last_error"])
+
+    def test_the_thread_keeps_what_another_writer_has_written(self) -> None:
+        store = self.svc.store
+        rid = store.create_run(cfg_dict(positions=5), STAMP, "abc", state="running")
+        store.set_state(rid, "interrupted", "service shut down mid-run")
+        self.assertFalse(store.finish(rid, "failed", "late"))
+        self.assertEqual(self.svc.run_status(rid)["last_error"], "service shut down mid-run")
+
+    def test_one_active_run_object_follows_the_run(self) -> None:
+        self.assertIsNone(self.svc._run)
+        rid = self.svc.start_run(cfg_dict(positions=20))["run_id"]
+        handle = self.svc._run
+        assert handle is not None
+        self.assertEqual(handle.run_id, rid)
+        self.assertEqual(self.wait(rid)["state"], "done")
+        self.svc.join(30)
+        self.assertFalse(handle.alive())
+        self.assertIsNotNone(handle.farm)
+        self.assertEqual(self.svc.health()["workers_total"], 0)
+
+    def test_status_reads_the_row_and_the_stored_digest(self) -> None:
+        rid = self.svc.start_run(cfg_dict(positions=20))["run_id"]
+        want = self.wait(rid)["digest"]
+        store = self.svc.store
+        self.assertEqual((store.get_run(rid) or {})["digest"], want)
+        # the row is what status reads: neither the label rows nor the shards are consulted
+        store.db.execute("UPDATE runs SET n_labels = 12345, digest = 'kept' WHERE id = ?", (rid,))
+        store.db.commit()
+        st = self.svc.run_status(rid)
+        self.assertEqual((st["labels"], st["digest"]), (12345, "kept"))
+        # a done run from before the digest column hashes once and keeps it
+        store.db.execute("UPDATE runs SET digest = '' WHERE id = ?", (rid,))
+        store.db.commit()
+        self.assertEqual(self.svc.run_status(rid)["digest"], want)
+        self.assertEqual((store.get_run(rid) or {})["digest"], want)
 
     def test_queued_run_is_interrupted_at_start(self) -> None:
         rid = self.svc.store.create_run(cfg_dict(), STAMP, "abc", state="queued")
@@ -575,12 +618,10 @@ class RestartAfterSyncTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
-        self.queue = self.root / "trainer" / "queue"
-        self.queue.mkdir(parents=True)
         self.diffs: List[List[str]] = []
+        self.restarts: List[int] = []
 
-    def service(self, changed: str = "trainer/server.py\n", windows: bool = True,
-                queue: Any = "default") -> Service:
+    def service(self, changed: str = "trainer/server.py\n", loop: bool = True) -> Service:
         def run(argv: List[str], cwd: Any, env: Any) -> Any:
             self.diffs.append(argv)
             return 0, changed
@@ -590,43 +631,38 @@ class RestartAfterSyncTest(unittest.TestCase):
 
         s = Service(self.root / "data", self.root / "me", farm_factory=stub_farm,
                     stamp_fn=lambda: STAMP, sync_fn=sync, run_fn=run,
-                    commit_fn=lambda: OLD, is_windows=windows,
-                    queue_dir=self.queue if queue == "default" else queue)
+                    commit_fn=lambda: OLD,
+                    restart_fn=(lambda: self.restarts.append(1)) if loop else None)
         self.addCleanup(s.close)
         return s
 
-    def test_scheduled_job_file(self) -> None:
-        out = self.service().sync_code(NEW, inbox_file="x.bundle")
+    def test_a_sync_that_changed_trainer_restarts_once(self) -> None:
+        s = self.service()
+        self.assertTrue(s.health()["restart_loop"])
+        out = s.sync_code(NEW, inbox_file="x.bundle")
         self.assertEqual(out["restart"], "scheduled")
+        self.assertEqual(self.restarts, [1])
         self.assertEqual(self.diffs[-1][-4:], [OLD, NEW, "--", "trainer"])
         self.assertIn("diff", self.diffs[-1])
-        jobs = sorted(self.queue.iterdir())
-        self.assertEqual(len(jobs), 1)
-        self.assertRegex(jobs[0].name, r"^restart-mcp-\d{8}-\d{6}-\d{3}\.cmd$")
-        text = jobs[0].read_bytes().decode("ascii")
-        self.assertIn("\r\n", text)
-        self.assertIn("taskkill /PID %d /F" % os.getpid(), text)
-        lines = text.splitlines()
-        self.assertTrue(any(ln.startswith("ping -n") for ln in lines))
-        self.assertTrue(lines[-1].startswith("call "))
-        self.assertTrue(lines[-1].endswith("autostart/start-mcp.cmd")
-                        or lines[-1].endswith("autostart\\start-mcp.cmd"))
-        self.assertLess([i for i, ln in enumerate(lines) if ln.startswith("ping")][0],
-                        [i for i, ln in enumerate(lines) if "taskkill" in ln][0])
+        # nothing new starts under the restart on its way
+        self.assertTrue(s.health()["syncing"])
+        self.assertIn("error", s.start_run(cfg_dict(positions=20)))
+        self.assertIn("error", s.sync_code(NEW, inbox_file="x.bundle"))
+        self.assertEqual(self.restarts, [1])
 
     def test_not_needed_when_trainer_unchanged(self) -> None:
         out = self.service(changed="").sync_code(NEW, inbox_file="x.bundle")
         self.assertEqual(out["restart"], "not needed")
-        self.assertEqual(list(self.queue.iterdir()), [])
         same = self.service(changed="trainer/x.py").sync_code(OLD, inbox_file="x.bundle")
         self.assertEqual(same["restart"], "not needed")
+        self.assertEqual(self.restarts, [])
 
-    def test_needed_without_queue_or_off_windows(self) -> None:
-        self.assertEqual(self.service(windows=False).sync_code(NEW, inbox_file="x")["restart"],
-                         "needed")
-        self.assertEqual(list(self.queue.iterdir()), [])
-        gone = self.service(queue=self.root / "nope")
-        self.assertEqual(gone.sync_code(NEW, inbox_file="x")["restart"], "needed")
+    def test_needed_with_no_loop_behind_the_service(self) -> None:
+        s = self.service(loop=False)
+        self.assertFalse(s.health()["restart_loop"])
+        self.assertEqual(s.sync_code(NEW, inbox_file="x")["restart"], "needed")
+        self.assertEqual(self.restarts, [])
+        self.assertFalse(s.health()["syncing"])
 
     def test_failed_sync_has_no_restart_key(self) -> None:
         s = self.service()
@@ -642,6 +678,110 @@ class RestartAfterSyncTest(unittest.TestCase):
         self.assertEqual(run["commit"], OLD)
         self.assertEqual(s.health()["service_commit"], OLD)
         self.assertIn("commit", s.health())
+
+
+class FakeServer:
+    """uvicorn.Server for serve(): `on_run` runs inside run(), which then waits for should_exit
+    as uvicorn does when it was asked to."""
+    on_run: Any = None
+    started = True
+
+    def __init__(self, config: Any) -> None:
+        self.config = config
+        self.should_exit = False
+
+    def run(self) -> None:
+        if FakeServer.on_run is None:
+            return
+        FakeServer.on_run()
+        deadline = time.monotonic() + 10.0
+        while not self.should_exit and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+
+class ServeExitTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        token = self.root / "token"
+        token.write_text("s3cret", encoding="utf-8")
+        self.services: List[Service] = []
+        uvicorn = mock.MagicMock()
+        uvicorn.Server = FakeServer
+        FakeServer.on_run = None
+        FakeServer.started = True
+        env = {"TRAINER_TOKEN_FILE": str(token), "TRAINER_ROOT": str(self.root / "me")}
+        for patcher in (mock.patch.dict(os.environ, env),
+                        mock.patch.dict(sys.modules, {"uvicorn": uvicorn}),
+                        mock.patch("trainer.server.build_mcp", side_effect=self.services.append),
+                        mock.patch("trainer.server.build_app"),
+                        mock.patch("trainer.server.exit_later", side_effect=lambda server, flag:
+                                   exit_later_now(server, flag))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def run_serve(self, *args: str) -> int:
+        return serve(["--data", str(self.root / "data"), *args])
+
+    def test_exit_75_after_a_restart_with_the_loop_behind_it(self) -> None:
+        FakeServer.on_run = lambda: self.services[0].restart_fn()
+        with mock.patch.dict(os.environ, {RESTART_LOOP_ENV: "1"}):
+            self.assertEqual(self.run_serve(), RESTART_EXIT)
+        self.assertEqual(RESTART_EXIT, 75)
+        # the lock and the database were let go: the next serve can start
+        lock = acquire_serve_lock(self.root / "data")
+        lock.close()
+
+    def test_exit_0_with_no_restart_and_no_loop(self) -> None:
+        os.environ.pop(RESTART_LOOP_ENV, None)
+        self.assertEqual(self.run_serve(), 0)
+        self.assertIsNone(self.services[0].restart_fn)
+
+    def test_exit_3_when_the_server_cannot_start(self) -> None:
+        FakeServer.started = False
+        self.assertEqual(self.run_serve(), 3)
+
+    def test_flags_and_defaults(self) -> None:
+        self.assertEqual(self.run_serve("--host", "127.0.0.1", "--port", "9000"), 0)
+        config = mock.call(mock.ANY, host="127.0.0.1", port=9000, log_level="info",
+                           timeout_graceful_shutdown=mock.ANY)
+        self.assertIn(config, sys.modules["uvicorn"].Config.mock_calls)
+        self.assertEqual(self.run_serve(), 0)
+        config = mock.call(mock.ANY, host="0.0.0.0", port=8765, log_level="info",
+                           timeout_graceful_shutdown=mock.ANY)
+        self.assertIn(config, sys.modules["uvicorn"].Config.mock_calls)
+
+
+def exit_later_now(server: Any, flag: threading.Event) -> None:
+    """exit_later without its wait and with no hard-exit timer in the test process."""
+    exit_later(server, flag, delay=0.0, deadline=None)
+
+
+class WindowsScriptTest(unittest.TestCase):
+    def script(self, name: str) -> bytes:
+        return (ROOT / "trainer" / "windows" / name).read_bytes()
+
+    def test_start_script_loops_on_the_restart_code(self) -> None:
+        raw = self.script("start-mcp.cmd")
+        self.assertEqual(raw.count(b"\n"), raw.count(b"\r\n"))  # goto needs CRLF
+        text = raw.decode("ascii")
+        self.assertIn("set %s=1" % RESTART_LOOP_ENV, text)
+        self.assertIn(":serve", text)
+        self.assertIn("if %%ERRORLEVEL%% NEQ %d exit /b %%ERRORLEVEL%%" % RESTART_EXIT, text)
+        self.assertIn("goto serve", text)
+        self.assertIn("python -I trainer serve", text)
+        self.assertNotIn("GODOT", text)  # trainer/repo.py resolves it
+        self.assertNotIn("taskkill", text)
+
+    def test_the_swap_job_replaces_the_script_only_after_killing_the_service(self) -> None:
+        raw = self.script("swap-start-mcp.cmd")
+        self.assertEqual(raw.count(b"\n"), raw.count(b"\r\n"))
+        lines = raw.decode("ascii").splitlines()
+        order = [next(i for i, ln in enumerate(lines) if ln.startswith(word))
+                 for word in ("for /f", "ping", "move /y", "call")]
+        self.assertEqual(order, sorted(order))
+        self.assertIn("taskkill", lines[order[0]])
 
 
 class ProbeAndRateTest(unittest.TestCase):

@@ -7,3 +7,6 @@ godot/art/**/*.jpg filter=lfs diff=lfs merge=lfs -text
 # so a Windows checkout gives the same stamp as the Mac.
 godot/engine/data/*.json -text
 godot/tests/fixtures/stamp/*.json -text
+# These batch files use goto, which needs CRLF: stored as they are, scp'd to the PC as they are.
+trainer/windows/start-mcp.cmd -text
+trainer/windows/swap-start-mcp.cmd -text

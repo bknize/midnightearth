@@ -6,6 +6,7 @@ answers 401 before any MCP handling. `build_mcp` and `build_app` are the only pl
 import `mcp`; `serve` ties them together with uvicorn. Auth uses the middleware path (P15's
 fallback): a static bearer token is a poor fit for the OAuth-shaped verifier hook.
 """
+import argparse
 import base64
 import hashlib
 import hmac
@@ -24,18 +25,24 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from trainer.config import FitConfig, RunConfig
-from trainer.farm import REPO_ROOT, Farm, FarmError, godot_bin, worker_command
+from trainer.farm import Farm, FarmError, worker_command
 from trainer.fit import REPORT_NAME, FitError, run_fit, validate_runs
-from trainer.run import execute, git_commit
-from trainer.store import (LIVE_FIT, WEIGHTS_NAME, Store, default_data_dir, digest_shards,
-                           weights_path, write_atomic)
-from trainer.sync import RunFn, default_run, stamp_of, sync_code
+from trainer.repo import REPO_ROOT, GodotNotFound, git_head, godot_bin, stamp_of
+from trainer.run import execute
+from trainer.store import (ACTIVE, LIVE_FIT, RESUMABLE, WEIGHTS_NAME, Store, default_data_dir,
+                           digest_shards, weights_path, write_atomic)
+from trainer.sync import RunFn, default_run, sync_code
 
-ACTIVE_STATES = ("queued", "running", "stopping")
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 LOCK_NAME = "serve.lock"
 WINDOWS_TOKEN = r"C:\Users\trainer\.trainer\token"
-START_CMD = "start-mcp.cmd"
+# The restart after a sync (R36): the service replies, exits with RESTART_EXIT and the loop in
+# start-mcp.cmd, which sets RESTART_LOOP_ENV, starts it again. With no loop it stays up.
+RESTART_EXIT = 75
+RESTART_LOOP_ENV = "TRAINER_RESTART_LOOP"
+RESTART_DELAY_S = 3.0  # time for the sync reply to go out
+SHUTDOWN_GRACE_S = 10  # uvicorn's wait for open connections
+RESTART_DEADLINE_S = 90.0  # a shutdown still hung after this exits hard
 Reply = Dict[str, Any]
 FitFn = Callable[..., Dict[str, Any]]
 # get_artifact serves exactly these files of a fit's own folder (plan P12).
@@ -66,24 +73,6 @@ def load_token(path: Optional[Path] = None) -> str:
     if not text:
         raise TokenError("trainer serve: token file is empty: %s" % p)
     return text
-
-
-def default_queue() -> Path:
-    env = os.environ.get("TRAINER_QUEUE")
-    return Path(env) if env else Path.home() / "trainer" / "queue"
-
-
-def restart_job_text(pid: int, start_cmd: Path) -> str:
-    """The runner-queue batch job that restarts the service: wait for the sync reply to go
-    out, kill the process that holds the port (the venv launcher above it then ends), wait for
-    the port to free, start the service again through its autostart script."""
-    lines = ["@echo off",
-             "rem restart the trainer service after a sync that changed trainer/",
-             "ping -n 4 127.0.0.1 >nul",
-             "taskkill /PID %d /F" % pid,
-             "ping -n 4 127.0.0.1 >nul",
-             "call %s" % start_cmd]
-    return "".join(ln + "\r\n" for ln in lines)
 
 
 def default_root() -> Path:
@@ -143,15 +132,42 @@ def _run_version(argv: List[str]) -> str:
     return text.splitlines()[0] if text else ""
 
 
+def _default_sync(commit: str, bundle_b64: str, inbox_file: str, *, root: Path,
+                  run_active: Optional[str] = None) -> Reply:
+    try:
+        binary = godot_bin()
+    except GodotNotFound as e:
+        return {"error": str(e)}
+    return sync_code(commit, bundle_b64, inbox_file, root=root, godot_bin=binary,
+                     run_active=run_active)
+
+
+class ActiveRun:
+    """The run this service last launched: what the service holds on it while it runs. Its
+    state lives in the store. `thread` is set before the thread starts; `farm` once the run
+    thread has built it."""
+
+    def __init__(self, run_id: str, done0: int) -> None:
+        self.run_id = run_id
+        self.done0 = done0  # positions committed before this session
+        self.started = time.time()
+        self.stop = threading.Event()
+        self.thread: Optional[threading.Thread] = None
+        self.farm: Optional[Farm] = None
+
+    def alive(self) -> bool:
+        return self.thread is not None and self.thread.is_alive()
+
+
 class Service:
     def __init__(self, data_dir: Optional[Path] = None, root: Optional[Path] = None,
                  farm_factory: Optional[Callable[[RunConfig, Path], Farm]] = None,
                  stamp_fn: Optional[Callable[[], str]] = None,
                  sync_fn: Optional[Callable[..., Reply]] = None,
-                 queue_dir: Optional[Path] = None, run_fn: Optional[RunFn] = None,
+                 run_fn: Optional[RunFn] = None,
                  commit_fn: Optional[Callable[[], str]] = None,
-                 is_windows: Optional[bool] = None,
-                 fit_fn: Optional[FitFn] = None) -> None:
+                 fit_fn: Optional[FitFn] = None,
+                 restart_fn: Optional[Callable[[], None]] = None) -> None:
         self.root = Path(root) if root is not None else default_root()
         self.store = Store(data_dir)
         self.data_dir = self.store.data_dir
@@ -163,28 +179,26 @@ class Service:
         self._fit_thread: Optional[threading.Thread] = None
         self._fit_stop = threading.Event()
         self._syncing = False
-        self._farm: Optional[Farm] = None
         self._probes: Dict[str, str] = {}
-        # Digests of done runs by run id: a done run never changes (it cannot resume).
-        self._digests: Dict[str, str] = {}
         self._farm_factory = farm_factory or self._default_farm
         self._stamp_fn = stamp_fn or self._default_stamp
-        self._sync_fn = sync_fn or sync_code
-        self.queue_dir = Path(queue_dir) if queue_dir is not None else default_queue()
+        self._sync_fn = sync_fn or _default_sync
         self._run_fn: RunFn = run_fn or default_run
-        self._windows = os.name == "nt" if is_windows is None else is_windows
+        # Ends this process so that it starts again on the new code; None with no restart loop
+        # behind it (`serve` sets it).
+        self.restart_fn = restart_fn
+        self._restarting = False
         # The commit this process's Python was loaded from: new runs record it, not whatever
         # the checkout holds after a later sync.
-        self.service_commit = (commit_fn or (lambda: git_commit(True)))()
-        self._thread: Optional[threading.Thread] = None
-        self._active_id: Optional[str] = None
-        self._stop_flag = threading.Event()
-        self._session: Dict[str, Any] = {}
+        self.service_commit = (commit_fn or (lambda: git_head() or "unknown"))()
+        self._run: Optional[ActiveRun] = None
 
     def close(self, timeout: float = 60.0) -> None:
         """Signal stop, wait up to `timeout` for the run thread, then stop the farm (which
         fails the run's requests so the thread ends) and wait a little more."""
-        self._stop_flag.set()
+        handle = self._run
+        if handle is not None:
+            handle.stop.set()
         self._fit_stop.set()
         ft = self._fit_thread
         if ft is not None:
@@ -192,22 +206,18 @@ class Service:
             if ft.is_alive():  # a stuck fit: leave no live state behind
                 self.store.fail_live_fits("service shut down mid-fit")
         self.join(timeout)
-        t = self._thread
-        if t is not None and t.is_alive():
-            farm = self._farm
-            if farm is not None:
-                farm.stop()
-            t.join(15.0)
-            rid = self._active_id
-            run = self.store.get_run(rid) if rid else None
-            if run is not None and run["state"] in ("failed",) + ACTIVE_STATES:
-                self.store.set_state(run["id"], "interrupted", "service shut down mid-run")
+        if handle is not None and handle.alive():
+            if handle.farm is not None:
+                handle.farm.stop()
+            if handle.thread is not None:
+                handle.thread.join(15.0)
+            self.store.set_state(handle.run_id, "interrupted", "service shut down mid-run")
         self.store.close()
 
     def join(self, timeout: Optional[float] = None) -> None:
-        t = self._thread
-        if t is not None:
-            t.join(timeout)
+        handle = self._run
+        if handle is not None and handle.thread is not None:
+            handle.thread.join(timeout)
 
     def join_fit(self, timeout: Optional[float] = None) -> None:
         t = self._fit_thread
@@ -231,8 +241,11 @@ class Service:
         """Id of the run in a live state, or None. Caller holds the lock."""
         return self.store.active_run_id()
 
-    def _counts(self, run_id: str) -> Dict[str, int]:
-        return self.store.counts(run_id)
+    def _godot_version(self) -> str:
+        try:
+            return _run_version([godot_bin(), "--version"])
+        except GodotNotFound:
+            return ""
 
     def _need_run(self, run_id: str) -> Any:
         if not isinstance(run_id, str) or not run_id:
@@ -263,20 +276,21 @@ class Service:
         work = self.root / "work"
         if not (work / ".git").exists():
             return ""
-        return _run_version(["git", "-C", str(work), "rev-parse", "HEAD"])
+        return git_head(work)
 
     def health(self) -> Reply:
         try:
             stamp = stamp_of(self._work())
         except (OSError, ValueError) as e:
             stamp = "unavailable: %s" % e
-        godot = self._probe("godot", lambda: _run_version([godot_bin(), "--version"]))
+        godot = self._probe("godot", self._godot_version)
         gpu = self._probe("gpu", self._gpu)
         commit = self._probe("commit", self._checked_out)
         with self.lock:
             active = self._active()
             syncing = self._syncing
-            farm = self._farm if active else None
+            handle = self._run
+            farm = handle.farm if active and handle is not None else None
         now = time.time()
         return {
             "host": platform.node(), "python": platform.python_version(),
@@ -287,6 +301,7 @@ class Service:
             "workers_busy": farm.busy() if farm is not None else 0,
             "workers_total": farm.workers if farm is not None else 0,
             "active_run": active, "syncing": syncing,
+            "restart_loop": self.restart_fn is not None,
             "interrupted_at_start": list(self.interrupted),
             "started_at": self.started_at, "uptime_s": round(now - self.started_at, 1)}
 
@@ -302,20 +317,21 @@ class Service:
             self._syncing = True
         try:
             result = self._sync_fn(commit, bundle_b64, inbox_file, root=self.root,
-                                   godot_bin=godot_bin(), run_active=None)
+                                   run_active=None)
             if "error" not in result:
                 result["restart"] = self._restart_after_sync(str(result.get("commit", commit)))
             return result
         finally:
             with self.lock:
-                self._syncing = False
+                # While a restart is on its way no new run or sync may start under it.
+                self._syncing = self._restarting
                 self._probes.clear()
 
     def _restart_after_sync(self, new: str) -> str:
         """"not needed" when nothing under trainer/ differs between the code this process
-        runs and the new commit; else schedule a restart through the runner queue
-        ("scheduled"), or say one is "needed" (no queue, or not Windows). The diff base is
-        the service's own commit, so a trainer/ change from an earlier sync that was never
+        runs and the new commit; else end this process to restart it on the new code
+        ("scheduled"), or say a restart is "needed" (no restart loop behind it). The diff base
+        is the service's own commit, so a trainer/ change from an earlier sync that was never
         restarted is still caught."""
         base = self.service_commit
         if base in ("", "unknown"):
@@ -328,18 +344,10 @@ class Service:
             return "needed"
         if not out.strip():
             return "not needed"
-        if not self._windows or not self.queue_dir.is_dir():
+        if self.restart_fn is None:
             return "needed"
-        stamp = "%s-%03d" % (time.strftime("%Y%m%d-%H%M%S"), int(time.time() * 1000) % 1000)
-        job = self.queue_dir / ("restart-mcp-%s.cmd" % stamp)
-        tmp = self.queue_dir / ("restart-mcp-%s.tmp" % stamp)  # the runner only takes *.cmd
-        start_cmd = self.queue_dir.parent / "autostart" / START_CMD
-        try:
-            with open(tmp, "w", encoding="ascii", newline="") as fh:
-                fh.write(restart_job_text(os.getpid(), start_cmd))
-            os.replace(tmp, job)
-        except OSError:
-            return "needed"
+        self._restarting = True
+        self.restart_fn()
         return "scheduled"
 
     def start_run(self, config: Dict[str, Any]) -> Reply:
@@ -388,55 +396,42 @@ class Service:
         return ""
 
     def _launch(self, run_id: str) -> None:
-        self._stop_flag = threading.Event()
-        self._active_id = run_id
-        self._session = {"t0": time.time(), "done0": self.store.resume_point(run_id)}
-        self._thread = threading.Thread(target=self._run_thread,
-                                        args=(run_id, self._stop_flag), daemon=True)
-        self._thread.start()
+        handle = ActiveRun(run_id, self.store.resume_point(run_id))
+        handle.thread = threading.Thread(target=self._run_thread, args=(handle,), daemon=True)
+        self._run = handle
+        handle.thread.start()
 
-    def _run_thread(self, run_id: str, stop: threading.Event) -> None:
+    def _run_thread(self, handle: ActiveRun) -> None:
+        run_id = handle.run_id
         store = Store(self.data_dir, recover_on_open=False)
         try:
             run = store.get_run(run_id)
             cfg = RunConfig.from_dict(run["config"] if run else {})
             farm = self._farm_factory(cfg, self.data_dir / "logs")
-            self._farm = farm
+            handle.farm = farm
             try:
                 farm.start()
             except FarmError as e:
-                store.set_state(run_id, "failed", str(e))
+                store.finish(run_id, "failed", str(e))
                 return
             try:
-                execute(store, run_id, farm, should_stop=stop.is_set)
+                execute(store, run_id, farm, should_stop=handle.stop.is_set)
             finally:
                 farm.stop()
             self._write_report_safely(store, run_id)
         except Exception as e:  # keep the service alive whatever the run does
             try:
-                store.set_state(run_id, "failed", "%s: %s" % (type(e).__name__, e))
+                store.finish(run_id, "failed", "%s: %s" % (type(e).__name__, e))
             except Exception:
                 pass
         finally:
-            self._finalize(store, run_id, stop)
+            # With no thread behind it a live state would block every new run and sync. This
+            # changes nothing when the run has finished already.
+            try:
+                store.finish(run_id, "failed", "run thread ended before the run did")
+            except Exception:
+                pass
             store.close()
-
-    def _finalize(self, store: Store, run_id: str, stop: threading.Event) -> None:
-        """The thread never ends with its run in a live state: with no thread behind it,
-        `stopping` (or `running`) would block every new run and sync."""
-        try:
-            run = store.get_run(run_id)
-            if run is None or run["state"] not in ACTIVE_STATES:
-                return
-            total = int(run["config"].get("positions", 0))
-            if store.resume_point(run_id) >= total:
-                store.set_state(run_id, "done")
-            elif stop.is_set():
-                store.set_state(run_id, "stopped")
-            else:
-                store.set_state(run_id, "failed", "run thread ended while %s" % run["state"])
-        except Exception:
-            pass
 
     def _write_report_safely(self, store: Store, run_id: str) -> None:
         """A report that cannot be written never fails a run whose labels are committed: the
@@ -444,10 +439,7 @@ class Service:
         try:
             self._write_report(store, run_id)
         except Exception as e:
-            run = store.get_run(run_id)
-            if run is not None:
-                store.set_state(run_id, run["state"],
-                                "report not written: %s: %s" % (type(e).__name__, e))
+            store.set_error(run_id, "report not written: %s: %s" % (type(e).__name__, e))
 
     def _write_report(self, store: Store, run_id: str) -> None:
         report = self._report(store, run_id)
@@ -473,7 +465,7 @@ class Service:
             "rollouts_per_s": round(rollouts / wall, 2) if wall > 0 else 0.0,
             "restarts": run.get("restarts", 0), "candidate_count_histogram": hist,
             "mean_value_spread": round(sum(spreads) / len(spreads), 4) if spreads else 0.0,
-            "digest": (self._done_digest(run_id, store.shard_paths(run_id))
+            "digest": (store.done_digest(run_id)
                        if run.get("state") == "done" else store.digest(run_id)),
             "shards": [str(p) for p in store.shard_paths(run_id)]}
 
@@ -486,21 +478,23 @@ class Service:
             run = self._need_run(run_id)
             if "error" in run:
                 return run
-            c = self._counts(run_id)
+            c = self.store.counts(run_id)
             cfg = run["config"]
             total = int(cfg.get("positions", 0))
-            live = run["state"] in ACTIVE_STATES and self._active_id == run_id
+            handle = self._run
+            live = (handle if handle is not None and handle.run_id == run_id
+                    and run["state"] in ACTIVE else None)
             now = time.time()
             # Active time only: stored seconds plus the live session since its last
             # settlement (`updated` moves with each one), never the stopped gaps.
             elapsed = max(0.0, float(run["active_s"]))
-            if live:
+            if live is not None:
                 elapsed += max(0.0, now - float(run["updated"]))
             rate = 0.0
             eta: Optional[float] = None
-            if live:
-                span = now - float(self._session.get("t0", now))
-                new = c["positions"] - int(self._session.get("done0", 0))
+            if live is not None:
+                span = now - live.started
+                new = c["positions"] - live.done0
                 if span > 0 and new > 0:
                     eta = round((total - c["positions"]) * span / new, 1)
                     rate = round(new / span, 3)
@@ -517,43 +511,37 @@ class Service:
                 "elapsed_s": round(elapsed, 1), "eta_s": eta,
                 "last_error": run["last_error"]}
             done = run["state"] == "done"
-            paths = self.store.shard_paths(run_id) if done and run_id not in self._digests else []
-        if done:  # hashed outside the lock: the shards of a done run never change
-            out["digest"] = self._done_digest(run_id, paths)
+            digest = str(run["digest"])
+            paths = self.store.shard_paths(run_id) if done and not digest else []
+        if done:
+            if not digest:  # a run from before the column: hashed once, outside the lock
+                digest = digest_shards(paths)
+                with self.lock:
+                    self.store.set_digest(run_id, digest)
+            out["digest"] = digest
         return out
-
-    def _done_digest(self, run_id: str, paths: List[Path]) -> str:
-        """The digest of the done run `run_id` over its shards `paths`, memoised (the paths
-        are not read once it is known)."""
-        digest = self._digests.get(run_id)
-        if digest is None:
-            digest = digest_shards(paths)
-            self._digests[run_id] = digest
-        return digest
 
     def stop_run(self, run_id: str) -> Reply:
         with self.lock:
             run = self._need_run(run_id)
             if "error" in run:
                 return run
-            if run["state"] not in ACTIVE_STATES:
+            if run["state"] not in ACTIVE:
                 return {"error": "run %s is %s, not running" % (run_id, run["state"])}
-            t = self._thread
-            live = self._active_id == run_id and t is not None and t.is_alive()
-            if not live:
+            handle = self._run
+            if handle is None or handle.run_id != run_id or not handle.alive():
                 # No thread behind the run (cannot happen after recovery, but never leave
                 # a live state with nobody to end it).
-                self.store.set_state(run_id, "stopped")
+                self.store.set_state(run_id, "stopped", expect=ACTIVE)
                 return {"run_id": run_id, "state": "stopped"}
-            self._stop_flag.set()
-            # Atomic against the run thread's own final write: only a queued or running
-            # run becomes stopping, so a run that just finished stays done.
-            if not self.store.request_stop(run_id):
+            handle.stop.set()
+            # Atomic against the run thread's finish: only a queued or running run becomes
+            # stopping, so a run that just finished stays done.
+            if not self.store.set_state(run_id, "stopping"):
                 after = self.store.get_run(run_id)
                 state = after["state"] if after else "unknown"
-                if state == "stopping":
-                    return {"run_id": run_id, "state": "stopping"}
-                return {"error": "run %s is %s, not running" % (run_id, state)}
+                if state != "stopping":
+                    return {"error": "run %s is %s, not running" % (run_id, state)}
             return {"run_id": run_id, "state": "stopping"}
 
     def resume_run(self, run_id: str) -> Reply:
@@ -561,7 +549,7 @@ class Service:
             run = self._need_run(run_id)
             if "error" in run:
                 return run
-            if run["state"] not in ("stopped", "interrupted"):
+            if run["state"] not in RESUMABLE:
                 return {"error": "run %s is %s; only stopped or interrupted runs resume"
                         % (run_id, run["state"])}
             active = self._active()
@@ -580,7 +568,7 @@ class Service:
             if now_stamp != run["stamp"]:
                 return {"error": "code stamp %s differs from the run's %s"
                         % (now_stamp, run["stamp"])}
-            self.store.set_state(run_id, "queued", "")
+            self.store.set_state(run_id, "queued", "", expect=RESUMABLE)
             self._launch(run_id)
             return {"run_id": run_id, "state": "queued",
                     "resume_from": self.store.resume_point(run_id)}
@@ -875,14 +863,6 @@ def numpy_version() -> str:
         return "none"
 
 
-def _opt(args: List[str], name: str, default: str) -> str:
-    if name in args:
-        i = args.index(name)
-        if i + 1 < len(args):
-            return args[i + 1]
-    return default
-
-
 def acquire_serve_lock(data_dir: Path) -> Any:
     """Take the exclusive serve lock in the data dir and return the open file, to be held for
     the life of the process (the OS drops it on exit, however the process dies). Raises
@@ -903,29 +883,65 @@ def acquire_serve_lock(data_dir: Path) -> Any:
     return fh
 
 
+def _serve_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -I trainer serve", allow_abbrev=False)
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--data", default="", help="the run store's folder")
+    return parser
+
+
+def exit_later(server: Any, flag: threading.Event, delay: float = RESTART_DELAY_S,
+               deadline: Optional[float] = RESTART_DEADLINE_S) -> None:
+    """Mark the restart in `flag` and stop the uvicorn `server` after `delay`, so the reply
+    in hand goes out first. A shutdown still hung after `deadline` ends the process: no run is
+    active across a sync, and the database is committed."""
+    flag.set()
+
+    def stop() -> None:
+        server.should_exit = True
+
+    def force() -> None:
+        os._exit(RESTART_EXIT)
+
+    timers = [threading.Timer(delay, stop)]
+    if deadline is not None:
+        timers.append(threading.Timer(deadline, force))
+    for timer in timers:
+        timer.daemon = True
+        timer.start()
+
+
 def serve(args: List[str]) -> int:
     """`serve [--host H] [--port 8765] [--data DIR]`. Exit 2 without a usable token, 1 when
-    another serve holds the data dir (checked before the store is opened or recovered)."""
+    another serve holds the data dir (checked before the store is opened or recovered), 3 when
+    the server cannot start, RESTART_EXIT when a sync asks for a restart."""
+    opts = _serve_parser().parse_args(args)
     try:
         token = load_token()
     except TokenError as e:
         print(str(e), file=sys.stderr)
         return 2
-    host = _opt(args, "--host", "0.0.0.0")
-    port = int(_opt(args, "--port", "8765"))
-    data = _opt(args, "--data", "")
-    data_dir = Path(data) if data else default_data_dir()
+    data_dir = Path(opts.data) if opts.data else default_data_dir()
     try:
         lock = acquire_serve_lock(data_dir)
     except RuntimeError as e:
         print(str(e), file=sys.stderr)
         return 1
     service = Service(data_dir)
+    restart = threading.Event()
     try:
         import uvicorn
-        app = build_app(build_mcp(service), token, host)
-        uvicorn.run(app, host=host, port=port, log_level="info")
+        app = build_app(build_mcp(service), token, opts.host)
+        server = uvicorn.Server(uvicorn.Config(
+            app, host=opts.host, port=opts.port, log_level="info",
+            timeout_graceful_shutdown=SHUTDOWN_GRACE_S))
+        if os.environ.get(RESTART_LOOP_ENV) == "1":
+            service.restart_fn = lambda: exit_later(server, restart)
+        server.run()
+        if not server.started and not restart.is_set():
+            return 3
     finally:
         service.close()
         lock.close()
-    return 0
+    return RESTART_EXIT if restart.is_set() else 0

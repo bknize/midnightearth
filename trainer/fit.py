@@ -36,8 +36,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from trainer.config import FitConfig
+from trainer.repo import stamp_of
 from trainer.store import WEIGHTS_NAME, Store, write_atomic
-from trainer.sync import stamp_of
 
 REPORT_NAME = "report.json"
 FORMAT_VERSION = 2
@@ -71,6 +71,7 @@ REPLACE_PAUSE_S = 0.05
 # Power iteration under-estimates the top eigenvalue; the step allows this margin (never
 # past the trace, which bounds it from above).
 POWER_MARGIN = 1.1
+POWER_ZERO = 1e-12
 
 
 class FitError(Exception):
@@ -133,7 +134,7 @@ def engine_feature_names(repo_root: Path, feature_set: str,
     """The feature names in vector order, read from the checkout the workers run: the
     COMPACT list of bot_features.gd, then `card:<id>` per card of cards.json. FitError when
     the checkout's feature set is not `feature_set`, or (given `stamp`) when its code stamp
-    (as trainer/sync.py computes it) is not the runs' `stamp`, since a renamed or reordered
+    (trainer/repo.py) is not the runs' `stamp`, since a renamed or reordered
     card would misname the weights."""
     root = Path(repo_root)
     if stamp is not None:
@@ -283,14 +284,18 @@ def run_fit(store: Store, fit_id: str, config: FitConfig, out_dir: Path, repo_ro
     # the trace, which bounds it from above.
     vec = 1.0 + np.arange(width, dtype=np.float64) / width
     vec = vec / np.linalg.norm(vec)
+    gram = xw.T @ xw  # once, so each step costs width^2 rather than pairs * width
+    trace = float((xw * xw).sum())
     lam = 0.0
     for _ in range(100):
-        nxt = xw.T @ (xw @ vec)
+        nxt = gram @ vec
         lam = float(np.linalg.norm(nxt))
-        if lam == 0.0:
+        # Through the Gram matrix a start vector orthogonal to every row gives rounding noise,
+        # not an exact 0: anything that small against the trace counts as 0.
+        if lam <= POWER_ZERO * trace:
+            lam = 0.0
             break
         vec = nxt / lam
-    trace = float((xw * xw).sum())
     # lam stays 0 only when the start vector is orthogonal to every row; the trace still bounds.
     lam = min(lam * POWER_MARGIN, trace) if lam > 0.0 else trace
     lipschitz = 0.275 * lam + config.l2

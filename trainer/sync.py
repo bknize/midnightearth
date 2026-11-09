@@ -7,7 +7,6 @@ tests drive it with a fake git and a fake godot.
 """
 import base64
 import binascii
-import hashlib
 import os
 import re
 import shutil
@@ -17,6 +16,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
+from trainer.repo import stamp_of
+
 # (argv, cwd, env) -> (returncode, combined output)
 RunFn = Callable[[List[str], Optional[Path], Mapping[str, str]], Tuple[int, str]]
 
@@ -24,7 +25,6 @@ ERROR_RE = re.compile(r"SCRIPT ERROR|Parse Error|Failed to load script|ERROR:")
 # A full object name: `git fetch <bundle> <hash>` cannot resolve an abbreviation.
 COMMIT_RE = re.compile(r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-RULES_RE = re.compile(r"^const\s+RULES_VERSION\s*:\s*int\s*=\s*(\d+)", re.M)
 
 
 def default_run(argv: List[str], cwd: Optional[Path], env: Mapping[str, str]) -> Tuple[int, str]:
@@ -35,19 +35,6 @@ def default_run(argv: List[str], cwd: Optional[Path], env: Mapping[str, str]) ->
     except OSError as e:
         return 127, "cannot start %s: %s" % (argv[0], e)
     return p.returncode, p.stdout.decode("utf-8", errors="replace")
-
-
-def stamp_of(work: Path) -> str:
-    """Same string as scripts/bot/records.current_stamp, computed on the checked-out files."""
-    data = work / "godot" / "engine" / "data"
-    rules = (work / "godot" / "engine" / "match_rules.gd").read_bytes().decode("utf-8")
-    m = RULES_RE.search(rules)
-    if m is None:
-        raise ValueError("RULES_VERSION not found in match_rules.gd")
-    h = hashlib.sha256()
-    for name in ("cards.json", "decks.json", "crew.json"):
-        h.update((data / name).read_bytes())
-    return "r%d-%s" % (int(m.group(1)), h.hexdigest()[:16])
 
 
 def _tail(text: str, lines: int = 8) -> str:

@@ -206,12 +206,10 @@ func pool_size() -> int:
 	return _pool.size()
 
 
-## Names the pool `cards` was built from, shared by every copy(): its instance id, 0 for a
-## null `cards` or after a failed build. Two MatchCards with one key share pool_ids().
-static func pool_key(cards: MatchCards) -> int:
-	if cards == null or cards._pool == null:
-		return 0
-	return cards._pool.get_instance_id()
+## The pool `cards` was built from, shared by every copy(); null for a null `cards` or after
+## a failed build. Two MatchCards with one pool share pool_ids().
+static func pool_of(cards: MatchCards) -> CardDb:
+	return null if cards == null else cards._pool
 
 
 ## The pool position of `card_id` (CardDb.index_of), or -1 when unknown or after a failed

@@ -11,7 +11,6 @@ shell, no signals: Windows-safe.
 """
 import itertools
 import json
-import os
 import queue
 import subprocess
 import threading
@@ -19,7 +18,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, IO, List, Optional, Sequence
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from trainer.repo import REPO_ROOT, godot_bin
+
 DEFAULT_TIMEOUT = 600.0
 START_TIMEOUT = 180.0
 MAX_CRASHES_PER_REQUEST = 3
@@ -37,10 +37,6 @@ class RequestFailed(FarmError):
         super().__init__(message)
         self.reason = reason
         self.kind = ""  # the request kind, filled in by the caller that knows it
-
-
-def godot_bin() -> str:
-    return os.environ.get("GODOT_BIN", "godot")
 
 
 def worker_command(binary: Optional[str] = None, repo_root: Optional[Path] = None) -> List[str]:
@@ -167,7 +163,8 @@ class Farm:
         self.restarts = 0
         self.error = ""
         self._lock = threading.Lock()
-        self._jobs: "queue.Queue[_Job]" = queue.Queue()
+        # None wakes an idle slot to see the farm has closed (_close).
+        self._jobs: "queue.Queue[Optional[_Job]]" = queue.Queue()
         self._pending: Dict[int, _Job] = {}
         self._ids = itertools.count(1)
         self._stop = threading.Event()
@@ -271,6 +268,8 @@ class Farm:
                 job.error = reason
                 job.done.set()
         self._stop.set()
+        for _ in range(self.workers):
+            self._jobs.put(None)
 
     def _spawn(self, slot: int) -> _Proc:
         """Start a worker and wait for its hello line."""
@@ -320,11 +319,10 @@ class Farm:
                 return
             finally:
                 ready.set()
-            while not self._stop.is_set():
-                try:
-                    job = self._jobs.get(timeout=0.1)
-                except queue.Empty:
-                    continue
+            while True:
+                job = self._jobs.get()
+                if job is None or self._stop.is_set():
+                    return
                 if job.done.is_set():
                     continue
                 with self._lock:

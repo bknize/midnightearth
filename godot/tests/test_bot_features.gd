@@ -408,8 +408,8 @@ func test_the_cached_pool_size_and_weight_vector_match_the_uncached() -> void:
 	assert_bool(engine.start().ok).is_true()
 	var cards: MatchCards = engine.match_cards()
 	var copy: MatchCards = cards.copy()
-	assert_int(MatchCards.pool_key(copy)).is_equal(MatchCards.pool_key(cards))
-	assert_int(MatchCards.pool_key(null)).is_equal(0)
+	assert_object(MatchCards.pool_of(copy)).is_same(MatchCards.pool_of(cards))
+	assert_object(MatchCards.pool_of(null)).is_null()
 	assert_int(cards.pool_size()).is_equal(cards.pool_ids().size())
 	var weights: BotWeights = BotWeights.load(BotWeights.DEFAULT_PATH)
 	var names: Array[String] = BotFeatures.names(cards)
@@ -443,7 +443,72 @@ func test_the_cached_pool_size_and_weight_vector_match_the_uncached() -> void:
 		_typed_strings(["greed", "greed"]),
 		CrewPool.load_default()
 	)
-	assert_int(MatchCards.pool_key(other)).is_not_equal(MatchCards.pool_key(cards))
+	assert_object(MatchCards.pool_of(other)).is_not_same(MatchCards.pool_of(cards))
 	assert_bool(weights.vector_for(other) == weights.vector(BotFeatures.names(other))).is_true()
 	assert_bool(weights.vector_for(cards) == uncached).is_true()
 	assert_int(BotWeights.defaults().vector_for(null).size()).is_equal(BotFeatures.COMPACT.size())
+
+
+## NSC-233: base() and a patch per candidate are the whole vector, at every commit decision of
+## real matches (hands with the free first card, grown cards and large hands among them) and
+## at the hand-built view, with and without the free first card.
+func test_the_base_and_a_patch_equal_the_whole_vector() -> void:
+	var view: SeatView = _view()
+	var cards: MatchCards = _defs()
+	for granted: bool in [false, true]:
+		view.free_first = granted
+		var none: Array[int] = []
+		var kept: Array[EngineAction] = RandomBot.candidates_for(view, cards)
+		kept.append(EngineAction.commit(0, _typed([OTHER, TWIN_A]), none))
+		kept.append(EngineAction.commit(0, _typed([TWIN_A]), _typed([2])))
+		_assert_patches(view, kept, cards)
+	var compared: int = 0
+	for match_seed: int in range(1, 6):
+		compared += _compare_over_a_match(match_seed)
+	assert_int(compared).is_greater(100)
+
+
+## Compares the whole vector and the patched base over one match; the candidates compared.
+func _compare_over_a_match(match_seed: int) -> int:
+	var engine: MatchEngine = MatchEngine.create(
+		match_seed,
+		CardDb.load_default(),
+		DeckList.load_default(),
+		_typed_strings(["", ""]),
+		CrewPool.load_default()
+	)
+	assert_bool(engine.start().ok).is_true()
+	var cards: MatchCards = engine.match_cards()
+	var bots: Array[BotPlayer] = []
+	for seat: int in range(MatchEngine.SEATS):
+		bots.append(BotRegistry.make(POLICY, BotRegistry.seed_for(match_seed, seat), cards))
+	var compared: int = 0
+	var actions: int = 0
+	while not engine.is_over() and actions < PREFIX_CAP:
+		var seat: int = engine.awaited_seat()
+		var view: SeatView = engine.view_for(seat)
+		if engine.open_prompt().is_empty():
+			var kept: Array[EngineAction] = []
+			if view.own_hand.size() > LegalPlays.ENUMERATE_MAX:
+				var parts: Array[int] = [actions]
+				var rng: MatchRng = MatchRng.new(MatchRng.derive_seed(match_seed, parts))
+				kept.append(RandomBot.large_hand_commit(view, cards, rng))
+			else:
+				kept = RandomBot.candidates_for(view, cards)
+			_assert_patches(view, kept, cards)
+			compared += kept.size()
+		assert_bool(engine.apply(bots[seat].choose(view, engine)).ok).is_true()
+		actions += 1
+	return compared
+
+
+func _assert_patches(view: SeatView, kept: Array[EngineAction], cards: MatchCards) -> void:
+	var common: PackedInt64Array = BotFeatures.base(view, cards)
+	var before: PackedInt64Array = common.duplicate()
+	for candidate: EngineAction in kept:
+		var whole: PackedInt64Array = BotFeatures.of(view, candidate, cards)
+		var patched: PackedInt64Array = BotFeatures.patched(common, view, candidate, cards)
+		assert_bool(patched == whole).is_true()
+	assert_bool(common == before).is_true()
+	var no_action: PackedInt64Array = BotFeatures.of(view, null, cards)
+	assert_bool(BotFeatures.patched(common, view, null, cards) == no_action).is_true()

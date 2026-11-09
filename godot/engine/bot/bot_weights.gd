@@ -53,9 +53,11 @@ var fit: Dictionary = _empty_fit()
 var weights: Dictionary = {}
 ## Why loading failed ("" when it did not); the defaults are then in force (R9).
 var load_error: String = ""
-## vector_for()'s memo: the pool it was built for (MatchCards.pool_key; -1 before the first
-## call) and the vector.
-var _vector_key: int = -1
+## vector_for()'s memo, one slot: the vector and the pool it was built for (held, not its
+## instance id, so no later object can pass for it; null for no pool). False before the first
+## call.
+var _vector_built: bool = false
+var _vector_pool: CardDb = null
 var _vector_memo: PackedInt64Array = PackedInt64Array()
 
 
@@ -148,14 +150,15 @@ func vector(names: Array[String]) -> PackedInt64Array:
 	return out
 
 
-## vector(BotFeatures.names(`cards`)), built once per card pool (MatchCards.pool_key) and
+## vector(BotFeatures.names(`cards`)), built once per card pool (MatchCards.pool_of) and
 ## kept on this object, so the bots of every play-out over one pool share it. Assumes
 ## `weights` is not changed after the first call (the object is read-only once loaded).
 func vector_for(cards: MatchCards) -> PackedInt64Array:
-	var key: int = MatchCards.pool_key(cards)
-	if key != _vector_key:
+	var pool: CardDb = MatchCards.pool_of(cards)
+	if not _vector_built or pool != _vector_pool:
 		_vector_memo = vector(BotFeatures.names(cards))
-		_vector_key = key
+		_vector_pool = pool
+		_vector_built = true
 	return _vector_memo
 
 
