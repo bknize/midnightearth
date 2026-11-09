@@ -15,13 +15,13 @@ R1–R9). This file is the short version every agent must obey.
 | `godot/net/` | Client network code (from cycle 12) | Protocol, codec, `NetClient`, `RemoteMatchSource`, the headless bot client; typed GDScript, no engine state on the client (ADR 0005) |
 | `godot/server/` | PVP match server (from cycle 12) | Headless, server-authoritative, runs on the testing PC; rooms, hardening, PVP logs; no clock or RNG inside `godot/engine/` (ADR 0005) |
 | `godot/title/` | Title and PVP entry screens (from cycle 12) | Title screen, waiting screen, device `Identity`, `PvpSession`; `main.gd` owns the flow, and the screens only raise signals |
-| `trainer/` | Bot trainer service and learner (from cycle 11) | Python 3 standard library plus `mcp` and, for `fit`, numpy; runs on the training PC as an MCP service (labelling runs, `fit`, run store); unit tests with `make trainer-test`; setup in `trainer/windows/SETUP.md` |
+| `trainer/` | Bot trainer service and learner (from cycle 11) | Python 3 standard library plus `mcp` and, for `fit`, numpy; runs on the training PC as an MCP service (labelling runs, `fit`, run store) and, from cycle 16, the autopilot (unattended 3-hour label → fit → judge blocks, a findings log, LLM-set knobs within bounds, the champion kept on the PC; `make training-digest` pulls and digests on the Mac); unit tests with `make trainer-test`; setup in `trainer/windows/SETUP.md` |
 | `scripts/pc/` | Files deployed to the training PC | Windows `.cmd` launchers (the PVP server start script); copied by hand or through the runner queue, never run on the Mac |
 | `godot/addons/` | Vendored third-party code | Never edit except through a patch recorded in `addons/THIRD_PARTY_LICENSES.md` |
 | `godot/tests/` | gdUnit4 suites | One suite per engine module |
 | `godot/art/` | Approved art (`/art approve`) | Git LFS; every image has an entry in `art/manifest.json` (ADR 0003) |
 | `art/` | `manifest.json` (tracked); `candidates/` and `ledger.jsonl` (gitignored) | Written only by the artist and `scripts/art-*` |
-| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees), `art-fetch.sh` / `art-approve.sh` / `art-sheet.py` (art pipeline), `replicate-mcp.sh` (starts the Replicate MCP with the `.env` token), `cycle-land.sh` (commit, merge and gate one issue), `linear-move.sh` (bulk Linear status moves) | Bash, `set -uo pipefail`; `art-sheet.py` is Python (Pillow) |
+| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees), `art-fetch.sh` / `art-approve.sh` / `art-sheet.py` (art pipeline), `replicate-mcp.sh` (starts the Replicate MCP with the `.env` token), `cycle-land.sh` (commit, merge and gate one issue), `linear-move.sh` (bulk Linear status moves), `training-pull.sh` (pulls the autopilot's findings from the PC over SSH alias `midnight-pc` and computes the figures) | Bash, `set -uo pipefail`; `art-sheet.py` is Python (Pillow) |
 | `.claude/` | Agents, skills, hook settings | The orchestrator pattern lives here |
 
 ## The build gate: `make check`
@@ -64,7 +64,9 @@ warnings to errors, so every project `.gd` is fully typed; test suites are exemp
 
 Cycle verbs: `/spec <slug>` → `/exercise <slug>` → `/cycle plan DC-NN` → `/cycle run
 DC-NN` → `/cycle test DC-NN`. Art verbs, outside the cycle: `/art direction | explore |
-generate | approve`.
+generate | approve`. Training verbs, outside the cycle: `/training digest | steer | start | stop |
+status`; the Mac contacts the PC only inside a verb Ben ran (R43), and steers only after Ben
+approves the content (R32).
 
 ## Notes (P5)
 
