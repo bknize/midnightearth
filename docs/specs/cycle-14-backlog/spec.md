@@ -138,7 +138,8 @@ the stale documents.
   … lost" note, disable Pass and Commit, and show "Match abandoned" with Leave only
   (NSC-246 board sub-item).
 - R25. When the board receives the created-card removal event of R10, it shall take the
-  card off the table (the card flies off; the Pile count does not change).
+  card off the table (the card flies off, with no Pile arrival; the Pile count drops by one
+  only when the Dross left the Pile, C13).
 
 ### D. The PVP server
 
