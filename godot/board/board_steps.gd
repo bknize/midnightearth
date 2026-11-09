@@ -405,6 +405,12 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			out.append(declined)
 		"CARD_UNREVEALED":
 			out.append(_unreveal(event))
+		"DROSS_EXPIRED":
+			var expired: BoardStep = _card_step(BoardStep.Kind.DROSS_EXPIRE, event)
+			expired.zone = payload.get("from", "")
+			expired.reason = payload.get("reason", "")
+			expired.duration = DISCARD_TIME
+			out.append(expired)
 		"CARD_RETURNED":
 			var returned: BoardStep = _row_exit_step(BoardStep.Kind.RETURN, event)
 			returned.duration = RETURN_TIME
@@ -518,6 +524,10 @@ static func _turn_start(event: MatchEvent, viewer: int) -> BoardStep:
 	if viewer >= 0 and viewer < budgets.size():
 		var own_budget: int = budgets[viewer]
 		start.budget = own_budget
+	var free: Array = payload.get("free_first", [])
+	if viewer >= 0 and viewer < free.size():
+		var own_free: bool = free[viewer]
+		start.free_first = own_free
 	return start
 
 

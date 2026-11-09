@@ -49,6 +49,9 @@ func apply(step: BoardStep) -> void:
 			_grow_pile(step.seat, step.pile_index)
 		BoardStep.Kind.EXIT:
 			_grow_pile(step.seat, step.pile_index if step.exit_to == "pile" else -1)
+		BoardStep.Kind.DROSS_EXPIRE:
+			if step.zone == "pile":
+				_empty_pile(step.seat, 1)  # The Dross card leaves the Pile itself (C13).
 		BoardStep.Kind.SHUFFLE_IN:
 			_empty_pile(step.seat, step.count)
 		BoardStep.Kind.PLACE:

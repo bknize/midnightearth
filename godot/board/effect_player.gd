@@ -381,6 +381,24 @@ func discard(step: BoardStep) -> void:
 		_sweep_off(hand, card, step.duration)
 
 
+## DROSS_EXPIRED (R25): the card leaves the table with a fly-off, from the hand or a row. A
+## card in a Pile or Deck, or one the board does not show, is a no-op; the Pile count stays.
+func expire(step: BoardStep) -> void:
+	if step.zone == "hand":
+		var hand: CardCollection3D = _hand_of(step.seat)
+		var card: BoardCard = null
+		if step.seat == BoardSteps.OWN_SIDE:
+			card = _player_card(step.card)
+		elif not hand.cards.is_empty():
+			card = hand.cards[hand.cards.size() - 1] as BoardCard
+		if card != null:
+			_sweep_off(hand, card, step.duration)
+	elif step.zone == "row":
+		var row_seat: int = _row_seat_of(step.card)
+		if row_seat >= 0:
+			_sweep_off_row(row_seat, _find_in_row(row_seat, step.card, -1), step.duration)
+
+
 ## The opponent's pick glows for the step's time (R53). The card is found by zone and index,
 ## since a private pick arrives without its id.
 func choice_show(step: BoardStep) -> void:

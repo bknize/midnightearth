@@ -97,3 +97,23 @@ func test_an_abandoned_match_reads_match_abandoned_with_leave() -> void:
 	assert_str(texts[2]).is_equal("Ana left; the match is abandoned")
 	assert_bool(hud.result_leave_visible()).is_true()
 	assert_bool(hud.result_rematch_visible()).is_false()
+
+
+func test_a_deck_note_survives_a_pile_update_and_the_count_still_changes() -> void:
+	var hud: BoardHud = _hud()
+	var counts: Array[int] = [2, 0]
+	hud.set_piles(counts)
+	hud.note_deck(0, "Deck empty", 5.0)
+	assert_str(hud.pile_label_text(0)).is_equal("Pile 2 - Deck empty")
+	counts = [3, 1]
+	hud.set_piles(counts)
+	assert_str(hud.pile_label_text(0)).is_equal("Pile 3 - Deck empty")
+	assert_str(hud.pile_label_text(1)).is_equal("Pile 1")
+
+
+func test_the_free_first_energy_text_names_the_free_card() -> void:
+	var hud: BoardHud = _hud()
+	hud.set_energy(4, 4, true)
+	assert_str(hud.energy_label_text()).is_equal("Energy 4 / 4 - first card free")
+	hud.set_energy(4, 4, false)
+	assert_str(hud.energy_label_text()).is_equal("Energy 4 / 4")

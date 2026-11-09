@@ -84,6 +84,10 @@ enum Kind {
 	## CONTROL_CHANGED (Saboteur): `card` moves from `from_seat`'s row to `seat`'s (the new
 	## Controller) at `slot`. The Owner is kept (`owner`).
 	CONTROL,
+	## DROSS_EXPIRED: Dross card `card` of Owner `seat` leaves the table from `zone` (hand, row,
+	## pile or deck) and flies off. The Pile count does not change; a card the board is not
+	## showing (a Deck, the opponent's hand) is only a no-op.
+	DROSS_EXPIRE,
 }
 
 var kind: int = Kind.CLEAR_TABLE

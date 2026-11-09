@@ -496,3 +496,88 @@ func test_only_the_viewers_own_prompt_opens_and_it_sits_on_table_seat_0() -> voi
 	assert_int(steps.size()).is_equal(1)
 	assert_int(steps[0].kind).is_equal(BoardStep.Kind.PROMPT)
 	assert_int(steps[0].seat).is_equal(0)
+
+
+func test_turn_started_carries_the_viewers_free_first() -> void:
+	var event: MatchEvent = (
+		BoardEvents
+		. make(
+			"TURN_STARTED",
+			{
+				"round": 1,
+				"turn": 1,
+				"first_seat": 0,
+				"budgets": [3, 4],
+				"free_first": [true, false],
+			}
+		)
+	)
+	assert_bool(BoardEvents.one(event, 1.0, 0).free_first).is_true()
+	assert_bool(BoardEvents.one(event, 1.0, 1).free_first).is_false()
+
+
+func test_a_turn_started_without_free_first_is_not_free() -> void:
+	var event: MatchEvent = BoardEvents.make(
+		"TURN_STARTED", {"round": 1, "turn": 1, "first_seat": 0, "budgets": [3, 4]}
+	)
+	assert_bool(BoardEvents.one(event).free_first).is_false()
+
+
+func test_crew_fired_is_a_crew_fire_step_with_the_uses_left() -> void:
+	var event: MatchEvent = BoardEvents.make(
+		"CREW_FIRED",
+		{
+			"seat": 1,
+			"slot": 0,
+			"crew": "scout",
+			"moment": "on_start",
+			"verb": "draw",
+			"uses_left": 2
+		}
+	)
+	var mine: BoardStep = BoardEvents.one(event, 1.0, 1)
+	assert_int(mine.kind).is_equal(BoardStep.Kind.CREW_FIRE)
+	assert_int(mine.seat).is_equal(0)
+	assert_int(mine.slot).is_equal(0)
+	assert_str(mine.crew).is_equal("scout")
+	assert_str(mine.verb).is_equal("draw")
+	assert_str(mine.trigger).is_equal("on_start")
+	assert_int(mine.uses_left).is_equal(2)
+	assert_int(BoardEvents.one(event, 1.0, 0).seat).is_equal(1)
+
+
+func test_dross_expired_is_a_fly_off_step_for_every_source() -> void:
+	for from_zone: String in ["hand", "row", "pile", "deck"]:
+		var event: MatchEvent = BoardEvents.make(
+			"DROSS_EXPIRED", {"owner": 1, "card": 9, "from": from_zone, "reason": "round_end"}
+		)
+		var step: BoardStep = BoardEvents.one(event, 1.0, 0)
+		assert_int(step.kind).is_equal(BoardStep.Kind.DROSS_EXPIRE)
+		assert_str(step.zone).is_equal(from_zone)
+		assert_int(step.card).is_equal(9)
+		assert_int(step.seat).is_equal(1)
+		assert_float(step.duration).is_greater(0.0)
+
+
+func test_a_dross_expiring_from_the_pile_lowers_that_pile_by_one() -> void:
+	var tracker: ScoreTracker = ScoreTracker.new()
+	var event: MatchEvent = BoardEvents.make(
+		"DROSS_EXPIRED", {"owner": 1, "card": 9, "from": "pile", "reason": "round_end"}
+	)
+	var before: Array[int] = [2, 3]
+	tracker.piles.assign(before)
+	tracker.apply(BoardEvents.one(event, 1.0, 0))
+	var after: Array[int] = [2, 2]
+	assert_array(tracker.piles).is_equal(after)
+
+
+func test_a_dross_expiring_from_elsewhere_leaves_the_pile_counts() -> void:
+	for from_zone: String in ["hand", "row", "deck"]:
+		var tracker: ScoreTracker = ScoreTracker.new()
+		var event: MatchEvent = BoardEvents.make(
+			"DROSS_EXPIRED", {"owner": 0, "card": 9, "from": from_zone, "reason": "round_end"}
+		)
+		var before: Array[int] = [2, 1]
+		tracker.piles.assign(before)
+		tracker.apply(BoardEvents.one(event))
+		assert_array(tracker.piles).is_equal(before)
