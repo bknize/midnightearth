@@ -60,35 +60,30 @@ static func step_set(
 	var going: Array[int] = AbilitiesGraveyardControl.fence_movers(
 		state, cards, seat, movers, dir, sink
 	)
-	var row: Array[int] = []
-	row.assign(state.seats[seat].board)
 	var free: Array[int] = free_slots(state, cards, seat)
+	var ring: Array[int] = _cards_at(state, seat, free)
 	var count: int = free.size()
 	var step: int = RIGHT if dir >= 0 else LEFT
 	var moving: Array[bool] = []
 	var placed: Array[int] = []
-	for index: int in range(count):
-		moving.append(going.has(row[free[index]]))
+	for card: int in ring:
+		moving.append(going.has(card))
 		placed.append(-1)
 	for index: int in range(count):
 		if moving[index]:
-			placed[posmod(index + step, count)] = row[free[index]]
+			placed[posmod(index + step, count)] = ring[index]
 	for index: int in range(count):
 		if moving[index]:
 			continue
 		if not moving[posmod(index - step, count)]:
-			placed[index] = row[free[index]]
+			placed[index] = ring[index]
 			continue
 		# Displaced: it takes the slot of the last mover of the run behind it.
 		var back: int = posmod(index - step, count)
 		while moving[posmod(back - step, count)]:
 			back = posmod(back - step, count)
-		placed[back] = row[free[index]]
-	var next: Array[int] = []
-	next.assign(row)
-	for index: int in range(count):
-		next[free[index]] = placed[index]
-	return _commit(state, seat, next, cause, sink)
+		placed[back] = ring[index]
+	return _commit_free(state, seat, free, placed, cause, sink)
 
 
 ## Moves every card of `movers` on `seat`'s row one slot left (Shake, milestone B).
@@ -111,24 +106,17 @@ static func move_to(
 ) -> Array[int]:
 	var out: Array[int] = []
 	var seat: int = Statuses.row_seat(state, card)
-	if seat < 0 or Statuses.is_anchored(state, cards, card):
+	if seat < 0 or Statuses.is_anchored(state, cards, card, seat):
 		return out
-	var row: Array[int] = state.seats[seat].board
 	var free: Array[int] = free_slots(state, cards, seat)
-	var order: Array[int] = []
-	for slot: int in free:
-		order.append(row[slot])
+	var order: Array[int] = _cards_at(state, seat, free)
 	var from: int = order.find(card)
 	if target < 0 or target >= order.size() or target == from:
 		return out
 	order.remove_at(from)
 	if order.insert(target, card) != OK:
 		return out
-	var next: Array[int] = []
-	next.assign(row)
-	for index: int in range(free.size()):
-		next[free[index]] = order[index]
-	return _commit(state, seat, next, cause, sink)
+	return _commit_free(state, seat, free, order, cause, sink)
 
 
 ## Trades the slots of `a` and `b` on one row. Fizzles (empty) when either is Anchored, they
@@ -140,7 +128,7 @@ static func swap(
 	var seat: int = Statuses.row_seat(state, a)
 	if a == b or seat < 0 or Statuses.row_seat(state, b) != seat:
 		return out
-	if Statuses.is_anchored(state, cards, a) or Statuses.is_anchored(state, cards, b):
+	if Statuses.is_anchored(state, cards, a, seat) or Statuses.is_anchored(state, cards, b, seat):
 		return out
 	var next: Array[int] = []
 	next.assign(state.seats[seat].board)
@@ -157,13 +145,9 @@ static func reverse(
 	state: MatchState, cards: MatchCards, seat: int, cause: String, sink: Callable
 ) -> Array[int]:
 	var free: Array[int] = free_slots(state, cards, seat)
-	var row: Array[int] = state.seats[seat].board
-	var next: Array[int] = []
-	next.assign(row)
-	var count: int = free.size()
-	for index: int in range(count):
-		next[free[index]] = row[free[count - 1 - index]]
-	return _commit(state, seat, next, cause, sink)
+	var order: Array[int] = _cards_at(state, seat, free)
+	order.reverse()
+	return _commit_free(state, seat, free, order, cause, sink)
 
 
 ## Permutes `seat`'s row at random with the engine stream `rng`; Anchored cards keep their
@@ -172,16 +156,9 @@ static func reorder(
 	state: MatchState, cards: MatchCards, seat: int, rng: MatchRng, cause: String, sink: Callable
 ) -> Array[int]:
 	var free: Array[int] = free_slots(state, cards, seat)
-	var row: Array[int] = state.seats[seat].board
-	var shuffled: Array[int] = []
-	for slot: int in free:
-		shuffled.append(row[slot])
+	var shuffled: Array[int] = _cards_at(state, seat, free)
 	rng.shuffle_in_place(shuffled)
-	var next: Array[int] = []
-	next.assign(row)
-	for index: int in range(free.size()):
-		next[free[index]] = shuffled[index]
-	return _commit(state, seat, next, cause, sink)
+	return _commit_free(state, seat, free, shuffled, cause, sink)
 
 
 ## Placement (R43): inserts `card` into `seat`'s row at `slot` (clamped to the row), face
@@ -205,9 +182,30 @@ static func free_slots(state: MatchState, cards: MatchCards, seat: int) -> Array
 	var out: Array[int] = []
 	var row: Array[int] = state.seats[seat].board
 	for slot: int in range(row.size()):
-		if not Statuses.is_anchored(state, cards, row[slot]):
+		if not Statuses.is_anchored(state, cards, row[slot], seat):
 			out.append(slot)
 	return out
+
+
+## The cards in `slots` of `seat`'s row, in that order.
+static func _cards_at(state: MatchState, seat: int, slots: Array[int]) -> Array[int]:
+	var row: Array[int] = state.seats[seat].board
+	var out: Array[int] = []
+	for slot: int in slots:
+		out.append(row[slot])
+	return out
+
+
+## Commits `seat`'s row with `order` written into its free slots `free`, in turn; the
+## Anchored cards keep their slots (_commit()).
+static func _commit_free(
+	state: MatchState, seat: int, free: Array[int], order: Array[int], cause: String, sink: Callable
+) -> Array[int]:
+	var next: Array[int] = []
+	next.assign(state.seats[seat].board)
+	for index: int in range(free.size()):
+		next[free[index]] = order[index]
+	return _commit(state, seat, next, cause, sink)
 
 
 ## Writes `next` as `seat`'s row and reports every card whose slot changed: one CARD_MOVED

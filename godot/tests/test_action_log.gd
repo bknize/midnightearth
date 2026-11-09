@@ -50,12 +50,6 @@ func _defs() -> MatchCards:
 	return _cached_defs
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _started(match_seed: int) -> MatchEngine:
 	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
@@ -66,7 +60,7 @@ func _hand(engine: MatchEngine, seat: int) -> Array[int]:
 	var state: Dictionary = engine.full_state()
 	var per_seat: Array = state["hand"]
 	var raw: Array = per_seat[seat]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _cost_of(cards: Array[int]) -> int:
@@ -91,7 +85,7 @@ func _script_action(engine: MatchEngine, player: int) -> EngineAction:
 	if seat == player:
 		# The fixture's cards are plain bodies (DC-13 T02), so no set opens a prompt.
 		var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _defs())
-		cards = _typed(sets[sets.size() - 1])
+		cards = Typed.ints(sets[sets.size() - 1])
 	var slots: Array[int] = LegalPlays.append_slots(_row_size(engine, seat), cards.size())
 	return EngineAction.commit(seat, cards, slots)
 
@@ -223,9 +217,9 @@ func _log_of(match_seed: int, actions: Array[EngineAction]) -> ActionLog:
 func _sample_actions() -> Array[EngineAction]:
 	var none: Array[int] = []
 	var actions: Array[EngineAction] = [
-		EngineAction.commit(0, _typed([3, 7]), _typed([0, 2])),
+		EngineAction.commit(0, Typed.ints([3, 7]), Typed.ints([0, 2])),
 		EngineAction.commit(1, none),
-		EngineAction.commit(1, _typed([39, 20, 21]), _typed([1, 2, 5])),
+		EngineAction.commit(1, Typed.ints([39, 20, 21]), Typed.ints([1, 2, 5])),
 		EngineAction.choose(0, 1, 2),
 		EngineAction.concede(1),
 		EngineAction.concede(0),
@@ -296,7 +290,7 @@ func test_log_holds_versions_seed_and_accepted_actions_only() -> void:
 		var wrong: ApplyResult = engine.apply(EngineAction.commit(1 - engine.awaited_seat(), none))
 		assert_bool(wrong.ok).is_false()
 		var unknown: ApplyResult = engine.apply(
-			EngineAction.commit(engine.awaited_seat(), _typed([99]))
+			EngineAction.commit(engine.awaited_seat(), Typed.ints([99]))
 		)
 		assert_bool(unknown.ok).is_false()
 		var action: EngineAction = _script_action(engine, index % 2)
@@ -426,8 +420,8 @@ func test_numbers_come_back_as_ints() -> void:
 	var first: EngineAction = parsed.actions[0]
 	assert_int(first.kind).is_equal(EngineAction.Kind.COMMIT)
 	assert_int(first.seat).is_equal(1)
-	assert_array(first.cards).is_equal(_typed([3, 21]))
-	assert_array(first.slots).is_equal(_typed([0, 2]))
+	assert_array(first.cards).is_equal(Typed.ints([3, 21]))
+	assert_array(first.slots).is_equal(Typed.ints([0, 2]))
 	var second: EngineAction = parsed.actions[1]
 	assert_int(second.kind).is_equal(EngineAction.Kind.CONCEDE)
 	assert_int(second.seat).is_equal(0)
@@ -522,7 +516,7 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 		SEED,
 		actions,
 		bad_index,
-		EngineAction.commit(seat, _typed([foreign])),
+		EngineAction.commit(seat, Typed.ints([foreign])),
 		EngineError.Code.CARD_NOT_IN_HAND,
 		true
 	)
@@ -530,7 +524,7 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 		SEED,
 		actions,
 		bad_index,
-		EngineAction.commit(seat, _typed([99])),
+		EngineAction.commit(seat, Typed.ints([99])),
 		EngineError.Code.CARD_NOT_IN_HAND,
 		true
 	)
@@ -540,7 +534,7 @@ func test_rejected_action_fails_replay_at_its_index() -> void:
 		SEED,
 		actions,
 		bad_index,
-		EngineAction.commit(seat, _typed([hand[0], hand[0]])),
+		EngineAction.commit(seat, Typed.ints([hand[0], hand[0]])),
 		EngineError.Code.DUPLICATE_CARD,
 		true
 	)
@@ -668,13 +662,28 @@ func test_rules_mismatch_fails_replay() -> void:
 		assert_object(replayed.engine).is_null()
 
 
-## The header: format 5 since DC-13 T02 (cycle 9 plan P1, spec R65: the v2 cards), rules 8
-## since cycle 13 C9. An older log still parses, and replay refuses it before running
-## anything: every format-4 log (the v6 cards, whatever its rules) and every older format
-## fail on the format (checked first); a format-5 log under rules 7 or older fails on the
-## rules version; a format-5 header without `decks` is a format mismatch.
+## Rules 10 (DC-20 T17a, cycle 14 R54, C15): a real match's log written under rules 9 or 8 is
+## refused at replay on the rules version, before any action runs.
+func test_a_rules_9_or_8_log_is_refused() -> void:
+	for version: int in [9, 8]:
+		var the_log: ActionLog = _scripted(SEED, 0, 6).action_log()
+		the_log.rules_version = version
+		var parsed: ActionLog = _through_json(the_log)
+		assert_int(parsed.rules_version).is_equal(version)
+		var replayed: ReplayResult = parsed.replay(_db(), FixtureDecks.decks(), FixtureDecks.crew())
+		assert_bool(replayed.ok).is_false()
+		assert_int(replayed.reason).is_equal(ReplayResult.Reason.RULES_MISMATCH)
+		assert_int(replayed.failed_index).is_equal(-1)
+		assert_object(replayed.engine).is_null()
+
+
+## The header: format 5 since DC-13 T02 (cycle 9 plan P1, spec R65: the v2 cards), rules 10
+## since DC-20 T17a (cycle 14 R54). An older log still parses, and replay refuses it before
+## running anything: every format-4 log (the v6 cards, whatever its rules) and every older
+## format fail on the format (checked first); a format-5 log under rules 9 or older fails on
+## the rules version; a format-5 header without `decks` is a format mismatch.
 func test_a_format_4_or_older_or_old_rules_or_deckless_log_fails_replay() -> void:
-	assert_int(MatchRules.RULES_VERSION).is_equal(8)
+	assert_int(MatchRules.RULES_VERSION).is_equal(10)
 	assert_int(MatchRules.LOG_FORMAT).is_equal(5)
 	var commit: String = '{"k": "commit", "s": 0, "c": [], "p": []}'
 	var actions: String = ' "actions": [' + commit + ', {"k": "concede", "s": 1}]}'
@@ -685,6 +694,8 @@ func test_a_format_4_or_older_or_old_rules_or_deckless_log_fails_replay() -> voi
 		'{"format": 4, "rules": 6, "seed": "1",' + decks + actions,
 		'{"format": 4, "rules": 7, "seed": "1",' + decks + actions,
 		'{"format": 5, "rules": 7, "seed": "1",' + actions,
+		'{"format": 5, "rules": 9, "seed": "1",' + decks + actions,
+		'{"format": 5, "rules": 8, "seed": "1",' + decks + actions,
 		'{"format": 5, "rules": 7, "seed": "1",' + decks + actions,
 		'{"format": 5, "rules": 6, "seed": "1",' + decks + actions,
 		'{"format": 5, "rules": 5, "seed": "1",' + decks + actions,
@@ -695,6 +706,8 @@ func test_a_format_4_or_older_or_old_rules_or_deckless_log_fails_replay() -> voi
 		ReplayResult.Reason.FORMAT_MISMATCH,
 		ReplayResult.Reason.FORMAT_MISMATCH,
 		ReplayResult.Reason.FORMAT_MISMATCH,
+		ReplayResult.Reason.RULES_MISMATCH,
+		ReplayResult.Reason.RULES_MISMATCH,
 		ReplayResult.Reason.RULES_MISMATCH,
 		ReplayResult.Reason.RULES_MISMATCH,
 		ReplayResult.Reason.RULES_MISMATCH,
@@ -792,7 +805,7 @@ func test_bad_slots_fail_replay_at_their_index() -> void:
 	var card: Array[int] = [_hand(at, seat)[0]]
 	var beyond: int = _row_size(at, seat) + 1
 	for slots: Array in [[beyond], [-1], [0, 1]]:
-		var bad: EngineAction = EngineAction.commit(seat, card, _typed(slots))
+		var bad: EngineAction = EngineAction.commit(seat, card, Typed.ints(slots))
 		_assert_rejected_at(SEED, actions, bad_index, bad, EngineError.Code.BAD_SLOTS, true)
 
 
@@ -803,15 +816,15 @@ func test_format_5_round_trips_with_decks_slots_and_choices() -> void:
 	var the_log: ActionLog = _log_of(SEED, _sample_actions())
 	var text: String = the_log.to_json()
 	# The header names both decks (format 3, DC-07 T02); format 5 since DC-13 T02 (cycle 9
-	# P1: the v2 cards), rules 8 since cycle 13 C9.
-	var header: String = '{"format":5,"rules":8,"seed":"1","decks":["fixture","fixture"]'
+	# P1: the v2 cards), rules 10 since DC-20 T17a (cycle 14 R54).
+	var header: String = '{"format":5,"rules":10,"seed":"1","decks":["fixture","fixture"]'
 	assert_bool(text.begins_with(header)).override_failure_message(text).is_true()
 	assert_bool(text.contains('{"k":"commit","s":0,"c":[3,7],"p":[0,2]}')).is_true()
 	assert_bool(text.contains('{"k":"commit","s":1,"c":[],"p":[]}')).is_true()
 	assert_bool(text.contains('{"k":"choose","s":0,"z":1,"i":2}')).is_true()
 	var parsed: ActionLog = _through_json(the_log)
 	assert_int(parsed.format_version).is_equal(5)
-	assert_int(parsed.rules_version).is_equal(8)
+	assert_int(parsed.rules_version).is_equal(10)
 	assert_array(parsed.deck_ids).is_equal(FixtureDecks.ids())
 	assert_array(_dicts(parsed.actions)).is_equal(_dicts(the_log.actions))
 	assert_str(parsed.to_json()).is_equal(text)
@@ -1042,7 +1055,7 @@ func test_in_range_card_numbers_in_entries_parse() -> void:
 	if parsed != null:
 		assert_int(parsed.actions.size()).is_equal(1)
 		assert_int(parsed.actions[0].seat).is_equal(1)
-		assert_array(parsed.actions[0].cards).is_equal(_typed([3, 27, 9007199254740992]))
+		assert_array(parsed.actions[0].cards).is_equal(Typed.ints([3, 27, 9007199254740992]))
 
 
 func _one_entry_log(entry: String) -> String:

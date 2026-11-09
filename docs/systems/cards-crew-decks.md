@@ -4,7 +4,7 @@ tags: [system, cards, crew, decks]
 status: growing
 related: ["[[systems/systems-moc]]", "[[systems/game-loop]]", "[[systems/bot-training]]", "[[rules/rules-moc]]", "[[rules/cards-v2]]", "[[rules/crew-v2]]", "[[rules/test-decks]]", "[[planning/cycles]]", "[[specs/cycle-9-rules-v2/spec]]"]
 created: 2026-11-05
-updated: 2026-11-06
+updated: 2026-11-09
 uid: 692bf835-9b24-4738-9df5-6a5ed267a33e
 linear: https://linear.app/night-science-llc/issue/NSC-160
 supersedes:
@@ -14,7 +14,7 @@ supersedes:
 
 > What a card is made of, how its abilities work, what the 90 cards, the ten Crew and the six decks do, and how to add new content without breaking the game.
 
-All of Midnight Earth's content lives in three JSON files under `godot/engine/data/`: `cards.json` (the card pool, format 5: 90 cards, plus Dross, which only an ability makes), `crew.json` (the Crew pool, format 2: 10 Crew) and `decks.json` (format 3: six decks, each 40 cards plus 3 Crew). The engine loads and checks all three before any match can start. If any check fails, nothing plays. This note describes those files and the code that gives them meaning, as the code stands after DC-14 (rules version 7). It is the as-built counterpart of the design canon in [[rules/rules-moc]]: the cards are [[rules/cards-v2]], the Crew [[rules/crew-v2]] and the decks [[rules/test-decks]]. Where the build reads the canon differently, [[#Where the build differs from the canon]] says so. Every capitalised word is defined in [[rules/glossary]].
+All of Midnight Earth's content lives in three JSON files under `godot/engine/data/`: `cards.json` (the card pool, format 5: 90 cards, plus Dross, which only an ability makes), `crew.json` (the Crew pool, format 2: 10 Crew) and `decks.json` (format 3: six decks, each 40 cards plus 3 Crew). The engine loads and checks all three before any match can start. If any check fails, nothing plays. This note describes those files and the code that gives them meaning, as the code stands after DC-14 (rules version 10). It is the as-built counterpart of the design canon in [[rules/rules-moc]]: the cards are [[rules/cards-v2]], the Crew [[rules/crew-v2]] and the decks [[rules/test-decks]]. Where the build reads the canon differently, [[#Where the build differs from the canon]] says so. Every capitalised word is defined in [[rules/glossary]].
 
 How a match runs (Rounds, Turns, the Walk, the trigger queue, events) is in [[systems/game-loop]]. The one bot is in [[systems/bot-training]]. How the cards were built is in the DC-13 and DC-14 rows of [[planning/cycles]].
 
@@ -51,7 +51,7 @@ The numbers on a card face are its **effective** stats, not its printed ones. `S
 1. **Base**: the printed Power and Bonus, or the copied base if Mirror has copied another card.
 2. **Memory**: anything a persisting ability gave this card for the match (see below).
 3. **Board changes**: granted Power, Adds and Mults.
-4. **Ongoing reads**: Banner's Power for plain cards, Boneyard's Power, Herald's Mult, Level's lowest Power.
+4. **Ongoing reads**: Banner's Power for plain cards, Boneyard's Power, Herald's Mult, Level's lowest Power, which only revealed cards receive (a face-down card is not levelled).
 5. At Score time, **Crew grants** (`Scoring.score_stats()`): Void's held grants and Tallyman's Mult on the fifth Score.
 
 The **effective Cost** is the printed Cost (or Colossus's 7 on Turn 7) plus Memory's Cost change, never below 0 (`Scoring.effective_cost()`). Every Budget check reads it.
@@ -100,7 +100,7 @@ The moment says *when* and the verb says *what*. The ten moments (and Ongoing):
 
 Two brackets refine this. A **watcher bracket** (`watch`: `self`, `other_own`, `opposing`, `any`) says whose event the ability watches: "On reveal (another card of yours)". A **zone bracket** (`zone`: `row`, `hand`) says where the card must be for the ability to act: "(while in your hand)". The exact order in which triggers resolve is in [[systems/game-loop]] and [[rules/resolution]].
 
-**Choices.** Some verbs need a target. With no eligible target the ability fizzles ("no target"). With exactly one, the engine picks it. With two or more, play pauses on a prompt. Immolator and Exhume always prompt and may choose none. Immolator's prompt is a multi-select with a minimum of 0, not an optional prompt: an empty set is its "none". Exhume asks once for "up to two" cards over both Piles (a prompt with a maximum, spec C15): an empty set or a Skip chooses none.
+**Choices.** Some verbs need a target. With no eligible target the ability fizzles ("no target"). With exactly one, the engine picks it. With two or more, play pauses on a prompt. Immolator and Exhume always prompt and may choose none. A random Condemn (Immolator, Fuse) picks from the whole opposing row; a pick on a protected or already Condemned card misses, visibly. Immolator's prompt is a multi-select with a minimum of 0, not an optional prompt: an empty set is its "none". Exhume asks once for "up to two" cards over both Piles (a prompt with a maximum, spec C15): an empty set or a Skip chooses none.
 
 **Loader checks.** The loader (`CardDb`, `card_db.gd`) refuses a bad pool outright: format 5; unique ids; a known tag; Cost 1 to 7 (more only with the `cost_on_turn` verb); Power in range; a Bonus from the legal lists; each ability checked by `CardAbility.problem_of` (a known moment and verb, the verb allowed on that moment, amounts in the verb's range, a known scope, watcher and zone, whole uses, its own text); and a card `text` when it has abilities.
 
@@ -118,7 +118,7 @@ No ability removes a card from a row in the middle of a Walk. Condemn, Fleeting 
 
 ## The 90 cards
 
-The pool is ten cards for each of six strategies and thirty evergreen cards, with Costs 1 to 7 (Colossus 12). The text of each card is the text in `cards.json`; the design reasons and the Power guideline are in [[rules/cards-v2]]. Dross is the extra definition in the file: Cost 1, Power 0, no Bonus, "Ongoing (while in your hand): at the end of the Walk, before rounding, your walking total is multiplied by ×0.75 for each Dross in your hand". Litter creates it in the opponent's hand; Twin creates copies of itself. A created card is Owned by the seat it is created for, is in no Deck, and has base values and no Memory. `CardDb` marks it `"created": true`, so no Deck may list it.
+The pool is ten cards for each of six strategies and thirty evergreen cards, with Costs 1 to 7 (Colossus 12). The text of each card is the text in `cards.json`; the design reasons and the Power guideline are in [[rules/cards-v2]]. Dross is the extra definition in the file: Cost 1, Power 0, no Bonus, "Ongoing (while in your hand): at the end of the Walk, before rounding, your walking total is multiplied by ×0.75 for each Dross in your hand". Litter creates it in the opponent's hand; Twin creates copies of itself. Every card an ability creates is a Dross card (C13). A Dross card is Owned by the seat it is created for from the moment it is created, is in no Deck, and has base values and no Memory. Within the Round it moves like any card: a Discard files it in its Owner's Pile. A Dross card lasts until the end of the Round, when it is removed from every zone (hand, row, Pile, Deck); a few last the whole Match (lifetime `match`, `CardDef.lifetime`; the default `round`). `CardDb` marks the Dross definition with the pool key `"created": true` (`CardDef.dross`), so no Deck may list it.
 
 ### Greed
 
@@ -316,7 +316,7 @@ Greed and Ramp were built first (DC-13), the other four in DC-14. The deck tiles
  "cards": ["gr01", "gr01", "gr01", "gr01", "gr02", "...", "gr10"], "crew": ["tallyman", "void", "engineer"]}
 ```
 
-`DeckList.validate()` (`deck_list.gd`) checks every deck against the card pool and the Crew pool. A deck must have exactly 40 card ids (`MatchRules.DECK_SIZE`), each in the pool, none created-only (Dross), with at most four copies of any id (`MAX_COPIES`). It must name exactly 3 different Crew ids, each in the Crew pool. Deck ids must be unique. Not checked: a cost mix rule, and the strategy of the cards (the canon lets a Deck draw from the whole pool). A Crew may serve several decks.
+`DeckList.validate()` (`deck_list.gd`) checks every deck against the card pool and the Crew pool. A deck must have exactly 40 card ids (`MatchRules.DECK_SIZE`), each in the pool, none a Dross definition (the Dross card), with at most four copies of any id (`MAX_COPIES`). It must name exactly 3 different Crew ids, each in the Crew pool. Deck ids must be unique. Not checked: a cost mix rule, and the strategy of the cards (the canon lets a Deck draw from the whole pool). A Crew may serve several decks.
 
 ### Named decks and seeded pairings
 
@@ -365,7 +365,7 @@ There is no bot stamp any more: the shipped bot is the `random` bot, and the wei
 ## Where the build differs from the canon
 
 - **Data equals the canon.** The 90 cards, ten Crew and six decks match [[rules/cards-v2]], [[rules/crew-v2]] and [[rules/test-decks]] on Cost, Power, Bonus, tag and text. The differences are in code readings, below.
-- **Pool size.** The file holds 91 card entries: 90 cards and Dross (created-only).
+- **Pool size.** The file holds 91 card entries: 90 cards and the Dross card (a Dross definition).
 - **Saboteur** is Cost 4, Power -3, Mult ×0.75 (spec C27); the loader names ×0.75 an exception to the printed Mult list.
 - **Rounding.** The canon rounds only the final Score; the build rounds each multiply to a ten-thousandth ([[systems/game-loop]]).
 - **Void's scope** is `turn` in the data: its grants end when the card has Scored or the Turn ends.
@@ -388,7 +388,7 @@ All paths are under `godot/engine/`.
 | `trigger_queue.gd`, `trigger_context.gd`, `verb_handler.gd` | The queue and what an ability reads and writes. |
 | `choice.gd` | Which targets each prompting verb may choose. |
 | `crew_def.gd`, `crew_pool.gd`, `crew_abilities.gd` | A Crew, the Crew pool loader and the ten Crew behaviours. |
-| `match_cards.gd` | Instance ids to definitions, including created cards. |
+| `match_cards.gd` | Instance ids to definitions, including Dross cards (`record_dross`, `forget_dross`). |
 | `deck_list.gd` | The deck list, its validation and the seeded pairing. |
 | `match_rules.gd` | Fixed numbers: Deck size 40, copies 4, Crew size 3, Hand size 4, the trigger budget, the legal Bonuses, the rules version. |
 

@@ -1,11 +1,13 @@
 class_name TestMatchRules
 extends GdUnitTestSuite
-## MatchRules v8 (DC-13 T02, cycle 9 plan P1; rules 8 at cycle 13 C9): the constants the
+## MatchRules v10 (DC-13 T02, cycle 9 plan P1; rules 8 at cycle 13 C9, rules 9 at DC-20 T03,
+## cycle 14 R12, rules 10 at DC-20 T17a, C15): the constants the
 ## rest of the engine reads, pinned so a change to one is a decision, not a slip.
 
 
+## Rules 10 (DC-20 T17a): a rules-9 log is refused at replay (test_action_log.gd).
 func test_versions() -> void:
-	assert_int(MatchRules.RULES_VERSION).is_equal(8)
+	assert_int(MatchRules.RULES_VERSION).is_equal(10)
 	assert_int(MatchRules.LOG_FORMAT).is_equal(5)
 
 
@@ -13,6 +15,7 @@ func test_match_shape() -> void:
 	assert_int(MatchRules.ROUNDS).is_equal(7)
 	assert_int(MatchRules.TURNS).is_equal(7)
 	assert_int(MatchRules.WINS_TO_TAKE).is_equal(4)
+	assert_int(MatchRules.SUDDEN_DEATH_TIES).is_equal(3)
 
 
 func test_deck_and_hand() -> void:
@@ -36,4 +39,4 @@ func test_costs_and_the_trigger_budget() -> void:
 	assert_int(MatchRules.MIN_COST).is_equal(0)
 	assert_int(MatchRules.MAX_PRINTED_COST).is_equal(7)
 	assert_int(MatchRules.TRIGGER_BUDGET).is_equal(50)
-	assert_int(MatchCards.CREATED_BASE).is_equal(2 * MatchRules.DECK_SIZE)
+	assert_int(MatchCards.DROSS_BASE).is_equal(2 * MatchRules.DECK_SIZE)  # The first Dross id.

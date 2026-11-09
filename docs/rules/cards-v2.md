@@ -4,7 +4,7 @@ tags: [reference, rules-v2, cards-v2]
 status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]", "[[rules/rules-v2]]", "[[rules/resolution]]", "[[rules/crew-v2]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-08
 uid: bb2db17d-f279-4b43-9970-86c6c690632c
 linear: https://linear.app/night-science-llc/issue/NSC-141/t05-cards-v2
 supersedes:
@@ -71,10 +71,15 @@ total a Bonus on the far right of a row multiplies the most (C21).
 end of the Walk, before rounding, your walking total is multiplied by ×0.75 for each Dross
 in your hand. Ben's sketch (L25) was a ×.75 Bonus while in hand; under the walking total a
 Mult on a card in hand has nothing to multiply, so the intent, a tax on the holder's Score,
-is kept as a Walk-end multiply (confirmed by Ben, C32). Dross is a created card Owned by the seat
-whose hand it was put in; when that seat Discards it, it goes to that seat's Pile as a
-Discard (R22), and a Pile-shuffling Crew (Dredger) can shuffle it into that seat's Deck again.
-Twin's copies are created the same way. Dross and copies are not part of the 90.
+is kept as a Walk-end multiply (confirmed by Ben, C32). "Dross" is also the term for every
+card an ability creates (cycle 14 C13): Litter's Dross and Twin's copies are Dross cards. A
+Dross card is Owned by the seat whose hand it was put in. Within the Round it moves like any
+card: when that seat Discards it, it is filed in that seat's Pile (so a Reliquary grows from
+it), and a Pile-shuffling Crew or card (Dredger, Reset) may shuffle it back into the Deck. A
+Dross card lasts until the end of the Round (rules 9): after the Round is awarded it is
+removed from every zone it may be in (hand, row, Pile, Deck) and leaves the Match. A few
+Dross cards last the whole Match (lifetime `match`); no shipped card does. Dross and copies
+are not part of the 90.
 
 ## 2. The cards
 
@@ -135,7 +140,7 @@ Disruption (Mute stops triggers, Quorum mutes the row) and to early Greed.
 | CB03 | Swell | Combo | 2 | 2 | — | On reveal: another card of yours gets Fade. | new | Fade replaces an older exit mark, so it also saves a Condemned card (Q10) |
 | CB04 | Reprieve | Combo | 3 | 3 | — | On reveal: choose a card on either row; it gets Fleeting. | L57 | On an opposing card it goes to its Owner's hand at turn end after it Scores this Walk; no Controller change |
 | CB05 | Scrap | Combo | 3 | 2 | — | On reveal: Discard a card from your hand; this card gets Add +N until end of turn, where N is 0.25 for each point of that card's Cost, at most 1. | L45 | RETRIG target (scenario 4): under Encore each resolution asks again and reads N again (Q5, Q6, Q9). The 0.25 step and the cap of 1 are design additions (C21); the granted Add stacks with any printed Bonus (C20) |
-| CB06 | Twin | Combo | 3 | 1 | — | On reveal: create a copy of this card in your hand. | L32 | LOOP across Turns and CREATE: each reveal makes one more copy; a copy has base values and no Memory. Hand growth is checked only by the discard-down (R16) |
+| CB06 | Twin | Combo | 3 | 1 | — | On reveal: create a copy of this card in your hand. | L32 | LOOP across Turns and CREATE: each reveal makes one more copy; a copy is a Dross card with base values and no Memory, removed at the end of the Round. Hand growth is checked only by the discard-down (R16) |
 | CB07 | Reprise | Combo | 4 | 3 | — | On commit: every card on both rows Scores twice this Turn. | L39 | TWICE (Q7); covers both rows. Fires only for a Reprise revealed on an earlier Turn (never the Turn it is committed). Powerful, and the drawback is that it doubles the opponent's row too (C30) |
 | CB08 | Encore | Combo | 5 | 4 | — | On reveal: until end of turn, each of your other On reveal abilities resolves twice. | L38 | RETRIG (Q6): one extra resolution after each, never itself, choices and amounts read again. Slot order matters: it only covers cards revealed after it |
 | CB09 | Reverb | Combo | 6 | 5 | — | On reveal: this card gets Fleeting and costs 2 less for the match. | L85 | The Cost reduction is Memory and clamps at 0; each replay of the card is cheaper |
@@ -163,7 +168,7 @@ Shake and Tempest reorder the opposing row, which ruins a slot guess against fac
 |---|---|---|---|---|---|---|---|---|
 | DI01 | Hush | Disruption | 1 | 1 | — | On reveal: Mute an opposing card until end of turn. | new | |
 | DI02 | Muzzle | Disruption | 2 | 2 | — | On reveal: Squelch an opposing card until end of turn. | new | |
-| DI03 | Litter | Disruption | 3 | 2 | — | On reveal: create three Dross in your opponent's hand. | L25 | CREATE: Dross is defined in section 1. A card created is Owned by the seat it is put in |
+| DI03 | Litter | Disruption | 3 | 2 | — | On reveal: create three Dross in your opponent's hand. | L25 | CREATE: Dross is defined in section 1. A Dross card is Owned by the seat it is put in and removed at the end of the Round |
 | DI04 | Saboteur | Disruption | 4 | -3 | Mult ×0.75 | On reveal: move this card to the rightmost slot of your opponent's row. | L40 | CTRL: it is on the opposing row at the end of the Walk and goes to its Owner's Pile at Round end (R30, D12). Moved ahead of the cursor, it is reached later this Walk (R41) and Scores for the opposing seat, subtracting 3 from its walking total and then multiplying that total by ×0.75 (C21). Landing last, it takes about a quarter of the opponent's Walk Score; Ben chose ×0.75 at Cost 4 over ×0.5 (C27) |
 | DI05 | Hex | Disruption | 3 | 3 | — | On reveal: choose a card on either row. On start: Mute the chosen card until end of turn. | L42 | The choice (the chosen card, glossary) is kept until Hex or the chosen card leaves its row or is Un-revealed. Prompt at reveal (Q9); the On start Mute fires each Turn Hex is revealed and not Muted |
 | DI06 | Jam | Disruption | 4 | 3 | — | On score: Mute N random opposing cards until end of turn, where N is this card's Power. | L43 | N is read when it resolves (Q5); fewer cards than N, all of them |
@@ -190,15 +195,15 @@ Wraith and Tithe are Ongoing and On discard, so Squelch and Mute each hit one ha
 
 | ID | Name | Tag | Cost | Power | Bonus | Text | Source | Flags |
 |---|---|---|---|---|---|---|---|---|
-| GY01 | Fuse | Graveyard | 2 | 1 | — | On score (an opposing card): this card gets Power +1 until it leaves your row; then, if its Power is 5 or more, Condemn this card and one random opposing card. | L69, L70 | The two rows of the scratch sheet are the same card. The random Condemn is chosen with the seeded RNG (Q9) and resolves at turn end |
+| GY01 | Fuse | Graveyard | 2 | 1 | — | On score (an opposing card): this card gets Power +1 until it leaves your row; then, if its Power is 5 or more, Condemn this card and one random opposing card. | L69, L70 | The two rows of the scratch sheet are the same card. The random Condemn is chosen with the seeded RNG (Q9) and resolves at turn end. The pick is from the whole opposing row: a pick that lands on a protected (Bastion) or already Condemned card misses, visibly, and still uses its RNG draw |
 | GY02 | Tithe | Graveyard | 2 | 2 | — | On discard (a Condemned card of yours Discarded at turn end): you have +1 Energy next Turn for each such card, at most +3 per turn end. | L53 | Watches the exit pass (D10). A Round end clearing the row is not a Condemned Discard. On Turn 7 there is no next Turn in the Round, so the Energy is lost. The cap of 3 is a design addition |
-| GY03 | Reliquary | Graveyard | 3 | 2 | Mult ×1.25 | On discard (a card of yours entering your Pile from your hand): this card's Mult is multiplied by ×1.2 for the match, at most once per Turn, to a maximum of ×2. | L48 | Memory. The once per Turn cap, "from your hand" and the maximum are design additions; the idea counted every Discard |
+| GY03 | Reliquary | Graveyard | 3 | 2 | Mult ×1.25 | On discard (a card of yours entering your Pile from your hand): this card's Mult is multiplied by ×1.2 for the match, at most once per Turn, to a maximum of ×2. | L48 | Memory. The once per Turn cap, "from your hand" and the maximum are design additions; the idea counted every Discard. A Discarded Dross card you Own counts (C13) |
 | GY04 | Boneyard | Graveyard | 3 | 2 | — | Ongoing: this card has Power +1 for each four cards in both Piles, rounded down. | L29 | Read at Score (Q5). The idea was one per card; divided by four to keep it below the Power guideline |
 | GY05 | Wraith | Graveyard | 3 | 3 | — | Ongoing: your Condemned cards have Fade instead of Condemned when exit marks resolve. | L49 | An "instead" effect, read once at the start of the exit pass (resolution step 12), so a Condemned Wraith still applies to your other cards. Fade keeps Memory and loses Board changes (R35). Veil changes the card to Fleeting first and so wins |
 | GY06 | Glutton | Graveyard | 4 | 2 | — | On reveal: Condemn one of your other cards; this card gets Power +N until it leaves your row, where N is that card's Power. | L72 | The Condemned card still Scores this Walk (Q10); Prompt with two or more choices (Q9) |
 | GY07 | Revive | Graveyard | 4 | 3 | — | On reveal: choose a card in your Pile; put it face down on your row in the slot to the right of this card, then Condemn this card. | L58 | LOOP: a Revive revived by Revive chains one card per resolution, bounded by the Pile and by the Budget (Q4). Placement from a Pile is not a Move (R40); the card is ahead of the cursor, so it is reached this Walk (R41) |
 | GY08 | Exhume | Graveyard | 4 | 4 | — | On reveal: choose up to two cards in either Pile; shuffle each into its Owner's Deck. | L55 | Piles are public (R21). Choosing the opposing Pile refills the opposing Deck. An optional count: it always Prompts, even with one eligible card, and may choose none (Q9) |
-| GY09 | Immolator | Graveyard | 5 | 4 | — | On reveal: Condemn any number of your other cards, then Condemn that many random opposing cards. | L73 | An optional count: a multi-select Prompt even with one eligible card (Q9). Condemns are marks until turn end (Q10), so the Walk's slots do not change |
+| GY09 | Immolator | Graveyard | 5 | 4 | — | On reveal: Condemn any number of your other cards, then Condemn that many random opposing cards. | L73 | An optional count: a multi-select Prompt even with one eligible card (Q9). Condemns are marks until turn end (Q10), so the Walk's slots do not change. Each random pick is from the whole opposing row: a pick that lands on a protected (Bastion) or already Condemned card misses, visibly, and still uses its RNG draw |
 | GY10 | Reset | Graveyard | 6 | 5 | — | On reveal: shuffle both seats' Piles into their Decks, then Condemn this card. | L60 | Ends the dry Deck for both seats. Condemned, it reaches the Pile at turn end, after the shuffle, so it is not shuffled in this Turn |
 
 ### 2.5 Control
@@ -229,7 +234,7 @@ grows past what moving can answer).
 | CT04 | Skip | Control | 3 | 3 | — | On reveal: the next card to be revealed this Walk is moved to a different random slot of its row after its On reveal resolves and before it Scores. | L47 | Acts at the reveal-stage hook (resolution step 10): the Move happens after D7, its On moved Batch drains in D8. The pulse belongs to the slot, so the moved card does not Score there; a card landing in that slot Scores now (R41). Anchored cards do not move |
 | CT05 | Fence | Control | 3 | 3 | — | Ongoing: when a card on either row would be moved left from the leftmost slot or right from the rightmost slot, Condemn it instead of moving it. | L26 | An "instead" effect: the Move does not happen, so no On moved fires. Anchored cards are never moved, so this does not apply to them. It overrides the ring (R39) |
 | CT06 | Herald | Control | 4 | 3 | — | Ongoing: while this card is in the rightmost slot of your row, its Mult is ×1.5. | L77 | Read at Score (Q5). Priced as a Mult ×1.5 card in section 3. L77 had it in the leftmost slot, where a Mult multiplies only its own Power; the rightmost slot multiplies the whole walking total, and getting Herald there is Control's play (C21) |
-| CT07 | Level | Control | 4 | 4 | — | Ongoing: each card's Power is the lowest Power among the revealed cards on its Controller's row, read before any Level applies. | L46 | Read at Score (Q5). A negative Power on a row (Saboteur) sets every card on it to that Power. It hits your own row too |
+| CT07 | Level | Control | 4 | 4 | — | Ongoing: each card's Power is the lowest Power among the revealed cards on its Controller's row, read before any Level applies. | L46 | Read at Score (Q5). A negative Power on a row (Saboteur) sets every card on it to that Power. It hits your own row too. A face-down card is not levelled: Level applies to revealed cards only, and a card is levelled from its reveal |
 | CT08 | Shake | Control | 5 | 5 | — | On reveal: in each row, choose at random half of its cards, rounded down; Anchored cards can be chosen. Each chosen card, from left to right, swaps with the card to its left, wrapping from the leftmost slot to the rightmost. A chosen Anchored card does not move, and a moving card passes over an Anchored card to the next slot on its left. | L31 | Ben (C28): Anchored cards stay in the random pool and simply do not move when chosen, so Anchored keeps its worth against Shake. Adjacent chosen cards step left together (A B C with B and C chosen becomes B C A). Every card that changes slot, chosen or displaced, wakes On moved; all of them are one Batch, counted against the Budget (Q4). Face-down cards move by slot, identity unseen |
 | CT09 | Tempest | Control | 6 | 5 | — | On reveal: reverse the order of the opposing row; Anchored cards stay in their slots. | L78 | As Shake, on one row |
 | CT10 | Cull | Control | 7 | 7 | — | On reveal: each seat chooses five cards on its row; Condemn every card on both rows that was not chosen. | L33 | Prompts both seats (Q9); a seat with five or fewer cards is unaffected. Condemn is a mark until turn end (Q10) |
@@ -482,8 +487,8 @@ them; each now lives in [[rules/glossary]].
 
 - **Watcher moments.** The watcher bracket and the zone bracket are defined in glossary
   section 10.
-- **Created cards.** Owner of a created card is the seat it is created for (glossary, create
-  and Owner).
+- **Dross cards.** The Owner of a Dross card (a card an ability creates) is the seat it is
+  created for (glossary, create, Dross and Owner).
 - **Cards leaving a Pile.** Defined as "Leaving a Pile" (glossary section 2).
 - **Ongoing in hand.** The zone bracket "(while in your hand)" covers Dross and Layaway.
 - **Look at.** Defined in glossary section 6.

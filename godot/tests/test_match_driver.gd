@@ -28,8 +28,8 @@ const NOT_AN_OPTION: int = 99
 ## Unpinned at DC-14 T14 (six decks change seed 1's seeded pairing); re-pinned at DC-14 T18.
 ## Re-pinned at DC-14 T18 (six decks, 90 cards, ten Crew).
 const EXPECTED_LINE: String = (
-	"Board: match ended seed=1 decks=combo/graveyard bot=random winner=1 wins=3-4 rounds=7"
-	+ " end=wins actions=265"
+	"Board: match ended seed=1 decks=combo/graveyard bot=random winner=0 wins=4-1 rounds=5"
+	+ " end=wins actions=191"
 )
 ## The bot the helpers build: the random bot, the only one (cycle 9 R70).
 const BOT: String = "random"

@@ -3,8 +3,8 @@ class_name TestCardDb
 extends GdUnitTestSuite
 ## CardDb, CardDef and CardAbility, pool format 5 (DC-13 T02; cycle 9 plan P2, P3, spec R22,
 ## R60, R64). The shipped file loads the canon's 50 milestone A cards (30 evergreen, 10
-## Greed, 10 Ramp), the 20 Combo and Disruption cards of DC-14 T12 and the created-only
-## Dross, with the numbers and texts of rules/cards-v2; each loader check fails by its name: a
+## Greed, 10 Ramp), the 20 Combo and Disruption cards of DC-14 T12 and the Dross
+## card, with the numbers and texts of rules/cards-v2; each loader check fails by its name: a
 ## Bonus off the legal values, a Cost over 7 without `cost_on_turn`, an unknown moment or
 ## verb, a verb on a moment it may not sit on, an amount out of its range, a missing rules
 ## text, a duplicate id, an unknown tag and an old version. Loading never prints.
@@ -185,7 +185,7 @@ func _assert_valid(db: CardDb) -> void:
 # --- The shipped file -----------------------------------------------------------------
 
 
-## Milestone A's 50 plus DC-14 T12's and T13's 40 Deck cards (90) and Dross (created only,
+## Milestone A's 50 plus DC-14 T12's and T13's 40 Deck cards (90) and Dross (a Dross card,
 ## tag count; canon cards-v2 section 1).
 func test_the_shipped_file_loads_90_deck_cards_and_dross() -> void:
 	var db: CardDb = CardDb.load_default()
@@ -198,12 +198,12 @@ func test_the_shipped_file_loads_90_deck_cards_and_dross() -> void:
 	assert_int(db.cards_tagged("disruption").size()).is_equal(10)
 	assert_int(db.cards_tagged("graveyard").size()).is_equal(10)
 	assert_int(db.cards_tagged("control").size()).is_equal(10)
-	assert_int(db.created_cards().size()).is_equal(1)
+	assert_int(db.dross_cards().size()).is_equal(1)
 	var dross: CardDef = db.card_by_id("dross")
 	assert_object(dross).is_not_null()
 	if dross == null:
 		return
-	assert_bool(dross.created).is_true()
+	assert_bool(dross.dross).is_true()
 	assert_int(dross.cost).is_equal(1)
 	assert_int(dross.power).is_equal(0)
 	assert_int(dross.bonus_kind).is_equal(CardDef.BonusKind.NONE)
@@ -218,7 +218,7 @@ func test_the_shipped_file_loads_90_deck_cards_and_dross() -> void:
 func test_every_shipped_card_matches_the_canon() -> void:
 	var db: CardDb = CardDb.load_default()
 	_assert_valid(db)
-	assert_int(db.size()).is_equal(CANON.size() + CANON_B.size() + db.created_cards().size())
+	assert_int(db.size()).is_equal(CANON.size() + CANON_B.size() + db.dross_cards().size())
 	for raw: Variant in CANON:
 		var row: Array = raw
 		var card_id: String = row[0]
@@ -294,8 +294,9 @@ func test_combo_and_disruption_texts_and_brackets() -> void:
 
 
 ## Saboteur's ×0.75 is the one printed Mult below ×1 (MatchRules.MULT_BELOW_ONE); a
-## `created` flag must be a bool, keeps the card out of the tag lists and round-trips.
-func test_mult_below_one_and_the_created_flag() -> void:
+## `created` flag (the pool key of a Dross definition, CardDb.KEY_DROSS) must be a bool,
+## keeps the card out of the tag lists and round-trips.
+func test_mult_below_one_and_the_dross_flag() -> void:
 	var entry: Dictionary = _plain()
 	entry["bonus"] = {"mult": 75}
 	var db: CardDb = _pool_of([entry])
@@ -307,12 +308,63 @@ func test_mult_below_one_and_the_created_flag() -> void:
 	made["created"] = true
 	var flagged: CardDb = _pool_of([made])
 	_assert_valid(flagged)
-	assert_bool(flagged.card_at(0).created).is_true()
+	assert_bool(flagged.card_at(0).dross).is_true()
 	assert_array(flagged.cards_tagged("evergreen")).is_empty()
 	var round_trip: Dictionary = flagged.card_at(0).to_dict()
 	assert_bool(round_trip.get("created", false)).is_true()
 	made["created"] = "yes"
 	_assert_invalid(_pool_of([made]), CardDb.ERR_SHAPE)
+
+
+## Rules 9 (cycle 14 R9, C13): a Dross definition's `lifetime` is `round` (the default when
+## absent) or `match`, and round-trips; any other value, T03's `until_piled` included, fails
+## with ERR_LIFETIME. A card that is not Dross is not read for it (it keeps the default).
+func test_a_dross_cards_lifetime() -> void:
+	var made: Dictionary = _plain()
+	made["created"] = true
+	var plain_db: CardDb = _pool_of([made])
+	_assert_valid(plain_db)
+	assert_str(plain_db.card_at(0).lifetime).is_equal(CardDef.LIFETIME_ROUND)
+	assert_bool(plain_db.card_at(0).expires_at_round_end()).is_true()
+	assert_bool(plain_db.card_at(0).to_dict().has("lifetime")).is_false()
+	made["lifetime"] = "match"
+	var lasting: CardDb = _pool_of([made])
+	_assert_valid(lasting)
+	assert_str(lasting.card_at(0).lifetime).is_equal(CardDef.LIFETIME_MATCH)
+	assert_bool(lasting.card_at(0).expires_at_round_end()).is_false()
+	assert_str(lasting.card_at(0).to_dict().get("lifetime", "")).is_equal("match")
+	made["lifetime"] = "round"
+	var explicit: CardDb = _pool_of([made])
+	_assert_valid(explicit)
+	assert_str(explicit.card_at(0).lifetime).is_equal(CardDef.LIFETIME_ROUND)
+	for bad: Variant in ["until_piled", "forever", "", 3, null, true]:
+		made["lifetime"] = bad
+		_assert_invalid(_pool_of([made]), CardDb.ERR_LIFETIME)
+	var deck_card: Dictionary = _plain()
+	deck_card["lifetime"] = "forever"
+	var unread: CardDb = _pool_of([deck_card])
+	_assert_valid(unread)
+	assert_str(unread.card_at(0).lifetime).is_equal(CardDef.LIFETIME_ROUND)
+
+
+## The format stays 5 and the shipped pool is not edited for lifetimes (R9): no shipped card
+## carries a `lifetime` key, so the Dross card lasts the Round by the default (C13).
+func test_no_shipped_card_has_a_lifetime_key() -> void:
+	assert_int(CardDb.FORMAT_VERSION).is_equal(5)
+	var text: String = FileAccess.get_file_as_string(CardDb.DEFAULT_PATH)
+	var parsed: Variant = JSON.parse_string(text)
+	assert_bool(parsed is Dictionary).is_true()
+	if not parsed is Dictionary:
+		return
+	var root: Dictionary = parsed
+	var entries: Array = root["cards"]
+	assert_bool(entries.is_empty()).is_false()
+	for raw: Variant in entries:
+		var entry: Dictionary = raw
+		var card_id: String = entry.get("id", "")
+		assert_bool(entry.has("lifetime")).override_failure_message(card_id).is_false()
+	var dross: CardDef = CardDb.load_default().card_by_id("dross")
+	assert_bool(dross.expires_at_round_end()).is_true()
 
 
 func _assert_bonus(def: CardDef, row: Array) -> void:

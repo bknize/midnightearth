@@ -12,8 +12,13 @@ extends RefCounted
 ## (a known moment and verb, the verb allowed on the moment, amounts in range, known scope,
 ## watch and zone, whole uses, its own text); a non-empty card `text` when it has
 ## abilities. A pool has no card count: decks are checked by DeckList.validate().
-## An optional `"created": true` marks a card made only by an ability, never dealt from a
-## Deck (Dross, DC-14 T12): cards_tagged() leaves it out and created_cards() lists it.
+## An optional `"created": true` (KEY_DROSS: the pool keeps that key name) marks a Dross
+## definition, made only by an ability, never dealt from a Deck (the Dross card, DC-14 T12):
+## cards_tagged() leaves it out and dross_cards() lists it. A Dross definition may carry
+## `"lifetime"`: CardDef.LIFETIME_ROUND (the default when absent: removed at the end of the
+## Round) or CardDef.LIFETIME_MATCH (lasts the Match); any other value, `until_piled`
+## included, fails with ERR_LIFETIME (rules 9, cycle 14 R9, C13). The key is read only for
+## a Dross definition; the format version stays 5.
 ##
 ## Loading never prints, asserts or pushes an error: every failure is reported through
 ## load_error(), and a failed database holds no cards, so the engine refuses to start.
@@ -27,9 +32,9 @@ const MAX_POWER: int = 40
 
 # Error prefixes, stable so tests and callers can match on them.
 const ERR_FILE: String = "card data file"
-const ERR_JSON: String = "bad JSON"
-const ERR_SHAPE: String = "bad shape"
-const ERR_VERSION: String = "unsupported version"
+const ERR_JSON: String = JsonLoad.ERR_JSON
+const ERR_SHAPE: String = JsonLoad.ERR_SHAPE
+const ERR_VERSION: String = JsonLoad.ERR_VERSION
 const ERR_DUPLICATE: String = "duplicate id"
 const ERR_TAG: String = "unknown tag"
 const ERR_COST: String = "cost out of range"
@@ -44,6 +49,7 @@ const ERR_WATCH: String = CardAbility.ERR_WATCH
 const ERR_ZONE: String = CardAbility.ERR_ZONE
 const ERR_USES: String = CardAbility.ERR_USES
 const ERR_TEXT: String = CardAbility.ERR_TEXT
+const ERR_LIFETIME: String = "unknown lifetime"
 
 const KEY_ID: String = "id"
 const KEY_NAME: String = "name"
@@ -53,7 +59,9 @@ const KEY_POWER: String = "power"
 const KEY_BONUS: String = "bonus"
 const KEY_ABILITIES: String = "abilities"
 const KEY_TEXT: String = "text"
-const KEY_CREATED: String = "created"
+## The pool key of a Dross definition (CardDef.dross): cards.json keeps the name `created`.
+const KEY_DROSS: String = "created"
+const KEY_LIFETIME: String = "lifetime"
 
 var _cards: Array[CardDef] = []
 var _index_by_id: Dictionary[String, int] = {}
@@ -67,33 +75,20 @@ static func load_default() -> CardDb:
 
 ## Loads a card file from any path. Missing or unreadable files fail silently.
 static func load_from_path(path: String) -> CardDb:
-	if not FileAccess.file_exists(path):
-		return _failed("%s not found: %s" % [ERR_FILE, path])
-	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return _failed("%s unreadable: %s" % [ERR_FILE, path])
-	var text: String = file.get_as_text()
-	file.close()
-	return from_json(text)
+	var file: JsonLoad = JsonLoad.read(path, ERR_FILE)
+	if file.error != "":
+		return _failed(file.error)
+	return from_json(file.text)
 
 
 ## Loads a card pool from JSON text (used by tests with in-memory data).
 static func from_json(text: String) -> CardDb:
-	# JSON.new().parse() reports through its return code and get_error_message();
-	# unlike JSON.parse_string() it does not log an error on malformed input.
-	var json: JSON = JSON.new()
-	var parse_err: Error = json.parse(text)
-	if parse_err != OK:
-		return _failed(
-			"%s at line %d: %s" % [ERR_JSON, json.get_error_line(), json.get_error_message()]
-		)
-	var data: Variant = json.data
-	if not data is Dictionary:
-		return _failed("%s: top level is not an object" % ERR_SHAPE)
-	var root: Dictionary = data
-	var root_problem: String = _root_problem(root)
-	if root_problem != "":
-		return _failed(root_problem)
+	var parsed: JsonLoad = JsonLoad.parse(text, FORMAT_VERSION)
+	if parsed.error != "":
+		return _failed(parsed.error)
+	var root: Dictionary = parsed.root
+	if not root.has("cards") or not root["cards"] is Array:
+		return _failed("%s: missing cards array" % ERR_SHAPE)
 	var entries: Array = root["cards"]
 	var db: CardDb = CardDb.new()
 	for i: int in range(entries.size()):
@@ -156,20 +151,20 @@ func cards() -> Array[CardDef]:
 	return out
 
 
-## The Deck cards with tag `tag`, in file order (a created-only card is left out).
+## The Deck cards with tag `tag`, in file order (a Dross definition is left out).
 func cards_tagged(tag: String) -> Array[CardDef]:
 	var out: Array[CardDef] = []
 	for def: CardDef in _cards:
-		if def.tag == tag and not def.created:
+		if def.tag == tag and not def.dross:
 			out.append(def)
 	return out
 
 
-## The created-only definitions (`"created": true`: Dross), in file order.
-func created_cards() -> Array[CardDef]:
+## The Dross definitions (`"created": true`: the Dross card), in file order (C13).
+func dross_cards() -> Array[CardDef]:
 	var out: Array[CardDef] = []
 	for def: CardDef in _cards:
-		if def.created:
+		if def.dross:
 			out.append(def)
 	return out
 
@@ -178,19 +173,6 @@ static func _failed(message: String) -> CardDb:
 	var db: CardDb = CardDb.new()
 	db._error = message
 	return db
-
-
-## The first problem of the pool's top level, or "": a whole `version` equal to
-## FORMAT_VERSION and a `cards` array.
-static func _root_problem(root: Dictionary) -> String:
-	if not root.has("version") or not EngineAction.is_whole_number(root["version"]):
-		return "%s: missing or non-integer version" % ERR_SHAPE
-	var version: int = EngineAction.as_int(root["version"])
-	if version != FORMAT_VERSION:
-		return "%s: %d (expected %d)" % [ERR_VERSION, version, FORMAT_VERSION]
-	if not root.has("cards") or not root["cards"] is Array:
-		return "%s: missing cards array" % ERR_SHAPE
-	return ""
 
 
 ## The first problem of one card entry, as an error message naming card `i`, or "".
@@ -237,12 +219,12 @@ static func _has_card_fields(d: Dictionary) -> bool:
 		return false
 	if d.has(KEY_ABILITIES) and not d[KEY_ABILITIES] is Array:
 		return false
-	if d.has(KEY_CREATED) and not d[KEY_CREATED] is bool:
+	if d.has(KEY_DROSS) and not d[KEY_DROSS] is bool:
 		return false
 	return not d.has(KEY_TEXT) or d[KEY_TEXT] is String
 
 
-## The cost and power problem of a card entry (fields already checked), or "".
+## The cost, power and lifetime problem of a card entry (fields already checked), or "".
 static func _range_problem(d: Dictionary, abilities: Array, i: int) -> String:
 	var cost: int = EngineAction.as_int(d[KEY_COST])
 	var max_cost: int = MAX_COST
@@ -259,7 +241,21 @@ static func _range_problem(d: Dictionary, abilities: Array, i: int) -> String:
 			"%s: card %d has power %d (allowed %d..%d)"
 			% [ERR_POWER, i, power, MIN_POWER, MAX_POWER]
 		)
-	return ""
+	return _lifetime_problem(d, i)
+
+
+## The lifetime problem of a Dross entry, or "": absent, or a string in CardDef.LIFETIMES. A
+## card that is not Dross is not read for it.
+static func _lifetime_problem(d: Dictionary, i: int) -> String:
+	var dross: bool = d.get(KEY_DROSS, false)
+	if not dross or not d.has(KEY_LIFETIME):
+		return ""
+	var raw: Variant = d[KEY_LIFETIME]
+	if raw is String and CardDef.LIFETIMES.has(raw):
+		return ""
+	return "%s: card %d has lifetime %s (allowed %s)" % [
+		ERR_LIFETIME, i, JSON.stringify(raw), str(CardDef.LIFETIMES)
+	]
 
 
 ## Whether one of `abilities` (already accepted) has the Cost exception verb (R12).
@@ -361,6 +357,9 @@ static func _build_entry(entry: Variant) -> CardDef:
 		abilities,
 		text
 	)
-	var created: bool = d.get(KEY_CREATED, false)
-	def.created = created
+	var dross: bool = d.get(KEY_DROSS, false)
+	def.dross = dross
+	if dross:
+		var lifetime: String = d.get(KEY_LIFETIME, CardDef.LIFETIME_ROUND)
+		def.lifetime = lifetime
 	return def

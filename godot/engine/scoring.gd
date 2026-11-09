@@ -29,7 +29,6 @@ const COST_ON_TURN_VERB: String = "cost_on_turn"
 const HAND_SIZE_ADD_VERB: String = "hand_size_add"
 ## The verb of an Ongoing "each of your cards with no rules text has Power +N" (Banner).
 const PLAIN_POWER_VERB: String = "plain_power"
-const MOMENT_ONGOING: String = "ongoing"
 
 
 ## round_half_up(x / d) for ints and d > 0: floor((x + d / 2) / d), so a half rounds toward
@@ -179,20 +178,16 @@ static func is_grown(card: int, state: MatchState) -> bool:
 	return kept != null and not kept.is_empty()
 
 
-## The uses `card`'s first limited ability has left, as a view shows them: -1 when none of
-## its abilities is limited, the ability's `uses` until the Memory has read them, then the
-## Memory's `uses_left`.
+## The uses `card`'s first limited ability has left in its scope, as a view shows them: -1
+## when none of its abilities is limited, else Abilities.card_uses_left() (its `uses` until
+## the first is counted).
 static func uses_left(card: int, state: MatchState, cards: MatchCards) -> int:
 	var def: CardDef = cards.def_of(card) if cards != null else null
 	if def == null:
 		return -1
 	for ability: CardAbility in def.abilities:
-		if ability.uses <= 0:
-			continue
-		var kept: CardMemory = state.memory_of(card)
-		if kept == null or kept.uses_left < 0:
-			return ability.uses
-		return kept.uses_left
+		if ability.uses > 0:
+			return Abilities.card_uses_left(state, card, ability)
 	return -1
 
 
@@ -212,7 +207,7 @@ static func ongoing_on_row(
 		if def == null:
 			continue
 		for ability: CardAbility in def.abilities:
-			if ability.moment == MOMENT_ONGOING and ability.verb == verb:
+			if ability.moment == CardAbility.MOMENT_ONGOING and ability.verb == verb:
 				out.append(ability)
 	return out
 

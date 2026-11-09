@@ -4,7 +4,7 @@ tags: [spec, cycle-11-bot-trainer, engine, tooling, bot, training, windows, mcp]
 status: approved
 related: ["[[specs/cycle-11-bot-trainer/plan]]", "[[specs/cycle-11-bot-trainer/tasks]]", "[[planning/bot-trainer-architecture]]", "[[planning/bot-trainer-spike]]", "[[planning/bot-ladder]]", "[[systems/bot-training]]", "[[specs/cycle-9-rules-v2/spec]]", "[[specs/cycle-7-bot-players/spec]]", "[[rules/test-decks]]", "[[planning/cycles]]", "[[planning/phase-1-tech-stack]]"]
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-09
 uid: 98fa6820-8ac6-4413-8a30-e30ed6cb3a6b
 linear: https://linear.app/night-science-llc/project/cycle-11-bot-trainer-cycle-a-play-outs-ladder-from-random-trainer-11ab3927f350
 supersedes:
@@ -439,7 +439,7 @@ Milestone A2 (`cycle-11b-bot-trainer`):
 - [x] The runner, shim, grant and start scripts and `SETUP.md` are tracked; the task's file
       is the shim, swapped in over SSH with no admin step (C11); after a service restart an
       interrupted run is reported (R53, R54).
-- [ ] `docs/systems/bot-training.md` rewritten (after Ben's working-copy edits are settled),
+- [x] `docs/systems/bot-training.md` rewritten (after Ben's working-copy edits are settled),
       `CLAUDE.md` has the `trainer/` row, the cycle rows carry the PC's rollouts per second
       (R56, R57). (DC-17: rollouts per second recorded; the guide and the `CLAUDE.md` row went
-      to Backlog with T13, NSC-204, Ben 3b 2026-11-07.)
+      to Backlog with T13, NSC-204, Ben 3b 2026-11-07.) (done at DC-20 T19, NSC-204)

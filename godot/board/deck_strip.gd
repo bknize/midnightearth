@@ -26,11 +26,8 @@ const MIN_WIDTH: float = 6.0
 ## The strip slides in from, and out to, this far above its resting place.
 const SLIDE: Vector3 = Vector3(0.0, 9.0, 0.0)
 const GLOW_ALPHA: float = 0.55
-## Meta keys on a strip card: its entry's index, and (for a pile) the pile and place it came
-## from, so a hidden entry can be found when the engine names it by position.
+## Meta key on a strip card: its entry's index.
 const META_ENTRY: StringName = &"strip_entry"
-const META_SEAT: StringName = &"strip_seat"
-const META_POSITION: StringName = &"strip_position"
 const COLLECTION_SCENE: PackedScene = preload("res://addons/card_3d/scenes/card_collection_3d.tscn")
 
 var collection: CardCollection3D = null
@@ -39,7 +36,6 @@ var aspect: float = DEFAULT_ASPECT
 
 var _rest: Vector3 = Vector3.ZERO
 var _eligible: Array[int] = []
-var _on_choose: Callable = Callable()
 
 
 ## The strip's world rectangle (x, y of its corner and size) for a viewport of `ratio`
@@ -58,8 +54,7 @@ func is_up() -> bool:
 
 ## Lays `entries` out under `parent`, sliding in over `seconds`. `eligible` lists the entry
 ## indices that may be chosen (they glow); `make_card` returns a fresh BoardCard; `def_of`
-## takes an instance id and returns its CardDef; `on_choose` takes the chosen entry index.
-## `piles` optionally names, per entry, the pile `[seat, position]` it came from. `memory_of`
+## takes an instance id and returns its CardDef. `memory_of`
 ## optionally takes an instance id and returns its view entry (cost, stats, grown: card
 ## memory, cycle 8 R25), so the strip's faces carry the mark; without it they show printed.
 func show(
@@ -69,14 +64,11 @@ func show(
 	make_card: Callable,
 	def_of: Callable,
 	glow: Material,
-	on_choose: Callable,
 	seconds: float = 0.0,
-	piles: Array[Vector2i] = [],
 	memory_of: Callable = Callable()
 ) -> void:
 	hide(0.0)
 	_eligible = eligible.duplicate()
-	_on_choose = on_choose
 	var made: CardCollection3D = COLLECTION_SCENE.instantiate() as CardCollection3D
 	if made == null:
 		push_warning("DeckStrip: could not build the collection")
@@ -100,9 +92,6 @@ func show(
 			continue
 		made.append_card(card)
 		card.set_meta(META_ENTRY, index)
-		if index < piles.size():
-			card.set_meta(META_SEAT, piles[index].x)
-			card.set_meta(META_POSITION, piles[index].y)
 		_dress(card, entries[index], def_of, memory_of)
 		if _eligible.has(index) and glow != null:
 			card.set_glow(glow, GLOW_ALPHA)
@@ -117,7 +106,6 @@ func hide(seconds: float) -> void:
 	var gone: CardCollection3D = collection
 	collection = null
 	_eligible.clear()
-	_on_choose = Callable()
 	_slide(gone, _rest + SLIDE, seconds, true)
 
 
@@ -140,24 +128,35 @@ func option_of(card: Card3D) -> int:
 	return index if _eligible.has(index) else -1
 
 
-## The strip card that came from `seat`'s pile at `position`, or null.
-func card_from(seat: int, position: int) -> Card3D:
+## Whether entry `index` may be chosen: it glows.
+func may_choose(index: int) -> bool:
+	return _eligible.has(index)
+
+
+## The strip's card showing instance `id`, or null.
+func card_of(id: int) -> Card3D:
 	if not is_up():
 		return null
-	for card: Card3D in collection.cards:
-		var from_seat: int = card.get_meta(META_SEAT, -1)
-		var from_position: int = card.get_meta(META_POSITION, -1)
-		if from_seat == seat and from_position == position:
-			return card
+	for candidate: Card3D in collection.cards:
+		var named: BoardCard = candidate as BoardCard
+		if named != null and named.instance_id == id:
+			return candidate
 	return null
 
 
-## Picks entry `index`: calls the callback with it. False when the entry may not be chosen.
-func choose(index: int) -> bool:
-	if not _eligible.has(index) or not _on_choose.is_valid():
-		return false
-	_on_choose.call(index)
-	return true
+## Removes `card` from the strip and frees it.
+func drop_card(card: Card3D) -> void:
+	if not is_up():
+		return
+	var index: int = collection.cards.find(card)
+	var removed: Card3D = collection.remove_card(index)
+	removed.queue_free()
+
+
+## Forgets the strip without touching any node, for the board leaving the tree.
+func forget() -> void:
+	collection = null
+	_eligible.clear()
 
 
 static func _dress(card: BoardCard, entry: int, def_of: Callable, memory_of: Callable) -> void:

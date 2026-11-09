@@ -12,7 +12,7 @@ extends GdUnitTestSuite
 ## CARD_PLACED) and chains; Exhume always prompts once for up to two and may choose none; Immolator
 ## Condemns as many random opposing cards as it chose; Reset refills both Decks before it
 ## reaches its own Pile. Each case puts the shipped card's definition on a stub deck
-## instance (StubAbilities, MatchCards.replace_def); seat 1's instances add DECK_SIZE.
+## instance (StubAbilities.replace_def); seat 1's instances add DECK_SIZE.
 
 const SEED: int = 1
 const OTHER: int = MatchRules.DECK_SIZE
@@ -36,12 +36,6 @@ func _db() -> CardDb:
 	if _cached_db == null:
 		_cached_db = CardDb.load_default()
 	return _cached_db
-
-
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
 
 
 func _words(values: Array) -> Array[String]:
@@ -142,8 +136,8 @@ func _power(state: MatchState, cards: MatchCards, card: int) -> int:
 func test_fuse_grows_on_opposing_scores_then_condemns_itself_and_one_opposing() -> void:
 	var cards: MatchCards = _cards()
 	var fuse: int = 0
-	_put(cards, _typed([fuse]), "gy01")
-	var state: MatchState = StubAbilities.table(_typed([fuse, StubAbilities.MOTE + 1]), true)
+	_put(cards, Typed.ints([fuse]), "gy01")
+	var state: MatchState = StubAbilities.table(Typed.ints([fuse, StubAbilities.MOTE + 1]), true)
 	var enemy: Array[int] = [OTHER, OTHER + 1, OTHER + 2, OTHER + 3]
 	StubAbilities.put_row(state, 1, enemy, true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
@@ -158,12 +152,83 @@ func test_fuse_grows_on_opposing_scores_then_condemns_itself_and_one_opposing() 
 	assert_int(_power(state, cards, fuse)).is_equal(1)
 
 
+## Fuse at Power 5 over an opposing row of four Scoring cards, the whole Walk on one stream
+## `rng`; `enemy` holds seat 1's instances, revealed. Returns the recorder.
+func _fuse_over(
+	cards: MatchCards, state: MatchState, enemy: Array[int], rng: MatchRng
+) -> StubAbilities.Recorder:
+	StubAbilities.put_row(state, 1, enemy, true)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	ScoreWalk.begin(state)
+	var guard: int = 0
+	while state.walk.active and guard < GUARD:
+		assert_bool(ScoreWalk.step(state, cards, rng, rec.record)).is_false()
+		guard += 1
+	return rec
+
+
+## Rules 9 (cycle 14 R3, C2 2b): Fuse's random pick is drawn from the whole opposing row;
+## landing on a card a protection keeps from the Condemned mark (four Bastions) is a miss,
+## one TRIGGER_FIZZLED `protected` for the pick, Fuse itself having fired (and Condemned
+## itself). The stream advances exactly as when the pick lands on an open card: one
+## pick_index over the row of four.
+func test_fuse_pick_on_a_protected_card_fizzles_protected() -> void:
+	var cards: MatchCards = _cards()
+	var fuse: int = 0
+	_put(cards, Typed.ints([fuse]), "gy01")
+	var bastion: int = OTHER + StubAbilities.BASTION
+	var guarded: Array[int] = [bastion, bastion + 1, bastion + 2, bastion + 3]
+	var state: MatchState = StubAbilities.table(Typed.ints([fuse]), true)
+	var rng: MatchRng = MatchRng.new(SEED)
+	var rec: StubAbilities.Recorder = _fuse_over(cards, state, guarded, rng)
+	assert_int(rec.cards_of(FIRED).count(fuse)).is_equal(4)
+	assert_str(Statuses.exit_mark_of(state, fuse)).is_equal(Statuses.CONDEMNED)
+	assert_array(_condemned(state, guarded)).is_empty()
+	assert_array(_fizzles(rec, "fuse")).is_equal(_words([Abilities.REASON_PROTECTED]))
+	var missed: MatchEvent = rec.of_kind(FIZZLED)[0]
+	assert_int(_int_of(missed, "card")).is_equal(fuse)
+	assert_int(missed.owner_seat).is_equal(MatchEvent.PUBLIC)
+	# The same Walk over four open cards marks one, on the same stream.
+	var open: MatchState = StubAbilities.table(Typed.ints([fuse]), true)
+	var enemy: Array[int] = [OTHER, OTHER + 1, OTHER + 2, OTHER + 3]
+	var open_rng: MatchRng = MatchRng.new(SEED)
+	var open_rec: StubAbilities.Recorder = _fuse_over(cards, open, enemy, open_rng)
+	assert_int(_condemned(open, enemy).size()).is_equal(1)
+	assert_array(_fizzles(open_rec, "fuse")).is_empty()
+	assert_int(rng.state).is_equal(open_rng.state)
+	var one_pick: MatchRng = MatchRng.new(SEED)
+	var at: int = one_pick.pick_index(enemy.size())
+	assert_int(rng.state).is_equal(one_pick.state)
+	assert_str(Statuses.exit_mark_of(open, enemy[at])).is_equal(Statuses.CONDEMNED)
+
+
+## Rules 9 (R3): a pick that lands on a card already holding the Condemned mark is a miss,
+## TRIGGER_FIZZLED `already_marked`, with no new EXIT_MARKED for it; same stream.
+func test_fuse_pick_on_a_condemned_card_fizzles_already_marked() -> void:
+	var cards: MatchCards = _cards()
+	var fuse: int = 0
+	_put(cards, Typed.ints([fuse]), "gy01")
+	var enemy: Array[int] = [OTHER, OTHER + 1, OTHER + 2, OTHER + 3]
+	var state: MatchState = StubAbilities.table(Typed.ints([fuse]), true)
+	for card: int in enemy:
+		state.card_state_for(card).exit_mark = Statuses.CONDEMNED
+	var rng: MatchRng = MatchRng.new(SEED)
+	var rec: StubAbilities.Recorder = _fuse_over(cards, state, enemy, rng)
+	assert_str(Statuses.exit_mark_of(state, fuse)).is_equal(Statuses.CONDEMNED)
+	assert_array(_fizzles(rec, "fuse")).is_equal(_words([Abilities.REASON_ALREADY_MARKED]))
+	assert_array(rec.cards_of(MatchEvent.Kind.EXIT_MARKED)).is_equal(Typed.ints([fuse]))
+	assert_array(_condemned(state, enemy)).is_equal(enemy)
+	var one_pick: MatchRng = MatchRng.new(SEED)
+	one_pick.pick_index(enemy.size())
+	assert_int(rng.state).is_equal(one_pick.state)
+
+
 ## Three opposing Scores leave Fuse at Power 4: nothing is Condemned.
 func test_fuse_below_five_condemns_nothing() -> void:
 	var cards: MatchCards = _cards()
 	var fuse: int = 0
-	_put(cards, _typed([fuse]), "gy01")
-	var state: MatchState = StubAbilities.table(_typed([fuse]), true)
+	_put(cards, Typed.ints([fuse]), "gy01")
+	var state: MatchState = StubAbilities.table(Typed.ints([fuse]), true)
 	var enemy: Array[int] = [OTHER, OTHER + 1, OTHER + 2]
 	StubAbilities.put_row(state, 1, enemy, true)
 	_walk(state, cards, StubAbilities.recorder())
@@ -181,20 +246,20 @@ func test_fuse_below_five_condemns_nothing() -> void:
 func test_tithe_grants_next_turn_energy_capped_at_three() -> void:
 	var cards: MatchCards = _cards()
 	var tithe: int = 0
-	_put(cards, _typed([tithe]), "gy02")
+	_put(cards, Typed.ints([tithe]), "gy02")
 	var own: Array[int] = [1, 2, 3, StubAbilities.PEBBLE]
 	var row: Array[int] = [tithe]
 	row.append_array(own)
 	var state: MatchState = StubAbilities.table(row, true)
-	StubAbilities.put_row(state, 1, _typed([OTHER]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER]), true)
 	state.turn = 3
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	for card: int in own + _typed([OTHER]):
+	for card: int in own + Typed.ints([OTHER]):
 		assert_bool(StubAbilities.stub_condemn(state, cards, card, rec.record)).is_true()
 	assert_bool(TurnFlow.end_turn(state, cards, MatchRng.new(SEED), rec.record)).is_false()
 	assert_array(state.seats[0].pile).is_equal(own)
-	assert_array(state.energy.grants).is_equal(_typed([3, 0]))
-	assert_array(state.energy.next_turn_grants).is_equal(_typed([0, 0]))
+	assert_array(state.energy.grants).is_equal(Typed.ints([3, 0]))
+	assert_array(state.energy.next_turn_grants).is_equal(Typed.ints([0, 0]))
 	var granted: Array[MatchEvent] = rec.of_kind(GRANTED)
 	assert_int(granted.size()).is_equal(3)
 	for event: MatchEvent in granted:
@@ -207,13 +272,13 @@ func test_tithe_grants_next_turn_energy_capped_at_three() -> void:
 func test_tithe_on_turn_seven_grants_nothing() -> void:
 	var cards: MatchCards = _cards()
 	var tithe: int = 0
-	_put(cards, _typed([tithe]), "gy02")
-	var state: MatchState = StubAbilities.table(_typed([tithe, 1]), true)
+	_put(cards, Typed.ints([tithe]), "gy02")
+	var state: MatchState = StubAbilities.table(Typed.ints([tithe, 1]), true)
 	state.turn = MatchRules.TURNS
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(StubAbilities.stub_condemn(state, cards, 1, rec.record)).is_true()
 	assert_bool(TurnFlow.end_turn(state, cards, MatchRng.new(SEED), rec.record)).is_false()
-	assert_array(state.energy.grants).is_equal(_typed([0, 0]))
+	assert_array(state.energy.grants).is_equal(Typed.ints([0, 0]))
 	assert_array(_fizzles(rec, "tithe_energy")).is_equal(_words(["no_target"]))
 
 
@@ -222,13 +287,13 @@ func test_tithe_on_turn_seven_grants_nothing() -> void:
 func test_tithe_ignores_a_hand_discard() -> void:
 	var cards: MatchCards = _cards()
 	var tithe: int = 0
-	_put(cards, _typed([tithe]), "gy02")
-	var state: MatchState = StubAbilities.table(_typed([tithe]), true)
+	_put(cards, Typed.ints([tithe]), "gy02")
+	var state: MatchState = StubAbilities.table(Typed.ints([tithe]), true)
 	state.turn = 2
-	state.seats[0].hand.assign(_typed([1]))
+	state.seats[0].hand.assign(Typed.ints([1]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_discard(state, cards, rec, 1, TurnFlow.STEP_FIRST_DISCARD)
-	assert_array(state.energy.next_turn_grants).is_equal(_typed([0, 0]))
+	assert_array(state.energy.next_turn_grants).is_equal(Typed.ints([0, 0]))
 	assert_array(_fizzles(rec, "tithe_energy")).is_equal(_words(["no_target"]))
 
 
@@ -241,9 +306,9 @@ func test_tithe_ignores_a_hand_discard() -> void:
 func test_reliquary_grows_once_per_turn_from_hand_discards_to_two() -> void:
 	var cards: MatchCards = _cards()
 	var relic: int = 0
-	_put(cards, _typed([relic]), "gy03")
-	var state: MatchState = StubAbilities.table(_typed([relic]), true)
-	state.seats[0].hand.assign(_typed([1, 2, 3, 8, 9, 10]))
+	_put(cards, Typed.ints([relic]), "gy03")
+	var state: MatchState = StubAbilities.table(Typed.ints([relic]), true)
+	state.seats[0].hand.assign(Typed.ints([1, 2, 3, 8, 9, 10]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_int(Scoring.stats(relic, state, cards).mult()).is_equal(125)
 	_discard(state, cards, rec, 1, TurnFlow.STEP_FIRST_DISCARD)
@@ -267,6 +332,31 @@ func test_reliquary_grows_once_per_turn_from_hand_discards_to_two() -> void:
 	assert_array(_fizzles(rec, "reliquary_mult")).is_equal(reasons)
 
 
+## Rules 9 (cycle 14 R10, C13: "to make Reliquary useful"): a Dross card discarded from its
+## Owner's hand is filed in that Owner's Pile within the Round (CARD_DISCARDED, no
+## DROSS_EXPIRED), so Reliquary grows from it as from any hand Discard (×1.25 to ×1.5).
+func test_reliquary_grows_from_a_discarded_dross() -> void:
+	var cards: MatchCards = _cards()
+	var relic: int = 0
+	_put(cards, Typed.ints([relic]), "gy03")
+	var state: MatchState = StubAbilities.table(Typed.ints([relic]), true)
+	var dross: int = AbilitiesComboDisruption.create(state, cards, cards.pool_def("dross"), 0)
+	assert_int(dross).is_equal(MatchCards.DROSS_BASE)
+	state.seats[0].hand.assign(Typed.ints([dross]))
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	state.seats[0].hand.erase(dross)
+	TurnFlow.to_pile(state, cards, rec.record, dross, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD)
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([dross]))
+	assert_array(rec.of_kind(MatchEvent.Kind.DROSS_EXPIRED)).is_empty()
+	assert_array(rec.cards_of(MatchEvent.Kind.CARD_DISCARDED)).is_equal(Typed.ints([dross]))
+	var discarded: Array[int] = [dross]
+	var rng: MatchRng = MatchRng.new(SEED)
+	var step: String = TurnFlow.STEP_FIRST_DISCARD
+	assert_bool(TurnFlow.on_discard(state, cards, rng, rec.record, discarded, step, 0)).is_false()
+	assert_int(Scoring.stats(relic, state, cards).mult()).is_equal(150)
+	assert_array(_fizzles(rec, "reliquary_mult")).is_empty()
+
+
 # --- Boneyard -------------------------------------------------------------------------
 
 
@@ -275,11 +365,11 @@ func test_reliquary_grows_once_per_turn_from_hand_discards_to_two() -> void:
 func test_boneyard_counts_both_piles_by_four() -> void:
 	var cards: MatchCards = _cards()
 	var bone: int = 0
-	_put(cards, _typed([bone]), "gy04")
-	var state: MatchState = StubAbilities.table(_typed([bone]), true)
+	_put(cards, Typed.ints([bone]), "gy04")
+	var state: MatchState = StubAbilities.table(Typed.ints([bone]), true)
 	assert_int(_power(state, cards, bone)).is_equal(2)
-	state.seats[0].pile.assign(_typed([1, 2, 3]))
-	state.seats[1].pile.assign(_typed([OTHER, OTHER + 1, OTHER + 2, OTHER + 3]))
+	state.seats[0].pile.assign(Typed.ints([1, 2, 3]))
+	state.seats[1].pile.assign(Typed.ints([OTHER, OTHER + 1, OTHER + 2, OTHER + 3]))
 	assert_int(_power(state, cards, bone)).is_equal(3)
 	state.seats[0].pile.append(8)
 	assert_int(_power(state, cards, bone)).is_equal(4)
@@ -297,20 +387,20 @@ func test_boneyard_counts_both_piles_by_four() -> void:
 func test_wraith_condemned_still_turns_its_rows_condemned_into_fade() -> void:
 	var cards: MatchCards = _cards()
 	var wraith: int = 0
-	_put(cards, _typed([wraith]), "gy05")
-	var state: MatchState = StubAbilities.table(_typed([wraith, 1, 2]), true)
-	StubAbilities.put_row(state, 1, _typed([OTHER]), true)
+	_put(cards, Typed.ints([wraith]), "gy05")
+	var state: MatchState = StubAbilities.table(Typed.ints([wraith, 1, 2]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([OTHER]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	for card: int in [wraith, 1, OTHER]:
 		assert_bool(StubAbilities.stub_condemn(state, cards, card, rec.record)).is_true()
 	var discarded: Array[int] = TurnFlow.exit_pass(state, cards, rec.record)
-	assert_array(discarded).is_equal(_typed([OTHER]))
-	assert_array(state.seats[0].board).is_equal(_typed([wraith, 1, 2]))
+	assert_array(discarded).is_equal(Typed.ints([OTHER]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([wraith, 1, 2]))
 	assert_bool(state.seats[0].is_revealed(wraith)).is_false()
 	assert_bool(state.seats[0].is_revealed(1)).is_false()
 	assert_bool(state.seats[0].is_revealed(2)).is_true()
 	assert_array(state.seats[0].pile).is_empty()
-	assert_array(state.seats[1].pile).is_equal(_typed([OTHER]))
+	assert_array(state.seats[1].pile).is_equal(Typed.ints([OTHER]))
 	var faded: int = 0
 	for event: MatchEvent in rec.of_kind(RESOLVED):
 		if _str_of(event, "to") == Statuses.TO_FACE_DOWN:
@@ -323,14 +413,14 @@ func test_wraith_condemned_still_turns_its_rows_condemned_into_fade() -> void:
 func test_squelched_wraith_changes_nothing() -> void:
 	var cards: MatchCards = _cards()
 	var wraith: int = 0
-	_put(cards, _typed([wraith]), "gy05")
-	var state: MatchState = StubAbilities.table(_typed([wraith, 1]), true)
+	_put(cards, Typed.ints([wraith]), "gy05")
+	var state: MatchState = StubAbilities.table(Typed.ints([wraith, 1]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	var sink: Callable = rec.record
 	assert_bool(StubAbilities.stub_squelch(state, cards, wraith, sink).ok()).is_true()
 	assert_bool(StubAbilities.stub_condemn(state, cards, 1, sink)).is_true()
-	assert_array(TurnFlow.exit_pass(state, cards, sink)).is_equal(_typed([1]))
-	assert_array(state.seats[0].pile).is_equal(_typed([1]))
+	assert_array(TurnFlow.exit_pass(state, cards, sink)).is_equal(Typed.ints([1]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([1]))
 
 
 ## Wraith changes Condemned only: a card made Fleeting after its Condemn (what Veil does at
@@ -340,15 +430,15 @@ func test_squelched_wraith_changes_nothing() -> void:
 func test_wraith_leaves_a_fleeting_card_alone() -> void:
 	var cards: MatchCards = _cards()
 	var wraith: int = 0
-	_put(cards, _typed([wraith]), "gy05")
-	var state: MatchState = StubAbilities.table(_typed([wraith, 1]), true)
+	_put(cards, Typed.ints([wraith]), "gy05")
+	var state: MatchState = StubAbilities.table(Typed.ints([wraith, 1]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	var sink: Callable = rec.record
 	assert_bool(StubAbilities.stub_condemn(state, cards, 1, sink)).is_true()
 	assert_bool(StubAbilities.stub_fleeting(state, cards, 1, sink)).is_true()
 	assert_array(TurnFlow.exit_pass(state, cards, sink)).is_empty()
-	assert_array(state.seats[0].board).is_equal(_typed([wraith]))
-	assert_array(state.seats[0].hand).is_equal(_typed([1]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([wraith]))
+	assert_array(state.seats[0].hand).is_equal(Typed.ints([1]))
 
 
 # --- Glutton --------------------------------------------------------------------------
@@ -361,20 +451,20 @@ func test_glutton_prompts_condemns_and_gains_the_power() -> void:
 	var cards: MatchCards = _cards()
 	var glutton: int = 0
 	var pebble: int = StubAbilities.PEBBLE
-	_put(cards, _typed([glutton]), "gy06")
-	var state: MatchState = StubAbilities.table(_typed([glutton, pebble, 1]), false)
+	_put(cards, Typed.ints([glutton]), "gy06")
+	var state: MatchState = StubAbilities.table(Typed.ints([glutton, pebble, 1]), false)
 	state.seats[0].revealed[pebble] = true
 	state.seats[0].revealed[1] = true
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
 	assert_bool(ScoreWalk.step(state, cards, MatchRng.new(SEED), rec.record)).is_true()
 	assert_str(Choice.zone_name(Choice.zone_of(state.prompt))).is_equal("own_board")
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([1, 2]))
-	_answer_and_finish(state, cards, rec, Choice.Zone.OWN_BOARD, _typed([1]))
+	assert_array(Choice.options_of(state.prompt)).is_equal(Typed.ints([1, 2]))
+	_answer_and_finish(state, cards, rec, Choice.Zone.OWN_BOARD, Typed.ints([1]))
 	assert_str(Statuses.exit_mark_of(state, pebble)).is_equal(Statuses.CONDEMNED)
 	assert_str(Statuses.exit_mark_of(state, 1)).is_empty()
 	assert_int(_power(state, cards, glutton)).is_equal(5)
-	assert_array(rec.cards_of(SCORED)).is_equal(_typed([glutton, pebble, 1]))
+	assert_array(rec.cards_of(SCORED)).is_equal(Typed.ints([glutton, pebble, 1]))
 
 
 ## One eligible card is chosen with no prompt; a card that cannot be Condemned (Bastion) is
@@ -382,15 +472,15 @@ func test_glutton_prompts_condemns_and_gains_the_power() -> void:
 func test_glutton_auto_chooses_one_and_skips_bastion() -> void:
 	var cards: MatchCards = _cards()
 	var glutton: int = 0
-	_put(cards, _typed([glutton, glutton + 1]), "gy06")
-	var state: MatchState = StubAbilities.table(_typed([glutton, StubAbilities.PEBBLE]), false)
+	_put(cards, Typed.ints([glutton, glutton + 1]), "gy06")
+	var state: MatchState = StubAbilities.table(Typed.ints([glutton, StubAbilities.PEBBLE]), false)
 	state.seats[0].revealed[StubAbilities.PEBBLE] = true
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	assert_array(rec.of_kind(PROMPTED)).is_empty()
 	assert_int(_power(state, cards, glutton)).is_equal(5)
 	var bastion: int = StubAbilities.BASTION
-	var guarded: MatchState = StubAbilities.table(_typed([glutton + 1, bastion]), false)
+	var guarded: MatchState = StubAbilities.table(Typed.ints([glutton + 1, bastion]), false)
 	guarded.seats[0].revealed[bastion] = true
 	var none: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(guarded, cards, none)
@@ -409,12 +499,12 @@ func test_revive_places_a_pile_card_that_is_reached_this_walk() -> void:
 	var cards: MatchCards = _cards()
 	var revive: int = 0
 	var pebble: int = StubAbilities.PEBBLE
-	_put(cards, _typed([revive]), "gy07")
-	var state: MatchState = StubAbilities.table(_typed([revive, 1]), false)
-	state.seats[0].pile.assign(_typed([pebble]))
+	_put(cards, Typed.ints([revive]), "gy07")
+	var state: MatchState = StubAbilities.table(Typed.ints([revive, 1]), false)
+	state.seats[0].pile.assign(Typed.ints([pebble]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	assert_array(state.seats[0].board).is_equal(_typed([revive, pebble, 1]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([revive, pebble, 1]))
 	assert_array(state.seats[0].pile).is_empty()
 	assert_array(rec.of_kind(MOVED)).is_empty()
 	var placed: Array[MatchEvent] = rec.of_kind(PLACED)
@@ -425,7 +515,7 @@ func test_revive_places_a_pile_card_that_is_reached_this_walk() -> void:
 	assert_str(_str_of(placed[0], "from")).is_equal("pile")
 	assert_int(_int_of(placed[0], "slot")).is_equal(1)
 	assert_str(Statuses.exit_mark_of(state, revive)).is_equal(Statuses.CONDEMNED)
-	assert_array(rec.cards_of(SCORED)).is_equal(_typed([revive, pebble, 1]))
+	assert_array(rec.cards_of(SCORED)).is_equal(Typed.ints([revive, pebble, 1]))
 
 
 ## LOOP: a Revive revived by Revive chains one card per resolution. Two Pile cards prompt
@@ -436,18 +526,18 @@ func test_revive_chains_through_a_revived_revive() -> void:
 	var revive: int = 0
 	var again: int = 3
 	var pebble: int = StubAbilities.PEBBLE
-	_put(cards, _typed([revive, again, 2]), "gy07")
-	var state: MatchState = StubAbilities.table(_typed([revive, 1]), false)
-	state.seats[0].pile.assign(_typed([again, pebble]))
+	_put(cards, Typed.ints([revive, again, 2]), "gy07")
+	var state: MatchState = StubAbilities.table(Typed.ints([revive, 1]), false)
+	state.seats[0].pile.assign(Typed.ints([again, pebble]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
 	assert_bool(ScoreWalk.step(state, cards, MatchRng.new(SEED), rec.record)).is_true()
 	assert_str(Choice.zone_name(Choice.zone_of(state.prompt))).is_equal("own_pile")
-	_answer_and_finish(state, cards, rec, Choice.Zone.OWN_PILE, _typed([0]))
-	assert_array(state.seats[0].board).is_equal(_typed([revive, again, pebble, 1]))
+	_answer_and_finish(state, cards, rec, Choice.Zone.OWN_PILE, Typed.ints([0]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([revive, again, pebble, 1]))
 	assert_array(state.seats[0].pile).is_empty()
-	assert_array(_condemned(state, state.seats[0].board)).is_equal(_typed([revive, again]))
-	var empty: MatchState = StubAbilities.table(_typed([2]), false)
+	assert_array(_condemned(state, state.seats[0].board)).is_equal(Typed.ints([revive, again]))
+	var empty: MatchState = StubAbilities.table(Typed.ints([2]), false)
 	var none: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(empty, cards, none)
 	assert_array(_fizzles(none, "revive")).is_equal(_words(["no_target"]))
@@ -464,11 +554,11 @@ func test_revive_chains_through_a_revived_revive() -> void:
 func test_exhume_asks_once_for_up_to_two() -> void:
 	var cards: MatchCards = _cards()
 	var exhume: int = 0
-	_put(cards, _typed([exhume]), "gy08")
-	var state: MatchState = StubAbilities.table(_typed([exhume]), false)
-	state.seats[0].pile.assign(_typed([8]))
-	state.seats[1].pile.assign(_typed([OTHER + 8, OTHER + 7]))
-	state.seats[1].deck.assign(_typed([OTHER + 9]))
+	_put(cards, Typed.ints([exhume]), "gy08")
+	var state: MatchState = StubAbilities.table(Typed.ints([exhume]), false)
+	state.seats[0].pile.assign(Typed.ints([8]))
+	state.seats[1].pile.assign(Typed.ints([OTHER + 8, OTHER + 7]))
+	state.seats[1].deck.assign(Typed.ints([OTHER + 9]))
 	var rng: MatchRng = MatchRng.new(SEED)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
@@ -480,18 +570,18 @@ func test_exhume_asks_once_for_up_to_two() -> void:
 	assert_int(Choice.exact_of(state.prompt)).is_equal(Choice.ANY_SIZE)
 	assert_int(Choice.min_of(state.prompt)).is_equal(0)
 	assert_int(Choice.max_of(state.prompt)).is_equal(2)
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([0, 1, 2]))
-	assert_bool(Choice.is_valid_set(state.prompt, zone, _typed([0, 1, 2]))).is_false()
-	assert_bool(Choice.is_valid_set(state.prompt, zone, _typed([]))).is_true()
-	assert_bool(Choice.is_valid_set(state.prompt, zone, _typed([0, 2]))).is_true()
+	assert_array(Choice.options_of(state.prompt)).is_equal(Typed.ints([0, 1, 2]))
+	assert_bool(Choice.is_valid_set(state.prompt, zone, Typed.ints([0, 1, 2]))).is_false()
+	assert_bool(Choice.is_valid_set(state.prompt, zone, Typed.ints([]))).is_true()
+	assert_bool(Choice.is_valid_set(state.prompt, zone, Typed.ints([0, 2]))).is_true()
 	assert_int(rec.of_kind(PROMPTED).size()).is_equal(1)
-	var both: Array[int] = _typed([0, 1])
+	var both: Array[int] = Typed.ints([0, 1])
 	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, both, false)).is_false()
 	assert_bool(state.prompt.is_empty()).is_true()
 	assert_int(rec.of_kind(PROMPTED).size()).is_equal(1)
 	assert_array(state.seats[0].pile).is_empty()
-	assert_array(state.seats[0].deck).is_equal(_typed([8]))
-	assert_array(state.seats[1].pile).is_equal(_typed([OTHER + 7]))
+	assert_array(state.seats[0].deck).is_equal(Typed.ints([8]))
+	assert_array(state.seats[1].pile).is_equal(Typed.ints([OTHER + 7]))
 	assert_int(state.seats[1].deck.size()).is_equal(2)
 	assert_bool(state.seats[1].deck.has(OTHER + 8)).is_true()
 	var shuffled: Array[MatchEvent] = rec.of_kind(SHUFFLED)
@@ -505,9 +595,9 @@ func test_exhume_asks_once_for_up_to_two() -> void:
 func test_exhume_empty_set_changes_nothing() -> void:
 	var cards: MatchCards = _cards()
 	var exhume: int = 0
-	_put(cards, _typed([exhume]), "gy08")
-	var state: MatchState = StubAbilities.table(_typed([exhume]), false)
-	state.seats[0].pile.assign(_typed([8]))
+	_put(cards, Typed.ints([exhume]), "gy08")
+	var state: MatchState = StubAbilities.table(Typed.ints([exhume]), false)
+	state.seats[0].pile.assign(Typed.ints([8]))
 	var rng: MatchRng = MatchRng.new(SEED)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
@@ -515,7 +605,7 @@ func test_exhume_empty_set_changes_nothing() -> void:
 	var none: Array[int] = []
 	var zone: int = Choice.Zone.BOTH_PILES
 	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, none, false)).is_false()
-	assert_array(state.seats[0].pile).is_equal(_typed([8]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([8]))
 	assert_array(state.seats[0].deck).is_empty()
 	assert_array(rec.of_kind(SHUFFLED)).is_empty()
 
@@ -524,9 +614,9 @@ func test_exhume_empty_set_changes_nothing() -> void:
 func test_exhume_declined_changes_nothing() -> void:
 	var cards: MatchCards = _cards()
 	var exhume: int = 0
-	_put(cards, _typed([exhume]), "gy08")
-	var state: MatchState = StubAbilities.table(_typed([exhume]), false)
-	state.seats[0].pile.assign(_typed([8]))
+	_put(cards, Typed.ints([exhume]), "gy08")
+	var state: MatchState = StubAbilities.table(Typed.ints([exhume]), false)
+	state.seats[0].pile.assign(Typed.ints([8]))
 	var rng: MatchRng = MatchRng.new(SEED)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
@@ -534,7 +624,7 @@ func test_exhume_declined_changes_nothing() -> void:
 	var none: Array[int] = []
 	var zone: int = Choice.Zone.BOTH_PILES
 	assert_bool(TriggerQueue.answer(state, cards, rng, rec.record, zone, none, true)).is_false()
-	assert_array(state.seats[0].pile).is_equal(_typed([8]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([8]))
 	assert_array(state.seats[0].deck).is_empty()
 
 
@@ -547,8 +637,8 @@ func test_exhume_declined_changes_nothing() -> void:
 func test_immolator_condemns_its_choice_and_as_many_opposing() -> void:
 	var cards: MatchCards = _cards()
 	var imm: int = 0
-	_put(cards, _typed([imm]), "gy09")
-	var state: MatchState = StubAbilities.table(_typed([imm, 1, 2]), false)
+	_put(cards, Typed.ints([imm]), "gy09")
+	var state: MatchState = StubAbilities.table(Typed.ints([imm, 1, 2]), false)
 	state.seats[0].revealed[1] = true
 	state.seats[0].revealed[2] = true
 	var enemy: Array[int] = [OTHER, OTHER + 1, OTHER + 2]
@@ -559,27 +649,50 @@ func test_immolator_condemns_its_choice_and_as_many_opposing() -> void:
 	assert_bool(Choice.is_multi_prompt(state.prompt)).is_true()
 	assert_int(Choice.min_of(state.prompt)).is_equal(0)
 	assert_int(Choice.exact_of(state.prompt)).is_equal(Choice.ANY_SIZE)
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([1, 2]))
-	_answer_and_finish(state, cards, rec, Choice.Zone.OWN_BOARD, _typed([1]))
-	assert_array(_condemned(state, state.seats[0].board)).is_equal(_typed([1]))
+	assert_array(Choice.options_of(state.prompt)).is_equal(Typed.ints([1, 2]))
+	_answer_and_finish(state, cards, rec, Choice.Zone.OWN_BOARD, Typed.ints([1]))
+	assert_array(_condemned(state, state.seats[0].board)).is_equal(Typed.ints([1]))
 	assert_int(_condemned(state, enemy).size()).is_equal(1)
-	assert_array(state.seats[0].board).is_equal(_typed([imm, 1, 2]))
+	assert_array(state.seats[0].board).is_equal(Typed.ints([imm, 1, 2]))
 	assert_array(state.seats[1].board).is_equal(enemy)
+
+
+## Rules 9 (R3): Immolator chooses two, so two distinct picks over the whole opposing row of
+## a Bastion and a Mote: the pick on Bastion is a miss (TRIGGER_FIZZLED `protected`) that
+## still counts as one of the two, so the Mote is Condemned too, whatever the order.
+func test_immolator_pick_on_a_protected_card_still_counts() -> void:
+	var cards: MatchCards = _cards()
+	var imm: int = 0
+	_put(cards, Typed.ints([imm]), "gy09")
+	var state: MatchState = StubAbilities.table(Typed.ints([imm, 1, 2]), false)
+	state.seats[0].revealed[1] = true
+	state.seats[0].revealed[2] = true
+	var bastion: int = OTHER + StubAbilities.BASTION
+	var enemy: Array[int] = [bastion, OTHER]
+	StubAbilities.put_row(state, 1, enemy, true)
+	var rec: StubAbilities.Recorder = StubAbilities.recorder()
+	ScoreWalk.begin(state)
+	assert_bool(ScoreWalk.step(state, cards, MatchRng.new(SEED), rec.record)).is_true()
+	_answer_and_finish(state, cards, rec, Choice.Zone.OWN_BOARD, Typed.ints([1, 2]))
+	assert_array(_condemned(state, state.seats[0].board)).is_equal(Typed.ints([1, 2]))
+	assert_array(_condemned(state, enemy)).is_equal(Typed.ints([OTHER]))
+	assert_array(_fizzles(rec, "immolate")).is_equal(_words([Abilities.REASON_PROTECTED]))
+	assert_bool(rec.cards_of(FIRED).has(imm)).is_true()
 
 
 ## With one eligible card Immolator still prompts (Q9), and an empty answer Condemns nothing.
 func test_immolator_prompts_with_one_and_may_choose_none() -> void:
 	var cards: MatchCards = _cards()
 	var imm: int = 0
-	_put(cards, _typed([imm]), "gy09")
-	var state: MatchState = StubAbilities.table(_typed([imm, 1]), false)
+	_put(cards, Typed.ints([imm]), "gy09")
+	var state: MatchState = StubAbilities.table(Typed.ints([imm, 1]), false)
 	state.seats[0].revealed[1] = true
 	var enemy: Array[int] = [OTHER]
 	StubAbilities.put_row(state, 1, enemy, true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	ScoreWalk.begin(state)
 	assert_bool(ScoreWalk.step(state, cards, MatchRng.new(SEED), rec.record)).is_true()
-	assert_array(Choice.options_of(state.prompt)).is_equal(_typed([1]))
+	assert_array(Choice.options_of(state.prompt)).is_equal(Typed.ints([1]))
 	var none: Array[int] = []
 	_answer_and_finish(state, cards, rec, Choice.Zone.OWN_BOARD, none)
 	assert_array(_condemned(state, state.seats[0].board)).is_empty()
@@ -594,11 +707,11 @@ func test_immolator_prompts_with_one_and_may_choose_none() -> void:
 func test_reset_refills_both_decks_then_reaches_its_pile() -> void:
 	var cards: MatchCards = _cards()
 	var reset: int = 0
-	_put(cards, _typed([reset]), "gy10")
-	var state: MatchState = StubAbilities.table(_typed([reset]), false)
-	state.seats[0].pile.assign(_typed([8, 9]))
-	state.seats[0].deck.assign(_typed([10]))
-	state.seats[1].pile.assign(_typed([OTHER + 8]))
+	_put(cards, Typed.ints([reset]), "gy10")
+	var state: MatchState = StubAbilities.table(Typed.ints([reset]), false)
+	state.seats[0].pile.assign(Typed.ints([8, 9]))
+	state.seats[0].deck.assign(Typed.ints([10]))
+	state.seats[1].pile.assign(Typed.ints([OTHER + 8]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
 	assert_array(state.seats[0].pile).is_empty()
@@ -606,13 +719,13 @@ func test_reset_refills_both_decks_then_reaches_its_pile() -> void:
 	var deck: Array[int] = []
 	deck.assign(state.seats[0].deck)
 	deck.sort()
-	assert_array(deck).is_equal(_typed([8, 9, 10]))
-	assert_array(state.seats[1].deck).is_equal(_typed([OTHER + 8]))
+	assert_array(deck).is_equal(Typed.ints([8, 9, 10]))
+	assert_array(state.seats[1].deck).is_equal(Typed.ints([OTHER + 8]))
 	var shuffled: Array[MatchEvent] = rec.of_kind(SHUFFLED)
 	assert_int(shuffled.size()).is_equal(2)
 	for event: MatchEvent in shuffled:
 		assert_bool(event.is_private()).is_false()
 	assert_str(Statuses.exit_mark_of(state, reset)).is_equal(Statuses.CONDEMNED)
 	assert_bool(TurnFlow.end_turn(state, cards, MatchRng.new(SEED), rec.record)).is_false()
-	assert_array(state.seats[0].pile).is_equal(_typed([reset]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([reset]))
 	assert_bool(state.seats[0].deck.has(reset)).is_false()

@@ -65,6 +65,4 @@ static func _step(
 	tween: Tween, target: Object, property: NodePath, value: Variant, seconds: float, together: bool
 ) -> void:
 	var chained: Tween = tween.parallel() if together else tween
-	var tweener: PropertyTweener = chained.tween_property(target, property, value, seconds)
-	tweener = tweener.set_trans(Tween.TRANS_SINE)
-	tweener = tweener.set_ease(Tween.EASE_IN_OUT)
+	EffectPlayer.add_tween(chained, target, property, value, seconds)

@@ -304,6 +304,37 @@ func test_orphan_marked_interrupted() -> void:
 	assert_int(PvpLog.scan_orphans(TEMP_DIR)).is_equal(0)
 
 
+## R33: whether a log has an end is read from its first bytes alone. A finished file whose
+## tail is garbage (so a whole-file parse fails) still reads as ended; a running one as
+## running; a missing one is undecided; and the scan marks only the running one.
+func test_the_orphan_scan_decides_from_the_header_alone() -> void:
+	var engine: MatchEngine = _new_engine(SEED)
+	assert_bool(engine.start().ok).is_true()
+	var started_s: int = _start_s()
+	var running: Dictionary = _record_for(engine, started_s)
+	assert_int(PvpLog.write(TEMP_DIR, running)).is_equal(OK)
+	var finished: Dictionary = _record_for(engine, started_s + 86400)
+	finished[PvpLog.KEY_ROOM] = "ABCD"
+	finished[PvpLog.KEY_MATCH_ID] = PvpLog.match_id(started_s + 86400, "ABCD")
+	PvpLog.finish(finished, PvpLog.server_end(PvpLog.REASON_ABANDONED), started_s + 86500)
+	assert_int(PvpLog.write(TEMP_DIR, finished)).is_equal(OK)
+	var running_path: String = PvpLog.path_of(TEMP_DIR, running)
+	var finished_path: String = PvpLog.path_of(TEMP_DIR, finished)
+	var text: String = FileAccess.get_file_as_string(ProjectSettings.globalize_path(finished_path))
+	var broken: FileAccess = FileAccess.open(finished_path, FileAccess.WRITE)
+	assert_object(broken).is_not_null()
+	if broken != null:
+		broken.store_string(text + "}}not json")
+		broken.close()
+	assert_dict(PvpLog.read(finished_path)).is_empty()
+	assert_int(PvpLog.header_state(finished_path)).is_equal(PvpLog.HEADER_ENDED)
+	assert_int(PvpLog.header_state(running_path)).is_equal(PvpLog.HEADER_RUNNING)
+	assert_int(PvpLog.header_state(TEMP_DIR + "/absent.json")).is_equal(PvpLog.HEADER_UNKNOWN)
+	assert_int(PvpLog.scan_orphans(TEMP_DIR)).is_equal(1)
+	assert_str(_end_of(PvpLog.read(running_path))["reason"]).is_equal("interrupted")
+	assert_dict(PvpLog.read(finished_path)).is_empty()
+
+
 ## A crash between the old file's removal and the rename leaves only `<file>.json.tmp`: the
 ## scan promotes it and marks it interrupted (NSC-226 S3).
 func test_a_lone_tmp_is_promoted_and_marked_interrupted() -> void:

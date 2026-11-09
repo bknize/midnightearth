@@ -5,7 +5,7 @@ extends GdUnitTestSuite
 ## Deck (Whisper, Rain), Mult growth to its cap (Sapling, Graft), Energy this Turn (Dynamo),
 ## Cost reductions with floor 0 (Tinker, Layaway) and the Turn-7 Cost (Colossus), the Pass
 ## check (Idler) and the free first card (Lantern). Each case puts the shipped card's
-## definition on a stub deck instance (StubAbilities, MatchCards.replace_def); seat 1's
+## definition on a stub deck instance (StubAbilities.replace_def); seat 1's
 ## instances add DECK_SIZE.
 
 const SEED: int = 1
@@ -25,12 +25,6 @@ func _db() -> CardDb:
 	if _cached_db == null:
 		_cached_db = CardDb.load_default()
 	return _cached_db
-
-
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
 
 
 ## Stub-deck definitions with the stub Crew (Tallyman, Void, Engineer): none of them acts on
@@ -103,11 +97,11 @@ func _cost(state: MatchState, cards: MatchCards, card: int) -> int:
 func test_whisper_power_for_the_match_survives_the_pile_and_a_shuffle() -> void:
 	var cards: MatchCards = _cards()
 	var whisper: int = 0
-	_put(cards, _typed([whisper]), "ra01")
-	var state: MatchState = StubAbilities.table(_typed([whisper]), false)
+	_put(cards, Typed.ints([whisper]), "ra01")
+	var state: MatchState = StubAbilities.table(Typed.ints([whisper]), false)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, rec)
-	assert_array(_ints(rec, SCORED, "power")).is_equal(_typed([2]))
+	assert_array(_ints(rec, SCORED, "power")).is_equal(Typed.ints([2]))
 	var changed: Array[MatchEvent] = rec.of_kind(STATS)
 	assert_int(changed.size()).is_equal(1)
 	assert_bool(changed[0].payload["permanent"]).is_true()
@@ -120,16 +114,16 @@ func test_whisper_power_for_the_match_survives_the_pile_and_a_shuffle() -> void:
 	piles.pile.clear()
 	MatchRng.new(SEED).shuffle_in_place(piles.deck)
 	assert_bool(TurnFlow.draw(state, cards, MatchRng.new(SEED), rec.record, 0)).is_false()
-	assert_array(piles.hand).is_equal(_typed([whisper]))
+	assert_array(piles.hand).is_equal(Typed.ints([whisper]))
 	var view: SeatView = SeatView.build(state, 0, -1, cards)
 	var entry: Dictionary = view.own_hand_row[0]
 	assert_int(entry["power"]).is_equal(2)
 	assert_bool(entry["grown"]).is_true()
 	piles.hand.clear()
-	StubAbilities.put_row(state, 0, _typed([whisper]), false)
+	StubAbilities.put_row(state, 0, Typed.ints([whisper]), false)
 	var again: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, cards, again)
-	assert_array(_ints(again, SCORED, "power")).is_equal(_typed([3]))
+	assert_array(_ints(again, SCORED, "power")).is_equal(Typed.ints([3]))
 
 
 ## Sapling's On score adds +0.25 to its Mult for the match: it Scores at ×1.25, ×1.50,
@@ -137,14 +131,14 @@ func test_whisper_power_for_the_match_survives_the_pile_and_a_shuffle() -> void:
 func test_sapling_grows_to_the_cap_of_two() -> void:
 	var cards: MatchCards = _cards()
 	var sapling: int = 0
-	_put(cards, _typed([sapling]), "ra02")
-	var state: MatchState = StubAbilities.table(_typed([sapling]), true)
+	_put(cards, Typed.ints([sapling]), "ra02")
+	var state: MatchState = StubAbilities.table(Typed.ints([sapling]), true)
 	var values: Array[int] = []
 	for _walk_number: int in range(6):
 		var rec: StubAbilities.Recorder = StubAbilities.recorder()
 		_walk(state, cards, rec)
 		values.append_array(_ints(rec, SCORED, "bonus_value"))
-	assert_array(values).is_equal(_typed([12500, 15000, 17500, 20000, 20000, 20000]))
+	assert_array(values).is_equal(Typed.ints([12500, 15000, 17500, 20000, 20000, 20000]))
 	var kept: CardMemory = state.memory_of(sapling)
 	assert_int(kept.mult_add_steps).is_equal(75)
 	assert_int(kept.mult_cap).is_equal(200)
@@ -156,8 +150,8 @@ func test_sapling_grows_to_the_cap_of_two() -> void:
 func test_rain_grows_every_hand_card_privately() -> void:
 	var cards: MatchCards = _cards()
 	var rain: int = 0
-	_put(cards, _typed([rain]), "ra03")
-	var state: MatchState = StubAbilities.table(_typed([rain]), false)
+	_put(cards, Typed.ints([rain]), "ra03")
+	var state: MatchState = StubAbilities.table(Typed.ints([rain]), false)
 	var hand: Array[int] = [1, 8]
 	state.seats[0].hand.assign(hand)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
@@ -183,8 +177,8 @@ func test_rain_grows_every_hand_card_privately() -> void:
 func test_dynamo_adds_one_energy_on_the_turn_it_fires_only() -> void:
 	var cards: MatchCards = _cards()
 	var dynamo: int = 0
-	_put(cards, _typed([dynamo, dynamo + 1]), "ra04")
-	var state: MatchState = StubAbilities.table(_typed([dynamo, dynamo + 1]), true)
+	_put(cards, Typed.ints([dynamo, dynamo + 1]), "ra04")
+	var state: MatchState = StubAbilities.table(Typed.ints([dynamo, dynamo + 1]), true)
 	assert_bool(state.seats[0].revealed.erase(dynamo + 1)).is_true()
 	state.turn = 3
 	var before: int = TurnFlow.budget(state, cards, 0)
@@ -207,14 +201,14 @@ func test_tinker_reduces_the_right_card_for_the_match_with_floor_0() -> void:
 	var cards: MatchCards = _cards()
 	var tinker: int = 0
 	var pebble: int = StubAbilities.PEBBLE
-	_put(cards, _typed([tinker]), "ra05")
-	var state: MatchState = StubAbilities.table(_typed([tinker, pebble]), true)
+	_put(cards, Typed.ints([tinker]), "ra05")
+	var state: MatchState = StubAbilities.table(Typed.ints([tinker, pebble]), true)
 	var costs: Array[int] = []
 	for _reveal: int in range(3):
 		var rec: StubAbilities.Recorder = StubAbilities.recorder()
-		assert_bool(_fire(state, cards, "on_reveal", _typed([tinker]), rec, "D7")).is_false()
+		assert_bool(_fire(state, cards, "on_reveal", Typed.ints([tinker]), rec, "D7")).is_false()
 		costs.append(_cost(state, cards, pebble))
-	assert_array(costs).is_equal(_typed([1, 0, 0]))
+	assert_array(costs).is_equal(Typed.ints([1, 0, 0]))
 	assert_int(state.memory_of(pebble).cost_delta).is_equal(-3)
 	assert_bool(Statuses.take_from_row(state, 0, pebble, Callable())).is_true()
 	assert_int(_cost(state, cards, pebble)).is_equal(0)
@@ -226,9 +220,9 @@ func test_tinker_reduces_the_right_card_for_the_match_with_floor_0() -> void:
 func test_layaway_reduces_itself_from_the_hand_with_floor_0() -> void:
 	var cards: MatchCards = _cards()
 	var layaway: int = 0
-	_put(cards, _typed([layaway]), "ra09")
+	_put(cards, Typed.ints([layaway]), "ra09")
 	var state: MatchState = MatchState.new(SEED)
-	state.seats[0].hand.assign(_typed([layaway]))
+	state.seats[0].hand.assign(Typed.ints([layaway]))
 	var costs: Array[int] = []
 	var rec: StubAbilities.Recorder = null
 	for _commit: int in range(6):
@@ -237,7 +231,7 @@ func test_layaway_reduces_itself_from_the_hand_with_floor_0() -> void:
 		TurnFlow.accept_commit(state, cards, rec.record, 0, none, none)
 		assert_bool(TurnFlow.on_commit(state, cards, MatchRng.new(SEED), rec.record, 0)).is_false()
 		costs.append(_cost(state, cards, layaway))
-	assert_array(costs).is_equal(_typed([4, 3, 2, 1, 0, 0]))
+	assert_array(costs).is_equal(Typed.ints([4, 3, 2, 1, 0, 0]))
 	var fired: Array[MatchEvent] = rec.of_kind(FIRED)
 	assert_int(fired.size()).is_equal(1)
 	assert_int(fired[0].owner_seat).is_equal(MatchEvent.PUBLIC)
@@ -255,9 +249,9 @@ func test_layaway_reduces_itself_from_the_hand_with_floor_0() -> void:
 func test_a_layaway_firing_from_the_hand_is_public_to_both_seats() -> void:
 	var cards: MatchCards = _cards()
 	var layaway: int = 0
-	_put(cards, _typed([layaway]), "ra09")
+	_put(cards, Typed.ints([layaway]), "ra09")
 	var state: MatchState = MatchState.new(SEED)
-	state.seats[0].hand.assign(_typed([layaway]))
+	state.seats[0].hand.assign(Typed.ints([layaway]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	var none: Array[int] = []
 	TurnFlow.accept_commit(state, cards, rec.record, 0, none, none)
@@ -279,9 +273,9 @@ func test_a_layaway_firing_from_the_hand_is_public_to_both_seats() -> void:
 func test_a_trigger_of_a_deck_card_stays_private() -> void:
 	var cards: MatchCards = _cards()
 	var layaway: int = 0
-	_put(cards, _typed([layaway]), "ra09")
+	_put(cards, Typed.ints([layaway]), "ra09")
 	var state: MatchState = MatchState.new(SEED)
-	state.seats[0].hand.assign(_typed([layaway]))
+	state.seats[0].hand.assign(Typed.ints([layaway]))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	var none: Array[int] = []
 	TriggerQueue.wake(state, cards, "on_commit", none, 0)
@@ -302,9 +296,9 @@ func test_a_trigger_of_a_deck_card_stays_private() -> void:
 func test_colossus_costs_7_on_turn_7_and_12_on_turn_6() -> void:
 	var cards: MatchCards = _cards()
 	var colossus: int = 0
-	_put(cards, _typed([colossus]), "ra10")
+	_put(cards, Typed.ints([colossus]), "ra10")
 	var state: MatchState = MatchState.new(SEED)
-	state.seats[0].hand.assign(_typed([colossus]))
+	state.seats[0].hand.assign(Typed.ints([colossus]))
 	state.turn = 6
 	assert_int(_cost(state, cards, colossus)).is_equal(12)
 	state.turn = 7
@@ -323,14 +317,14 @@ func test_colossus_costs_7_on_turn_7_and_12_on_turn_6() -> void:
 func test_idler_fires_on_a_pass_and_not_on_a_one_card_commit() -> void:
 	var cards: MatchCards = _cards()
 	var idler: int = 0
-	_put(cards, _typed([idler]), "ra06")
-	var state: MatchState = StubAbilities.table(_typed([idler]), true)
-	state.seats[0].hand.assign(_typed([1]))
+	_put(cards, Typed.ints([idler]), "ra06")
+	var state: MatchState = StubAbilities.table(Typed.ints([idler]), true)
+	state.seats[0].hand.assign(Typed.ints([1]))
 	var none: Array[int] = []
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	TurnFlow.accept_commit(state, cards, rec.record, 0, none, none)
 	assert_bool(TurnFlow.on_commit(state, cards, MatchRng.new(SEED), rec.record, 0)).is_false()
-	assert_array(rec.cards_of(FIRED)).is_equal(_typed([idler]))
+	assert_array(rec.cards_of(FIRED)).is_equal(Typed.ints([idler]))
 	var grown: Scoring.Stats = Scoring.stats(idler, state, cards)
 	assert_int(grown.power).is_equal(4)
 	assert_int(grown.add()).is_equal(50)
@@ -341,7 +335,7 @@ func test_idler_fires_on_a_pass_and_not_on_a_one_card_commit() -> void:
 	assert_int(settled.add()).is_equal(0)
 	# A one-card Commit: the trigger fizzles and nothing changes.
 	var one: StubAbilities.Recorder = StubAbilities.recorder()
-	TurnFlow.accept_commit(state, cards, one.record, 0, _typed([1]), _typed([1]))
+	TurnFlow.accept_commit(state, cards, one.record, 0, Typed.ints([1]), Typed.ints([1]))
 	assert_int(state.committed_count[0]).is_equal(1)
 	assert_bool(TurnFlow.on_commit(state, cards, MatchRng.new(SEED), one.record, 0)).is_false()
 	assert_array(one.cards_of(FIRED)).is_empty()
@@ -358,21 +352,21 @@ func test_lantern_free_first_ends_after_one_commit_or_at_the_next_turn_end() -> 
 	var cards: MatchCards = _cards()
 	var lantern: int = 0
 	var pebble: int = StubAbilities.PEBBLE
-	_put(cards, _typed([lantern]), "ra07")
-	var state: MatchState = StubAbilities.table(_typed([lantern]), true)
+	_put(cards, Typed.ints([lantern]), "ra07")
+	var state: MatchState = StubAbilities.table(Typed.ints([lantern]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	assert_bool(_fire(state, cards, "on_reveal", _typed([lantern]), rec, "D7")).is_false()
+	assert_bool(_fire(state, cards, "on_reveal", Typed.ints([lantern]), rec, "D7")).is_false()
 	assert_bool(state.energy.free_first[0]).is_false()
 	assert_bool(state.energy.free_first_next[0]).is_true()
 	TurnFlow.end_statuses(state, Callable())
 	assert_bool(state.energy.free_first[0]).is_true()
 	assert_bool(SeatView.build(state, 0, -1, cards).free_first).is_true()
-	state.seats[0].hand.assign(_typed([pebble, pebble + 1]))
-	TurnFlow.accept_commit(state, cards, rec.record, 0, _typed([pebble]), _typed([1]))
+	state.seats[0].hand.assign(Typed.ints([pebble, pebble + 1]))
+	TurnFlow.accept_commit(state, cards, rec.record, 0, Typed.ints([pebble]), Typed.ints([1]))
 	assert_int(state.energy.spent[0]).is_equal(0)
 	assert_bool(state.energy.free_first[0]).is_false()
 	# A second Lantern; next Turn a Pass keeps the free card, and that Turn's end ends it.
-	assert_bool(_fire(state, cards, "on_reveal", _typed([lantern]), rec, "D7")).is_false()
+	assert_bool(_fire(state, cards, "on_reveal", Typed.ints([lantern]), rec, "D7")).is_false()
 	TurnFlow.end_statuses(state, Callable())
 	assert_bool(state.energy.free_first[0]).is_true()
 	var none: Array[int] = []
@@ -380,7 +374,7 @@ func test_lantern_free_first_ends_after_one_commit_or_at_the_next_turn_end() -> 
 	assert_bool(state.energy.free_first[0]).is_true()
 	TurnFlow.end_statuses(state, Callable())
 	assert_bool(state.energy.free_first[0]).is_false()
-	TurnFlow.accept_commit(state, cards, rec.record, 0, _typed([pebble + 1]), _typed([2]))
+	TurnFlow.accept_commit(state, cards, rec.record, 0, Typed.ints([pebble + 1]), Typed.ints([2]))
 	assert_int(state.energy.spent[0]).is_equal(_cost(state, cards, pebble + 1))
 
 
@@ -395,14 +389,14 @@ func test_graft_multiplies_the_right_cards_mult_to_the_cap() -> void:
 	var graft: int = 0
 	var left: int = StubAbilities.WISP + 1
 	var wisp: int = StubAbilities.WISP
-	_put(cards, _typed([graft]), "ra08")
-	var state: MatchState = StubAbilities.table(_typed([left, graft, wisp]), true)
+	_put(cards, Typed.ints([graft]), "ra08")
+	var state: MatchState = StubAbilities.table(Typed.ints([left, graft, wisp]), true)
 	var mults: Array[int] = []
 	for _score: int in range(5):
 		var rec: StubAbilities.Recorder = StubAbilities.recorder()
-		assert_bool(_fire(state, cards, "on_score", _typed([graft]), rec, "D8")).is_false()
+		assert_bool(_fire(state, cards, "on_score", Typed.ints([graft]), rec, "D8")).is_false()
 		mults.append(Scoring.stats(wisp, state, cards).mult())
-	assert_array(mults).is_equal(_typed([150, 180, 216, 250, 250]))
+	assert_array(mults).is_equal(Typed.ints([150, 180, 216, 250, 250]))
 	assert_int(state.memory_of(wisp).mult_times_steps.size()).is_equal(4)
 	assert_object(state.memory_of(left)).is_null()
 
@@ -412,16 +406,16 @@ func test_graft_fizzles_on_a_card_with_no_mult() -> void:
 	var cards: MatchCards = _cards()
 	var graft: int = 0
 	var mote: int = 1
-	_put(cards, _typed([graft]), "ra08")
-	var state: MatchState = StubAbilities.table(_typed([graft, mote]), true)
+	_put(cards, Typed.ints([graft]), "ra08")
+	var state: MatchState = StubAbilities.table(Typed.ints([graft, mote]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
-	assert_bool(_fire(state, cards, "on_score", _typed([graft]), rec, "D8")).is_false()
+	assert_bool(_fire(state, cards, "on_score", Typed.ints([graft]), rec, "D8")).is_false()
 	var fizzled: Array[MatchEvent] = rec.of_kind(FIZZLED)
 	assert_int(fizzled.size()).is_equal(1)
 	assert_str(_str_of(fizzled[0], "verb")).is_equal("grow_right_mult_times")
 	assert_str(_str_of(fizzled[0], "reason")).is_equal(Abilities.REASON_NO_TARGET)
 	assert_object(state.memory_of(mote)).is_null()
-	var last: MatchState = StubAbilities.table(_typed([mote, graft]), true)
+	var last: MatchState = StubAbilities.table(Typed.ints([mote, graft]), true)
 	var none: StubAbilities.Recorder = StubAbilities.recorder()
-	assert_bool(_fire(last, cards, "on_score", _typed([graft]), none, "D8")).is_false()
+	assert_bool(_fire(last, cards, "on_score", Typed.ints([graft]), none, "D8")).is_false()
 	assert_int(none.of_kind(FIZZLED).size()).is_equal(1)

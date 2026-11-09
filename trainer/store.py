@@ -14,9 +14,26 @@ import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 STATES = ("queued", "running", "stopping", "stopped", "interrupted", "done", "failed")
+# A run in one of these has (or is owed) a run thread: one at a time, and no sync under it.
+ACTIVE = ("queued", "running", "stopping")
+# What the service resumes.
+RESUMABLE = ("stopped", "interrupted")
+# How a run finishes: Store.finish, from its run thread.
+FINISHED_STATES = ("done", "stopped", "failed")
+# The run state machine: state -> the states it may be entered from. `running` is entered from
+# a finished state by the local `run --resume`, and `failed` -> `interrupted` is a shutdown
+# reclaiming a run whose farm it stopped itself (Service.close). Nothing leaves `done`.
+ENTERED_FROM: Dict[str, Tuple[str, ...]] = {
+    "queued": RESUMABLE,
+    "running": ("queued", "stopped", "interrupted", "failed"),
+    "stopping": ("queued", "running"),
+    "stopped": ACTIVE,
+    "interrupted": ACTIVE + ("failed",),
+    "done": ACTIVE,
+    "failed": ACTIVE}
 FIT_STATES = ("queued", "running", "done", "failed")
 # The fit states of a fit still in flight (queued or running).
 LIVE_FIT = ("queued", "running")
@@ -49,6 +66,16 @@ CREATE TABLE IF NOT EXISTS fits (
   feature_set TEXT NOT NULL, runs TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
   last_error TEXT NOT NULL DEFAULT '', report TEXT NOT NULL DEFAULT '');
 """
+# The run row's counters (kept by commit_batch, in the batch's own transaction, so reading a
+# run's progress costs one row) and the digest of a finished run. Added together, and
+# backfilled, by _migrate_counters, which also adds them to a new database: this is their one
+# list.
+_COUNTER_COLUMNS = (("n_positions", "INTEGER NOT NULL DEFAULT 0"),
+                    ("n_labels", "INTEGER NOT NULL DEFAULT 0"),
+                    ("n_rollouts", "INTEGER NOT NULL DEFAULT 0"),
+                    ("n_skipped", "INTEGER NOT NULL DEFAULT 0"),
+                    ("n_batches", "INTEGER NOT NULL DEFAULT 0"),
+                    ("digest", "TEXT NOT NULL DEFAULT ''"))
 
 
 def default_data_dir() -> Path:
@@ -78,6 +105,11 @@ def write_atomic(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+def _marks(values: Sequence[Any]) -> str:
+    """The `?, ?` of an SQL IN list over `values`."""
+    return ", ".join("?" for _ in values)
+
+
 def shard_name(batch: int) -> str:
     return "labels-%05d.jsonl" % batch
 
@@ -96,9 +128,13 @@ class Store:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(str(self.data_dir / DB_NAME), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
-        self.db.executescript(_SCHEMA)
-        self._migrate()
-        self.db.commit()
+        try:
+            self.db.executescript(_SCHEMA)
+            self._migrate()
+            self.db.commit()
+        except BaseException:
+            self.db.close()
+            raise
         if recover_on_open:
             self.recover()
 
@@ -115,6 +151,40 @@ class Store:
                 self.db.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, ddl))
                 if column == "active_s":  # best estimate for runs from before the column
                     self.db.execute("UPDATE runs SET active_s = MAX(0, updated - created)")
+        self._migrate_counters()
+
+    def _migrate_counters(self) -> None:
+        """Add the run row's counters to a database from before them and count what it already
+        holds, in one transaction, so a crash here leaves the old schema and the next open
+        starts again rather than trusting zeros. Digests are left "": hashing every old
+        run's shards at open would be slow, so done_digest stores each on first asking."""
+        have = {r["name"] for r in self.db.execute("PRAGMA table_info(runs)")}
+        if all(column in have for column, _ in _COUNTER_COLUMNS):
+            return
+        self.db.commit()  # the migrations above may have left a transaction open
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            for column, ddl in _COUNTER_COLUMNS:
+                if column not in have:
+                    self.db.execute("ALTER TABLE runs ADD COLUMN %s %s" % (column, ddl))
+            self.db.execute(
+                "UPDATE runs SET"
+                " n_positions = (SELECT COUNT(*) FROM positions WHERE run_id = runs.id),"
+                " n_batches = (SELECT COUNT(DISTINCT batch) FROM positions"
+                " WHERE run_id = runs.id),"
+                " n_labels = (SELECT COUNT(*) FROM labels WHERE run_id = runs.id),"
+                " n_rollouts = (SELECT COALESCE(SUM(n), 0) FROM labels WHERE run_id = runs.id)")
+            skipped: Dict[str, int] = {}
+            for row in self.db.execute(
+                    "SELECT run_id, info FROM positions WHERE info LIKE '%\"skipped\"%'"):
+                if "skipped" in json.loads(row["info"]):
+                    skipped[row["run_id"]] = skipped.get(row["run_id"], 0) + 1
+            self.db.executemany("UPDATE runs SET n_skipped = ? WHERE id = ?",
+                                [(count, rid) for rid, count in skipped.items()])
+            self.db.commit()
+        except BaseException:
+            self.db.rollback()
+            raise
 
     def close(self) -> None:
         self.db.close()
@@ -233,8 +303,8 @@ class Store:
     def active_run_id(self) -> Optional[str]:
         """Id of the first run (by creation) in a live state, or None."""
         row = self.db.execute(
-            "SELECT id FROM runs WHERE state IN ('queued', 'running', 'stopping')"
-            " ORDER BY created, id LIMIT 1").fetchone()
+            "SELECT id FROM runs WHERE state IN (%s) ORDER BY created, id LIMIT 1" % _marks(ACTIVE),
+            ACTIVE).fetchone()
         return None if row is None else str(row["id"])
 
     def list_runs_progress(self) -> List[Dict[str, Any]]:
@@ -251,76 +321,109 @@ class Store:
         return out
 
     def counts(self, run_id: str) -> Dict[str, int]:
-        """Committed positions, labels, rollouts, skipped positions and batches of a run."""
-        pos = self.db.execute("SELECT COUNT(*) AS c FROM positions WHERE run_id = ?",
-                              (run_id,)).fetchone()["c"]
-        lab = self.db.execute("SELECT COUNT(*) AS c, COALESCE(SUM(n), 0) AS r FROM labels"
-                              " WHERE run_id = ?", (run_id,)).fetchone()
-        return {"positions": int(pos), "labels": int(lab["c"]), "rollouts": int(lab["r"]),
-                "skipped": self.skipped_count(run_id),
-                "batches": len(self.committed_batches(run_id))}
+        """Committed positions, labels, rollouts, skipped positions and batches of a run, from
+        its row."""
+        row = self.db.execute("SELECT n_positions, n_labels, n_rollouts, n_skipped, n_batches"
+                              " FROM runs WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            return {"positions": 0, "labels": 0, "rollouts": 0, "skipped": 0, "batches": 0}
+        return {"positions": int(row["n_positions"]), "labels": int(row["n_labels"]),
+                "rollouts": int(row["n_rollouts"]), "skipped": int(row["n_skipped"]),
+                "batches": int(row["n_batches"])}
 
-    def set_state(self, run_id: str, state: str, last_error: Optional[str] = None) -> None:
+    def set_state(self, run_id: str, state: str, last_error: Optional[str] = None,
+                  expect: Union[str, Sequence[str], None] = None) -> bool:
+        """Compare-and-set: move the run to `state` only while it is in `expect` (by default
+        any state ENTERED_FROM allows), else change nothing and return False, so a late writer
+        cannot overwrite what another thread has just written. ValueError for an unknown
+        state or an `expect` the machine does not allow; KeyError for an unknown run."""
         if state not in STATES:
             raise ValueError("unknown run state %r" % (state,))
-        if last_error is None:
-            cur = self.db.execute("UPDATE runs SET state = ?, updated = ? WHERE id = ?",
-                                  (state, time.time(), run_id))
-        else:
-            cur = self.db.execute(
-                "UPDATE runs SET state = ?, last_error = ?, updated = ? WHERE id = ?",
-                (state, last_error, time.time(), run_id))
-        if cur.rowcount == 0:
-            raise KeyError(run_id)
-        self.db.commit()
+        allowed = ENTERED_FROM[state]
+        if expect is not None:
+            wanted = (expect,) if isinstance(expect, str) else tuple(expect)
+            for source in wanted:
+                if source not in allowed:
+                    raise ValueError("no run transition %s -> %s" % (source, state))
+            allowed = wanted
+        return self._move(run_id, state, last_error, allowed, "")
 
-    def request_stop(self, run_id: str) -> bool:
-        """Atomically move a queued or running run to stopping; False when it is in any
-        other state (finished, stopped or already stopping), so a stop never overwrites a
-        final state the run thread has just written."""
+    def finish(self, run_id: str, state: str, last_error: Optional[str] = None) -> bool:
+        """The run thread's last word: a live run becomes done, stopped or failed. False, and
+        nothing changes, when it already left the live states (Service.close reclaimed it,
+        or an earlier finish won). A done run's digest is stored with its state: its shards
+        never change again."""
+        if state not in FINISHED_STATES:
+            raise ValueError("a run cannot finish as %r" % (state,))
+        digest = ""
+        if state == "done":
+            try:
+                digest = self.digest(run_id)
+            except (OSError, ValueError):  # done_digest tries again, and reports it, on asking
+                digest = ""
+        return self._move(run_id, state, last_error, ACTIVE, digest)
+
+    def _move(self, run_id: str, state: str, last_error: Optional[str],
+              sources: Sequence[str], digest: str) -> bool:
         cur = self.db.execute(
-            "UPDATE runs SET state = 'stopping', updated = ? WHERE id = ?"
-            " AND state IN ('queued', 'running')", (time.time(), run_id))
+            "UPDATE runs SET state = ?, last_error = COALESCE(?, last_error),"
+            " digest = CASE WHEN ? = '' THEN digest ELSE ? END, updated = ?"
+            " WHERE id = ? AND state IN (%s)" % _marks(sources),
+            (state, last_error, digest, digest, time.time(), run_id) + tuple(sources))
+        applied = cur.rowcount > 0
         self.db.commit()
-        return cur.rowcount > 0
+        if not applied and self.get_run(run_id) is None:
+            raise KeyError(run_id)
+        return applied
 
-    def add_restarts(self, run_id: str, count: int = 1) -> None:
-        self.db.execute("UPDATE runs SET restarts = restarts + ?, updated = ? WHERE id = ?",
-                        (count, time.time(), run_id))
+    def set_error(self, run_id: str, last_error: str) -> None:
+        """Record a problem that does not change the run's state."""
+        self.db.execute("UPDATE runs SET last_error = ?, updated = ? WHERE id = ?",
+                        (last_error, time.time(), run_id))
+        self.db.commit()
+
+    def done_digest(self, run_id: str) -> str:
+        """A done run's digest: stored at finish, or (a run from before the column) worked out
+        once now and stored."""
+        run = self.get_run(run_id)
+        if run is not None and run["digest"]:
+            return str(run["digest"])
+        digest = self.digest(run_id)
+        self.set_digest(run_id, digest)
+        return digest
+
+    def set_digest(self, run_id: str, digest: str) -> None:
+        self.db.execute("UPDATE runs SET digest = ? WHERE id = ? AND state = 'done'",
+                        (digest, run_id))
         self.db.commit()
 
     def add_active(self, run_id: str, seconds: float) -> None:
-        """Add active run time (batch work and session ends). `updated` moves with it, so
-        `now - updated` is the live session's time since this call."""
+        """Add active run time at a session's end (commit_batch adds the batches' own). `updated`
+        moves with it, so `now - updated` is the live session's time since this call."""
         self.db.execute("UPDATE runs SET active_s = active_s + ?, updated = ? WHERE id = ?",
                         (max(0.0, float(seconds)), time.time(), run_id))
         self.db.commit()
 
     def skipped_count(self, run_id: str) -> int:
         """Positions committed as skipped (their info carries a `skipped` reason)."""
-        n = 0
-        for row in self.db.execute(
-                "SELECT info FROM positions WHERE run_id = ? AND info LIKE '%\"skipped\"%'",
-                (run_id,)):
-            if "skipped" in json.loads(row["info"]):
-                n += 1
-        return n
+        return self.counts(run_id)["skipped"]
 
     def mark_interrupted(self) -> List[str]:
         """R37: every queued, running or stopping run becomes interrupted (a queued run's
         workers were still starting when the service died). Returns their ids."""
-        live = "('queued', 'running', 'stopping')"
+        marks = _marks(ACTIVE)
         ids = [r["id"] for r in self.db.execute(
-            "SELECT id FROM runs WHERE state IN %s ORDER BY id" % live)]
-        self.db.execute("UPDATE runs SET state = 'interrupted', updated = ? "
-                        "WHERE state IN %s" % live, (time.time(),))
+            "SELECT id FROM runs WHERE state IN (%s) ORDER BY id" % marks, ACTIVE)]
+        self.db.execute("UPDATE runs SET state = 'interrupted', updated = ?"
+                        " WHERE state IN (%s)" % marks, (time.time(),) + ACTIVE)
         self.db.commit()
         return ids
 
     # batches
 
     def commit_batch(self, run_id: str, batch_index: int, positions: List[Dict[str, Any]],
-                     labels: List[Dict[str, Any]]) -> Path:
+                     labels: List[Dict[str, Any]], active_s: float = 0.0,
+                     restarts: int = 0) -> Path:
         """Write the shard and the DB rows so that both or neither survive a crash.
 
         positions: dicts with index, seed, decks (JSON-able), prefix_len, seat, and optionally
@@ -328,6 +431,8 @@ class Store:
         labels: dicts with position_index, candidate_index, action, mean, spread, n, wins,
         draws, losses, capped, optionally features (the candidate's integer list) and us (timing:
         kept in the shard, not digested).
+        active_s and restarts are the active time and worker restarts since the last commit;
+        they join the run row's counters in the batch's transaction.
         """
         run = self.get_run(run_id)
         if run is None:
@@ -371,8 +476,15 @@ class Store:
                       json.dumps([int(x) for x in lab.get("features", [])]))
                      for lab in labels])
                 now = time.time()
-                self.db.execute("UPDATE runs SET updated = ?, checkpoint = ? WHERE id = ?",
-                                (now, now, run_id))
+                self.db.execute(
+                    "UPDATE runs SET updated = ?, checkpoint = ?, n_positions = n_positions + ?,"
+                    " n_labels = n_labels + ?, n_rollouts = n_rollouts + ?,"
+                    " n_skipped = n_skipped + ?, n_batches = n_batches + ?,"
+                    " active_s = active_s + ?, restarts = restarts + ? WHERE id = ?",
+                    (now, now, len(positions), len(labels),
+                     sum(int(lab["n"]) for lab in labels),
+                     sum(1 for p in positions if "skipped" in (p.get("info") or {})),
+                     1 if positions else 0, max(0.0, float(active_s)), int(restarts), run_id))
         except Exception:
             if batch_index not in self.committed_batches(run_id):
                 final.unlink(missing_ok=True)

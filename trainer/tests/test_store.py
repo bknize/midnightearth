@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from trainer.store import Store, shard_name
+from trainer.store import ENTERED_FROM, STATES, Store, shard_name
 
 STAMP = "r7-" + "0" * 16
 
@@ -72,6 +72,113 @@ class MigrationTest(unittest.TestCase):
                 store.close()
             again = Store(Path(d))  # opening a migrated database again is a no-op
             again.close()
+
+
+# `runs` as cycle 13 left it: what the PC's database holds, with its real runs (F0 among them).
+PRE_COUNTER_SCHEMA = """
+CREATE TABLE runs (
+  id TEXT PRIMARY KEY, state TEXT NOT NULL, config TEXT NOT NULL, run_seed INTEGER NOT NULL,
+  stamp TEXT NOT NULL, "commit" TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '', restarts INTEGER NOT NULL DEFAULT 0,
+  checkpoint REAL NOT NULL DEFAULT 0, active_s REAL NOT NULL DEFAULT 0,
+  feature_set TEXT NOT NULL DEFAULT '');
+CREATE TABLE positions (
+  run_id TEXT NOT NULL, "index" INTEGER NOT NULL, seed INTEGER NOT NULL, decks TEXT NOT NULL,
+  prefix_len INTEGER NOT NULL, seat INTEGER NOT NULL, batch INTEGER NOT NULL,
+  info TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY (run_id, "index"));
+CREATE TABLE labels (
+  run_id TEXT NOT NULL, position_index INTEGER NOT NULL, candidate_index INTEGER NOT NULL,
+  action TEXT NOT NULL, mean REAL NOT NULL, spread REAL NOT NULL, n INTEGER NOT NULL,
+  wins INTEGER NOT NULL, draws INTEGER NOT NULL, losses INTEGER NOT NULL,
+  capped INTEGER NOT NULL, features TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (run_id, position_index, candidate_index));
+CREATE TABLE fits (
+  id TEXT PRIMARY KEY, state TEXT NOT NULL, config TEXT NOT NULL, stamp TEXT NOT NULL,
+  feature_set TEXT NOT NULL, runs TEXT NOT NULL, created REAL NOT NULL, updated REAL NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '', report TEXT NOT NULL DEFAULT '');
+"""
+FITS_COLUMNS = ["id", "state", "config", "stamp", "feature_set", "runs", "created", "updated",
+                "last_error", "report"]
+
+
+class CounterMigrationTest(unittest.TestCase):
+    def old_database(self, folder: Path, info: str = '{"skipped": "play request: crash"}') -> None:
+        db = sqlite3.connect(str(folder / "trainer.db"))
+        db.executescript(PRE_COUNTER_SCHEMA)
+        db.execute("INSERT INTO runs (id, state, config, run_seed, stamp, \"commit\", created,"
+                   " updated, restarts, active_s, feature_set) VALUES ('f0', 'done',"
+                   " '{\"run_seed\": 1, \"positions\": 3}', 1, 's', 'c', 100.0, 160.0, 4, 50.0,"
+                   " 'f1')")
+        db.execute("INSERT INTO runs (id, state, config, run_seed, stamp, \"commit\", created,"
+                   " updated) VALUES ('none', 'stopped', '{}', 0, 's', 'c', 1.0, 2.0)")
+        for index, batch, text in ((0, 0, "{}"), (1, 0, info), (2, 1, "{}")):
+            db.execute("INSERT INTO positions VALUES ('f0', ?, 1, '[]', 3, 0, ?, ?)",
+                       (index, batch, text))
+        for index, cand, n in ((0, 0, 8), (0, 1, 8), (2, 0, 16)):
+            db.execute("INSERT INTO labels VALUES ('f0', ?, ?, '{}', 0.5, 1.0, ?, 2, 0, 2, 0,"
+                       " '[]')", (index, cand, n))
+        db.execute("INSERT INTO fits (id, state, config, stamp, feature_set, runs, created,"
+                   " updated) VALUES ('fit', 'done', '{}', 's', 'f1', '[\"f0\"]', 1.0, 2.0)")
+        db.commit()
+        db.close()
+        shards = folder / "runs" / "f0"
+        shards.mkdir(parents=True)
+        for batch in (0, 1):
+            (shards / ("labels-%05d.jsonl" % batch)).write_text(
+                '{"position": %d, "us": 5}\n' % batch, encoding="utf-8")
+
+    def test_an_old_database_opens_reads_and_backfills(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            self.old_database(Path(d))
+            store = Store(Path(d))
+            try:
+                self.assertEqual(store.counts("f0"), {"positions": 3, "labels": 3, "rollouts": 32,
+                                                      "skipped": 1, "batches": 2})
+                self.assertEqual(store.skipped_count("f0"), 1)
+                self.assertEqual(store.counts("none")["positions"], 0)
+                run = store.get_run("f0") or {}
+                self.assertEqual((run["state"], run["restarts"], run["active_s"]),
+                                 ("done", 4, 50.0))
+                self.assertEqual(store.resume_point("f0"), 3)
+                # the digest is worked out on first asking and kept
+                self.assertEqual((store.get_run("f0") or {})["digest"], "")
+                want = store.digest("f0")
+                self.assertEqual(store.done_digest("f0"), want)
+                self.assertEqual((store.get_run("f0") or {})["digest"], want)
+                # the fits table and its row are as they were
+                self.assertEqual([r["name"] for r in store.db.execute("PRAGMA table_info(fits)")],
+                                 FITS_COLUMNS)
+                self.assertEqual((store.get_fit("fit") or {})["runs"], ["f0"])
+                # and the run goes on being counted
+                store.create_run({"run_seed": 2}, "s", "c", run_id="new")
+                store.commit_batch("new", 0, *make_batch(0, 1))
+                self.assertEqual(store.counts("new")["positions"], 1)
+            finally:
+                store.close()
+            again = Store(Path(d))  # opening a migrated database again changes nothing
+            try:
+                self.assertEqual(again.counts("f0")["rollouts"], 32)
+                self.assertEqual((again.get_run("f0") or {})["digest"], want)
+            finally:
+                again.close()
+
+    def test_a_failed_migration_leaves_the_old_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            self.old_database(Path(d), info='{"skipped" broken')
+            with self.assertRaises(ValueError):
+                Store(Path(d))
+            db = sqlite3.connect(str(Path(d) / "trainer.db"))
+            names = [r[1] for r in db.execute("PRAGMA table_info(runs)")]
+            self.assertNotIn("n_positions", names)
+            db.execute("UPDATE positions SET info = '{}' WHERE \"index\" = 1")
+            db.commit()
+            db.close()
+            store = Store(Path(d))
+            try:
+                self.assertEqual(store.counts("f0")["positions"], 3)
+            finally:
+                store.close()
 
 
 class StoreTest(unittest.TestCase):
@@ -222,10 +329,62 @@ class StoreTest(unittest.TestCase):
         run = self.store.get_run(rid)
         assert run is not None
         self.assertEqual((run["state"], run["last_error"]), ("failed", "boom"))
-        self.store.add_restarts(rid, 2)
-        run = self.store.get_run(rid)
-        assert run is not None
-        self.assertEqual(run["restarts"], 2)
+
+    def test_set_state_is_compare_and_set_over_the_machine(self) -> None:
+        rid = self.new_run()
+        self.assertTrue(self.store.set_state(rid, "running", ""))
+        self.assertFalse(self.store.set_state(rid, "queued"))  # running cannot go back to queued
+        self.assertFalse(self.store.set_state(rid, "stopped", expect="queued"))
+        self.assertEqual((self.store.get_run(rid) or {})["state"], "running")
+        with self.assertRaises(ValueError):
+            self.store.set_state(rid, "queued", expect="running")  # no such transition
+        self.assertTrue(self.store.finish(rid, "done"))
+        for state in STATES:  # nothing leaves done
+            self.assertFalse(self.store.set_state(rid, state))
+        self.assertEqual((self.store.get_run(rid) or {})["state"], "done")
+        for state, sources in ENTERED_FROM.items():
+            self.assertIn(state, STATES)
+            for source in sources:
+                self.assertIn(source, STATES)
+
+    def test_finish_only_from_a_live_state(self) -> None:
+        rid = self.new_run()
+        self.store.commit_batch(rid, 0, *make_batch(0, 2))
+        with self.assertRaises(ValueError):
+            self.store.finish(rid, "running")
+        with self.assertRaises(KeyError):
+            self.store.finish("nope", "failed")
+        self.assertTrue(self.store.finish(rid, "done"))
+        run = self.store.get_run(rid) or {}
+        self.assertEqual(run["digest"], self.store.digest(rid))
+        self.assertFalse(self.store.finish(rid, "failed", "late"))
+        run = self.store.get_run(rid) or {}
+        self.assertEqual((run["state"], run["last_error"]), ("done", ""))
+        other = self.store.create_run({"run_seed": 2}, "s", "c", run_id="o", state="stopping")
+        self.assertTrue(self.store.finish(other, "stopped", "why"))
+        run = self.store.get_run(other) or {}
+        self.assertEqual((run["state"], run["last_error"], run["digest"]),
+                         ("stopped", "why", ""))
+
+    def test_a_batch_folds_its_counters_time_and_restarts_into_its_transaction(self) -> None:
+        rid = self.new_run()
+        pos, labs = make_batch(0, 2)
+        pos.append({"index": 2, "seed": 3, "decks": [], "prefix_len": 0, "seat": 0,
+                    "info": {"skipped": "play request: crash"}})
+        self.store.commit_batch(rid, 0, pos, labs, active_s=1.5, restarts=2)
+        pos2, labs2 = make_batch(3, 1)
+        self.store.commit_batch(rid, 1, pos2, labs2, active_s=0.5)
+        counts = self.store.counts(rid)
+        self.assertEqual(counts["positions"], 4)
+        self.assertEqual(counts["labels"], len(labs) + len(labs2))
+        self.assertEqual(counts["rollouts"], sum(int(lab["n"]) for lab in labs + labs2))
+        self.assertEqual((counts["skipped"], counts["batches"]), (1, 2))
+        run = self.store.get_run(rid) or {}
+        self.assertEqual((run["active_s"], run["restarts"]), (2.0, 2))
+        with self.assertRaises(sqlite3.IntegrityError):  # the same positions again: rolled back
+            self.store.commit_batch(rid, 2, pos2, labs2, active_s=9.0, restarts=9)
+        self.assertEqual(self.store.counts(rid), counts)
+        self.assertEqual((self.store.get_run(rid) or {})["restarts"], 2)
 
     def test_active_s_migrates_from_an_old_database(self) -> None:
         import sqlite3

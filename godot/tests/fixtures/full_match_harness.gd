@@ -46,7 +46,7 @@ var _cached_decks: DeckList = null
 # --- Helpers --------------------------------------------------------------------------
 
 
-## The shipped pool (the 90 Deck cards and the created-only Dross).
+## The shipped pool (the 90 Deck cards and the Dross card).
 func _db() -> CardDb:
 	if _cached_db == null:
 		_cached_db = CardDb.load_default()
@@ -85,21 +85,15 @@ func _pairing(engine: MatchEngine) -> String:
 	return "%s/%s" % [ids[0], ids[1]]
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _state_list(state: Dictionary, key: String, seat: int) -> Array[int]:
 	var per_seat: Array = state[key]
 	var raw: Array = per_seat[seat]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _state_ints(state: Dictionary, key: String) -> Array[int]:
 	var raw: Array = state[key]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _state_int(state: Dictionary, key: String) -> int:
@@ -127,12 +121,12 @@ func _card_cost(deck_ids: Array[String], card: int, state: Dictionary) -> int:
 
 
 ## The definition of one card instance of a match on `deck_ids`: a Deck card's from the
-## pool and the list (id = Owner * DECK_SIZE + index), a created card's (DC-14 T12) from the
-## full state's `created` {def, owner}; null when unknown.
+## pool and the list (id = Owner * DECK_SIZE + index), a Dross card's (DC-14 T12) from the
+## full state's `dross` {def, owner}; null when unknown (or expired).
 func _def_of(deck_ids: Array[String], card: int, state: Dictionary) -> CardDef:
-	if card >= MatchCards.CREATED_BASE:
-		var created: Dictionary = state.get("created", {})
-		var made: Dictionary = created.get(card, {})
+	if card >= MatchCards.DROSS_BASE:
+		var dross: Dictionary = state.get("dross", {})
+		var made: Dictionary = dross.get(card, {})
 		var def_id: String = made.get("def", "")
 		return _db().card_by_id(def_id)
 	var origin: int = card / MatchRules.DECK_SIZE
@@ -469,12 +463,12 @@ func _scan_leaks(
 
 ## When each card was public during the step of `result` (event positions): from -1 for a
 ## card face up on a row or in a Pile in `before`; otherwise from the event that made it
-## public: its CARD_REVEALED, its EXIT_RESOLVED to a Pile, its CARD_DISCARDED, or a
-## TRIGGER_FIRED / TRIGGER_FIZZLED of it firing from its hand (`from_hand`, C14); until the
-## PILE_SHUFFLED_IN that put it into its seat's Deck (one found in that Deck in `after`), or
-## the event after its CARD_UNREVEALED: the un-reveal may name the card it flips (Shade,
-## Fade; DC-14 T14), but a later event of the step may not unless another window opens
-## (DC-14 T17).
+## public: its CARD_REVEALED, its EXIT_RESOLVED to a Pile, its CARD_DISCARDED or
+## DROSS_EXPIRED (rules 9), or a TRIGGER_FIRED / TRIGGER_FIZZLED of it firing from its hand
+## (`from_hand`, C14); until the PILE_SHUFFLED_IN that put it into its seat's Deck (one
+## found in that Deck in `after`), or the event after its CARD_UNREVEALED: the un-reveal may
+## name the card it flips (Shade, Fade; DC-14 T14), but a later event of the step may not
+## unless another window opens (DC-14 T17).
 func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult) -> PublicWindows:
 	var out: PublicWindows = PublicWindows.new()
 	for seat: int in range(MatchEngine.SEATS):
@@ -505,6 +499,10 @@ func _public_windows(before: Dictionary, after: Dictionary, result: ApplyResult)
 func _opens_window(event: MatchEvent) -> bool:
 	match event.kind:
 		MatchEvent.Kind.CARD_REVEALED, MatchEvent.Kind.CARD_DISCARDED:
+			return not event.is_private()
+		MatchEvent.Kind.DROSS_EXPIRED:
+			# A Dross card leaving the Match at the end of the Round (rules 9, C13) is
+			# public, wherever it was (a Deck or hand included): its creation named it.
 			return not event.is_private()
 		MatchEvent.Kind.CARD_CREATED:
 			# A creation is public (DC-14 T12): the new card is named once, then it is the
@@ -611,7 +609,7 @@ func _summary(run: FullMatchRun) -> Dictionary:
 	var reason: String = run.end_payload["reason"]
 	var rounds: int = run.end_payload["rounds_played"]
 	var raw_wins: Array = run.end_payload["wins"]
-	var wins: Array[int] = _typed(raw_wins)
+	var wins: Array[int] = Typed.ints(raw_wins)
 	return {
 		"decks": run.pairing,
 		"winner": winner,

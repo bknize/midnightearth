@@ -27,12 +27,6 @@ func _defs() -> MatchCards:
 	return _cached_defs
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 ## A mid-match state: hands, Decks, Piles, rows (seat 0's Skim face up, seat 1's Gilt face
 ## down), totals and Scores.
 func _state() -> MatchState:
@@ -41,15 +35,15 @@ func _state() -> MatchState:
 	state.turn = 3
 	state.first_seat = 0
 	state.phase = MatchState.Phase.AWAIT_FIRST
-	state.seats[0].hand.assign(_typed([0, 1, 2]))
-	state.seats[1].hand.assign(_typed([THEIRS + 1, THEIRS + 2]))
-	state.seats[0].deck.assign(_typed([20, 21]))
-	state.seats[1].deck.assign(_typed([THEIRS + 20]))
-	state.seats[0].pile.assign(_typed([PIP, 8]))
-	state.seats[1].pile.assign(_typed([THEIRS + PIP, 5, THEIRS + 8]))
-	state.seats[0].board.assign(_typed([SKIM]))
+	state.seats[0].hand.assign(Typed.ints([0, 1, 2]))
+	state.seats[1].hand.assign(Typed.ints([THEIRS + 1, THEIRS + 2]))
+	state.seats[0].deck.assign(Typed.ints([20, 21]))
+	state.seats[1].deck.assign(Typed.ints([THEIRS + 20]))
+	state.seats[0].pile.assign(Typed.ints([PIP, 8]))
+	state.seats[1].pile.assign(Typed.ints([THEIRS + PIP, 5, THEIRS + 8]))
+	state.seats[0].board.assign(Typed.ints([SKIM]))
 	state.seats[0].revealed[SKIM] = true
-	state.seats[1].board.assign(_typed([THEIRS + GILT]))
+	state.seats[1].board.assign(Typed.ints([THEIRS + GILT]))
 	state.totals.assign([43750, -15000])
 	state.scores.assign([4, -1])
 	state.memory_for(THEIRS + PIP).power = 2
@@ -85,8 +79,8 @@ func test_both_piles_are_listed_in_full_for_both_seats() -> void:
 	var state: MatchState = _state()
 	for seat: int in range(2):
 		var view: SeatView = _view(state, seat)
-		assert_array(view.pile_of(0)).is_equal(_typed([PIP, 8]))
-		assert_array(view.pile_of(1)).is_equal(_typed([THEIRS + PIP, 5, THEIRS + 8]))
+		assert_array(view.pile_of(0)).is_equal(Typed.ints([PIP, 8]))
+		assert_array(view.pile_of(1)).is_equal(Typed.ints([THEIRS + PIP, 5, THEIRS + 8]))
 		assert_array(view.own_pile).is_equal(state.seats[seat].pile)
 		assert_array(view.opponent_pile).is_equal(state.seats[1 - seat].pile)
 		var keys: Array = view.pile_entries.keys()
@@ -108,8 +102,8 @@ func test_the_opponents_hand_is_a_count_only() -> void:
 	var state: MatchState = _state()
 	var view: SeatView = _view(state, 0)
 	assert_int(view.opponent_hand_count).is_equal(2)
-	assert_array(view.own_hand).is_equal(_typed([0, 1, 2]))
-	assert_array(view.deck_counts).is_equal(_typed([2, 1]))
+	assert_array(view.own_hand).is_equal(Typed.ints([0, 1, 2]))
+	assert_array(view.deck_counts).is_equal(Typed.ints([2, 1]))
 	var named: Array[int] = _named(view)
 	for card: int in state.seats[1].hand + state.seats[1].deck + state.seats[0].deck:
 		assert_bool(named.has(card)).override_failure_message("names %d" % card).is_false()
@@ -128,7 +122,7 @@ func test_the_opponents_hand_is_a_count_only() -> void:
 func test_a_face_down_card_is_hidden_unless_looked_at() -> void:
 	var state: MatchState = _state()
 	var view: SeatView = _view(state, 0)
-	assert_array(view.opponent_board).is_equal(_typed([MatchEvent.HIDDEN_CARD]))
+	assert_array(view.opponent_board).is_equal(Typed.ints([MatchEvent.HIDDEN_CARD]))
 	var hidden: Dictionary = view.opponent_row[0]
 	assert_dict(hidden).is_equal(
 		{
@@ -148,7 +142,7 @@ func test_a_face_down_card_is_hidden_unless_looked_at() -> void:
 	state.seats[0].looked[THEIRS + GILT] = true
 	var looker: SeatView = _view(state, 0)
 	assert_dict(looker.looked).is_equal({0: THEIRS + GILT})
-	assert_array(looker.opponent_board).is_equal(_typed([MatchEvent.HIDDEN_CARD]))
+	assert_array(looker.opponent_board).is_equal(Typed.ints([MatchEvent.HIDDEN_CARD]))
 	var owner: SeatView = _view(state, 1)
 	assert_bool(owner.looked.is_empty()).is_true()
 	# The owner sees its own face-down card in full.
@@ -191,13 +185,13 @@ func test_totals_are_in_ten_thousandths_with_scores_budgets_and_hand_sizes() -> 
 	state.energy.grants[1] = 1
 	for seat: int in range(2):
 		var view: SeatView = _view(state, seat)
-		assert_array(view.totals).is_equal(_typed([43750, -15000]))
-		assert_array(view.scores).is_equal(_typed([4, -1]))
+		assert_array(view.totals).is_equal(Typed.ints([43750, -15000]))
+		assert_array(view.scores).is_equal(Typed.ints([4, -1]))
 		# Turn 3 + grants, + 1 from the Greed deck's Engineer (DC-13 T07).
-		assert_array(view.budgets).is_equal(_typed([4, 5]))
+		assert_array(view.budgets).is_equal(Typed.ints([4, 5]))
 		assert_int(view.energy).is_equal(4 + seat)
 		assert_array(view.hand_sizes).is_equal(
-			_typed([MatchRules.HAND_SIZE, MatchRules.HAND_SIZE])
+			Typed.ints([MatchRules.HAND_SIZE, MatchRules.HAND_SIZE])
 		)
 		var plain: Dictionary = view.to_dict()
 		assert_array(plain["totals"]).is_equal([43750, -15000])
@@ -212,15 +206,15 @@ func test_totals_are_in_ten_thousandths_with_scores_budgets_and_hand_sizes() -> 
 func test_the_face_down_commit_is_a_count_and_slots_for_the_other_seat() -> void:
 	var state: MatchState = _state()
 	state.phase = MatchState.Phase.AWAIT_SECOND
-	state.pending.assign(_typed([1, 2]))
-	state.pending_slots.assign(_typed([0, 2]))
+	state.pending.assign(Typed.ints([1, 2]))
+	state.pending_slots.assign(Typed.ints([0, 2]))
 	var own: SeatView = _view(state, 0)
-	assert_array(own.own_pending).is_equal(_typed([1, 2]))
+	assert_array(own.own_pending).is_equal(Typed.ints([1, 2]))
 	assert_int(own.opponent_pending_count).is_equal(0)
 	var other: SeatView = _view(state, 1)
 	assert_array(other.own_pending).is_empty()
 	assert_int(other.opponent_pending_count).is_equal(2)
-	assert_array(other.opponent_pending_slots).is_equal(_typed([0, 2]))
+	assert_array(other.opponent_pending_slots).is_equal(Typed.ints([0, 2]))
 	for card: int in [1, 2]:
 		assert_bool(_named(other).has(card)).is_false()
 
@@ -277,7 +271,7 @@ func test_a_view_holds_copies() -> void:
 	view.opponent_pile.clear()
 	view.totals[0] = 0
 	view.own_hand.clear()
-	assert_array(state.seats[0].pile).is_equal(_typed([PIP, 8]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([PIP, 8]))
 	assert_int(state.seats[1].pile.size()).is_equal(3)
 	assert_int(state.totals[0]).is_equal(43750)
 	assert_int(state.seats[0].hand.size()).is_equal(3)

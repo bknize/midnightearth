@@ -7,7 +7,9 @@ extends RefCounted
 ## Abilities.prepare() and resolve() hand every verb of VERBS to prepare() and resolve()
 ## here (the queue's protocol, TriggerContext). Triggered verbs:
 ## - `fuse` (Fuse, On score of an opposing card): Power +amount until it leaves the row;
-##   then at Power `amount_2` or more it Condemns itself and one random opposing card.
+##   then at Power `amount_2` or more it Condemns itself and one random opposing card. The
+##   pick is drawn from the whole row; one that lands on a protected or already Condemned
+##   card is a miss, a TRIGGER_FIZZLED `protected` / `already_marked` (rules 9, R3).
 ## - `tithe_energy` (Tithe, On discard of another card of yours): only for a Condemned card
 ##   Discarded by the exit pass (the D10 context, TurnFlow.on_discard); the seat's
 ##   `next_turn_grants` +amount, at most `cap` per Tithe per turn end (`spent` past it); on
@@ -25,7 +27,8 @@ extends RefCounted
 ##   a decline or an empty set chooses none. Each chosen card, in position order,
 ##   PILE_SHUFFLED_IN {seat, count: 1, pile_cards: [card]}.
 ## - `immolate` (Immolator): an optional-count multi-select over its other cards; each
-##   chosen one is Condemned, then as many random opposing cards (distinct).
+##   chosen one is Condemned, then as many random opposing cards (distinct), each pick a
+##   possible miss as Fuse's.
 ## - `reset_piles` (Reset): both Piles into their Decks (first seat's first, each Deck
 ##   shuffled after, PILE_SHUFFLED_IN {seat, count}), then Reset Condemns itself.
 ## - `moved_add` (Eddy, On moved): Add +amount until end of turn.
@@ -44,8 +47,9 @@ extends RefCounted
 ##   Condemned.
 ## Ongoing verbs, never queued, read where they apply:
 ## - `pile_power` (Boneyard) and `rightmost_mult` (Herald): its own stats (ongoing_stats(),
-##   from Scoring.stats); `level_power` (Level): each card on a row has the lowest Power,
-##   read before any Level, among the revealed cards of its row (Scoring.stats).
+##   from Scoring.stats); `level_power` (Level): each revealed card on a row has the lowest
+##   Power, read before any Level, among the revealed cards of its row (Scoring.stats); a
+##   face-down card keeps its own (rules 9).
 ## - `fence` (Fence): fence_movers(), from Movement.step_set: a mover that would wrap the
 ##   ring is Condemned instead and does not move, so it wakes no On moved.
 ## - `wraith_fade` (Wraith): read once at the start of the exit pass (Statuses.exit_pass),
@@ -77,27 +81,25 @@ const VERB_SHAKE: String = "shake"
 const VERB_TEMPEST: String = "reverse_opposing"
 const VERB_CULL: String = "cull"
 ## The triggered verbs this module prepares and resolves (Abilities dispatches them here).
-const VERBS: Array[String] = [
-	VERB_FUSE,
-	VERB_TITHE,
-	VERB_RELIQUARY,
-	VERB_GLUTTON,
-	VERB_REVIVE,
-	VERB_EXHUME,
-	VERB_IMMOLATE,
-	VERB_RESET,
-	VERB_EDDY,
-	VERB_PIN,
-	VERB_SHEPHERD,
-	VERB_SKIP,
-	VERB_SHAKE,
-	VERB_TEMPEST,
-	VERB_CULL,
-]
+const VERBS: Dictionary[String, bool] = {
+	VERB_FUSE: true,
+	VERB_TITHE: true,
+	VERB_RELIQUARY: true,
+	VERB_GLUTTON: true,
+	VERB_REVIVE: true,
+	VERB_EXHUME: true,
+	VERB_IMMOLATE: true,
+	VERB_RESET: true,
+	VERB_EDDY: true,
+	VERB_PIN: true,
+	VERB_SHEPHERD: true,
+	VERB_SKIP: true,
+	VERB_SHAKE: true,
+	VERB_TEMPEST: true,
+	VERB_CULL: true,
+}
 ## CardState.granted kind of a use counted until end of turn (Tithe, Reliquary).
 const KIND_USED: String = "used"
-const MOMENT_MOVED: String = "on_moved"
-const MOMENT_ONGOING: String = "ongoing"
 ## On discard context keys (TurnFlow.on_discard): where the card came from and why.
 const KEY_FROM: String = "from"
 const KEY_REASON: String = "reason"
@@ -121,27 +123,28 @@ static func handles(verb: String) -> bool:
 static func prepare(ctx: TriggerContext) -> void:
 	match ctx.verb:
 		VERB_FUSE, VERB_RESET, VERB_SKIP, VERB_EDDY:
-			Abilities.need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
+			Abilities.need_on_row(ctx)
 		VERB_TITHE:
 			_prepare_tithe(ctx)
 		VERB_RELIQUARY:
 			_prepare_reliquary(ctx)
 		VERB_GLUTTON:
-			_choose_own(ctx, _condemnable_others(ctx), false)
+			Abilities.choose_one(ctx, Choice.Zone.OWN_BOARD, _condemnable_others(ctx))
 		VERB_IMMOLATE:
-			_choose_own(ctx, _condemnable_others(ctx), true)
+			if ctx.choose(
+				Choice.Zone.OWN_BOARD, _condemnable_others(ctx), true, Choice.ANY_SIZE, 0
+			):
+				pass  # An optional count of any size always prompts (Q9).
 		VERB_SHEPHERD:
 			_prepare_shepherd(ctx)
 		VERB_REVIVE:
 			var pile: Array[int] = ctx.state.seats[ctx.seat].pile
-			if ctx.choose(Choice.Zone.OWN_PILE, Abilities.positions(pile.size())):
-				pass  # One card in the Pile: chosen at once.
+			Abilities.choose_one(ctx, Choice.Zone.OWN_PILE, Abilities.positions(pile.size()))
 		VERB_EXHUME:
 			_prepare_exhume(ctx)
 		VERB_PIN:
 			var both: int = Choice.zone_cards(ctx.state, ctx.seat, Choice.Zone.BOTH_BOARDS).size()
-			if ctx.choose(Choice.Zone.BOTH_BOARDS, Abilities.positions(both)):
-				pass  # One card on the rows: chosen at once.
+			Abilities.choose_one(ctx, Choice.Zone.BOTH_BOARDS, Abilities.positions(both))
 		VERB_SHAKE:
 			var widest: int = maxi(ctx.state.seats[0].board.size(), ctx.state.seats[1].board.size())
 			Abilities.need(ctx, widest >= 2)
@@ -207,7 +210,9 @@ static func ongoing_stats(
 ## Level (read at Score, Q5): while a Level is read on either row, `card` on a row has the
 ## lowest Power among the revealed cards of its row, each read before any Level applies
 ## (Scoring.stats with `levelled` false; `out` is `card`'s own). A row with no revealed card
-## changes nothing.
+## changes nothing. Only a revealed `card` is levelled (rules 9, cycle 14 R4, C3 3a): a
+## face-down one keeps its own Power until its reveal; which cards supply the lowest Power
+## is unchanged (R5).
 static func level_power(
 	out: Scoring.Stats, card: int, state: MatchState, cards: MatchCards
 ) -> void:
@@ -217,6 +222,8 @@ static func level_power(
 	if seat < 0:
 		return
 	var piles: MatchState.SeatPiles = state.seats[seat]
+	if not piles.is_revealed(card):
+		return
 	var found: bool = false
 	var lowest: int = 0
 	for other: int in piles.board:
@@ -268,6 +275,13 @@ static func fence_movers(
 # --- The reveal-stage hook (Skip) -------------------------------------------------------
 
 
+## A new Walk (ScoreWalk.begin): no Skip waits or is armed.
+static func clear_skip(walk: MatchState.WalkState) -> void:
+	walk.hook_pending = 0
+	walk.hook_card = -1
+	walk.hook_moves = 0
+
+
 ## At a reveal in the Walk (ScoreWalk.reveal_stage): the Skips waiting for the next reveal
 ## now apply to `card`, after its On reveal Batch drains (skip_hook()).
 static func arm_skip(state: MatchState, card: int) -> void:
@@ -293,7 +307,7 @@ static func skip_hook(state: MatchState, cards: MatchCards, rng: MatchRng, sink:
 		return
 	for _move: int in range(moves):
 		var seat: int = Statuses.row_seat(state, card)
-		if seat < 0 or Statuses.is_anchored(state, cards, card):
+		if seat < 0 or Statuses.is_anchored(state, cards, card, seat):
 			return
 		var free: Array[int] = Movement.free_slots(state, cards, seat)
 		var from: int = free.find(state.seats[seat].board.find(card))
@@ -303,7 +317,9 @@ static func skip_hook(state: MatchState, cards: MatchCards, rng: MatchRng, sink:
 		if pick >= from:
 			pick += 1
 		var moved: Array[int] = Movement.move_to(state, cards, card, pick, VERB_SKIP, sink)
-		if not moved.is_empty() and TriggerQueue.wake(state, cards, MOMENT_MOVED, moved).is_empty():
+		if moved.is_empty():
+			continue
+		if TriggerQueue.wake(state, cards, CardAbility.MOMENT_MOVED, moved).is_empty():
 			pass  # Nothing watches the move.
 
 
@@ -355,16 +371,6 @@ static func _condemnable_others(ctx: TriggerContext) -> Array[int]:
 	return out
 
 
-## Targets `options` of the Controller's row: one card (`multi` false), or an optional
-## count of any size (`multi` true, always a prompt, Q9).
-static func _choose_own(ctx: TriggerContext, options: Array[int], multi: bool) -> void:
-	if multi:
-		if ctx.choose(Choice.Zone.OWN_BOARD, options, true, Choice.ANY_SIZE, 0):
-			pass  # An optional count always prompts.
-	elif ctx.choose(Choice.Zone.OWN_BOARD, options):
-		pass  # One card: chosen at once.
-
-
 ## Shepherd: fizzles when it is Anchored; else targets another not Anchored card of its row.
 static func _prepare_shepherd(ctx: TriggerContext) -> void:
 	if Statuses.is_anchored(ctx.state, ctx.cards, ctx.card):
@@ -376,7 +382,7 @@ static func _prepare_shepherd(ctx: TriggerContext) -> void:
 		var other: int = row[slot]
 		if other != ctx.card and not Statuses.is_anchored(ctx.state, ctx.cards, other):
 			options.append(slot)
-	_choose_own(ctx, options, false)
+	Abilities.choose_one(ctx, Choice.Zone.OWN_BOARD, options)
 
 
 ## Exhume: one optional "up to `amount`" multi-select over both Piles (C15 2a), `min` 0
@@ -411,7 +417,7 @@ static func _prepare_cull(ctx: TriggerContext) -> void:
 ## The next seat after `after` (-1 for the start) in the order Controller, opponent whose
 ## row holds more than Cull's `amount` cards; -1 when none.
 static func _cull_next(ctx: TriggerContext, after: int) -> int:
-	var order: Array[int] = [ctx.seat, 1 - ctx.seat]
+	var order: Array[int] = MatchState.seats_from(ctx.seat)
 	var start: int = order.find(after) + 1
 	for at: int in range(start, order.size()):
 		if ctx.state.seats[order[at]].board.size() > ctx.ability.amount:
@@ -432,17 +438,18 @@ static func _cull_ask(ctx: TriggerContext, by_seat: int) -> void:
 
 
 ## Fuse: Power +amount until it leaves the row; then at `amount_2` or more Power it Condemns
-## itself and one random opposing card.
+## itself and one random opposing card, drawn from the whole row (a miss: _condemn_pick()).
 static func _fuse(ctx: TriggerContext) -> void:
 	ctx.state.card_state_for(ctx.card).power_delta += ctx.ability.amount
 	Abilities.stats_changed(ctx, ctx.card, false)
 	if Scoring.stats(ctx.card, ctx.state, ctx.cards).power < ctx.ability.amount_2:
 		return
-	_condemn(ctx, ctx.card)
+	if Abilities.mark(ctx, ctx.card, Statuses.CONDEMNED):
+		pass  # Marked: it leaves at turn end.
 	var enemy: Array[int] = ctx.state.seats[1 - ctx.seat].board
 	if enemy.is_empty() or ctx.rng == null:
 		return
-	_condemn(ctx, enemy[ctx.rng.pick_index(enemy.size())])
+	_condemn_pick(ctx, enemy[ctx.rng.pick_index(enemy.size())])
 
 
 ## Tithe: +amount Energy next Turn for the seat (`next_turn_grants`, moved in at turn end),
@@ -473,7 +480,8 @@ static func _glutton(ctx: TriggerContext) -> void:
 	if target < 0 or not ctx.state.seats[ctx.seat].board.has(target):
 		return
 	var gained: int = Scoring.stats(target, ctx.state, ctx.cards).power
-	_condemn(ctx, target)
+	if Abilities.mark(ctx, target, Statuses.CONDEMNED):
+		pass  # Marked: it leaves at turn end.
 	ctx.state.card_state_for(ctx.card).power_delta += gained
 	Abilities.stats_changed(ctx, ctx.card, false)
 
@@ -493,7 +501,8 @@ static func _revive(ctx: TriggerContext) -> void:
 	var slot: int = Movement.place(ctx.state, ctx.seat, target, own + 1)
 	var placed: Dictionary = {"seat": ctx.seat, "card": target, "from": FROM_PILE, "slot": slot}
 	ctx.emit(MatchEvent.Kind.CARD_PLACED, placed)
-	_condemn(ctx, ctx.card)
+	if Abilities.mark(ctx, ctx.card, Statuses.CONDEMNED):
+		pass  # Marked: it leaves at turn end.
 
 
 ## Exhume: each chosen card (all read before any moves, since a shuffle-in shifts the Pile
@@ -521,11 +530,12 @@ static func _shuffle_in(ctx: TriggerContext, card: int) -> void:
 	ctx.emit(MatchEvent.Kind.PILE_SHUFFLED_IN, shuffled)
 
 
-## Immolator: each chosen card is Condemned, then as many distinct random opposing cards.
+## Immolator: each chosen card is Condemned, then as many distinct random opposing cards,
+## drawn from the whole row; a pick that misses (_condemn_pick()) still counts as one.
 static func _immolate(ctx: TriggerContext) -> void:
 	var count: int = 0
 	for card: int in ctx.chosen_cards():
-		if card >= 0 and _condemned(ctx, card):
+		if Abilities.mark(ctx, card, Statuses.CONDEMNED):
 			count += 1
 	var pool: Array[int] = []
 	pool.assign(ctx.state.seats[1 - ctx.seat].board)
@@ -533,16 +543,17 @@ static func _immolate(ctx: TriggerContext) -> void:
 		return
 	for _pick: int in range(mini(count, pool.size())):
 		var at: int = ctx.rng.pick_index(pool.size())
-		_condemn(ctx, pool[at])
+		_condemn_pick(ctx, pool[at])
 		pool.remove_at(at)
 
 
 ## Reset: each seat's Pile into its Deck, which is shuffled (first seat's first); then Reset
 ## Condemns itself.
 static func _reset(ctx: TriggerContext) -> void:
-	for seat: int in [ctx.state.first_seat, 1 - ctx.state.first_seat]:
+	for seat: int in ctx.state.commit_order():
 		pile_into_deck(ctx, seat)
-	_condemn(ctx, ctx.card)
+	if Abilities.mark(ctx, ctx.card, Statuses.CONDEMNED):
+		pass  # Marked: it leaves at turn end.
 
 
 ## `seat`'s whole Pile goes into its Deck, which is then shuffled with the stream;
@@ -599,7 +610,7 @@ static func _shake(ctx: TriggerContext) -> void:
 	if ctx.rng == null:
 		return
 	var moved: Array[int] = []
-	for seat: int in [ctx.state.first_seat, 1 - ctx.state.first_seat]:
+	for seat: int in ctx.state.commit_order():
 		var pool: Array[int] = []
 		pool.assign(ctx.state.seats[seat].board)
 		@warning_ignore("integer_division")
@@ -626,30 +637,29 @@ static func _cull(ctx: TriggerContext) -> void:
 	if next >= 0:
 		_cull_ask(ctx, next)  # Always a prompt: the row holds more than `amount` cards.
 		return
-	for seat: int in [ctx.seat, 1 - ctx.seat]:
+	for seat: int in MatchState.seats_from(ctx.seat):
 		if not ctx.data.has(DATA_KEPT[seat]):
 			continue
 		var keeping: Array = ctx.data[DATA_KEPT[seat]]
 		var row: Array[int] = []
 		row.assign(ctx.state.seats[seat].board)
 		for card: int in row:
-			if not keeping.has(card):
-				_condemn(ctx, card)
+			if not keeping.has(card) and Abilities.mark(ctx, card, Statuses.CONDEMNED):
+				pass  # Marked: it leaves at turn end.
 
 
 # --- Helpers ----------------------------------------------------------------------------
 
 
-## Condemns `card` (a protection may block it: Bastion); true when the mark landed. A
-## Condemned card still Scores and fires this Walk (Q10).
-static func _condemned(ctx: TriggerContext, card: int) -> bool:
-	return Statuses.mark_exit(ctx.state, ctx.cards, card, Statuses.CONDEMNED, ctx.sink)
-
-
-## Condemns `card`, whether or not a protection blocks it (_condemned()).
-static func _condemn(ctx: TriggerContext, card: int) -> void:
-	if _condemned(ctx, card):
-		pass  # Marked: it leaves at turn end.
+## Condemns the random pick `card` (Fuse, Immolator; rules 9, cycle 14 R3, C2 2b): a card
+## already holding the Condemned mark, or one a protection keeps from it (Bastion), is a
+## visible miss, one TRIGGER_FIZZLED for this pick with reason `already_marked` or
+## `protected` (TriggerQueue.missed()); the trigger itself has fired and its draw is spent.
+static func _condemn_pick(ctx: TriggerContext, card: int) -> void:
+	if Statuses.exit_mark_of(ctx.state, card) == Statuses.CONDEMNED:
+		TriggerQueue.missed(ctx, Abilities.REASON_ALREADY_MARKED)
+	elif not Abilities.mark(ctx, card, Statuses.CONDEMNED):
+		TriggerQueue.missed(ctx, Abilities.REASON_PROTECTED)
 
 
 ## The uses `card` has counted this Turn (KIND_USED entries of its Board changes).
@@ -669,22 +679,28 @@ static func _use(state: MatchState, card: int) -> void:
 
 
 ## `card`'s own Ongoing ability with `verb` while it is read (a revealed row card, not
-## Squelched), or null.
+## Squelched), or null. `known_seat`: its row seat when the caller knows it.
 static func own_ongoing(
-	state: MatchState, cards: MatchCards, card: int, verb: String
+	state: MatchState,
+	cards: MatchCards,
+	card: int,
+	verb: String,
+	known_seat: int = Statuses.SEAT_UNKNOWN
 ) -> CardAbility:
 	if not cards.has_verb(verb):
 		return null
 	var def: CardDef = cards.def_of(card) if card >= 0 else null
 	if def == null or not def.has_verb(verb):
 		return null
-	var seat: int = Statuses.row_seat(state, card)
+	var seat: int = known_seat
+	if seat == Statuses.SEAT_UNKNOWN:
+		seat = Statuses.row_seat(state, card)
 	if seat < 0 or not state.seats[seat].is_revealed(card):
 		return null
 	if not Scoring.reads_ongoing(state, card):
 		return null
 	for ability: CardAbility in def.abilities:
-		if ability.moment == MOMENT_ONGOING and ability.verb == verb:
+		if ability.moment == CardAbility.MOMENT_ONGOING and ability.verb == verb:
 			return ability
 	return null
 

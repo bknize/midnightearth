@@ -22,12 +22,6 @@ func _defs() -> MatchCards:
 	return _cached
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 ## `first` then `second`, as one typed list.
 func _joined(first: Array[int], second: Array[int]) -> Array[int]:
 	var out: Array[int] = []
@@ -72,11 +66,11 @@ func test_the_stub_pool_builds() -> void:
 ## An unmuted Scout fires its On reveal (DC-13 T06: TRIGGER_FIRED) and Scores; a Muted
 ## Scout fires nothing and still Scores.
 func test_muted_fires_nothing_and_scores() -> void:
-	var plain: MatchState = StubAbilities.table(_typed([StubAbilities.SCOUT]), false)
+	var plain: MatchState = StubAbilities.table(Typed.ints([StubAbilities.SCOUT]), false)
 	var seen: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(plain, seen)
 	assert_int(seen.cards_of(MatchEvent.Kind.TRIGGER_FIRED).count(StubAbilities.SCOUT)).is_equal(1)
-	var state: MatchState = StubAbilities.table(_typed([StubAbilities.SCOUT]), false)
+	var state: MatchState = StubAbilities.table(Typed.ints([StubAbilities.SCOUT]), false)
 	var muted: Statuses.Applied = StubAbilities.stub_mute(
 		state, _defs(), StubAbilities.SCOUT, Callable()
 	)
@@ -95,7 +89,7 @@ func test_muted_fires_nothing_and_scores() -> void:
 ## A Squelched Scout reveals and fires its On reveal but does not Score, and its Ongoing
 ## abilities are not read.
 func test_squelched_scores_nothing_and_fires() -> void:
-	var state: MatchState = StubAbilities.table(_typed([StubAbilities.SCOUT]), false)
+	var state: MatchState = StubAbilities.table(Typed.ints([StubAbilities.SCOUT]), false)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(
 		StubAbilities.stub_squelch(state, _defs(), StubAbilities.SCOUT, rec.record).ok()
@@ -114,7 +108,7 @@ func test_squelched_scores_nothing_and_fires() -> void:
 ## Muted, then Squelched: Silenced (no trigger, no Score); the view lists "Silenced" alone.
 func test_muted_then_squelched_is_silenced_and_the_view_lists_silenced() -> void:
 	var card: int = StubAbilities.MOTE
-	var state: MatchState = StubAbilities.table(_typed([StubAbilities.SCOUT, card]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([StubAbilities.SCOUT, card]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	StubAbilities.stub_mute(state, _defs(), card, rec.record)
 	StubAbilities.stub_squelch(state, _defs(), card, rec.record)
@@ -141,7 +135,7 @@ func test_muted_then_squelched_is_silenced_and_the_view_lists_silenced() -> void
 
 ## A Silenced card neither fires nor Scores in the Walk.
 func test_a_silenced_card_neither_fires_nor_scores() -> void:
-	var state: MatchState = StubAbilities.table(_typed([StubAbilities.SCOUT]), false)
+	var state: MatchState = StubAbilities.table(Typed.ints([StubAbilities.SCOUT]), false)
 	StubAbilities.stub_silence(state, _defs(), StubAbilities.SCOUT, Callable())
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, rec)
@@ -162,7 +156,7 @@ func test_a_silenced_card_neither_fires_nor_scores() -> void:
 ## leaves a longer Squelch in place, so the card fires again (spec scenario).
 func test_ending_the_mute_leaves_squelched() -> void:
 	var card: int = StubAbilities.SCOUT
-	var state: MatchState = StubAbilities.table(_typed([card]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([card]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	StubAbilities.stub_silence(state, _defs(), card, rec.record)
 	assert_bool(Statuses.end(state, card, Statuses.MUTED, "test", rec.record)).is_true()
@@ -174,7 +168,7 @@ func test_ending_the_mute_leaves_squelched() -> void:
 	assert_str(_payload_str(ended[0], "status")).is_equal(Statuses.MUTED)
 	# A turn Mute and a permanent Squelch: turn end leaves the Squelch, triggers fire again.
 	var other: int = StubAbilities.MOTE
-	StubAbilities.put_row(state, 0, _typed([card, other]), true)
+	StubAbilities.put_row(state, 0, Typed.ints([card, other]), true)
 	StubAbilities.stub_mute(state, _defs(), other, Callable())
 	var forever: Dictionary = Statuses.cessation(Statuses.CEASE_PERMANENT)
 	StubAbilities.stub_squelch(state, _defs(), other, Callable(), forever)
@@ -191,7 +185,7 @@ func test_on_squelch_wakes_only_for_a_lone_squelch() -> void:
 	var lone: int = StubAbilities.SCAPEGOAT
 	var muted: int = StubAbilities.SCAPEGOAT + 1
 	var direct: int = StubAbilities.SCAPEGOAT + 2
-	var state: MatchState = StubAbilities.table(_typed([lone, muted, direct]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([lone, muted, direct]), true)
 	var first: Statuses.Applied = StubAbilities.stub_squelch(state, _defs(), lone, Callable())
 	assert_bool(first.wakes_squelch).is_true()
 	var again: Statuses.Applied = StubAbilities.stub_squelch(state, _defs(), lone, Callable())
@@ -214,7 +208,7 @@ func test_on_squelch_wakes_only_for_a_lone_squelch() -> void:
 func test_a_permanent_squelch_survives_the_pile_and_a_redraw() -> void:
 	var card: int = StubAbilities.PEBBLE
 	var brief: int = StubAbilities.MOTE
-	var state: MatchState = StubAbilities.table(_typed([card, brief]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([card, brief]), true)
 	var forever: Dictionary = Statuses.cessation(Statuses.CEASE_PERMANENT)
 	StubAbilities.stub_squelch(state, _defs(), card, Callable(), forever)
 	StubAbilities.stub_squelch(state, _defs(), brief, Callable())
@@ -228,13 +222,13 @@ func test_a_permanent_squelch_survives_the_pile_and_a_redraw() -> void:
 	assert_bool(Statuses.has(state, brief, Statuses.SQUELCHED)).is_false()
 	# Back into the Deck and drawn.
 	state.seats[0].pile.clear()
-	state.seats[0].deck.assign(_typed([card, brief]))
+	state.seats[0].deck.assign(Typed.ints([card, brief]))
 	assert_bool(TurnFlow.draw(state, defs, MatchRng.new(SEED), moves.record, 0)).is_false()
 	assert_array(state.seats[0].hand).contains_exactly([card])
 	assert_bool(Statuses.has(state, card, Statuses.SQUELCHED)).is_true()
 	# Played again and revealed by the Walk: it does not Score.
 	state.seats[0].hand.clear()
-	StubAbilities.put_row(state, 0, _typed([card]), false)
+	StubAbilities.put_row(state, 0, Typed.ints([card]), false)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, rec)
 	assert_array(rec.cards_of(MatchEvent.Kind.CARD_REVEALED)).contains_exactly([card])
@@ -244,7 +238,7 @@ func test_a_permanent_squelch_survives_the_pile_and_a_redraw() -> void:
 ## A turn Anchor ends at turn end (TurnFlow.end_turn's step 14), with STATUS_ENDED.
 func test_a_turn_anchor_ends_at_turn_end() -> void:
 	var card: int = StubAbilities.MOTE
-	var state: MatchState = StubAbilities.table(_typed([card]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([card]), true)
 	var turn: Dictionary = Statuses.cessation(Statuses.CEASE_TURN)
 	var anchored: Statuses.Applied = Statuses.apply(
 		state, _defs(), card, Statuses.ANCHORED, turn, "test", Callable()
@@ -268,7 +262,7 @@ func test_a_turn_anchor_ends_at_turn_end() -> void:
 ## cause unreveal), a permanent Anchor stays.
 func test_a_board_scoped_status_ends_on_fade() -> void:
 	var card: int = StubAbilities.MOTE
-	var state: MatchState = StubAbilities.table(_typed([card]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([card]), true)
 	var long_mute: Dictionary = Statuses.cessation(
 		Statuses.CEASE_CONDITION, Statuses.CONDITION_SOURCE_ON_ROW, StubAbilities.PEBBLE
 	)
@@ -291,7 +285,7 @@ func test_a_board_scoped_status_ends_on_fade() -> void:
 func test_a_condition_status_ends_when_its_source_leaves() -> void:
 	var card: int = StubAbilities.MOTE
 	var source: int = StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([card, source]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([card, source]), true)
 	var held: Dictionary = Statuses.cessation(
 		Statuses.CEASE_CONDITION, Statuses.CONDITION_SOURCE_ON_ROW, source
 	)
@@ -315,8 +309,8 @@ func test_ward_blocks_a_mute_and_turns_a_silence_into_a_squelch() -> void:
 	var target: int = StubAbilities.MOTE + 1
 	var silenced: int = StubAbilities.MOTE + 2
 	var theirs: int = StubAbilities.MOTE + OTHER
-	var state: MatchState = StubAbilities.table(_typed([early, target, silenced]), true)
-	StubAbilities.put_row(state, 1, _typed([theirs]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([early, target, silenced]), true)
+	StubAbilities.put_row(state, 1, Typed.ints([theirs]), true)
 	StubAbilities.stub_mute(state, _defs(), early, Callable())
 	Statuses.protect_seat(state, 0, Statuses.MUTED, Statuses.cessation(Statuses.CEASE_TURN))
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
@@ -345,7 +339,7 @@ func test_bastion_blocks_condemned() -> void:
 	var hidden: int = StubAbilities.BASTION + 1
 	var quiet: int = StubAbilities.BASTION + 2
 	var guarded: int = StubAbilities.MOTE
-	var state: MatchState = StubAbilities.table(_typed([bastion, hidden, quiet, guarded]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([bastion, hidden, quiet, guarded]), true)
 	state.seats[0].revealed.erase(hidden)
 	StubAbilities.stub_squelch(state, _defs(), quiet, Callable())
 	Statuses.protect_card(state, guarded, Statuses.CONDEMNED)
@@ -366,7 +360,7 @@ func test_bastion_blocks_condemned() -> void:
 ## Fleeting then Condemned: the card holds Condemned only; EXIT_MARKED names the replaced.
 func test_fleeting_then_condemned_holds_condemned_only() -> void:
 	var card: int = StubAbilities.MOTE
-	var state: MatchState = StubAbilities.table(_typed([card]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([card]), true)
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	assert_bool(StubAbilities.stub_fleeting(state, _defs(), card, rec.record)).is_true()
 	assert_bool(StubAbilities.stub_condemn(state, _defs(), card, rec.record)).is_true()
@@ -388,7 +382,7 @@ func test_fleeting_then_condemned_holds_condemned_only() -> void:
 ## Discard (reason condemned), announced by EXIT_RESOLVED.
 func test_a_condemned_card_scores_then_goes_to_its_owners_pile() -> void:
 	var card: int = StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([card]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([card]), true)
 	assert_bool(StubAbilities.stub_condemn(state, _defs(), card, Callable())).is_true()
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	_walk(state, rec)
@@ -411,7 +405,7 @@ func test_a_condemned_card_scores_then_goes_to_its_owners_pile() -> void:
 ## Fleeting sends the card to its Owner's hand: Board changes gone, Memory kept.
 func test_fleeting_goes_to_the_owners_hand_keeping_memory() -> void:
 	var card: int = StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([card]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([card]), true)
 	state.card_state_for(card).power_delta = 2
 	state.memory_for(card).power = 1
 	StubAbilities.stub_fleeting(state, _defs(), card, Callable())
@@ -433,7 +427,7 @@ func test_fleeting_goes_to_the_owners_hand_keeping_memory() -> void:
 ## CARD_UNREVEALED {seat, card, slot}.
 func test_fade_flips_face_down_keeping_memory() -> void:
 	var card: int = StubAbilities.PEBBLE
-	var state: MatchState = StubAbilities.table(_typed([StubAbilities.MOTE, card]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([StubAbilities.MOTE, card]), true)
 	state.card_state_for(card).power_delta = 2
 	state.memory_for(card).power = 1
 	StubAbilities.stub_fade(state, _defs(), card, Callable())
@@ -457,7 +451,7 @@ func test_a_hidden_exit_carries_its_slot_and_hides_its_mark() -> void:
 	var faded: int = StubAbilities.PEBBLE
 	var fleeting: int = StubAbilities.WISP
 	var state: MatchState = StubAbilities.table(
-		_typed([StubAbilities.MOTE, faded, fleeting]), false
+		Typed.ints([StubAbilities.MOTE, faded, fleeting]), false
 	)
 	StubAbilities.stub_fade(state, _defs(), faded, Callable())
 	StubAbilities.stub_fleeting(state, _defs(), fleeting, Callable())
@@ -497,7 +491,7 @@ func test_a_hidden_exit_carries_its_slot_and_hides_its_mark() -> void:
 func test_a_card_the_other_seat_controls_returns_to_its_owner() -> void:
 	var fleeting: int = StubAbilities.PEBBLE + OTHER
 	var condemned: int = StubAbilities.MOTE + OTHER
-	var state: MatchState = StubAbilities.table(_typed([fleeting, condemned]), true)
+	var state: MatchState = StubAbilities.table(Typed.ints([fleeting, condemned]), true)
 	StubAbilities.stub_fleeting(state, _defs(), fleeting, Callable())
 	StubAbilities.stub_condemn(state, _defs(), condemned, Callable())
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
@@ -517,8 +511,8 @@ func test_a_card_the_other_seat_controls_returns_to_its_owner() -> void:
 ## The pass runs the first seat's row first, each in slot order (Q3), and returns the
 ## Discards in that order.
 func test_the_pass_runs_the_first_seats_row_first_in_slot_order() -> void:
-	var own: Array[int] = _typed([StubAbilities.MOTE, StubAbilities.PEBBLE, StubAbilities.WISP])
-	var theirs: Array[int] = _typed(
+	var own: Array[int] = Typed.ints([StubAbilities.MOTE, StubAbilities.PEBBLE, StubAbilities.WISP])
+	var theirs: Array[int] = Typed.ints(
 		[StubAbilities.MOTE + OTHER, StubAbilities.PEBBLE + OTHER, StubAbilities.WISP + OTHER]
 	)
 	var state: MatchState = StubAbilities.table(own, true)
@@ -530,7 +524,7 @@ func test_the_pass_runs_the_first_seats_row_first_in_slot_order() -> void:
 	StubAbilities.stub_fade(state, _defs(), StubAbilities.PEBBLE, Callable())
 	var rec: StubAbilities.Recorder = StubAbilities.recorder()
 	var discarded: Array[int] = Statuses.exit_pass(state, _defs(), rec.record)
-	var expected: Array[int] = _joined(theirs, _typed([StubAbilities.MOTE, StubAbilities.WISP]))
+	var expected: Array[int] = _joined(theirs, Typed.ints([StubAbilities.MOTE, StubAbilities.WISP]))
 	assert_array(discarded).is_equal(expected)
 	var order: Array[int] = rec.cards_of(MatchEvent.Kind.EXIT_RESOLVED)
 	assert_array(order).is_equal(both)

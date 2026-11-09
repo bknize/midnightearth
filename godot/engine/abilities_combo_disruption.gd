@@ -14,7 +14,7 @@ extends RefCounted
 ## - `scrap` (Scrap): a hand card, chosen, is Discarded (its own On discard Batch); this card
 ##   gets Add +N until end of turn, N = `amount` per point of that card's Cost read now,
 ##   at most `cap`.
-## - `copy_self_to_hand` (Twin): a created copy of this card (base values, no Memory) goes to
+## - `copy_self_to_hand` (Twin): a Dross copy of this card (base values, no Memory) goes to
 ##   the Controller's hand, Owned by that seat (create(), CARD_CREATED).
 ## - `scores_twice` (Reprise, On commit): every later score stage this Turn runs twice (Q7).
 ## - `retrigger_reveals` (Encore): the Controller's other On reveals resolve twice this Turn
@@ -49,10 +49,12 @@ extends RefCounted
 ##   holder's walking total is multiplied by `amount` hundredths per Dross
 ##   (walk_end_total(), called by ScoreWalk.finish).
 ##
-## Created cards (plan P6): create() takes the next id from MatchState.next_created_id,
-## records the definition and Owner in MatchState.created and MatchCards.record_created, so
-## def_of() and origin_of() answer; CARD_CREATED {seat, card, def, owner, to, slot} is
-## public (the creation is public; the card in a hand is then that seat's hidden card).
+## Dross cards, the cards an ability creates (plan P6, C13): create() takes the next id
+## from MatchState.next_dross_id, records the definition and Owner once, in
+## MatchCards.record_dross, so def_of() and origin_of() answer; CARD_CREATED {seat, card,
+## def, owner, to, slot} is public (the creation is public; the card in a hand is then that
+## seat's hidden card). A Dross card lasts until the end of the Round unless its lifetime is
+## `match` (TurnFlow.expire_dross; rules 9, C13).
 
 const VERB_WICK: String = "wick"
 const VERB_FADE_OTHER_OWN: String = "fade_other_own"
@@ -76,39 +78,35 @@ const VERB_GAG: String = "gag"
 const VERB_QUORUM: String = "quorum"
 const VERB_DROSS: String = "dross_walk_end"
 ## Every verb this module handles (the Ongoing ones are read, never queued).
-const VERBS: Array[String] = [
-	VERB_WICK,
-	VERB_FADE_OTHER_OWN,
-	VERB_FLEETING_CHOSEN,
-	VERB_SCRAP,
-	VERB_COPY_SELF,
-	VERB_SCORES_TWICE,
-	VERB_RETRIGGER,
-	VERB_REVERB,
-	VERB_FINALE,
-	VERB_MUTE_OPPOSING,
-	VERB_SQUELCH_OPPOSING,
-	VERB_SILENCE_OPPOSING,
-	VERB_CREATE_DROSS,
-	VERB_MOVE_TO_OPPOSING,
-	VERB_HEX_CHOOSE,
-	VERB_MUTE_CHOSEN,
-	VERB_MUTE_RANDOM,
-	VERB_GAG,
-	VERB_QUORUM,
-]
-## The pool id of Dross (cards.json, `"created": true`).
+const VERBS: Dictionary[String, bool] = {
+	VERB_WICK: true,
+	VERB_FADE_OTHER_OWN: true,
+	VERB_FLEETING_CHOSEN: true,
+	VERB_SCRAP: true,
+	VERB_COPY_SELF: true,
+	VERB_SCORES_TWICE: true,
+	VERB_RETRIGGER: true,
+	VERB_REVERB: true,
+	VERB_FINALE: true,
+	VERB_MUTE_OPPOSING: true,
+	VERB_SQUELCH_OPPOSING: true,
+	VERB_SILENCE_OPPOSING: true,
+	VERB_CREATE_DROSS: true,
+	VERB_MOVE_TO_OPPOSING: true,
+	VERB_HEX_CHOOSE: true,
+	VERB_MUTE_CHOSEN: true,
+	VERB_MUTE_RANDOM: true,
+	VERB_GAG: true,
+	VERB_QUORUM: true,
+}
+## The pool id of the Dross card (cards.json, `"created": true`: a Dross definition).
 const DROSS_ID: String = "dross"
 ## CARD_CREATED `to`.
 const TO_HAND: String = "hand"
-## MatchState.created keys.
-const KEY_DEF: String = "def"
-const KEY_OWNER: String = "owner"
 ## ctx.data keys of Quorum's two prompts: the position in the commit order being asked,
 ## and the cards kept so far.
 const DATA_STAGE: String = "stage"
 const DATA_KEPT: String = "kept"
-const MOMENT_ONGOING: String = "ongoing"
 
 # --- The dispatch -------------------------------------------------------------------------
 
@@ -123,15 +121,20 @@ static func handles(verb: String) -> bool:
 static func prepare(ctx: TriggerContext) -> void:
 	match ctx.verb:
 		VERB_FADE_OTHER_OWN:
-			_choose_own_other(ctx)
+			Abilities.choose_one(ctx, Choice.Zone.OWN_BOARD, _own_others(ctx))
 		VERB_FLEETING_CHOSEN, VERB_HEX_CHOOSE:
-			_choose_either_row(ctx)
+			# Every card on either row (zone both_boards, the Controller's row first).
+			var count: int = ctx.state.seats[0].board.size() + ctx.state.seats[1].board.size()
+			Abilities.choose_one(ctx, Choice.Zone.BOTH_BOARDS, Abilities.positions(count))
 		VERB_SCRAP:
-			_choose_hand(ctx)
+			var hand: int = ctx.state.seats[ctx.seat].hand.size()
+			Abilities.choose_one(ctx, Choice.Zone.OWN_HAND, Abilities.positions(hand))
 		VERB_MUTE_OPPOSING, VERB_SQUELCH_OPPOSING, VERB_SILENCE_OPPOSING, VERB_GAG:
-			_choose_opposing(ctx)
+			# Every opposing card, face up or down, by slot.
+			var row: int = ctx.state.seats[1 - ctx.seat].board.size()
+			Abilities.choose_one(ctx, Choice.Zone.OPPONENT_BOARD, Abilities.positions(row))
 		VERB_WICK, VERB_COPY_SELF, VERB_REVERB, VERB_FINALE:
-			Abilities.need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
+			Abilities.need_on_row(ctx)
 		VERB_MOVE_TO_OPPOSING:
 			Abilities.need(ctx, _can_cross(ctx))
 		VERB_CREATE_DROSS:
@@ -154,9 +157,11 @@ static func resolve(ctx: TriggerContext) -> void:
 		VERB_WICK:
 			_wick(ctx)
 		VERB_FADE_OTHER_OWN:
-			_mark(ctx, ctx.chosen_card(), Statuses.FADE)
+			if Abilities.mark(ctx, ctx.chosen_card(), Statuses.FADE):
+				pass  # Resolved in the exit pass at turn end.
 		VERB_FLEETING_CHOSEN:
-			_mark(ctx, ctx.chosen_card(), Statuses.FLEETING)
+			if Abilities.mark(ctx, ctx.chosen_card(), Statuses.FLEETING):
+				pass  # Resolved in the exit pass at turn end.
 		VERB_SCRAP:
 			_scrap(ctx)
 		VERB_COPY_SELF:
@@ -213,20 +218,20 @@ static func walk_end_total(state: MatchState, cards: MatchCards, seat: int) -> i
 	return total
 
 
-# --- Created cards ------------------------------------------------------------------------
+# --- Dross cards --------------------------------------------------------------------------
 
 
-## Creates a card of `def` Owned by `owner` (plan P6): the next created id, recorded in
-## MatchState.created and MatchCards.record_created. Returns the id; nowhere yet (the
-## caller places it). -1 when `def` is null.
+## Creates a card of `def` Owned by `owner` (plan P6, rules 9 R8: the seat it is created
+## for, never a fallback): the next Dross id, recorded once in MatchCards.record_dross
+## (DC-20 T03, NSC-179). Returns the id; nowhere yet (the caller places it). -1, taking no
+## id, when `def` is null or `owner` is not a seat.
 static func create(state: MatchState, cards: MatchCards, def: CardDef, owner: int) -> int:
-	if def == null:
+	if def == null or owner < 0 or owner >= MatchEngine.SEATS:
 		return -1
-	var made: int = state.next_created_id
-	state.next_created_id += 1
-	if cards != null and not cards.record_created(made, def, owner):
+	var made: int = state.next_dross_id
+	state.next_dross_id += 1
+	if cards != null and not cards.record_dross(made, def, owner):
 		pass  # Already recorded (a copied state on the same definitions): same id, same card.
-	state.created[made] = {KEY_DEF: def.id, KEY_OWNER: owner}
 	return made
 
 
@@ -247,43 +252,22 @@ static func create_in_hand(ctx: TriggerContext, def: CardDef, seat: int) -> int:
 # --- Preparing ----------------------------------------------------------------------------
 
 
-## Swell: the Controller's other cards on its row (Q9).
-static func _choose_own_other(ctx: TriggerContext) -> void:
+## Swell's options: the slots of the Controller's other cards on its row (Q9).
+static func _own_others(ctx: TriggerContext) -> Array[int]:
 	var row: Array[int] = ctx.state.seats[ctx.seat].board
 	var options: Array[int] = []
 	for slot: int in range(row.size()):
 		if row[slot] != ctx.card:
 			options.append(slot)
-	if ctx.choose(Choice.Zone.OWN_BOARD, options):
-		pass  # One card: chosen at once.
-
-
-## Reprieve, Hex: every card on either row (zone both_boards, the Controller's row first).
-static func _choose_either_row(ctx: TriggerContext) -> void:
-	var count: int = ctx.state.seats[0].board.size() + ctx.state.seats[1].board.size()
-	if ctx.choose(Choice.Zone.BOTH_BOARDS, Abilities.positions(count)):
-		pass  # One card: chosen at once.
-
-
-## Scrap: one card of the Controller's hand.
-static func _choose_hand(ctx: TriggerContext) -> void:
-	var options: Array[int] = Abilities.positions(ctx.state.seats[ctx.seat].hand.size())
-	if ctx.choose(Choice.Zone.OWN_HAND, options):
-		pass  # One card: chosen at once.
-
-
-## Hush, Muzzle, Eclipse, Gag: every opposing card, face up or down, by slot.
-static func _choose_opposing(ctx: TriggerContext) -> void:
-	var options: Array[int] = Abilities.positions(ctx.state.seats[1 - ctx.seat].board.size())
-	if ctx.choose(Choice.Zone.OPPONENT_BOARD, options):
-		pass  # One card: chosen at once.
+	return options
 
 
 ## Saboteur can move: it is on a row and not Anchored.
 static func _can_cross(ctx: TriggerContext) -> bool:
-	if Statuses.row_seat(ctx.state, ctx.card) < 0:
+	var seat: int = Statuses.row_seat(ctx.state, ctx.card)
+	if seat < 0:
 		return false
-	return not Statuses.is_anchored(ctx.state, ctx.cards, ctx.card)
+	return not Statuses.is_anchored(ctx.state, ctx.cards, ctx.card, seat)
 
 
 ## Jam's N, capped by the opposing row: 0 when there is nothing to Mute.
@@ -307,7 +291,7 @@ static func _prepare_quorum(ctx: TriggerContext) -> void:
 ## The first position from `from` in the commit order whose seat has more than `amount`
 ## revealed cards, or -1.
 static func _quorum_next(ctx: TriggerContext, from: int) -> int:
-	var order: Array[int] = _commit_order(ctx.state)
+	var order: Array[int] = ctx.state.commit_order()
 	for at: int in range(from, order.size()):
 		if revealed_slots(ctx.state, order[at]).size() > _quorum_size(ctx):
 			return at
@@ -318,7 +302,7 @@ static func _quorum_next(ctx: TriggerContext, from: int) -> int:
 ## `amount` of its revealed cards (zone own_board for that seat, not optional).
 static func _ask_quorum(ctx: TriggerContext, stage: int) -> void:
 	ctx.data[DATA_STAGE] = stage
-	var asked: int = _commit_order(ctx.state)[stage]
+	var asked: int = ctx.state.commit_order()[stage]
 	var options: Array[int] = revealed_slots(ctx.state, asked)
 	var size: int = _quorum_size(ctx)
 	if ctx.choose(Choice.Zone.OWN_BOARD, options, true, size, size, false, asked):
@@ -337,15 +321,8 @@ static func _wick(ctx: TriggerContext) -> void:
 	ctx.state.card_state_for(ctx.card).power_delta -= amount
 	Abilities.stats_changed(ctx, ctx.card, false)
 	if Scoring.stats(ctx.card, ctx.state, ctx.cards).power <= 0:
-		_mark(ctx, ctx.card, Statuses.FLEETING)
-
-
-## Gives `card` (on a row) the exit mark `mark` (a newer mark replaces an older, Q10).
-static func _mark(ctx: TriggerContext, card: int, mark: String) -> void:
-	if card < 0:
-		return
-	if Statuses.mark_exit(ctx.state, ctx.cards, card, mark, ctx.sink):
-		pass  # Resolved in the exit pass at turn end.
+		if Abilities.mark(ctx, ctx.card, Statuses.FLEETING):
+			pass  # Resolved in the exit pass at turn end.
 
 
 ## Scrap: the chosen hand card's Cost is read, it is Discarded, then this card gets Add +N
@@ -365,7 +342,7 @@ static func _scrap(ctx: TriggerContext) -> void:
 	Abilities.stats_changed(ctx, ctx.card, false)
 
 
-## Twin: a created copy of this card's definition (base values, no Memory) into the
+## Twin: a Dross copy of this card's definition (base values, no Memory) into the
 ## Controller's hand.
 static func _twin(ctx: TriggerContext) -> void:
 	var def: CardDef = ctx.cards.def_of(ctx.card)
@@ -375,7 +352,8 @@ static func _twin(ctx: TriggerContext) -> void:
 
 ## Reverb: Fleeting, then Cost -amount for the match (Memory, floor 0 at the read).
 static func _reverb(ctx: TriggerContext) -> void:
-	_mark(ctx, ctx.card, Statuses.FLEETING)
+	if Abilities.mark(ctx, ctx.card, Statuses.FLEETING):
+		pass  # Resolved in the exit pass at turn end.
 	ctx.state.memory_for(ctx.card).cost_delta -= ctx.ability.amount
 	Abilities.stats_changed(ctx, ctx.card, true)
 
@@ -518,7 +496,8 @@ static func _gag(ctx: TriggerContext) -> void:
 	if target < 0:
 		return
 	_squelch(ctx, target, Statuses.cessation(Statuses.CEASE_PERMANENT))
-	_mark(ctx, ctx.card, Statuses.CONDEMNED)
+	if Abilities.mark(ctx, ctx.card, Statuses.CONDEMNED):
+		pass  # Resolved in the exit pass at turn end.
 
 
 ## Quorum after an answer: the answering seat's cards are kept; the next seat with more
@@ -533,7 +512,7 @@ static func _resolve_quorum(ctx: TriggerContext) -> void:
 	if next >= 0:
 		_ask_quorum(ctx, next)
 		return
-	for seat: int in _commit_order(ctx.state):
+	for seat: int in ctx.state.commit_order():
 		var piles: MatchState.SeatPiles = ctx.state.seats[seat]
 		var slots: Array[int] = revealed_slots(ctx.state, seat)
 		if slots.size() <= _quorum_size(ctx):
@@ -546,12 +525,6 @@ static func _resolve_quorum(ctx: TriggerContext) -> void:
 
 
 # --- Helpers ------------------------------------------------------------------------------
-
-
-## The Turn's commit order: the first seat, then the second.
-static func _commit_order(state: MatchState) -> Array[int]:
-	var order: Array[int] = [state.first_seat, 1 - state.first_seat]
-	return order
 
 
 ## The slots of `seat`'s revealed row cards, ascending.
@@ -590,7 +563,7 @@ static func _dross_amounts(state: MatchState, cards: MatchCards, seat: int) -> A
 			continue
 		for ability: CardAbility in def.abilities:
 			if (
-				ability.moment == MOMENT_ONGOING
+				ability.moment == CardAbility.MOMENT_ONGOING
 				and ability.verb == VERB_DROSS
 				and ability.zone == TriggerContext.ZONE_HAND
 			):

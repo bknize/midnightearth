@@ -2,21 +2,13 @@ class_name TestRandomBot
 extends GdUnitTestSuite
 ## The random bot (cycle 7 T01; R2, R3, R20; cycle 9 R70, P16): uniform over the legal
 ## candidate commits and over a prompt's answers, drawn from its per-decision seed. Two
-## random bots play whole matches on 20 fixture seeds and 50 shipped-deck seeds over the four
-## pairings (DC-13 T08) without one rejected action; every v2 prompt shape (an exact set, an
+## random bots play whole matches on 20 fixture seeds without one rejected action (the shipped-deck
+## seeds are in sweep/test_random_bot_sweep.gd); every v2 prompt shape (an exact set, an
 ## any-size set with `min`, a single choice, an optional prompt with decline) gets a legal
 ## answer; the same seed and view give the same action; two seeds differ somewhere. Every
 ## loop shares a per-match action cap, so a bug fails the test instead of hanging the suite.
 
 const SWEEP_SEEDS: int = 20
-## The shipped-deck case's seeds, spread over PAIRINGS (DC-13 T08).
-const PAIRING_SEEDS: int = 50
-const PAIRINGS: Array[Array] = [
-	["greed", "greed"],
-	["greed", "ramp"],
-	["ramp", "greed"],
-	["ramp", "ramp"],
-]
 const MAX_ACTIONS: int = 1000
 const BOT_SOURCE: String = "res://engine/bot/random_bot.gd"
 ## The random bot asks the engine nothing and reads nothing past its own view.
@@ -101,26 +93,6 @@ func test_engine_never_rejects_the_random_bot_over_20_seeds() -> void:
 			return
 		played += 1
 	assert_int(played).is_equal(SWEEP_SEEDS)
-
-
-## R3, R70 (DC-13 T08): on the shipped Greed and Ramp decks with their abilities and Crew,
-## 50 seeds spread over the four pairings (greed/greed, greed/ramp, ramp/greed, ramp/ramp,
-## seed n on pairing (n - 1) mod 4) each end with no rejected action; a stalemate draw ends
-## a match too (spec C12).
-func test_fifty_seeds_over_the_four_pairings_end_with_no_rejected_action() -> void:
-	var cards: CardDb = CardDb.load_default()
-	var decks: DeckList = DeckList.load_default()
-	var crew: CrewPool = CrewPool.load_default()
-	var ended: int = 0
-	for match_seed: int in range(1, PAIRING_SEEDS + 1):
-		var listed: Array = PAIRINGS[(match_seed - 1) % PAIRINGS.size()]
-		var pairing: Array[String] = []
-		pairing.assign(listed)
-		var engine: MatchEngine = MatchEngine.create(match_seed, cards, decks, pairing, crew)
-		if _play_out(match_seed, engine) < 0:
-			return
-		ended += 1
-	assert_int(ended).is_equal(PAIRING_SEEDS)
 
 
 ## R70: an optional single-choice prompt is answered with one of its options or the decline,

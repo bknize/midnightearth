@@ -192,13 +192,16 @@ func test_a_connection_past_the_total_cap_is_refused() -> void:
 ## refused `server_full` by the room cap, not turned away at the door (R38).
 func test_a_ninth_host_from_one_address_hears_server_full() -> void:
 	var hosts: Array[Client] = []
+	# One at a time, accepted before the next: nine connects with no accept between them can
+	# overflow the listen backlog, and the last socket then closes before reaching the server.
 	for _i: int in range(RoomRegistry.MAX_ROOMS + 1):
-		hosts.append(_connect())
-	assert_bool(await _pump_until(func() -> bool: return _all_open(hosts))).is_true()
+		var host: Client = _connect()
+		hosts.append(host)
+		assert_bool(await _pump_until(func() -> bool: return host.is_open(), FRAME_BUDGET, 0)).is_true()
 	for at: int in range(hosts.size()):
 		hosts[at].send(_hello("Host%d" % at, "install-host-%d" % at))
 	var welcomed: bool = await _pump_until(
-		func() -> bool: return _all_have(hosts, NetProtocol.T_WELCOME)
+		func() -> bool: return _all_have(hosts, NetProtocol.T_WELCOME), FRAME_BUDGET, 0
 	)
 	assert_bool(welcomed).is_true()
 	var rooms: Array[Client] = []
@@ -206,13 +209,13 @@ func test_a_ninth_host_from_one_address_hears_server_full() -> void:
 		hosts[at].send({"t": NetProtocol.T_HOST, "deck": "greed"})
 		rooms.append(hosts[at])
 	var hosted: bool = await _pump_until(
-		func() -> bool: return _all_have(rooms, NetProtocol.T_HOSTED)
+		func() -> bool: return _all_have(rooms, NetProtocol.T_HOSTED), FRAME_BUDGET, 0
 	)
 	assert_bool(hosted).is_true()
 	var ninth: Client = hosts[RoomRegistry.MAX_ROOMS]
 	ninth.send({"t": NetProtocol.T_HOST, "deck": "greed"})
 	var refused: bool = await _pump_until(
-		func() -> bool: return ninth.count(NetProtocol.T_REFUSED) > 0
+		func() -> bool: return ninth.count(NetProtocol.T_REFUSED) > 0, FRAME_BUDGET, 0
 	)
 	assert_bool(refused).is_true()
 	var reason: String = ninth.last(NetProtocol.T_REFUSED).get("reason", "")
@@ -278,6 +281,126 @@ func test_a_hello_with_a_bad_install_id_is_refused() -> void:
 	var closed: bool = await _pump_until(func() -> bool: return client.is_closed())
 	assert_bool(closed).is_true()
 	assert_str(client.peer.get_close_reason()).is_equal(NetProtocol.REASON_BAD_MESSAGE)
+
+
+## R27: five wrong room codes from one address within a minute start a minute of cooling, in
+## which even the right code is refused; after it the right code joins.
+func test_five_wrong_room_codes_cool_the_address_for_a_minute() -> void:
+	var host: Client = _connect()
+	var guesser: Client = _connect()
+	var both: Array[Client] = [host, guesser]
+	assert_bool(await _pump_until(func() -> bool: return _all_open(both))).is_true()
+	host.send(_hello("Ana", "install-ana"))
+	guesser.send(_hello("Eve", "install-eve"))
+	assert_bool(
+		await _pump_until(func() -> bool: return _all_have(both, NetProtocol.T_WELCOME))
+	).is_true()
+	host.send({"t": NetProtocol.T_HOST, "deck": "greed"})
+	assert_bool(
+		await _pump_until(func() -> bool: return host.count(NetProtocol.T_HOSTED) > 0)
+	).is_true()
+	_code = host.last(NetProtocol.T_HOSTED).get("code", "")
+	for _i: int in range(RoomRegistry.MAX_MISSES):
+		var before: int = guesser.count(NetProtocol.T_REFUSED)
+		guesser.send({"t": NetProtocol.T_JOIN, "code": "ZZZZ", "deck": "ramp"})
+		await _pump_until(func() -> bool: return guesser.count(NetProtocol.T_REFUSED) > before)
+	assert_int(guesser.count(NetProtocol.T_REFUSED)).is_equal(RoomRegistry.MAX_MISSES)
+	var cooled: int = guesser.count(NetProtocol.T_REFUSED)
+	guesser.send({"t": NetProtocol.T_JOIN, "code": _code, "deck": "ramp"})
+	await _pump_until(func() -> bool: return guesser.count(NetProtocol.T_REFUSED) > cooled)
+	var refusal: Dictionary = guesser.last(NetProtocol.T_REFUSED)
+	assert_str(refusal.get("detail", "")).is_equal(MatchServer.DETAIL_COOLING)
+	assert_int(guesser.count(NetProtocol.T_STARTED)).is_equal(0)
+	# The jump is past the idle and receive timeouts, which this test is not about.
+	_server.receive_timeout_ms = 0
+	_server.idle_ms = RoomRegistry.COOLING_MS * 100
+	_now += RoomRegistry.COOLING_MS + 1
+	guesser.send({"t": NetProtocol.T_JOIN, "code": _code, "deck": "ramp"})
+	var started: bool = await _pump_until(
+		func() -> bool: return guesser.count(NetProtocol.T_STARTED) > 0
+	)
+	assert_bool(started).is_true()
+
+
+## R27: a cooling address still serves a `rejoin` that names a seat of an existing room; a
+## plain `join`, and a `rejoin` with an install id no seat holds, stay refused.
+func test_a_seated_players_rejoin_is_served_while_its_address_cools() -> void:
+	var players: Array[Client] = await _start_match()
+	var eve: Client = _connect()
+	assert_bool(await _pump_until(func() -> bool: return eve.is_open())).is_true()
+	eve.send(_hello("Eve", "install-eve"))
+	assert_bool(
+		await _pump_until(func() -> bool: return eve.count(NetProtocol.T_WELCOME) > 0)
+	).is_true()
+	for _i: int in range(RoomRegistry.MAX_MISSES):
+		var before: int = eve.count(NetProtocol.T_REFUSED)
+		eve.send({"t": NetProtocol.T_JOIN, "code": "ZZZZ", "deck": "ramp"})
+		await _pump_until(func() -> bool: return eve.count(NetProtocol.T_REFUSED) > before)
+	# A plain join to the real room is refused as cooling.
+	var refused: int = eve.count(NetProtocol.T_REFUSED)
+	eve.send({"t": NetProtocol.T_JOIN, "code": _code, "deck": "ramp"})
+	await _pump_until(func() -> bool: return eve.count(NetProtocol.T_REFUSED) > refused)
+	assert_str(eve.last(NetProtocol.T_REFUSED).get("detail", "")).is_equal(
+		MatchServer.DETAIL_COOLING
+	)
+	# A rejoin with an install id no seat holds is refused as cooling too.
+	refused = eve.count(NetProtocol.T_REFUSED)
+	eve.send({"t": NetProtocol.T_REJOIN, "code": _code})
+	await _pump_until(func() -> bool: return eve.count(NetProtocol.T_REFUSED) > refused)
+	assert_str(eve.last(NetProtocol.T_REFUSED).get("detail", "")).is_equal(
+		MatchServer.DETAIL_COOLING
+	)
+	assert_int(eve.count(NetProtocol.T_RESYNC)).is_equal(0)
+	# The host's seat, on a new connection from the same cooling address, is served.
+	var back: Client = _connect()
+	assert_bool(await _pump_until(func() -> bool: return back.is_open())).is_true()
+	back.send(_hello("Ana", "install-ana"))
+	assert_bool(
+		await _pump_until(func() -> bool: return back.count(NetProtocol.T_WELCOME) > 0)
+	).is_true()
+	back.send({"t": NetProtocol.T_REJOIN, "code": _code})
+	var served: bool = await _pump_until(
+		func() -> bool: return back.count(NetProtocol.T_RESYNC) > 0
+	)
+	assert_bool(served).is_true()
+	assert_int(back.count(NetProtocol.T_REFUSED)).is_equal(0)
+	assert_int(players.size()).is_equal(2)
+
+
+## R30: a `resync` past the 1 MiB send limit closes its client `resync_too_large` instead of
+## vanishing; the other seat is untouched.
+func test_a_resync_over_the_send_limit_closes_its_client() -> void:
+	var players: Array[Client] = await _start_match()
+	var host: Client = players[HOST_SEAT]
+	var room: MatchRoom = _server.registry.room_of(_code)
+	var pad: Dictionary = {"pad": "x".repeat(NetProtocol.MAX_SERVER_MESSAGE_BYTES)}
+	var big: MatchEvent = MatchEvent.new(MatchEvent.Kind.CARD_DRAWN, pad, MatchEvent.PUBLIC)
+	room._seats[HOST_SEAT].history.append(big.to_dict())
+	host.peer.close()
+	var dropped: bool = await _pump_until(func() -> bool: return host.is_closed())
+	assert_bool(dropped).is_true()
+	var back: Client = _connect()
+	assert_bool(await _pump_until(func() -> bool: return back.is_open())).is_true()
+	back.send(_hello("Ana", "install-ana"))
+	assert_bool(
+		await _pump_until(func() -> bool: return back.count(NetProtocol.T_WELCOME) > 0)
+	).is_true()
+	back.send({"t": NetProtocol.T_REJOIN, "code": _code})
+	var closed: bool = await _pump_until(func() -> bool: return back.is_closed())
+	assert_bool(closed).is_true()
+	assert_str(back.last(NetProtocol.T_CLOSED).get("reason", "")).is_equal(
+		MatchServer.REASON_RESYNC_TOO_LARGE
+	)
+	assert_int(back.count(NetProtocol.T_RESYNC)).is_equal(0)
+	assert_str(back.peer.get_close_reason()).is_equal(MatchServer.REASON_RESYNC_TOO_LARGE)
+	assert_bool(players[GUEST_SEAT].is_open()).is_true()
+
+
+## R28: the server's clock advances with the monotonic ticks, never backwards.
+func test_the_server_clock_is_monotonic() -> void:
+	var first: int = MatchServer.clock_ms()
+	var second: int = MatchServer.clock_ms()
+	assert_int(second).is_greater_equal(first)
 
 
 # --- Helpers ----------------------------------------------------------------------------
@@ -382,9 +505,10 @@ func _expect_still_served(guest: Client) -> void:
 
 ## Steps the fake clock, the server and every client once per frame until `done` holds, at
 ## most `budget` frames; whether it held.
-func _pump_until(done: Callable, budget: int = FRAME_BUDGET) -> bool:
+## `step_ms` is the fake time each frame adds; 0 pumps real sockets without moving the clock.
+func _pump_until(done: Callable, budget: int = FRAME_BUDGET, step_ms: int = STEP_MS) -> bool:
 	for _frame: int in range(budget):
-		_step()
+		_step(step_ms)
 		var held: bool = done.call()
 		if held:
 			return true
@@ -392,8 +516,8 @@ func _pump_until(done: Callable, budget: int = FRAME_BUDGET) -> bool:
 	return false
 
 
-func _step() -> void:
-	_now += STEP_MS
+func _step(step_ms: int = STEP_MS) -> void:
+	_now += step_ms
 	_server.poll(_now)
 	for client: Client in _clients:
 		client.poll()

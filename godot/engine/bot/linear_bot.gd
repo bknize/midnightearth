@@ -7,7 +7,9 @@ extends BotPlayer
 ## Commits: the candidates are RandomBot.candidates_for(view, cards) when the hand is
 ## enumerable (LegalPlays.ENUMERATE_MAX cards or fewer); when they number more than the
 ## weights' `k`, `k` of them are kept, drawn uniformly (a shuffle of their indices, the first
-## `k` kept in ascending order) from decision_rng(view, COMMIT_TAG). A hand too large to
+## `k` kept in ascending order) from decision_rng(view, COMMIT_TAG), except that the pass
+## always survives (NSC-245): it takes the last kept place when the shuffle cut it, for no
+## extra draw, so the other kept candidates stay a uniform draw. A hand too large to
 ## enumerate is sampled as `random` samples it: `k` draws of RandomBot.large_hand_commit from
 ## that same generator, duplicates dropped, in draw order (R6). Every kept candidate is scored
 ## in 64-bit integers; the highest wins and a tie is broken by one pick_index over the tied
@@ -32,10 +34,10 @@ var _vector: PackedInt64Array = PackedInt64Array()
 var _prompts: RandomBot = null
 
 
-## `weights` null takes BotWeights.defaults().
-func _init(bot_seed: int, cards: MatchCards, weights: BotWeights) -> void:
+## `p_weights` null takes BotWeights.defaults().
+func _init(bot_seed: int, cards: MatchCards, p_weights: BotWeights) -> void:
 	super(bot_seed, cards)
-	_weights = weights if weights != null else BotWeights.defaults()
+	_weights = p_weights if p_weights != null else BotWeights.defaults()
 	_vector = _weights.vector_for(_cards)
 	_prompts = RandomBot.new(bot_seed, cards)
 
@@ -61,10 +63,11 @@ func choose(view: SeatView, _engine: MatchEngine) -> EngineAction:
 	if kept.is_empty():
 		var none: Array[int] = []
 		return EngineAction.commit(view.seat, none, none)
+	var common: PackedInt64Array = BotFeatures.base(view, _cards)
 	var best: int = 0
 	var tied: Array[int] = []
 	for index: int in range(kept.size()):
-		var value: int = score(BotFeatures.of(view, kept[index], _cards), _vector)
+		var value: int = score(BotFeatures.patched(common, view, kept[index], _cards), _vector)
 		if tied.is_empty() or value > best:
 			best = value
 			tied.clear()
@@ -94,6 +97,9 @@ func candidates(view: SeatView) -> Array[EngineAction]:
 	rng.shuffle_in_place(indices)
 	var picked: Array[int] = []
 	picked.assign(indices.slice(0, k))
+	# candidates_for lists the pass first: mask 0 is always legal.
+	if not picked.has(0):
+		picked[k - 1] = 0
 	picked.sort()
 	var out: Array[EngineAction] = []
 	for index: int in picked:
@@ -101,11 +107,11 @@ func candidates(view: SeatView) -> Array[EngineAction]:
 	return out
 
 
-## The integer sum of `features` times `weights`, over the shorter of the two.
-static func score(features: PackedInt64Array, weights: PackedInt64Array) -> int:
+## The integer sum of `features` times `vector`, over the shorter of the two.
+static func score(features: PackedInt64Array, vector: PackedInt64Array) -> int:
 	var total: int = 0
-	for index: int in range(mini(features.size(), weights.size())):
-		var weight: int = weights[index]
+	for index: int in range(mini(features.size(), vector.size())):
+		var weight: int = vector[index]
 		if weight != 0:
 			total += features[index] * weight
 	return total

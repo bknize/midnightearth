@@ -42,11 +42,25 @@ extends RefCounted
 ## STATS_CHANGED {card, power, mult, add, cost, permanent, cause}, private to the seat that
 ## holds the card while it is in a hand or Deck or face down on a row.
 ##
-## Milestone B: the Combo and Disruption verbs (AbilitiesComboDisruption.handles()) go to
-## that module's prepare() and resolve() before any verb here (DC-14 T12).
+## Limited uses (rules 9, cycle 14 R6, R7, plan P4): an ability whose `uses` is above 0 is
+## counted once per firing, at its first resolve() (count_use(); a verb that asks again,
+## Quorum or Cull, re-enters resolve() per answer and counts no more; a declined prompt never
+## reaches resolve()) in the scope its `scope` names: `turn` and `row` as a KIND_USED Board
+## change (CardState.granted, until that scope, so it ends at turn
+## end or when the card leaves its row), `match` or none as the Memory's `uses_left` (which
+## follows the card through every zone). Once none is left in that scope, prepare() fizzles
+## it `spent` (TRIGGER_FIZZLED) instead of firing. `uses` 0 or absent is unlimited and never
+## counts, so no shipped card changes behaviour. card_uses_left() reads what is left.
+##
+## Milestone B: the Combo and Disruption verbs (AbilitiesComboDisruption, DC-14 T12) and the
+## Graveyard and Control verbs (AbilitiesGraveyardControl, DC-14 T13) go to that module's
+## prepare() and resolve(); _module_of() names the one module of each queued verb.
 ##
 ## Prompt keys (plan P12) are shared with MatchState.prompt and SeatView.prompt: KEY_SEAT,
 ## KEY_CARD and KEY_VERB here, the zone, options and flags in Choice.
+
+## The module that prepares and resolves a verb (_module_of()); NONE for one never queued.
+enum Module { NONE, OWN, COMBO_DISRUPTION, GRAVEYARD_CONTROL }
 
 ## TRIGGER_FIZZLED `reason`: no eligible target.
 const REASON_NO_TARGET: String = "no_target"
@@ -54,20 +68,29 @@ const REASON_NO_TARGET: String = "no_target"
 const REASON_SPENT: String = "spent"
 ## TRIGGER_FIZZLED `reason`: the pulse's 50 resolutions are spent (Q4, T05).
 const REASON_EXHAUSTED: String = "exhausted"
+## TRIGGER_FIZZLED `reason` of one random Condemn pick (Fuse, Immolator) that landed on a
+## card a protection keeps from the Condemned mark (Bastion; rules 9, cycle 14 R3).
+const REASON_PROTECTED: String = "protected"
+## TRIGGER_FIZZLED `reason` of one random Condemn pick that landed on a card already holding
+## the Condemned mark (rules 9, cycle 14 R3).
+const REASON_ALREADY_MARKED: String = "already_marked"
 const KEY_SEAT: String = "seat"
 const KEY_CARD: String = "card"
 const KEY_VERB: String = "verb"
 ## CardState.granted kind of a Power change until end of turn (also in `power_delta`).
 const KIND_POWER: String = "power"
+## CardState.granted kind of one counted use of a limited ability (scope `turn` or `row`).
+const KIND_USED: String = "used"  # AbilitiesGraveyardControl.KIND_USED (Tithe, Reliquary).
 ## Ability scopes (CardAbility.SCOPES).
 const SCOPE_TURN: String = "turn"
 const SCOPE_ROW: String = "row"
 const SCOPE_MATCH: String = "match"
-const MOMENT_DISCARD: String = "on_discard"
 ## CARD_LOOKED `zone` of a Delve look-at (a Lookout's has none: the opposing row).
 const LOOKED_DECK_TOP: String = "own_deck_top"
 ## ctx.data key: how many cards a Delve looked at.
 const DATA_COUNT: String = "count"
+## ctx.data key, set only on a limited ability: this firing has counted its use (count_use()).
+const DATA_USE_COUNTED: String = "use_counted"
 
 const VERB_DRAW: String = "draw"
 const VERB_OPPONENT_DRAW: String = "opponent_draw"
@@ -92,16 +115,42 @@ const VERB_COST_DOWN_SELF: String = "cost_down_self"
 const VERB_PASS_POWER_ADD: String = "pass_power_add"
 const VERB_FREE_FIRST: String = "free_first_next_turn"
 ## Verbs that need nothing checked before they resolve.
-const ALWAYS_READY: Array[String] = [
-	VERB_DRAW,
-	VERB_OPPONENT_DRAW,
-	VERB_GROW_SELF_POWER,
-	VERB_GROW_SELF_MULT_ADD,
-	VERB_WARD_MUTE,
-	VERB_ENERGY_GRANT,
-	VERB_COST_DOWN_SELF,
-	VERB_FREE_FIRST,
-]
+const ALWAYS_READY: Dictionary[String, bool] = {
+	VERB_DRAW: true,
+	VERB_OPPONENT_DRAW: true,
+	VERB_GROW_SELF_POWER: true,
+	VERB_GROW_SELF_MULT_ADD: true,
+	VERB_WARD_MUTE: true,
+	VERB_ENERGY_GRANT: true,
+	VERB_COST_DOWN_SELF: true,
+	VERB_FREE_FIRST: true,
+}
+## Every queued verb this module prepares and resolves itself (the Ongoing ones are read,
+## never queued).
+const VERBS: Dictionary[String, bool] = {
+	VERB_DRAW: true,
+	VERB_OPPONENT_DRAW: true,
+	VERB_DISCARD_OWN: true,
+	VERB_DISCARD_HAND: true,
+	VERB_CONDEMN_SELF: true,
+	VERB_GROW_SELF_POWER: true,
+	VERB_GROW_SELF_MULT_ADD: true,
+	VERB_GROW_RIGHT_MULT_TIMES: true,
+	VERB_GROW_HAND_POWER: true,
+	VERB_RIGHT_POWER: true,
+	VERB_OTHERS_POWER: true,
+	VERB_COPY_STATS: true,
+	VERB_MOVE_SELF_RIGHT: true,
+	VERB_WARD_MUTE: true,
+	VERB_SCAPEGOAT: true,
+	VERB_DELVE: true,
+	VERB_LOOK: true,
+	VERB_ENERGY_GRANT: true,
+	VERB_COST_DOWN_RIGHT: true,
+	VERB_COST_DOWN_SELF: true,
+	VERB_PASS_POWER_ADD: true,
+	VERB_FREE_FIRST: true,
+}
 
 # --- Lookups ----------------------------------------------------------------------------
 
@@ -132,13 +181,23 @@ static func prepare(ctx: TriggerContext) -> void:
 	if ctx.card < 0 or ctx.ability == null or ctx.state == null:
 		ctx.fizzle(REASON_NO_TARGET)
 		return
-	if AbilitiesComboDisruption.handles(ctx.verb):
-		AbilitiesComboDisruption.prepare(ctx)  # Combo and Disruption (DC-14 T12).
+	if uses_spent(ctx):
+		ctx.fizzle(REASON_SPENT)  # Limited uses, none left in its scope (R6).
 		return
+	match _module_of(ctx.verb):
+		Module.OWN:
+			_prepare_own(ctx)
+		Module.COMBO_DISRUPTION:
+			AbilitiesComboDisruption.prepare(ctx)
+		Module.GRAVEYARD_CONTROL:
+			AbilitiesGraveyardControl.prepare(ctx)
+		_:
+			ctx.fizzle(REASON_NO_TARGET)
+
+
+## This module's prepare(): a verb of VERBS.
+static func _prepare_own(ctx: TriggerContext) -> void:
 	if ALWAYS_READY.has(ctx.verb):
-		return
-	if AbilitiesGraveyardControl.handles(ctx.verb):
-		AbilitiesGraveyardControl.prepare(ctx)  # DC-14 T13: Graveyard and Control.
 		return
 	match ctx.verb:
 		VERB_DISCARD_OWN:
@@ -146,7 +205,7 @@ static func prepare(ctx: TriggerContext) -> void:
 		VERB_DISCARD_HAND, VERB_GROW_HAND_POWER:
 			need(ctx, not ctx.state.seats[ctx.seat].hand.is_empty())
 		VERB_CONDEMN_SELF, VERB_SCAPEGOAT:
-			need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
+			need_on_row(ctx)
 		VERB_RIGHT_POWER, VERB_COST_DOWN_RIGHT:
 			need(ctx, right_of(ctx.state, ctx.card) >= 0)
 		VERB_GROW_RIGHT_MULT_TIMES:
@@ -172,12 +231,35 @@ static func prepare(ctx: TriggerContext) -> void:
 static func resolve(ctx: TriggerContext) -> void:
 	if ctx.state == null or ctx.ability == null:
 		return
-	if AbilitiesComboDisruption.handles(ctx.verb):
-		AbilitiesComboDisruption.resolve(ctx)  # Combo and Disruption (DC-14 T12).
-		return
-	if AbilitiesGraveyardControl.handles(ctx.verb):
-		AbilitiesGraveyardControl.resolve(ctx)  # DC-14 T13: Graveyard and Control.
-		return
+	count_use(ctx)
+	match _module_of(ctx.verb):
+		Module.OWN:
+			_resolve_own(ctx)
+		Module.COMBO_DISRUPTION:
+			AbilitiesComboDisruption.resolve(ctx)
+		Module.GRAVEYARD_CONTROL:
+			AbilitiesGraveyardControl.resolve(ctx)
+
+
+## Whether `verb` is one of this module's own queued verbs (VERBS).
+static func handles(verb: String) -> bool:
+	return VERBS.has(verb)
+
+
+## The one module of a queued `verb`, Module.NONE for any other (an Ongoing verb, an unknown
+## one): the three modules' lists do not overlap, so the order here is free.
+static func _module_of(verb: String) -> Module:
+	if handles(verb):
+		return Module.OWN
+	if AbilitiesComboDisruption.handles(verb):
+		return Module.COMBO_DISRUPTION
+	if AbilitiesGraveyardControl.handles(verb):
+		return Module.GRAVEYARD_CONTROL
+	return Module.NONE
+
+
+## This module's resolve(): a verb of VERBS.
+static func _resolve_own(ctx: TriggerContext) -> void:
 	match ctx.verb:
 		VERB_DRAW:
 			_draw_for(ctx, ctx.seat)
@@ -188,7 +270,8 @@ static func resolve(ctx: TriggerContext) -> void:
 		VERB_DISCARD_HAND:
 			_discard_hand(ctx)
 		VERB_CONDEMN_SELF:
-			_condemn(ctx, ctx.card)
+			if mark(ctx, ctx.card, Statuses.CONDEMNED):
+				pass  # Condemned: it still Scores this Walk and leaves at turn end (Q10).
 		VERB_SCAPEGOAT:
 			_scapegoat(ctx)
 		VERB_WARD_MUTE:
@@ -314,6 +397,61 @@ static func has_mult(state: MatchState, cards: MatchCards, card: int) -> bool:
 	return kept != null and kept.grows_mult()
 
 
+## The uses `card`'s limited `ability` has left in its scope (R6): -1 for an unlimited one
+## (`uses` 0); for `turn` or `row` its `uses` less the KIND_USED Board changes of that scope;
+## else (`match` or none) the Memory's `uses_left`, its `uses` until first counted.
+static func card_uses_left(state: MatchState, card: int, ability: CardAbility) -> int:
+	if ability == null or ability.uses <= 0:
+		return -1
+	if ability.scope == SCOPE_TURN or ability.scope == SCOPE_ROW:
+		return maxi(ability.uses - _used_in(state, card, ability.scope), 0)
+	var kept: CardMemory = state.memory_of(card)
+	if kept == null or kept.uses_left < 0:
+		return ability.uses
+	return kept.uses_left
+
+
+## Whether `ctx`'s card ability is limited and has no use left in its scope (R6, R7).
+static func uses_spent(ctx: TriggerContext) -> bool:
+	if ctx.ability == null or ctx.ability.uses <= 0 or ctx.card < 0:
+		return false
+	return card_uses_left(ctx.state, ctx.card, ctx.ability) == 0
+
+
+## Counts one use of `ctx`'s limited card ability as it resolves (R6): a KIND_USED Board
+## change until its scope (`turn`, `row`), else one off the Memory's `uses_left`. An
+## unlimited ability (`uses` 0) counts nothing. One firing counts once: `ctx.data` travels
+## with the paused entry across its prompts (TriggerQueue), and a retrigger's extra
+## resolution starts with fresh data, so it is a firing of its own.
+static func count_use(ctx: TriggerContext) -> void:
+	if ctx.ability == null or ctx.ability.uses <= 0 or ctx.card < 0:
+		return
+	if ctx.data.has(DATA_USE_COUNTED):
+		return
+	ctx.data[DATA_USE_COUNTED] = true
+	var scope: String = ctx.ability.scope
+	if scope == SCOPE_TURN or scope == SCOPE_ROW:
+		ctx.state.card_state_for(ctx.card).grant(KIND_USED, 1, scope)
+		return
+	var left: int = card_uses_left(ctx.state, ctx.card, ctx.ability)
+	ctx.state.memory_for(ctx.card).uses_left = maxi(left - 1, 0)
+
+
+## The uses counted by the KIND_USED Board changes of `card` held until `scope`.
+static func _used_in(state: MatchState, card: int, scope: String) -> int:
+	var held: CardState = state.card_state(card)
+	if held == null:
+		return 0
+	var count: int = 0
+	for entry: Dictionary in held.granted:
+		var kind: String = entry.get(CardState.KEY_KIND, "")
+		var until: String = entry.get(CardState.KEY_UNTIL, "")
+		if kind == KIND_USED and until == scope:
+			var value: int = entry.get(CardState.KEY_VALUE, 0)
+			count += value
+	return count
+
+
 # --- Preparing --------------------------------------------------------------------------
 
 
@@ -323,6 +461,18 @@ static func need(ctx: TriggerContext, ready: bool) -> void:
 		ctx.fizzle(REASON_NO_TARGET)
 
 
+## Fizzles `ctx` `no_target` unless its card is on a row.
+static func need_on_row(ctx: TriggerContext) -> void:
+	need(ctx, Statuses.row_seat(ctx.state, ctx.card) >= 0)
+
+
+## Targets one card over `options` (positions in `zone`, TriggerContext.choose): none
+## fizzles, one is chosen at once, two or more open a prompt.
+static func choose_one(ctx: TriggerContext, zone: int, options: Array[int]) -> void:
+	if ctx.choose(zone, options):
+		pass  # One card: chosen at once.
+
+
 ## Ember, Cinder: the Controller chooses `amount` cards of its hand (one: a single choice).
 static func _prepare_discard_own(ctx: TriggerContext) -> void:
 	var options: Array[int] = positions(ctx.state.seats[ctx.seat].hand.size())
@@ -330,8 +480,8 @@ static func _prepare_discard_own(ctx: TriggerContext) -> void:
 	if count > 1:
 		if ctx.choose(Choice.Zone.OWN_HAND, options, true, count, count):
 			pass  # The whole hand: taken at once.
-	elif ctx.choose(Choice.Zone.OWN_HAND, options):
-		pass  # One card: chosen at once.
+	else:
+		choose_one(ctx, Choice.Zone.OWN_HAND, options)
 
 
 ## Mirror (`revealed` true) over the revealed opposing cards, Lookout over the face-down
@@ -342,8 +492,7 @@ static func _target_opposing(ctx: TriggerContext, revealed: bool) -> void:
 	for slot: int in range(other.board.size()):
 		if other.is_revealed(other.board[slot]) == revealed:
 			options.append(slot)
-	if ctx.choose(Choice.Zone.OPPONENT_BOARD, options):
-		pass  # One card: chosen at once.
+	choose_one(ctx, Choice.Zone.OPPONENT_BOARD, options)
 
 
 ## Delve: looks at the top `amount` cards of the Controller's Deck (fewer when the Deck is
@@ -365,8 +514,7 @@ static func _prepare_delve(ctx: TriggerContext) -> void:
 			"zone": LOOKED_DECK_TOP,
 		}
 		ctx.emit(MatchEvent.Kind.CARD_LOOKED, looked, ctx.seat)
-	if ctx.choose(Choice.Zone.OWN_DECK_TOP, positions(count)):
-		pass  # One card: chosen at once.
+	choose_one(ctx, Choice.Zone.OWN_DECK_TOP, positions(count))
 
 
 ## Nudge can move: it is on a row of two or more cards and not Anchored.
@@ -374,7 +522,7 @@ static func _can_shift(ctx: TriggerContext) -> bool:
 	var seat: int = Statuses.row_seat(ctx.state, ctx.card)
 	if seat < 0 or ctx.state.seats[seat].board.size() < 2:
 		return false
-	return not Statuses.is_anchored(ctx.state, ctx.cards, ctx.card)
+	return not Statuses.is_anchored(ctx.state, ctx.cards, ctx.card, seat)
 
 
 ## Whether `card` is face down on the row of the seat other than `seat`, and `seat` has not
@@ -484,20 +632,24 @@ static func discard(ctx: TriggerContext, card: int) -> void:
 		ctx.state, ctx.cards, ctx.sink, card, TurnFlow.FROM_HAND, TurnFlow.REASON_DISCARD
 	)
 	var subjects: Array[int] = [card]
-	ctx.wake(MOMENT_DISCARD, subjects)
+	ctx.wake(CardAbility.MOMENT_DISCARD, subjects)
 
 
-## Marks `card` Condemned (a protection may block it: Bastion).
-static func _condemn(ctx: TriggerContext, card: int) -> void:
-	if Statuses.mark_exit(ctx.state, ctx.cards, card, Statuses.CONDEMNED, ctx.sink):
-		pass  # Condemned: it still Scores this Walk and leaves at turn end (Q10).
+## Gives `card` the exit mark `exit_mark` (a newer mark replaces an older, Q10); true when it
+## landed, false for no card, one on no row, or one a protection keeps from it (Bastion). A
+## marked card still Scores and fires this Walk, and the mark resolves in the exit pass.
+static func mark(ctx: TriggerContext, card: int, exit_mark: String) -> bool:
+	if card < 0:
+		return false
+	return Statuses.mark_exit(ctx.state, ctx.cards, card, exit_mark, ctx.sink)
 
 
 ## Scapegoat: its own Squelch ends (board-scoped or permanent alike), then it is Condemned.
 static func _scapegoat(ctx: TriggerContext) -> void:
 	if Statuses.end(ctx.state, ctx.card, Statuses.SQUELCHED, ctx.verb, ctx.sink):
 		pass  # The Squelch is gone: it Scores this Walk.
-	_condemn(ctx, ctx.card)
+	if mark(ctx, ctx.card, Statuses.CONDEMNED):
+		pass  # Condemned: it leaves at turn end.
 
 
 ## Power +amount on `card` for `scope`: `match` Memory, `row` a Board change, `turn` a Board
@@ -632,8 +784,12 @@ static func _others_revealed(state: MatchState, seat: int, card: int) -> Array[i
 
 
 ## STATS_CHANGED {card, power, mult, add, cost, permanent, cause} for `card` now, private
-## to the seat holding it while it is hidden (hidden_holder()).
-static func stats_changed(ctx: TriggerContext, card: int, permanent: bool) -> void:
+## to the seat holding it while it is hidden (hidden_holder(), a pending Commit's card to the
+## first committer only, R15). `cause` is the change's source: the ability's verb by default
+## (""), a Crew's id for a Crew's change (R14, CrewAbilities).
+static func stats_changed(
+	ctx: TriggerContext, card: int, permanent: bool, cause: String = ""
+) -> void:
 	var read: Scoring.Stats = Scoring.stats(card, ctx.state, ctx.cards)
 	var changed: Dictionary = {
 		"card": card,
@@ -642,7 +798,7 @@ static func stats_changed(ctx: TriggerContext, card: int, permanent: bool) -> vo
 		"add": read.add(),
 		"cost": maxi(Scoring.effective_cost(card, ctx.state, ctx.cards), 0),
 		"permanent": permanent,
-		"cause": ctx.verb,
+		"cause": cause if cause != "" else ctx.verb,
 	}
 	ctx.emit(MatchEvent.Kind.STATS_CHANGED, changed, hidden_holder(ctx.state, card))
 

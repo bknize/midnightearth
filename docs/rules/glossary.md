@@ -4,7 +4,7 @@ tags: [reference, rules-v2, glossary]
 status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-09
 uid: 50ec83af-22d5-4bb1-9262-1e94e9a6cfac
 linear: https://linear.app/night-science-llc/issue/NSC-137/t01-glossary
 supersedes:
@@ -37,7 +37,8 @@ this note says what the term means. Multipliers are written with the sign ×.
 | Pass | A Commit of zero cards; it is still an accepted Commit. | A commit phase | Pass, "committed nothing" |
 | Score | As a noun, a seat's Walk Score (the rounded walking total after its last Scoring card); as a verb, a card adding its Power to its Controller's walking total, then multiplying that total by its Bonus value. | The Walk | Score (same) |
 | Match start | The moment the Match begins: Decks are shuffled once and each seat is dealt its opening hand. | Once per Match | Match setup |
-| Match end | The moment a seat has four Round wins, or has more Round wins after Round 7 with no sudden-death Round left. | Once per Match | Match over |
+| Match end | The moment a seat has four Round wins, has more Round wins after Round 7, wins a sudden-death Round, or a Stalemate is reached. | Once per Match | Match over |
+| Stalemate | The Match end when a sudden-death Round ties and the Match may not go on: the seat with the higher total of its Walk Scores over the Match wins, and equal totals draw. | Match end | Stalemate (same) |
 | Round start | The moment a Round begins; Turn 1 follows. Nothing is refilled or reshuffled. | Once per Round | Round setup |
 | Round end | The moment after Turn 7: every card on both rows is Discarded to its Owner's Pile, then the Round is awarded. | Once per Round | Round end (same) |
 | Turn start | The first phase of a Turn: each seat draws one card, then On start triggers fire. | Once per Turn | Turn start (same) |
@@ -50,7 +51,8 @@ this note says what the term means. Multipliers are written with the sign ×.
 
 Note on winning: a Turn's winner is the seat with the higher Score from that Turn's Walk. A
 Round's winner is decided by Turn wins, as today (spec R5). After Round 7 the seat with more
-Round wins takes the Match, with sudden-death Rounds while they are level.
+Round wins takes the Match, with sudden-death Rounds while they are level, until one is won
+or a Stalemate ends the Match ([[rules/rules-v2]] gives the limit).
 
 ## 2. Zones, cards and ownership
 
@@ -61,7 +63,7 @@ Round wins takes the Match, with sudden-death Rounds while they are level.
 | Leaving a Pile | A card leaves a Pile by being shuffled into a Deck (Exhume, Reset, the Pile-shuffling Crew) or put on a row (Revive). It is not a Discard, and its Memory goes with it. | A Pile | New in v2 |
 | Discard | A card entering a Pile from a hand (a chosen discard or the discard-down) or from a row (a Condemned card leaving at turn end, a card cleared at Round end). | The moment of entering a Pile; fires On discard | Discard from hand, destroyed card moving to the destroyed pile |
 | Hand size | The number of cards a seat may hold after its own Commit. The base is four. Where abilities change it, every "your Hand size is N" (a set) applies first, the highest set winning, then every "+N" (an addition): Quartermaster's 7 with Pantry's +2 is 9. | Checked once per Commit, never at any other time | Hand cap of 7, a card drawn at the cap is burned |
-| Owner | The seat whose Deck the card came from; for a created card, the seat it is created for. | Fixed for the card's life in the Match | Origin (the "origin's deck") |
+| Owner | The seat whose Deck the card came from; for a Dross card, the seat it is created for, from the moment it is created. | Fixed for the card's life in the Match | Origin (the "origin's deck") |
 | Controller | The seat whose row the card is on; for an ability, the seat it acts for (see "you, your"). | Changes only while the card is on a row it does not Own | Controller (same) |
 
 A card that leaves a row it does not Own goes to its Owner's Pile or hand (spec R30).
@@ -143,7 +145,7 @@ Condemn for the verb that gives the Condemned status.
 | chosen card | The card a "choose" picked. The choice is kept as long as the text says; it ends when the chosen card or the card that chose it leaves its row or is Un-revealed. |
 | random | Picked with the Match's seeded RNG, by slot, with no identity shown. |
 | shuffle (into) | Put a card from a Pile or hand into a Deck at a random position, using the seeded RNG. |
-| create | Make a new card that is in no Deck, in the place the text names. Its Owner is the seat it is created for; it has base values and no Memory. It is not part of the 40-card Deck. |
+| create | Make a new card that is in no Deck, in the place the text names: a Dross card. Its Owner is the seat it is created for; it has base values and no Memory. It is not part of the 40-card Deck. Within the Round it moves like any card (a Discarded one is filed in its Owner's Pile, and a Pile shuffle may put it in a Deck). A Dross card lasts until the end of the Round: then it is removed from every zone (hand, row, Pile, Deck) and leaves the Match. A few last the whole Match (lifetime `match`). |
 | copy | As "create a copy": a new card with the same base values and no Memory. As "copies its Power and Bonus": takes the current values until the stated end. |
 | look at | Show the identity of a card to the looking seat only; nothing is made public. |
 | shift | Move a card one slot in a direction; other cards slide past Anchored cards. |
@@ -162,7 +164,7 @@ These are not in the spec's term list but the entries above need them. Each has 
 | Seat | One of the two sides of a Match, numbered 0 and 1; owns a hand, a Deck, a Pile, a row and Crew. |
 | Walk end | The moment after the last Scoring card of a Walk and before its walking totals are rounded; an Ongoing that names it applies there once. |
 | Reveal-stage hook | The point in a pulse after the reveal-stage drain (D7) and before the score stage; a text that says "after its On reveal resolves and before it Scores" acts here ([[rules/resolution]] step 10). |
-| Dross | A created card (Litter makes it): Cost 1, Power 0, no Bonus; Ongoing (while in your hand): at Walk end your walking total is multiplied by ×0.75 for each Dross in your hand. Owned by the seat whose hand it was created in ([[rules/cards-v2]]). |
+| Dross | Any card an ability creates, in no Deck (C13: "Dross" is the term for created cards): Litter's Dross cards and Twin's copies. A Dross card lasts until the end of the Round, when it is removed from every zone; a few last the whole Match. The card named Dross (Litter makes it): Cost 1, Power 0, no Bonus; Ongoing (while in your hand): at Walk end your walking total is multiplied by ×0.75 for each Dross in your hand. Owned by the seat whose hand it was created in ([[rules/cards-v2]]). |
 | Opponent, opposing | The opponent is the other seat than "you"; opposing means on the opponent's row (or, for a hand or a Pile, the opponent's). |
 | you, your | In card and Crew text, the ability's Controller: for a card on a row, its Controller; for a hand card, the holding seat; for a Crew, the Crew's seat. |
 | Hand | The cards a seat holds, private to that seat. |
@@ -187,7 +189,7 @@ These are not in the spec's term list but the entries above need them. Each has 
 | Target | A card an effect acts on; Crew are never Targets. |
 | Eligible | A Target that fits the text and may legally be acted on: not Anchored for a Move, swap or reorder, revealed where the text says so, and never a Crew. |
 | Resolution | One trigger taken off the queue and carried out; it counts one against the Budget (trigger). |
-| Uses | How often an ability may act: "unlimited" means every time its moment occurs; "once per Turn" or "once per Walk" caps it. |
+| Uses | How often an ability may act: "unlimited" means every time its moment occurs; "once per Turn" or "once per Walk" caps it. The engine enforces a limited count: once the uses are spent, the ability does not fire again in that scope. |
 | Retrigger | An extra resolution of the same ability immediately after each resolution it applies to, with choices made again. |
 | Queue | The one first-in, first-out line of Batches per Walk; it drains fully before the pulse moves to its next stage. |
 | Prompt | A pause for a choice by a seat, wherever the queue is draining; with no eligible target the effect fizzles, with one it is chosen automatically, except for optional counts and Crew (see Q9). |

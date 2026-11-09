@@ -6,35 +6,41 @@ extends RefCounted
 ## card came from (its Owner), `index` its position in that deck's card list, so the two
 ## Decks take 0 .. 2 * DECK_SIZE - 1. build() resolves those 2 * DECK_SIZE definitions once
 ## through each seat's deck, so def_of() is an array read and an instance keeps its
-## definition whichever seat controls it. Both seats may name the same deck. Cards created
-## in a match (milestone B: Dross, Twin's copies) take ids from CREATED_BASE up, never
-## colliding with a Deck card; record_created() gives one its definition and Owner, and
-## def_of() and origin_of() answer for it as for a Deck card (its verbs join has_verb()). A
-## failed build holds no definitions and reports why through build_error().
+## definition whichever seat controls it. Both seats may name the same deck. Dross cards,
+## the cards an ability creates in a match (milestone B: the Dross card, Twin's copies; C13),
+## take ids from DROSS_BASE up, never colliding with a Deck card; record_dross() gives one its
+## definition and Owner, and def_of() and origin_of() answer for it as for a Deck card (its
+## verbs join has_verb()). This is the one record of the Dross cards (DC-20 T03, NSC-179):
+## MatchState keeps only the next id to hand out, and MatchEngine.full_state() lists the
+## record as `dross`. A Dross card removed at the end of the Round (CardDef.lifetime `round`,
+## TurnFlow.expire_dross, rules 9) is dropped from it by forget_dross(). A failed build holds
+## no definitions and reports why through build_error().
 ##
 ## It also holds each seat's three Crew, resolved from its deck's `crew` list through the
 ## Crew pool: crew_for(seat) in deck order (slot 0..2). Crew are not cards: they have no
 ## instance id.
 
-## The first instance id of a created card (plan P6): after both Decks' ids.
-const CREATED_BASE: int = 2 * MatchRules.DECK_SIZE
+## The first instance id of a Dross card (plan P6): after both Decks' ids.
+const DROSS_BASE: int = 2 * MatchRules.DECK_SIZE
 
 var _defs: Array[CardDef] = []
 var _deck_ids: Array[String] = []
 var _error: String = ""
-## Created cards by instance id (record_created): their definition and their Owner.
-var _created: Dictionary[int, CardDef] = {}
-var _created_owner: Dictionary[int, int] = {}
+## Dross cards by instance id (record_dross): their definition and their Owner.
+var _dross: Dictionary[int, CardDef] = {}
+var _dross_owner: Dictionary[int, int] = {}
 ## The verb names some definition of the match carries, as a set, filled by build() and
-## grown by record_created(), so a hot path can skip work no card can need (has_verb). Empty
+## grown by record_dross(), so a hot path can skip work no card can need (has_verb). Empty
 ## after a failed build.
 var _verbs: Dictionary[String, bool] = {}
 ## Each seat's Crew in slot order, seat 0's MatchRules.CREW_SIZE then seat 1's.
 var _crew: Array[CrewDef] = []
 ## Extra verbs the trigger queue asks before Abilities (DC-13 T05): none in a shipped match;
-## the test fixtures set one for their stub verbs (set_verb_handler).
+## the test fixtures set one for their stub verbs (set_verb_handler). The fixtures also swap
+## a Deck instance's definition here (StubAbilities.replace_def, DC-20 T03: no engine
+## method does that).
 var _verb_handler: VerbHandler = null
-## The pool the match was built from (DC-14 T12): created cards take their definition from
+## The pool the match was built from (DC-14 T12): Dross cards take their definition from
 ## it by id (pool_def: Dross). Null after a failed build.
 var _pool: CardDb = null
 
@@ -83,29 +89,29 @@ func build_error() -> String:
 	return _error
 
 
-## Number of Deck instances (2 * MatchRules.DECK_SIZE, or 0 after a failed build); created
+## Number of Deck instances (2 * MatchRules.DECK_SIZE, or 0 after a failed build); Dross
 ## cards are not counted.
 func size() -> int:
 	return _defs.size()
 
 
-## The definition of instance `instance` (a Deck card or a recorded created card), or null.
+## The definition of instance `instance` (a Deck card or a recorded Dross card), or null.
 func def_of(instance: int) -> CardDef:
-	if instance >= CREATED_BASE:
-		if _created.has(instance):
-			return _created[instance]
-		return null
+	if is_dross(instance):
+		if _dross.has(instance):
+			return _dross[instance]
+		return null  # Never created, or expired (forget_dross).
 	if instance < 0 or instance >= _defs.size():
 		return null
 	return _defs[instance]
 
 
-## The Owner of `instance`: the seat whose Deck it came from, or for a created card the
-## seat it was created for; -1 when out of range or not recorded.
+## The Owner of `instance`: the seat whose Deck it came from, or for a Dross card the seat
+## it was created for; -1 when out of range or not recorded.
 func origin_of(instance: int) -> int:
-	if instance >= CREATED_BASE:
-		if _created_owner.has(instance):
-			return _created_owner[instance]
+	if is_dross(instance):
+		if _dross_owner.has(instance):
+			return _dross_owner[instance]
 		return -1
 	if instance < 0 or instance >= _defs.size():
 		return -1
@@ -113,19 +119,19 @@ func origin_of(instance: int) -> int:
 	return instance / MatchRules.DECK_SIZE
 
 
-## Whether `instance` is in the created range (CREATED_BASE and up).
-static func is_created(instance: int) -> bool:
-	return instance >= CREATED_BASE
+## Whether `instance` is in the Dross range (DROSS_BASE and up): a card an ability created.
+static func is_dross(instance: int) -> bool:
+	return instance >= DROSS_BASE
 
 
-## Records the created card `instance` (CREATED_BASE or above, not yet recorded) with its
+## Records the Dross card `instance` (DROSS_BASE or above, not yet recorded) with its
 ## definition and Owner (plan P6), and adds its verbs to has_verb(). False, changing
-## nothing, when the id is outside the created range, already recorded, `def` is null or
+## nothing, when the id is outside the Dross range, already recorded, `def` is null or
 ## `owner` is not a seat.
 ##
-## Shared state (DC-14 T17): this writes `_created` and `_verbs` on a MatchCards that every
-## MatchState.duplicate() copy of the match shares. Created ids are allocated only from
-## MatchState.next_created_id (AbilitiesComboDisruption.create), which each copy carries, so
+## Shared state (DC-14 T17): this writes `_dross` and `_verbs` on a MatchCards that every
+## MatchState.duplicate() copy of the match shares. Dross ids are allocated only from
+## MatchState.next_dross_id (AbilitiesComboDisruption.create), which each copy carries, so
 ## a copy replaying the same actions asks for the same id with the same definition and the
 ## repeat is refused harmlessly. Two copies that diverge and then both create would hand one
 ## id two definitions; the first recorded wins here. The engine never runs diverging copies
@@ -133,19 +139,31 @@ static func is_created(instance: int) -> bool:
 ## create cards on both. The training copies (MatchEngine.from_state) take a copy() of their
 ## own, so their rollouts never write here. A verb added here stays in has_verb() for the
 ## match, which only makes a hot path do work it could skip.
-func record_created(instance: int, def: CardDef, owner: int) -> bool:
-	if instance < CREATED_BASE or _created.has(instance) or def == null:
+func record_dross(instance: int, def: CardDef, owner: int) -> bool:
+	if instance < DROSS_BASE or _dross.has(instance) or def == null:
 		return false
 	if owner < 0 or owner > 1:
 		return false
-	_created[instance] = def
-	_created_owner[instance] = owner
+	_dross[instance] = def
+	_dross_owner[instance] = owner
 	_add_verbs(def)
 	return true
 
 
+## Drops the Dross card `instance` from the record (rules 9, cycle 14 R10, C13: a `round`
+## Dross card leaves the Match at the end of the Round), so def_of() is null and origin_of()
+## -1 from now on. False, changing nothing, when it is not a recorded Dross card. Its verbs
+## stay in has_verb() (that only makes a hot path do work it could skip). Shared like
+## record_dross(): the engine never runs diverging MatchState copies on one MatchCards.
+func forget_dross(instance: int) -> bool:
+	if not _dross.has(instance):
+		return false
+	var dropped: bool = _dross.erase(instance) and _dross_owner.erase(instance)
+	return dropped
+
+
 ## An independent copy for a training copy of the match (MatchEngine.from_state, cycle 11
-## plan P5): its own created-card records and verb set, so cards created in the copy are
+## plan P5): its own Dross records and verb set, so cards created in the copy are
 ## never recorded on this one. Definitions, Crew, the pool and the verb table are shared
 ## (never written after build()).
 func copy() -> MatchCards:
@@ -153,8 +171,8 @@ func copy() -> MatchCards:
 	out._defs.assign(_defs)
 	out._deck_ids.assign(_deck_ids)
 	out._error = _error
-	out._created.assign(_created)
-	out._created_owner.assign(_created_owner)
+	out._dross.assign(_dross)
+	out._dross_owner.assign(_dross_owner)
 	out._verbs.assign(_verbs)
 	out._crew.assign(_crew)
 	out._verb_handler = _verb_handler
@@ -162,16 +180,16 @@ func copy() -> MatchCards:
 	return out
 
 
-## The pool's definition with the id `card_id` (a created-only card such as Dross, or any
-## other), or null when unknown or after a failed build.
+## The pool's definition with the id `card_id` (a Dross definition such as the Dross card,
+## or any other), or null when unknown or after a failed build.
 func pool_def(card_id: String) -> CardDef:
 	if _pool == null:
 		return null
 	return _pool.card_by_id(card_id)
 
 
-## The ids of every card of the pool the match was built from, in CardDb (file) order, a
-## created-only card included (BotFeatures' card indicators); empty after a failed build.
+## The ids of every card of the pool the match was built from, in CardDb (file) order,
+## the Dross definitions included (BotFeatures' card indicators); empty after a failed build.
 func pool_ids() -> Array[String]:
 	var out: Array[String] = []
 	if _pool == null:
@@ -188,12 +206,10 @@ func pool_size() -> int:
 	return _pool.size()
 
 
-## Names the pool `cards` was built from, shared by every copy(): its instance id, 0 for a
-## null `cards` or after a failed build. Two MatchCards with one key share pool_ids().
-static func pool_key(cards: MatchCards) -> int:
-	if cards == null or cards._pool == null:
-		return 0
-	return cards._pool.get_instance_id()
+## The pool `cards` was built from, shared by every copy(); null for a null `cards` or after
+## a failed build. Two MatchCards with one pool share pool_ids().
+static func pool_of(cards: MatchCards) -> CardDb:
+	return null if cards == null else cards._pool
 
 
 ## The pool position of `card_id` (CardDb.index_of), or -1 when unknown or after a failed
@@ -205,7 +221,7 @@ func pool_index(card_id: String) -> int:
 
 
 ## Whether any definition of the match carries an ability with the verb `verb`, on either
-## seat's deck or a created card's (record_created). False after a failed build.
+## seat's deck or a Dross card's (record_dross). False after a failed build.
 func has_verb(verb: String) -> bool:
 	return _verbs.has(verb)
 
@@ -218,17 +234,6 @@ func verb_handler() -> VerbHandler:
 ## Installs `handler` as this match's extra verb table (the test fixtures' stub verbs).
 func set_verb_handler(handler: VerbHandler) -> void:
 	_verb_handler = handler
-
-
-## Replaces the definition of the Deck instance `instance` with `def` (test fixtures: a card
-## carrying a stub verb). False, changing nothing, for an id outside the Decks or a null
-## `def`. The deck lists and every other instance keep theirs.
-func replace_def(instance: int, def: CardDef) -> bool:
-	if def == null or instance < 0 or instance >= _defs.size():
-		return false
-	_defs[instance] = def
-	_add_verbs(def)
-	return true
 
 
 ## `seat`'s Crew in slot order: MatchRules.CREW_SIZE definitions, or none for a seat out of

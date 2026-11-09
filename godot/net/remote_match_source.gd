@@ -155,8 +155,8 @@ func opponent_deck() -> String:
 	return _opponent_deck
 
 
-## `events` messages received since `started`: the accepted actions of either seat seen
-## live (a resync's history is not counted).
+## `events` messages dealt since `started`: the accepted actions of either seat. A resync
+## carries the server's count, so a rejoined client's number matches the host's (R32).
 func actions_seen() -> int:
 	return _actions_seen
 
@@ -233,8 +233,8 @@ func open_prompt() -> Dictionary:
 	return prompt
 
 
-## The match's definitions, built from the public deck ids; cards created in the match are
-## recorded from their public CARD_CREATED events.
+## The match's definitions, built from the public deck ids; Dross cards (created in the
+## match) are recorded from their public CARD_CREATED events.
 func match_cards() -> MatchCards:
 	return _cards
 
@@ -450,6 +450,7 @@ func _on_resync(message: Dictionary) -> void:
 	_rejoining = false
 	_attempting = false
 	_phase = Phase.PLAYING
+	_actions_seen = maxi(_actions_seen, NetCodec.int_at(message, NetProtocol.KEY_ACTIONS))
 	var events: Array[MatchEvent] = NetCodec.events_of(message)
 	_take(events)
 	# The history replaces anything held for a board that has not started yet.
@@ -468,17 +469,19 @@ func _on_opponent(message: Dictionary) -> void:
 		connection_changed.emit(MatchSource.STATE_OPPONENT_BACK, who)
 
 
-## Records created cards and the match's end from `events`.
+## Records Dross cards and the match's end from `events`. A DROSS_EXPIRED keeps the record
+## (an id is never reused, and the board may still be showing the card until it reads the
+## event, cycle 14 T10).
 func _take(events: Array[MatchEvent]) -> void:
 	for event: MatchEvent in events:
 		if event.kind == MatchEvent.Kind.CARD_CREATED:
-			_record_created(event.payload)
+			_record_dross(event.payload)
 		elif event.kind == MatchEvent.Kind.MATCH_ENDED:
 			_end_payload = event.payload.duplicate(true)
 
 
-## Gives a created card its definition in match_cards() (CARD_CREATED {card, def, owner}).
-func _record_created(payload: Dictionary) -> void:
+## Gives a Dross card its definition in match_cards() (CARD_CREATED {card, def, owner}).
+func _record_dross(payload: Dictionary) -> void:
 	if _cards == null:
 		return
 	var card: int = NetCodec.int_at(payload, "card")
@@ -486,7 +489,7 @@ func _record_created(payload: Dictionary) -> void:
 	var def: CardDef = _cards.pool_def(NetCodec.text_at(payload, "def"))
 	if card < 0 or def == null:
 		return
-	var recorded: bool = _cards.record_created(card, def, owner)
+	var recorded: bool = _cards.record_dross(card, def, owner)
 	if not recorded:
 		pass  # Already known (a resync's history repeats it): same id, same card.
 

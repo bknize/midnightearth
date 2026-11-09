@@ -59,10 +59,13 @@ const END_FIELDS: Array[String] = [
 	"weights_stamp",
 ]
 ## The end record's `weights_stamp` values (cycle 13 R15, plan P6): every weights file used
-## carries the current stamp, one does not, or no side has a weights file.
+## carries the current stamp, one does not, or no side has a weights file. WEIGHTS_BROKEN
+## (NSC-245): a `linear` side is playing the built-in defaults because its file is missing or
+## broken; scripts/bot/driver.py counts every value but match and none as a mismatch.
 const WEIGHTS_MATCH: String = "match"
 const WEIGHTS_MISMATCH: String = "MISMATCH"
 const WEIGHTS_NONE: String = "none"
+const WEIGHTS_BROKEN: String = "BROKEN"
 
 
 ## One `choose` call. `action` is EngineAction.to_dict(); `legal` is the candidate count or
@@ -159,6 +162,30 @@ static func end(
 		"stamp": stamp,
 		"weights_stamp": weights_stamp,
 	}
+
+
+## The end record's `weights_stamp` for the bots `bot_names` on the files `paths` (one per
+## side, "" for no file). A side whose bot takes no weights is ignored, file or not. Any
+## `linear` side on a missing or broken file, the committed one included, gives BROKEN; else
+## NONE when no `linear` side names a file, MATCH when every named file has the current stamp,
+## and MISMATCH when one does not.
+static func weights_stamp_of(bot_names: Array[String], paths: Array[String]) -> String:
+	var used: int = 0
+	var stale: bool = false
+	for side: int in range(bot_names.size()):
+		if bot_names[side] != BotWeights.BOT_NAME:
+			continue
+		var loaded: BotWeights = BotWeights.cached(paths[side])
+		if loaded.load_error != "":
+			return WEIGHTS_BROKEN
+		if paths[side] == "":
+			continue
+		used += 1
+		if not loaded.stamp_matches():
+			stale = true
+	if stale:
+		return WEIGHTS_MISMATCH
+	return WEIGHTS_MATCH if used > 0 else WEIGHTS_NONE
 
 
 ## What `a` scored in one game: 1.0 for a win, 0.5 for a draw (winner -1), 0.0 for a loss.

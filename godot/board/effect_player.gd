@@ -29,8 +29,6 @@ var view_source: Callable = Callable()
 ## The engine seat the local player holds. Steps carry table seats (0 = the player's side);
 ## only a seat read from a raw event needs this to be turned into one.
 var viewer: int = 0
-## The Pile strip (a Pile prompt or a tap on a Pile count); null while there is none.
-var strip: CardCollection3D = null
 ## The board's zone-glow material, copied per card for CHOICE_SHOW (and T12's prompts).
 var glow_material: Material = null
 ## Seat 0's cards by instance id, committed ids, and ids lying face down (board-owned).
@@ -166,9 +164,9 @@ func exit_card(step: BoardStep) -> void:
 		return
 	var card: BoardCard = _find_in_row(row_seat, step.card, -1)
 	match step.exit_to:
-		"pile":
+		BoardStep.ExitTo.PILE:
 			_sweep_off_row(row_seat, card, step.duration)
-		"hand":
+		BoardStep.ExitTo.HAND:
 			var hand: CardCollection3D = _hand_of(step.seat)
 			move_card(card, _row_of(row_seat), hand, step.duration)
 			_hide_if_opponent(card, step.seat, step.duration)
@@ -178,7 +176,7 @@ func exit_card(step: BoardStep) -> void:
 				player_cards[step.card] = card
 			else:
 				_forget(step.card)
-		"face_down":
+		BoardStep.ExitTo.FACE_DOWN:
 			flip_down(card, step.duration)
 			if row_seat == BoardSteps.OWN_SIDE:
 				face_down_ids[step.card] = true
@@ -191,7 +189,7 @@ func exit_card(step: BoardStep) -> void:
 ## back. The event names the row (`from_seat`) and the card's slot before it left (DC-14
 ## T17); an event with no row falls back to the event's owner seat.
 func _exit_hidden(step: BoardStep) -> void:
-	if step.exit_to != "hand":
+	if step.exit_to != BoardStep.ExitTo.HAND:
 		return
 	var row_seat: int = step.from_seat
 	if row_seat < 0 and step.source != null:
@@ -367,18 +365,22 @@ func return_card(step: BoardStep) -> void:
 ## already taken it (R81).
 func discard(step: BoardStep) -> void:
 	if step.from_row:
-		var row_seat: int = _row_seat_of(step.card)
-		if row_seat >= 0:
-			_sweep_off_row(row_seat, _find_in_row(row_seat, step.card, -1), step.duration)
+		_sweep_off_any_row(step.card, step.duration)
 		return
-	var hand: CardCollection3D = _hand_of(step.seat)
-	var card: BoardCard = null
-	if step.seat == BoardSteps.OWN_SIDE:
-		card = _player_card(step.card)
-	elif not hand.cards.is_empty():
-		card = hand.cards[hand.cards.size() - 1] as BoardCard
+	var card: BoardCard = _hand_card(step.seat, step.card)
 	if card != null:
-		_sweep_off(hand, card, step.duration)
+		_sweep_off(_hand_of(step.seat), card, step.duration)
+
+
+## DROSS_EXPIRED (R25): the card leaves the table with a fly-off, from the hand or a row. A
+## card in a Pile or Deck, or one the board does not show, is a no-op; the Pile count stays.
+func expire(step: BoardStep) -> void:
+	if step.zone == TurnFlow.FROM_HAND:
+		var card: BoardCard = _hand_card(step.seat, step.card)
+		if card != null:
+			_sweep_off(_hand_of(step.seat), card, step.duration)
+	elif step.zone == TurnFlow.FROM_ROW:
+		_sweep_off_any_row(step.card, step.duration)
 
 
 ## The opponent's pick glows for the step's time (R53). The card is found by zone and index,
@@ -453,6 +455,24 @@ func _find_on_any_row(id: int) -> BoardCard:
 	return null if seat < 0 else _find_in_row(seat, id, -1)
 
 
+## The hand card a step names: the viewer's own by id; the opponent's hand is all backs, so
+## its card is the fan's last. Null when there is none.
+func _hand_card(seat: int, id: int) -> BoardCard:
+	if seat == BoardSteps.OWN_SIDE:
+		return _player_card(id)
+	var hand: CardCollection3D = _hand_of(seat)
+	if hand.cards.is_empty():
+		return null
+	return hand.cards[hand.cards.size() - 1] as BoardCard
+
+
+## Sweeps the card with this id off whichever row holds it; a no-op when neither does.
+func _sweep_off_any_row(id: int, duration: float) -> void:
+	var row_seat: int = _row_seat_of(id)
+	if row_seat >= 0:
+		_sweep_off_row(row_seat, _find_in_row(row_seat, id, -1), duration)
+
+
 ## The opponent's copy is a back again: forget which card it was once the move ends.
 func _hide_if_opponent(card: BoardCard, seat: int, duration: float) -> void:
 	if seat == BoardSteps.OWN_SIDE:
@@ -497,16 +517,15 @@ func _forget(id: int) -> void:
 	face_down_ids.erase(id)
 
 
-## Forgets the id books and the strip, for a new match or a table clear.
+## Forgets the id books, for a new match or a table clear.
 func reset() -> void:
 	player_cards.clear()
 	committed_ids.clear()
 	face_down_ids.clear()
-	strip = null
 
 
 ## A new Round clears the rows only: hands persist (rules 7), so the player's hand cards keep
-## their ids; the committed and face-down books and the strip are dropped.
+## their ids; the committed and face-down books are dropped.
 func reset_rows() -> void:
 	var stale: Array[int] = []
 	for id: int in player_cards.keys():
@@ -516,7 +535,6 @@ func reset_rows() -> void:
 		_forget(id)
 	committed_ids.clear()
 	face_down_ids.clear()
-	strip = null
 
 
 # --- Card motions (shared with the board) --------------------------------------------------
@@ -591,7 +609,7 @@ func move_card(
 func flip_down(card: BoardCard, duration: float) -> void:
 	var mesh: Node3D = card.get_node("CardMesh") as Node3D
 	var tween: Tween = card.create_tween()
-	_add_tween(tween, mesh, ^"rotation:y", PI, maxf(duration, MIN_TWEEN_TIME))
+	add_tween(tween, mesh, ^"rotation:y", PI, maxf(duration, MIN_TWEEN_TIME))
 	var err: int = tween.finished.connect(_flag_face_down.bind(card))
 	if err != OK:
 		card.face_down = true
@@ -600,7 +618,7 @@ func flip_down(card: BoardCard, duration: float) -> void:
 func _flip_up(card: BoardCard, duration: float) -> void:
 	var mesh: Node3D = card.get_node("CardMesh") as Node3D
 	var tween: Tween = card.create_tween()
-	_add_tween(tween, mesh, ^"rotation:y", 0.0, maxf(duration, MIN_TWEEN_TIME))
+	add_tween(tween, mesh, ^"rotation:y", 0.0, maxf(duration, MIN_TWEEN_TIME))
 	var err: int = tween.finished.connect(_unflag_face_down.bind(card))
 	if err != OK:
 		card.face_down = false
@@ -610,15 +628,15 @@ func _lift_and_settle(card: BoardCard, duration: float) -> void:
 	var mesh: Node3D = card.get_node("CardMesh") as Node3D
 	var half: float = maxf(duration, MIN_TWEEN_TIME) / 2.0
 	var tween: Tween = card.create_tween()
-	_add_tween(tween, mesh, ^"position:z", REVEAL_LIFT, half)
-	_add_tween(tween, mesh, ^"position:z", 0.0, half)
+	add_tween(tween, mesh, ^"position:z", REVEAL_LIFT, half)
+	add_tween(tween, mesh, ^"position:z", 0.0, half)
 
 
 ## Sweeps a card from where it is to the exit marker and frees it.
 func fly_out(card: Card3D, duration: float) -> void:
 	_stop_card_tweens(card)
 	var tween: Tween = card.create_tween()
-	_add_tween(
+	add_tween(
 		tween, card, ^"global_position", exit_marker.global_position, maxf(duration, MIN_TWEEN_TIME)
 	)
 	var err: int = tween.finished.connect(card.queue_free)
@@ -642,7 +660,8 @@ func _stop_card_tweens(card: Card3D) -> void:
 			running.kill()
 
 
-func _add_tween(
+## Adds one sine-eased property step to `tween` (HandTelegraph shares it).
+static func add_tween(
 	tween: Tween, target: Object, property: NodePath, value: Variant, duration: float
 ) -> void:
 	var tweener: PropertyTweener = tween.tween_property(target, property, value, duration)

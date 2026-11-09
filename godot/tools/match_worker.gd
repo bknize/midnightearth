@@ -7,10 +7,12 @@ extends SceneTree
 ##     [--budget-us=10000] [--weights-a=<path>] [--weights-b=<path>] [--legal]
 ##
 ## `--weights-a` and `--weights-b` give a `linear` side its weights file (the committed file
-## when absent); the end record's `weights_stamp` says whether every file given carries the
-## current stamp ("match"), not ("MISMATCH"), or no side has a file ("none"). The decision
-## record's `legal` is -1 unless `--legal` is given: counting the legal commits at every
-## decision is work nothing in scripts/bot reads (NSC-212).
+## when absent; a side whose bot takes no weights ignores its flag); the end record's
+## `weights_stamp` (MatchWorkerRecords.weights_stamp_of) says whether every file a `linear` side
+## was given carries the current stamp ("match"), not ("MISMATCH"), no `linear` side was given
+## one ("none"), or a `linear` side's file is missing or broken, so it plays the built-in
+## defaults ("BROKEN"). The decision record's `legal` is -1 unless `--legal` is given: counting
+## the legal commits at every decision is work nothing in scripts/bot reads (NSC-212).
 ##
 ## Per seed: the deck pair is DeckList.seeded_pick (or the flag); the games are (a@0, b@1)
 ## and (b@0, a@1), and when the two decks differ the same two with the decks swapped (two
@@ -379,21 +381,6 @@ func _write_end() -> void:
 			p95,
 			_slowest_us,
 			BotStamp.current(),
-			_weights_stamp()
+			MatchWorkerRecords.weights_stamp_of(_bot_names, _weights)
 		)
 	)
-
-
-## The end record's `weights_stamp`: "none" when neither side has a weights file, "match" when
-## every file given has the current stamp, else "MISMATCH".
-func _weights_stamp() -> String:
-	var used: int = 0
-	for path: String in _weights:
-		if path == "":
-			continue
-		used += 1
-		if not BotWeights.cached(path).stamp_matches():
-			return MatchWorkerRecords.WEIGHTS_MISMATCH
-	if used == 0:
-		return MatchWorkerRecords.WEIGHTS_NONE
-	return MatchWorkerRecords.WEIGHTS_MATCH

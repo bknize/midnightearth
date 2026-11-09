@@ -4,7 +4,7 @@ tags: [spec, cycle-13-bot-trainer-b, engine, tooling, bot, training, learner]
 status: approved
 related: ["[[specs/cycle-13-bot-trainer-b/plan]]", "[[specs/cycle-13-bot-trainer-b/tasks]]", "[[specs/cycle-11-bot-trainer/spec]]", "[[planning/bot-trainer-architecture]]", "[[planning/bot-ladder]]", "[[specs/cycle-7-bot-players/spec]]", "[[planning/cycles]]", "[[planning/phase-1-tech-stack]]"]
 created: 2026-11-07
-updated: 2026-11-08
+updated: 2026-11-09
 uid: 3c3e6b99-3719-4405-b164-29c44ff6db23
 linear: https://linear.app/night-science-llc/project/cycle-13-bot-trainer-cycle-b-the-learner-the-linear-bot-rung-1-64d41cbb8498
 supersedes:
@@ -314,21 +314,21 @@ cycle A's label digests are not comparable with cycle B's (R16).
 ## Definition of done
 
 - [ ] `make check` green, gdUnit under 30 s; golden unchanged; `make sweep` (random)
-      unchanged (R12, R36).
-- [ ] Feature suite: the pinned seed-1 vector, the card indicators, every feature a whole
+      unchanged (R12, R36). (superseded: gdUnit ran 30.8 s, waived by Ben 2a, NSC-251, DC-20 T19)
+- [x] Feature suite: the pinned seed-1 vector, the card indicators, every feature a whole
       number from the view and the candidate only (R1 to R4).
-- [ ] `linear` suite: highest score wins, ties by seed, `k` sampling, prompts as `random`,
+- [x] `linear` suite: highest score wins, ties by seed, `k` sampling, prompts as `random`,
       the broken-file fallback and the one `Bot weights:` line (R5 to R9).
-- [ ] `make sweep BOT=linear [WEIGHTS=…]` p99 under 10 ms with `stamp=` printed (R10, R11).
-- [ ] The label reply and shards carry features, Round, Turn and hand; `inspect` is gone; the
+- [x] `make sweep BOT=linear [WEIGHTS=…]` p99 under 10 ms with `stamp=` printed (R10, R11).
+- [x] The label reply and shards carry features, Round, Turn and hand; `inspect` is gone; the
       digest is equal on 1 and 8 workers (R13, R16, R20).
-- [ ] `make bot-eval BOT=linear WEIGHTS=… REF=random` runs on the Mac with `stamp=` right
+- [x] `make bot-eval BOT=linear WEIGHTS=… REF=random` runs on the Mac with `stamp=` right
       (R17, R18); `make bot-selftest` green.
-- [ ] `make trainer-test` green on the Mac (learner tests skipped without numpy) and on the PC
+- [x] `make trainer-test` green on the Mac (learner tests skipped without numpy) and on the PC
       (R29, R37); `fit`, `get_artifact`, the extended `run_status`/`list_runs`/`get_report`
       and the two new config fields proven over MCP (R21 to R30).
-- [ ] Iterations run per R32 and R33, each line and figure in the cycle row (R35).
-- [ ] Rung 1 promoted per R34, or nothing promoted and the measurements recorded (C1).
-- [ ] No screenshot: proof by text lines (R38).
-- [ ] Constitution Check passes (see plan); spec, plan and tasks signed off by Ben and
+- [ ] Iterations run per R32 and R33, each line and figure in the cycle row (R35). (iterations 1 and 2 moved to NSC-243, DC-20 T19)
+- [x] Rung 1 promoted per R34, or nothing promoted and the measurements recorded (C1).
+- [x] No screenshot: proof by text lines (R38).
+- [x] Constitution Check passes (see plan); spec, plan and tasks signed off by Ben and
       committed before implementation begins.

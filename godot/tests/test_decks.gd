@@ -172,7 +172,7 @@ func test_average_costs_match_the_canon() -> void:
 
 
 ## Each deck is its strategy's ten cards, four copies each, every one tagged for the deck,
-## and none of them created-only (Dross).
+## and none of them a Dross definition (the Dross card).
 func test_each_deck_is_its_ten_cards_four_times() -> void:
 	for deck_id: String in SHIPPED:
 		var row: Array = CANON[deck_id]
@@ -186,7 +186,7 @@ func test_each_deck_is_its_ten_cards_four_times() -> void:
 		for card_id: String in _decks().card_ids(deck_id):
 			var def: CardDef = _cards().card_by_id(card_id)
 			assert_str(def.tag).override_failure_message(card_id).is_equal(deck_id)
-			assert_bool(def.created).override_failure_message(card_id).is_false()
+			assert_bool(def.dross).override_failure_message(card_id).is_false()
 
 
 func test_every_pairing_starts() -> void:

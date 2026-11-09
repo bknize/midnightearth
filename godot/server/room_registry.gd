@@ -9,6 +9,11 @@ extends RefCounted
 
 const MAX_ROOMS: int = 8
 const SEED_MASK: int = 0x7FFFFFFF
+## R27: this many wrong room codes from one address within MISS_WINDOW_MS start a cooling
+## period of COOLING_MS, in which that address's join attempts are refused.
+const MAX_MISSES: int = 5
+const MISS_WINDOW_MS: int = 60000
+const COOLING_MS: int = 60000
 
 ## Written into each new room (MatchRoom.stamp, build, the windows, allowed_decks).
 var stamp: String = ""
@@ -27,6 +32,10 @@ var _engine_factory: Callable = Callable()
 var _shipped: ShippedEngines = null
 var _rooms: Dictionary[String, MatchRoom] = {}
 var _closed: Array[MatchRoom] = []
+## Per address: when its recent wrong codes were typed (ms, oldest first).
+var _misses: Dictionary[String, Array] = {}
+## Per address: when its cooling period ends (ms).
+var _cooling_until: Dictionary[String, int] = {}
 
 
 ## A registry drawing codes from `rng`. `engine_factory` builds each room's engine; when
@@ -85,7 +94,36 @@ func tick(now_ms: int) -> Array[MatchRoom.Outbound]:
 		var room: MatchRoom = _rooms[code]
 		out.append_array(room.tick(now_ms))
 	_sweep()
+	_forget_old_misses(now_ms)
 	return out
+
+
+## Whether `address` is cooling off at `now_ms` after too many wrong room codes (R27): its
+## join attempts are refused whatever the code.
+func is_cooling(address: String, now_ms: int) -> bool:
+	if not _cooling_until.has(address):
+		return false
+	return now_ms < _cooling_until[address]
+
+
+## Records a wrong room code from `address` at `now_ms`; true when this miss is the one that
+## starts its cooling period (MAX_MISSES within MISS_WINDOW_MS).
+func note_miss(address: String, now_ms: int) -> bool:
+	var times: Array[int] = []
+	var earlier: Array[int] = []
+	if _misses.has(address):
+		earlier.assign(_misses[address])
+	for at: int in earlier:
+		if now_ms - at < MISS_WINDOW_MS:
+			times.append(at)
+	times.append(now_ms)
+	if times.size() >= MAX_MISSES:
+		if not _misses.erase(address):
+			push_warning("RoomRegistry: no misses of %s to clear" % address)
+		_cooling_until[address] = now_ms + COOLING_MS
+		return true
+	_misses[address] = times
+	return false
 
 
 ## The rooms that left the registry since the last call, in order.
@@ -117,6 +155,29 @@ func codes() -> Array[String]:
 		if not _rooms[code].is_closed():
 			out.append(code)
 	return out
+
+
+## Drops the misses older than the window and the cooling periods that have ended, so a
+## scan from many addresses does not grow the tables for ever.
+func _forget_old_misses(now_ms: int) -> void:
+	if _misses.is_empty() and _cooling_until.is_empty():
+		return
+	var stale: Array[String] = []
+	for address: String in _misses:
+		var times: Array = _misses[address]
+		var newest: int = times[times.size() - 1]
+		if now_ms - newest >= MISS_WINDOW_MS:
+			stale.append(address)
+	for address: String in stale:
+		if not _misses.erase(address):
+			push_warning("RoomRegistry: misses of %s already gone" % address)
+	var ended: Array[String] = []
+	for address: String in _cooling_until:
+		if now_ms >= _cooling_until[address]:
+			ended.append(address)
+	for address: String in ended:
+		if not _cooling_until.erase(address):
+			push_warning("RoomRegistry: cooling of %s already gone" % address)
 
 
 ## Moves every closed room out of the registry, freeing its code.

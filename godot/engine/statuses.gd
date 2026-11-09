@@ -81,8 +81,13 @@ const TO_FACE_DOWN: String = "face_down"
 const PROTECTING_VERBS: Dictionary[String, String] = {"cannot_condemn_self": CONDEMNED}
 ## The Ongoing verb that makes its own card Anchored while read (Brace).
 const ANCHOR_VERB: String = "anchored_self"
-## Ongoing verbs that change exit marks (Wraith): read once per exit pass.
-const EXIT_CHANGING_VERBS: Array[String] = [AbilitiesGraveyardControl.VERB_WRAITH]
+## Ongoing verbs that change exit marks, each to its [from, to] (Wraith): read once per exit
+## pass.
+const EXIT_CHANGING_VERBS: Dictionary[String, Array] = {
+	AbilitiesGraveyardControl.VERB_WRAITH: [CONDEMNED, FADE],
+}
+## A `seat` argument that says "not known, look it up" (row_seat()); -1 is "on no row".
+const SEAT_UNKNOWN: int = -2
 
 # --- Reading ----------------------------------------------------------------------------
 
@@ -113,22 +118,27 @@ static func fires(state: MatchState, card: int) -> bool:
 
 
 ## Whether `card` cannot be moved by an effect (R40): the Anchored status, or its own
-## Ongoing `anchored_self` while read (Brace).
-static func is_anchored(state: MatchState, cards: MatchCards, card: int) -> bool:
-	return has(state, card, ANCHORED) or _reads_own(state, cards, card, ANCHOR_VERB)
+## Ongoing `anchored_self` while read (Brace). `seat`: its row seat when the caller knows it.
+static func is_anchored(
+	state: MatchState, cards: MatchCards, card: int, seat: int = SEAT_UNKNOWN
+) -> bool:
+	return has(state, card, ANCHORED) or _reads_own(state, cards, card, ANCHOR_VERB, seat)
 
 
 ## Whether `status` cannot be applied to `card` now (R37): its row seat's protection
-## (Ward), its own protection from an effect, or its read Ongoing (Bastion).
-static func is_protected(state: MatchState, cards: MatchCards, card: int, status: String) -> bool:
-	var seat: int = row_seat(state, card)
-	if seat >= 0 and state.seat_protections[seat].has(status):
+## (Ward), its own protection from an effect, or its read Ongoing (Bastion). `seat`: its row
+## seat when the caller knows it.
+static func is_protected(
+	state: MatchState, cards: MatchCards, card: int, status: String, seat: int = SEAT_UNKNOWN
+) -> bool:
+	var at: int = row_seat(state, card) if seat == SEAT_UNKNOWN else seat
+	if at >= 0 and state.seat_protections[at].has(status):
 		return true
 	var held: CardState = state.card_state(card)
 	if held != null and held.protections.has(status):
 		return true
 	for verb: String in PROTECTING_VERBS:
-		if PROTECTING_VERBS[verb] == status and _reads_own(state, cards, card, verb):
+		if PROTECTING_VERBS[verb] == status and _reads_own(state, cards, card, verb, at):
 			return true
 	return false
 
@@ -189,12 +199,13 @@ static func apply(
 		else:
 			out.blocked.append(status)
 		return out
-	if row_seat(state, card) < 0:
+	var seat: int = row_seat(state, card)
+	if seat < 0:
 		return out
 	var parts: Array[String] = _parts(status)
 	var was_squelched: bool = has(state, card, SQUELCHED)
 	for part: String in parts:
-		if is_protected(state, cards, card, part):
+		if is_protected(state, cards, card, part, seat):
 			out.blocked.append(part)
 			continue
 		_hold(state, card, part, p_cessation)
@@ -238,9 +249,10 @@ static func end(
 static func mark_exit(
 	state: MatchState, cards: MatchCards, card: int, mark: String, sink: Callable
 ) -> bool:
-	if not EXIT_MARKS.has(mark) or row_seat(state, card) < 0:
+	var seat: int = row_seat(state, card)
+	if not EXIT_MARKS.has(mark) or seat < 0:
 		return false
-	if is_protected(state, cards, card, mark):
+	if is_protected(state, cards, card, mark, seat):
 		return false
 	var held: CardState = state.card_state_for(card)
 	var replaced: String = held.exit_mark
@@ -273,17 +285,7 @@ static func protect_card(state: MatchState, card: int, status: String) -> void:
 ## seats' "turn" protections end too. Exit marks are untouched: one given after the exit
 ## pass waits for the next turn end.
 static func on_turn_end(state: MatchState, sink: Callable) -> void:
-	var ids: Array[int] = []
-	ids.assign(state.card_states.keys())
-	ids.sort()
-	for card: int in ids:
-		var held: CardState = state.card_states[card]
-		var listed: Array[String] = []
-		listed.assign(held.statuses.keys())
-		for status: String in listed:
-			var cease: Dictionary = held.statuses[status]
-			if _ends_at_turn_end(state, cease):
-				_end_board(state, card, status, CAUSE_TURN_END, sink)
+	_end_statuses(state, CAUSE_TURN_END, sink)
 	for seat: int in range(state.seat_protections.size()):
 		var guards: Dictionary = state.seat_protections[seat]
 		for status: Variant in guards.keys():
@@ -343,7 +345,7 @@ static func unreveal(state: MatchState, seat: int, card: int, sink: Callable) ->
 static func exit_pass(state: MatchState, cards: MatchCards, sink: Callable) -> Array[int]:
 	var read: Array[Array] = _exit_ongoings(state, cards)
 	var discarded: Array[int] = []
-	for seat: int in [state.first_seat, 1 - state.first_seat]:
+	for seat: int in state.commit_order():
 		var row: Array[int] = []
 		row.assign(state.seats[seat].board)
 		for card: int in row:
@@ -416,12 +418,16 @@ static func _exit_ongoings(state: MatchState, cards: MatchCards) -> Array[Array]
 
 
 ## The mark that resolves for `mark` on a card of a row whose exit-changing Ongoings are
-## `read`: Wraith ("your Condemned cards have Fade instead") turns Condemned into Fade.
-## Veil (CrewAbilities, At turn end before the pass, D9) has already turned its card
-## Fleeting, which Wraith leaves alone, so Veil wins (cards-v2 section 4).
+## `read`, by EXIT_CHANGING_VERBS: Wraith ("your Condemned cards have Fade instead") turns
+## Condemned into Fade. Veil (CrewAbilities, At turn end before the pass, D9) has already
+## turned its card Fleeting, which Wraith leaves alone, so Veil wins (cards-v2 section 4).
 static func _mark_under(mark: String, read: Array) -> String:
-	if mark == CONDEMNED and read.has(AbilitiesGraveyardControl.VERB_WRAITH):
-		return FADE
+	for verb: String in read:
+		var change: Array = EXIT_CHANGING_VERBS[verb]
+		var from: String = change[0]
+		if mark == from:
+			var to: String = change[1]
+			return to
 	return mark
 
 
@@ -481,29 +487,49 @@ static func _end_board(
 
 ## Ends, on every other card, each status whose condition is sourced by `source`.
 static func _end_sourced(state: MatchState, source: int, cause: String, sink: Callable) -> void:
+	_end_statuses(state, cause, sink, true, source)
+
+
+## The one status walk, cards in ascending id, each card's statuses in held order: ends
+## every status that ends at turn end, or when `sourced`, each one `source` is the source of
+## on every other card.
+static func _end_statuses(
+	state: MatchState, cause: String, sink: Callable, sourced: bool = false, source: int = -1
+) -> void:
 	var ids: Array[int] = []
 	ids.assign(state.card_states.keys())
 	ids.sort()
 	for card: int in ids:
-		if card == source:
+		if sourced and card == source:
 			continue
 		var held: CardState = state.card_states[card]
 		var listed: Array[String] = []
 		listed.assign(held.statuses.keys())
 		for status: String in listed:
 			var cease: Dictionary = held.statuses[status]
-			var kind: String = cease.get(KEY_KIND, CEASE_TURN)
-			var from: int = cease.get(KEY_SOURCE, -1)
-			if kind == CEASE_CONDITION and from == source:
+			var ends: bool = (
+				_is_sourced_by(cease, source) if sourced else _ends_at_turn_end(state, cease)
+			)
+			if ends:
 				_end_board(state, card, status, cause, sink)
+
+
+## Whether a cessation is a condition sourced by `source`.
+static func _is_sourced_by(cease: Dictionary, source: int) -> bool:
+	var kind: String = cease.get(KEY_KIND, CEASE_TURN)
+	var from: int = cease.get(KEY_SOURCE, -1)
+	return kind == CEASE_CONDITION and from == source
 
 
 ## Whether `card`'s own Ongoing with `verb` is read now: a revealed row card, not Squelched
 ## (AbilitiesGraveyardControl.own_ongoing, which skips a verb no card of the match carries).
-static func _reads_own(state: MatchState, cards: MatchCards, card: int, verb: String) -> bool:
+## `seat`: its row seat when the caller knows it.
+static func _reads_own(
+	state: MatchState, cards: MatchCards, card: int, verb: String, seat: int
+) -> bool:
 	if cards == null:
 		return false
-	return AbilitiesGraveyardControl.own_ongoing(state, cards, card, verb) != null
+	return AbilitiesGraveyardControl.own_ongoing(state, cards, card, verb, seat) != null
 
 
 ## The STATUS_ENDED payload.

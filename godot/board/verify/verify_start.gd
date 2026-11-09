@@ -18,6 +18,7 @@ func _start() -> void:
 		return
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	var autoplay: bool = board.autoplay or args.has(Board.AUTOPLAY_ARG)
+	board.autoplay = autoplay
 	var seeded: Array[String] = ["", ""]
 	var driver: MatchDriver = MatchDriver.create(
 		match_seed,

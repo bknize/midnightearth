@@ -54,12 +54,6 @@ func _defs() -> MatchCards:
 	return _cached_defs
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _started(match_seed: int) -> MatchEngine:
 	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
@@ -70,7 +64,7 @@ func _seat_list(engine: MatchEngine, key: String, seat: int) -> Array[int]:
 	var state: Dictionary = engine.full_state()
 	var per_seat: Array = state[key]
 	var raw: Array = per_seat[seat]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _hand(engine: MatchEngine, seat: int) -> Array[int]:
@@ -92,13 +86,13 @@ func _pile(engine: MatchEngine, seat: int) -> Array[int]:
 func _pending(engine: MatchEngine) -> Array[int]:
 	var state: Dictionary = engine.full_state()
 	var raw: Array = state["pending"]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _pending_slots(engine: MatchEngine) -> Array[int]:
 	var state: Dictionary = engine.full_state()
 	var raw: Array = state["pending_slots"]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _energy_list(engine: MatchEngine, key: String) -> Array:
@@ -111,7 +105,7 @@ func _energy_list(engine: MatchEngine, key: String) -> Array:
 func _scores(engine: MatchEngine) -> Array[int]:
 	var state: Dictionary = engine.full_state()
 	var raw: Array = state["scores"]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _state_int(engine: MatchEngine, key: String) -> int:
@@ -127,7 +121,7 @@ func _payload_int(event: MatchEvent, key: String) -> int:
 
 func _payload_ints(event: MatchEvent, key: String) -> Array[int]:
 	var raw: Array = event.payload[key]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 ## The awaited seat passes; when that opens its discard-down, the first `exact` hand cards
@@ -186,7 +180,7 @@ func _event_dicts(events: Array[MatchEvent]) -> Array[Dictionary]:
 func _find_set(hand: Array[int], energy: int, size: int) -> Array[int]:
 	for s: Array in LegalPlays.enumerate(hand, energy, _defs()):
 		if s.size() == size:
-			return _typed(s)
+			return Typed.ints(s)
 	var none: Array[int] = []
 	return none
 
@@ -261,7 +255,8 @@ func test_match_start_deals_four_then_round_one_draws_one() -> void:
 	assert_int(engine.awaited_seat()).is_equal(_payload_int(turn_started, "first_seat"))
 	var keys: Array = turn_started.payload.keys()
 	keys.sort()
-	assert_array(keys).is_equal(["budgets", "first_seat", "round", "turn"])
+	# `free_first` per seat since rules 9 (cycle 14 R16).
+	assert_array(keys).is_equal(["budgets", "first_seat", "free_first", "round", "turn"])
 
 
 func test_deal_events_are_private_to_their_seat() -> void:
@@ -287,10 +282,10 @@ func test_round_start_consumes_stream_seat0_seat1_then_coin() -> void:
 		var coin: int = rng.coin_flip()
 		var engine: MatchEngine = _started(match_seed)
 		var top: int = MatchRules.OPENING_HAND + 1
-		assert_array(_hand(engine, 0)).is_equal(_typed(deck0.slice(0, top)))
-		assert_array(_deck(engine, 0)).is_equal(_typed(deck0.slice(top)))
-		assert_array(_hand(engine, 1)).is_equal(_typed(deck1.slice(0, top)))
-		assert_array(_deck(engine, 1)).is_equal(_typed(deck1.slice(top)))
+		assert_array(_hand(engine, 0)).is_equal(Typed.ints(deck0.slice(0, top)))
+		assert_array(_deck(engine, 0)).is_equal(Typed.ints(deck0.slice(top)))
+		assert_array(_hand(engine, 1)).is_equal(Typed.ints(deck1.slice(0, top)))
+		assert_array(_deck(engine, 1)).is_equal(Typed.ints(deck1.slice(top)))
 		assert_int(engine.awaited_seat()).is_equal(coin)
 		assert_int(_state_int(engine, "rng_state")).is_equal(rng.state)
 
@@ -298,7 +293,7 @@ func test_round_start_consumes_stream_seat0_seat1_then_coin() -> void:
 func test_instance_ids_unique_across_seats() -> void:
 	var engine: MatchEngine = _started(SEED)
 	for seat: int in range(2):
-		var all: Array[int] = _typed(_hand(engine, seat) + _deck(engine, seat))
+		var all: Array[int] = Typed.ints(_hand(engine, seat) + _deck(engine, seat))
 		all.sort()
 		assert_array(all).is_equal(_ids(seat))
 
@@ -335,13 +330,13 @@ func test_next_round_keeps_hands_decks_and_piles() -> void:
 		)
 		var pile: Array[int] = _pile(engine, seat)
 		assert_int(pile.size()).is_equal(MatchRules.TURNS)
-		var all: Array[int] = _typed(_hand(engine, seat) + _deck(engine, seat) + pile)
+		var all: Array[int] = Typed.ints(_hand(engine, seat) + _deck(engine, seat) + pile)
 		all.sort()
 		assert_array(all).is_equal(_ids(seat))
 	for card: int in played:
 		assert_bool(_pile(engine, card / MatchRules.DECK_SIZE).has(card)).is_true()
 	var scores: Array[int] = _scores(engine)
-	assert_array(scores).is_equal(_typed([0, 0]))
+	assert_array(scores).is_equal(Typed.ints([0, 0]))
 
 
 # --- R4: run to the next decision point -----------------------------------------------
@@ -466,8 +461,8 @@ func test_first_commit_is_face_down_and_awaits_second() -> void:
 	assert_int(_payload_int(committed, "count")).is_equal(1)
 	assert_array(_payload_ints(committed, "cards")).is_equal(cards)
 	# No slots given on an empty row: the compatibility default resolves to slot 0.
-	assert_array(_payload_ints(committed, "slots")).is_equal(_typed([0]))
-	assert_array(_pending_slots(engine)).is_equal(_typed([0]))
+	assert_array(_payload_ints(committed, "slots")).is_equal(Typed.ints([0]))
+	assert_array(_pending_slots(engine)).is_equal(Typed.ints([0]))
 
 
 # --- R16: scoring (the walk and its reveals: test_score_walk.gd) ----------------
@@ -479,7 +474,7 @@ func test_tied_turn_has_no_winner() -> void:
 	var result: ApplyResult = _pass(engine)
 	var ended: MatchEvent = _of_kind(result.events, MatchEvent.Kind.TURN_ENDED)[0]
 	assert_int(_payload_int(ended, "winner")).is_equal(-1)
-	assert_array(_payload_ints(ended, "scores")).is_equal(_typed([0, 0]))
+	assert_array(_payload_ints(ended, "scores")).is_equal(Typed.ints([0, 0]))
 	assert_int(_state_int(engine, "last_turn_winner")).is_equal(-1)
 
 
@@ -759,6 +754,82 @@ func test_engine_source_never_prints_asserts_or_pushes_errors() -> void:
 	assert_array(scripts).contains([BOT_SCRIPT])
 
 
+## Opens a prompt by hand on the started `engine` for `seat`, carrying `resume` and `step`,
+## and declines it through apply(). Returns the kinds of the events that sent out.
+func _resume_kinds(engine: MatchEngine, resume: String, step: String, seat: int) -> Array[int]:
+	engine._state.prompt = {
+		Abilities.KEY_SEAT: seat,
+		Abilities.KEY_CARD: -1,
+		Abilities.KEY_VERB: "test",
+		Choice.KEY_ZONE: Choice.zone_name(Choice.Zone.OWN_HAND),
+		Choice.KEY_OPTIONS: [],
+		Choice.KEY_MULTI: false,
+		Choice.KEY_OPTIONAL: true,
+		Choice.KEY_RESUME: resume,
+		Choice.KEY_STEP: step,
+		Choice.KEY_CREW: "",
+	}
+	engine._state.phase = MatchState.Phase.AWAIT_CHOICE
+	var result: ApplyResult = engine.apply(EngineAction.decline(seat))
+	assert_bool(result.ok).is_true()
+	var kinds: Array[int] = []
+	for event: MatchEvent in result.events:
+		kinds.append(event.kind)
+	return kinds
+
+
+## NSC-177, T08 N4: every resume a prompt can carry takes the match on from the right step, so
+## an answered prompt never leaves it awaiting nobody (no engine error path, R27). Read from
+## what each one does: a branch missing from MatchEngine._resume_after sends none of these
+## events and, after _answer, leaves the phase AWAIT_SECOND.
+func test_every_resume_has_a_branch_in_the_engine() -> void:
+	assert_int(Choice.RESUMES.size()).is_equal(5)
+	var ended: int = MatchEvent.Kind.TURN_ENDED
+	var walk_ended: int = MatchEvent.Kind.WALK_ENDED
+	var round_ended: int = MatchEvent.Kind.ROUND_ENDED
+
+	var start: MatchEngine = _started(SEED)
+	var seat: int = start._state.first_seat
+	var kinds: Array[int] = _resume_kinds(
+		start, Choice.RESUME_TURN_START, TurnFlow.STEP_ON_START, seat
+	)
+	assert_bool(kinds.has(ended)).is_false()
+	assert_int(start._state.phase).is_equal(MatchState.Phase.AWAIT_FIRST)
+	assert_int(start.awaited_seat()).is_equal(seat)
+
+	# The second seat's Commit is done (a discard drain, so no discard-down): the Walk starts.
+	var commit: MatchEngine = _started(SEED)
+	seat = 1 - commit._state.first_seat
+	kinds = _resume_kinds(commit, Choice.RESUME_COMMIT, TurnFlow.STEP_SECOND_DISCARD, seat)
+	assert_bool(kinds.has(MatchEvent.Kind.WALK_STARTED)).is_true()
+	assert_int(commit.awaited_seat()).is_greater_equal(0)
+
+	var walk: MatchEngine = _started(SEED)
+	ScoreWalk.begin(walk._state)
+	seat = walk._state.first_seat
+	kinds = _resume_kinds(walk, Choice.RESUME_WALK, ScoreWalk.STEP_SCORE, seat)
+	assert_bool(kinds.has(walk_ended)).is_true()
+	assert_bool(kinds.has(ended)).is_true()
+	assert_bool(kinds.has(MatchEvent.Kind.WALK_STARTED)).is_false()
+	assert_int(walk.awaited_seat()).is_greater_equal(0)
+
+	var turn_end: MatchEngine = _started(SEED)
+	seat = turn_end._state.first_seat
+	kinds = _resume_kinds(turn_end, Choice.RESUME_TURN_END, TurnFlow.STEP_TURN_END_AFTER, seat)
+	assert_bool(kinds.has(ended)).is_true()
+	assert_bool(kinds.has(walk_ended)).is_false()
+	assert_bool(kinds.has(round_ended)).is_false()
+	assert_int(turn_end.awaited_seat()).is_greater_equal(0)
+
+	var round_end: MatchEngine = _started(SEED)
+	seat = round_end._state.first_seat
+	kinds = _resume_kinds(round_end, Choice.RESUME_ROUND_END, TurnFlow.STEP_ROUND_END, seat)
+	assert_bool(kinds.has(round_ended)).is_true()
+	assert_bool(kinds.has(ended)).is_false()
+	assert_bool(kinds.has(MatchEvent.Kind.ROUND_STARTED)).is_true()
+	assert_int(round_end.awaited_seat()).is_greater_equal(0)
+
+
 ## Every .gd path under `dir`, subdirectories included, in a stable order.
 func _engine_scripts(dir: String) -> Array[String]:
 	var out: Array[String] = []
@@ -833,7 +904,7 @@ func test_merged_rows_for_interleaved_first_and_second_commits() -> void:
 	var redacted: MatchEvent = held.events[0].redacted_for(second)
 	assert_array(_payload_ints(redacted, "slots")).is_equal(a_slots)
 	assert_array(_payload_ints(redacted, "cards")).is_equal(
-		_typed([MatchEvent.HIDDEN_CARD, MatchEvent.HIDDEN_CARD])
+		Typed.ints([MatchEvent.HIDDEN_CARD, MatchEvent.HIDDEN_CARD])
 	)
 	var result: ApplyResult = engine.apply(EngineAction.commit(second, b, b_slots))
 	assert_bool(result.ok).is_true()
@@ -855,9 +926,9 @@ func test_merged_rows_for_interleaved_first_and_second_commits() -> void:
 	var state: Dictionary = engine.full_state()
 	var revealed: Array = state["revealed"]
 	var first_revealed: Array = revealed[first]
-	var first_sorted: Array[int] = _typed(first_row)
+	var first_sorted: Array[int] = Typed.ints(first_row)
 	first_sorted.sort()
-	assert_array(_typed(first_revealed)).is_equal(first_sorted)
+	assert_array(Typed.ints(first_revealed)).is_equal(first_sorted)
 	var actions: Array[EngineAction] = engine.accepted_actions()
 	assert_array(actions[actions.size() - 2].slots).is_equal(a_slots)
 	assert_array(actions[actions.size() - 1].slots).is_equal(b_slots)
@@ -880,9 +951,9 @@ func test_empty_slots_resolve_to_the_right_end_and_are_logged() -> void:
 	assert_array(actions[actions.size() - 1].slots).is_equal(appended)
 	var entry: Dictionary = engine.action_log().actions[actions.size() - 1].to_dict()
 	var logged: Array = entry["p"]
-	assert_array(_typed(logged)).is_equal(appended)
+	assert_array(Typed.ints(logged)).is_equal(appended)
 	_pass(engine)
-	assert_array(_board(engine, first)).is_equal(_typed(old_first + a))
+	assert_array(_board(engine, first)).is_equal(Typed.ints(old_first + a))
 
 
 func test_bad_slots_are_rejected_and_change_nothing() -> void:
@@ -894,18 +965,18 @@ func test_bad_slots_are_rejected_and_change_nothing() -> void:
 	var a: Array[int] = _find_set(_hand(engine, first), engine.energy(), 2)
 	var cases: Array[Array] = [[0, 4], [-1, 0], [2, 2], [3, 1], [0], [0, 1, 2]]
 	for slots: Array in cases:
-		var action: EngineAction = EngineAction.commit(first, a, _typed(slots))
+		var action: EngineAction = EngineAction.commit(first, a, Typed.ints(slots))
 		_assert_rejected(engine, action, EngineError.Code.BAD_SLOTS)
 	# Also while the second committer is awaited.
-	assert_bool(engine.apply(EngineAction.commit(first, a, _typed([0, 3]))).ok).is_true()
+	assert_bool(engine.apply(EngineAction.commit(first, a, Typed.ints([0, 3]))).ok).is_true()
 	var second: int = engine.awaited_seat()
 	var b: Array[int] = _find_set(_hand(engine, second), engine.energy(), 1)
 	_assert_rejected(
-		engine, EngineAction.commit(second, b, _typed([3])), EngineError.Code.BAD_SLOTS
+		engine, EngineAction.commit(second, b, Typed.ints([3])), EngineError.Code.BAD_SLOTS
 	)
 	var none: Array[int] = []
 	_assert_rejected(
-		engine, EngineAction.commit(second, none, _typed([0])), EngineError.Code.BAD_SLOTS
+		engine, EngineAction.commit(second, none, Typed.ints([0])), EngineError.Code.BAD_SLOTS
 	)
 
 
@@ -962,7 +1033,7 @@ func test_budget_on_turn_5_is_5_with_a_grant_6_and_nothing_carries() -> void:
 	var ended: ApplyResult = _pass(engine)
 	var started: MatchEvent = _of_kind(ended.events, MatchEvent.Kind.TURN_STARTED)[0]
 	assert_int(_payload_int(started, "turn")).is_equal(6)
-	assert_array(_payload_ints(started, "budgets")).is_equal(_typed([7, 7]))
+	assert_array(_payload_ints(started, "budgets")).is_equal(Typed.ints([7, 7]))
 	var grants: Array = _energy_list(engine, "grants")
 	assert_array(grants).is_equal([0, 0])
 
@@ -1038,7 +1109,7 @@ func _scripted_action(engine: MatchEngine) -> EngineAction:
 	var seat: int = engine.awaited_seat()
 	var sets: Array[Array] = LegalPlays.enumerate(_hand(engine, seat), engine.energy(), _defs())
 	# The empty set (mask 0) is always listed.
-	return EngineAction.commit(seat, _typed(sets[sets.size() - 1]))
+	return EngineAction.commit(seat, Typed.ints(sets[sets.size() - 1]))
 
 
 func test_same_seed_and_actions_give_equal_states_and_events() -> void:
@@ -1129,7 +1200,11 @@ func test_crew_uses_are_filled_once_and_kept() -> void:
 	var all_unlimited: Array = [unlimited, unlimited, unlimited]
 	assert_array(_crew_uses(engine)).is_equal([all_unlimited, all_unlimited])
 	engine._state.crew_uses[0] = [0, unlimited, unlimited]
-	assert_dict(engine._state.duplicate().to_dict()).is_equal(engine.full_state())
+	# full_state() adds `dross` from MatchCards (NSC-179: one record); the rest is the state.
+	var full: Dictionary = engine.full_state()
+	assert_bool(full.has("dross")).is_true()
+	full.erase("dross")
+	assert_dict(engine._state.duplicate().to_dict()).is_equal(full)
 	for _step: int in range(2 * MatchRules.TURNS + 2):
 		if _state_int(engine, "round") > 1 or engine.is_over():
 			break

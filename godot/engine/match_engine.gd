@@ -28,6 +28,7 @@ extends RefCounted
 ## (EngineAction): its slots resolve to the row's right end when it is validated, and the
 ## resolved slots are what the state, the COMMITTED event and the action log hold.
 
+## The seat count, owned here only (TurnFlow, SeatView and the tools read it; NSC-177).
 const SEATS: int = 2
 const REASON_WINS: String = "wins"
 const REASON_ROUNDS: String = "rounds"
@@ -205,9 +206,13 @@ func view_for(seat: int) -> SeatView:
 
 
 ## The full-state read, for tests and replay only: it includes hidden information,
-## everything view_for() omits (seed, stream state, Decks, hands, pending).
+## everything view_for() omits (seed, stream state, Decks, hands, pending). Its `dross`
+## lists the Dross cards still in the Match, instance id to {def, owner}, from their one
+## record in MatchCards (DC-20 T03, NSC-179); an expired card is gone from it.
 func full_state() -> Dictionary:
-	return _state.to_dict()
+	var out: Dictionary = _state.to_dict()
+	out["dross"] = _dross_dict()
+	return out
 
 
 ## A deep copy of the full state (MatchState.duplicate()), for the training entry (Rollout)
@@ -314,14 +319,17 @@ func _check_set(action: EngineAction) -> int:
 	return EngineError.Code.NONE
 
 
-## A well-formed decline: _check_prompted and the prompt is optional (NOT_OPTIONAL).
+## A well-formed decline: _check_prompted and the prompt is optional (NOT_OPTIONAL), or a
+## single-target prompt that offers nothing, which no choice could answer (NSC-177).
 func _check_decline(action: EngineAction) -> int:
 	var code: int = _check_prompted(action)
 	if code != EngineError.Code.NONE:
 		return code
-	if not Choice.is_optional_prompt(_state.prompt):
-		return EngineError.Code.NOT_OPTIONAL
-	return EngineError.Code.NONE
+	if Choice.is_optional_prompt(_state.prompt):
+		return EngineError.Code.NONE
+	if not Choice.is_multi_prompt(_state.prompt) and Choice.options_of(_state.prompt).is_empty():
+		return EngineError.Code.NONE
+	return EngineError.Code.NOT_OPTIONAL
 
 
 ## A well-formed commit: the awaited committer (while a prompt is open every commit fails
@@ -414,11 +422,12 @@ func _run_walk() -> void:
 
 ## An accepted answer to the open prompt: positions `indices` of `zone`, or the decline.
 ## The discard-down is TurnFlow's and resumes its Commit (unless its D4 or D6 drain paused);
-## a prompt a drain paused on resumes that drain at the same entry (TriggerQueue.answer),
-## then the step after its drain point (_resume_after); any other prompt closes through
-## Abilities (CHOICE_MADE or CHOICE_DECLINED) and resumes per its `resume`.
+## a prompt a drain paused on resumes that drain at the same entry (TriggerQueue.answer).
+## Any other prompt (none in play: every ability prompt is a paused drain's; the tests open
+## one by hand) closes through Abilities (CHOICE_MADE or CHOICE_DECLINED). Either way the
+## match then goes on through _resume_after: the step after the drain point, or the
+## prompt's own `resume` and `step` (NSC-177).
 func _answer(zone: int, indices: Array[int], declined: bool) -> void:
-	var resume: String = Choice.resume_of(_state.prompt)
 	if TurnFlow.is_discard_down(_state.prompt):
 		var seat: int = _prompt_seat()
 		if TurnFlow.answer_discard_down(_state, _cards, _rng, _emit, indices):
@@ -431,25 +440,28 @@ func _answer(zone: int, indices: Array[int], declined: bool) -> void:
 		if TriggerQueue.answer(_state, _cards, _rng, _emit, zone, indices, declined):
 			_state.phase = MatchState.Phase.AWAIT_CHOICE
 			return
-		_resume_after(_state.queue.step, _state.queue.seat)
+		var drain_step: String = _state.queue.step
+		var resume: String = TriggerQueue.RESUME_OF_STEP.get(drain_step, "")
+		_resume_after(resume, drain_step, _state.queue.seat)
 		return
+	var own_resume: String = Choice.resume_of(_state.prompt)
+	var own_step: String = Choice.step_of(_state.prompt)
+	var asked: int = _prompt_seat()
 	if declined:
 		_events.append_array(Abilities.decline(_state))
 	else:
 		_events.append_array(Abilities.answer(_state, zone, indices))
-	if resume == Choice.RESUME_TURN_START:
-		_state.phase = MatchState.Phase.AWAIT_FIRST
-	elif resume == Choice.RESUME_WALK:
-		_run_walk()
+	_resume_after(own_resume, own_step, asked)
 
 
-## Resumes the match after the drain at `step` (for `seat`), paused on a prompt, has
-## finished (DC-13 T05, plan P12 `resume`): turn start goes on with its draws and On start,
-## a Commit with its discard-down, the Walk with the pulse's score stage after a D7 and the
-## next pulse, turn end with its next step, Round end with the award. A drain that pauses
-## again leaves the phase AWAIT_CHOICE.
-func _resume_after(step: String, seat: int) -> void:
-	var resume: String = TriggerQueue.RESUME_OF_STEP.get(step, "")
+## Resumes the match per `resume` once the prompt at drain point `step` (for `seat`) is
+## answered and its drain, if any, has finished (DC-13 T05, plan P12 `resume`): turn start
+## goes on with its draws and On start, a Commit with its discard-down, the Walk with the
+## pulse's score stage after a D7 and the next pulse, turn end with its next step, Round end
+## with the award. A drain that pauses again leaves the phase AWAIT_CHOICE. Every
+## Choice.RESUMES value has a branch (test_engine.gd pins it, NSC-177), and Choice.resume_of
+## maps an unknown `resume` to RESUME_WALK, so no answered prompt is left awaiting nobody.
+func _resume_after(resume: String, step: String, seat: int) -> void:
 	if resume == Choice.RESUME_TURN_START:
 		_state.phase = MatchState.Phase.AWAIT_FIRST
 		if TurnFlow.continue_turn_start(_state, _cards, _rng, _emit, step, seat):
@@ -473,7 +485,7 @@ func _resume_after(step: String, seat: int) -> void:
 		else:
 			_turn_over()
 	elif resume == Choice.RESUME_ROUND_END:
-		_after_round(TurnFlow.award_round(_state, _emit))
+		_after_round(TurnFlow.award_round(_state, _cards, _emit))
 
 
 ## The open prompt's seat, or -1 when none is open.
@@ -513,8 +525,9 @@ func _turn_over() -> void:
 ## - a seat on 4 wins ends it, reason wins;
 ## - after Round 7, the seat with more wins takes it, reason rounds;
 ## - a tied sudden-death Round ends it, reason stalemate, when both Decks and hands are
-##   empty (spec C12) or when neither seat committed a card all Round (rules 8, cycle 13 C9
-##   (Ben, 2026-11-08)): the higher Match total Score wins, equal totals draw (winner -1).
+##   empty (spec C12), when neither seat committed a card all Round (rules 8, cycle 13 C9
+##   (Ben, 2026-11-08)) or when it is the third in a row to tie (rules 10, cycle 14 C15):
+##   the higher Match total Score wins, equal totals draw (winner -1).
 ## Otherwise the next Round starts; past Round 7 it is a sudden-death Round. A match end
 ## leaves the table as it stands.
 func _after_round(winner: int) -> void:
@@ -537,16 +550,21 @@ func _after_round(winner: int) -> void:
 	_begin_round()
 
 
-## Stalemate after a tied sudden-death Round, when either:
+## Stalemate after a tied sudden-death Round, when any of:
 ## - (Ben, spec C12) both Decks and both hands are empty and no seat can refill (review 3a:
 ##   a seat whose Crew shuffles its Pile in on an empty draw, with a non-empty Pile, can
-##   still play); or
+##   still play);
 ## - (rules 8, cycle 13 C9 (Ben, 2026-11-08)) neither seat committed a card all Round
-##   (`round_committed` 0), whatever the seats still hold. A tied Round with any card
-##   committed goes on to the next Round.
+##   (`round_committed` 0), whatever the seats still hold; or
+## - (rules 10, cycle 14 C15 (Ben, 2026-11-09)) it is the third sudden-death Round in a row
+##   to tie. A won sudden-death Round ends the Match, so every sudden-death Round before this
+##   one tied and the Round number alone counts them.
+## Any other tied Round goes on to the next Round.
 ## The higher Match total Score (`match_scores`) takes the Match; equal totals draw.
 func _stalled() -> bool:
 	if _state.round_committed == 0:
+		return true
+	if _state.round_number - MatchRules.ROUNDS >= MatchRules.SUDDEN_DEATH_TIES:
 		return true
 	for seat: int in range(_state.seats.size()):
 		var held: MatchState.SeatPiles = _state.seats[seat]
@@ -630,3 +648,17 @@ static func _deck_problem(
 
 func _emit(kind: int, payload: Dictionary, owner: int = MatchEvent.PUBLIC) -> void:
 	_events.append(MatchEvent.new(kind, payload, owner))
+
+
+## The Dross cards still recorded (MatchCards.def_of() not null), ascending id up to the
+## state's next_dross_id: instance id to {def: its pool id, owner: its Owner's seat}.
+## Empty without definitions (a failed setup).
+func _dross_dict() -> Dictionary:
+	var out: Dictionary = {}
+	if _cards == null:
+		return out
+	for card: int in range(MatchCards.DROSS_BASE, _state.next_dross_id):
+		var def: CardDef = _cards.def_of(card)
+		if def != null:
+			out[card] = {"def": def.id, "owner": _cards.origin_of(card)}
+	return out

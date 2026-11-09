@@ -10,12 +10,12 @@ extends RefCounted
 ## seat's hand, the other seat's face-down Commit (`pending` while the other seat is the
 ## first committer), face down on the other seat's row and not in the view's `looked`, in
 ## the other seat's Deck, or in `seat`'s own Deck and not in the view's `deck_top`. The
-## hidden cards are split by Owner (MatchCards.origin_of, created cards included: they are
+## hidden cards are split by Owner (MatchCards.origin_of, Dross cards included: they are
 ## hidden like any other), and each Owner's set is permuted with one MatchRng seeded by the
 ## determinization seed (owner 0's set first). The copy's zone arrays are rewritten through
 ## that mapping, so every zone keeps its count and every slot its position, and a card
 ## never changes Owner. What belongs to a card moves with its identity: its Memory and a
-## created card's definition stay keyed by its id, so they follow the card to wherever the
+## Dross card's definition stay keyed by its id, so they follow the card to wherever the
 ## permutation puts it. What belongs to a row slot stays with the slot: the Board changes
 ## (`card_states`) and the kept choices (`chosen`) are re-keyed through the mapping, so a
 ## status on a face-down slot stays on that slot whichever card now lies there. Cards a
@@ -38,6 +38,13 @@ const ROLLOUT_TAG: int = 0x726F6C
 const CANDIDATE_TAG: int = 0x63616E
 const RESULT_WEIGHT: int = 1000
 const WINS_WEIGHT: int = 10
+## The ctx.data keys of a paused drain that hold card ids (R18): Quorum's kept cards
+## (AbilitiesComboDisruption.DATA_KEPT) and Cull's kept cards per seat
+## (AbilitiesGraveyardControl.DATA_KEPT). Every other data key is a number that is not a
+## card (Delve's `count`, Quorum's `stage`, Cull's `asked`).
+const PAUSED_CARD_LISTS: Array[String] = ["kept", "kept_0", "kept_1"]
+## The card list of a Batch a paused effect woke (TriggerContext.wake()).
+const WOKEN_SUBJECTS: String = "subjects"
 
 
 ## The cards hidden from `seat` in `engine`'s match, per Owner: [owner 0's, owner 1's], each
@@ -126,19 +133,22 @@ static func label(
 	weights_path: String = ""
 ) -> Array[Dictionary]:
 	# The view and the hidden sets are the same for every play-out of the position, and so
-	# is each determinization's mapping for every candidate (NSC-210): work them out once.
-	# Each play-out still gets its own state copy and, through from_state, its own
-	# MatchCards copy, since the cards a play-out creates must not reach the next one.
+	# is each determinization's relabelled state for every candidate (NSC-210, NSC-233): work
+	# them out once. Each play-out still gets its own copy of that state and, through
+	# from_state, its own MatchCards copy, since what a play-out changes and the cards it
+	# creates must not reach the next one.
 	var view: SeatView = engine.view_for(seat)
 	var det_seeds: Array[int] = []
-	var mappings: Array = []
+	var deals: Array[MatchState] = []
 	if view != null:
 		var sets: Array[Array] = _hidden_of(engine.state_copy(), engine.match_cards(), view)
 		for det: int in range(determinizations):
 			var parts: Array[int] = [det]
 			var det_seed: int = MatchRng.derive_seed(label_seed, parts)
 			det_seeds.append(det_seed)
-			mappings.append(_mapping_of(sets, det_seed))
+			var deal: MatchState = engine.state_copy()
+			_relabel(deal, _mapping_of(sets, det_seed))
+			deals.append(deal)
 	var out: Array[Dictionary] = []
 	for index: int in range(candidates.size()):
 		var values: Array[int] = []
@@ -147,9 +157,7 @@ static func label(
 			var played: Dictionary = {"rejected": true}
 			if view != null:
 				var det_seed: int = det_seeds[det]
-				# _mapping_of's typed dictionary, read without a copy: _relabel only reads it.
-				var mapping: Dictionary[int, int] = mappings[det]
-				var copy: MatchEngine = _built(engine, engine.state_copy(), mapping, det_seed)
+				var copy: MatchEngine = _on_state(engine, deals[det].duplicate(), det_seed)
 				played = play(
 					copy, seat, candidates[index], policy, det_seed, DEFAULT_CAP, weights_path
 				)
@@ -199,12 +207,17 @@ static func _mapping_of(sets: Array[Array], det_seed: int) -> Dictionary[int, in
 
 
 ## The determinized copy: `state` (a copy of `engine`'s, taken over) relabelled through
-## `mapping`, around a copy of `engine`'s cards, its stream seeded
-## MatchRng.derive_seed(det_seed, [ROLLOUT_TAG]) (P7).
+## `mapping`, see _on_state.
 static func _built(
 	engine: MatchEngine, state: MatchState, mapping: Dictionary[int, int], det_seed: int
 ) -> MatchEngine:
 	_relabel(state, mapping)
+	return _on_state(engine, state, det_seed)
+
+
+## An engine on `state` (already relabelled, taken over), around a copy of `engine`'s cards,
+## its stream seeded MatchRng.derive_seed(det_seed, [ROLLOUT_TAG]) (P7).
+static func _on_state(engine: MatchEngine, state: MatchState, det_seed: int) -> MatchEngine:
 	var stream_parts: Array[int] = [ROLLOUT_TAG]
 	var stream_seed: int = MatchRng.derive_seed(det_seed, stream_parts)
 	return MatchEngine.from_state(state, engine.match_cards(), stream_seed)
@@ -245,9 +258,11 @@ static func _hidden_of(state: MatchState, cards: MatchCards, view: SeatView) -> 
 	return out
 
 
-## The cards the trigger queue names (a queued entry's card and subject, and while a drain
-## is paused every whole number in its kept entry and data) and the open prompt's source:
-## they keep their identity in a copy. Empty at a commit decision.
+## The cards the trigger queue names and the open prompt's source: they keep their
+## identity in a copy (R18). A queued entry's card and subject; while a drain is paused, the
+## kept entry's card and subject, the ids under PAUSED_CARD_LISTS in its data and the
+## subjects of the Batches it woke; never any other number (an amount, a slot, a stage).
+## Empty at a commit decision.
 static func _pinned(state: MatchState) -> Dictionary[int, bool]:
 	var out: Dictionary[int, bool] = {}
 	for batch: Dictionary in state.queue.batches:
@@ -255,27 +270,48 @@ static func _pinned(state: MatchState) -> Dictionary[int, bool]:
 		for raw: Variant in entries:
 			if raw is Dictionary:
 				var entry: Dictionary = raw
-				_pin_value(entry.get("card", -1), out)
-				_pin_value(entry.get("subject", -1), out)
+				_pin_entry(entry, out)
 	if state.queue.is_paused():
-		_pin_all(state.queue.current, out)
+		_pin_paused(state.queue.current, out)
 	if not state.prompt.is_empty():
 		_pin_value(state.prompt.get(Abilities.KEY_CARD, -1), out)
 	return out
 
 
-## Pins every whole number in `value` (a number, or nested arrays and dictionaries).
-static func _pin_all(value: Variant, out: Dictionary[int, bool]) -> void:
-	if value is Dictionary:
-		var held: Dictionary = value
-		for key: Variant in held:
-			_pin_all(held[key], out)
-	elif value is Array:
-		var listed: Array = value
-		for item: Variant in listed:
-			_pin_all(item, out)
-	else:
-		_pin_value(value, out)
+## Pins a queue entry's card and subject.
+static func _pin_entry(entry: Dictionary, out: Dictionary[int, bool]) -> void:
+	_pin_value(entry.get("card", -1), out)
+	_pin_value(entry.get("subject", -1), out)
+
+
+## Pins the card ids of a paused drain's kept record (TriggerQueue `current`): its entry's
+## card and subject, the card lists of its data and the subjects of the Batches it woke.
+static func _pin_paused(current: Dictionary, out: Dictionary[int, bool]) -> void:
+	var held_entry: Variant = current.get("entry", {})
+	if held_entry is Dictionary:
+		var entry: Dictionary = held_entry
+		_pin_entry(entry, out)
+	var held_data: Variant = current.get("data", {})
+	if held_data is Dictionary:
+		var data: Dictionary = held_data
+		for key: String in PAUSED_CARD_LISTS:
+			_pin_list(data.get(key, []), out)
+	var woken: Variant = current.get("woken", [])
+	if woken is Array:
+		var batches: Array = woken
+		for raw: Variant in batches:
+			if raw is Dictionary:
+				var batch: Dictionary = raw
+				_pin_list(batch.get(WOKEN_SUBJECTS, []), out)
+
+
+## Pins each id of `value` when it is a list of card ids.
+static func _pin_list(value: Variant, out: Dictionary[int, bool]) -> void:
+	if not (value is Array):
+		return
+	var listed: Array = value
+	for item: Variant in listed:
+		_pin_value(item, out)
 
 
 ## Pins `value` when it is a whole number naming a card (not negative).
@@ -289,7 +325,7 @@ static func _pin_value(value: Variant, out: Dictionary[int, bool]) -> void:
 
 ## Rewrites `state`'s zones through `mapping` (a card to the card that takes its place, a
 ## permutation within each hidden set) and re-keys the slot records (`card_states`,
-## `chosen`); Memory and created cards stay keyed by identity.
+## `chosen`); Memory and Dross cards stay keyed by identity.
 static func _relabel(state: MatchState, mapping: Dictionary[int, int]) -> void:
 	if mapping.is_empty():
 		return

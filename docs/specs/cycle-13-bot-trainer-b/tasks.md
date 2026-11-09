@@ -4,7 +4,7 @@ tags: [tasks, cycle-13-bot-trainer-b, engine, tooling, bot, training, learner]
 status: approved
 related: ["[[specs/cycle-13-bot-trainer-b/spec]]", "[[specs/cycle-13-bot-trainer-b/plan]]", "[[specs/cycle-11-bot-trainer/tasks]]", "[[planning/bot-ladder]]", "[[planning/cycles]]", "[[planning/phase-1-tech-stack]]"]
 created: 2026-11-07
-updated: 2026-11-07
+updated: 2026-11-09
 uid: 0ff43372-b685-419c-a103-2573766111cd
 linear: https://linear.app/night-science-llc/project/cycle-13-bot-trainer-cycle-b-the-learner-the-linear-bot-rung-1-64d41cbb8498
 supersedes:
@@ -38,16 +38,16 @@ T11 span the training nights (spec C8).
 
 Tasks T08 to T11, owned by the orchestrator:
 
-- [ ] `make check` exits 0 after every task; `make trainer-test` exits 0 on both machines.
+- [x] `make check` exits 0 after every task; `make trainer-test` exits 0 on both machines.
 - [ ] End-to-end proof by lines: the pinned feature vector; `Sweep:` lines for `random`
       (unchanged) and `linear` (p99 under 10 ms, `stamp=match`); `bot-eval:` lines for every
       iteration against `random` and against the previous iteration; fit reports with pairs
       and agreements; the label digest equal on 1 and 8 workers; the Mac re-label equal to
-      the PC's values under the fitted rollout.
+      the PC's values under the fitted rollout. (iterations 1 and 2 moved to NSC-243, DC-20 T19)
 - [ ] Rung 1 in [[planning/bot-ladder]] (or the unproven note) and the cycle row in
-      [[planning/cycles]] with every iteration.
-- [ ] No screenshot: engine and tooling cycle (spec R38), proof by text lines.
-- [ ] `obsidian-cli vault=docs unresolved` reports nothing new.
+      [[planning/cycles]] with every iteration. (promotion moved to NSC-244, DC-20 T19)
+- [x] No screenshot: engine and tooling cycle (spec R38), proof by text lines.
+- [x] `obsidian-cli vault=docs unresolved` reports nothing new.
 
 ## Waves (a proposal for `/cycle plan`)
 

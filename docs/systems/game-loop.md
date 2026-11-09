@@ -4,7 +4,7 @@ tags: [system, game-loop, engine]
 status: growing
 related: ["[[systems/systems-moc]]", "[[systems/cards-crew-decks]]", "[[systems/bot-training]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[rules/rules-v2]]", "[[rules/resolution]]", "[[planning/cycles]]", "[[planning/phase-3-game-loop]]"]
 created: 2026-11-05
-updated: 2026-11-06
+updated: 2026-11-09
 uid: 50267112-4326-429c-b245-ff481bd6da6b
 linear: https://linear.app/night-science-llc/issue/NSC-160
 supersedes:
@@ -14,7 +14,7 @@ supersedes:
 
 > How a Midnight Earth match runs today, from the first deal to the last Round: the Turn, the Walk and its walking total, statuses, movement, the trigger queue, the actions a seat can take, the events the engine reports and what each seat may know.
 
-Written from the code in `godot/engine/` as of DC-14 (rules version 7, log format 5). The design canon is in [[rules/rules-moc]]; this guide is its as-built counterpart, and where the build reads the canon differently the difference is called out in [[#Where the build differs from the canon]]. Where a spec and the code differ, the code wins. Cards, Crew and decks are in [[systems/cards-crew-decks]]; the one bot is in [[systems/bot-training]]. How the rules were built is in the DC-13 and DC-14 rows of [[planning/cycles]]. Every capitalised word is defined in [[rules/glossary]].
+Written from the code in `godot/engine/` as of DC-20 (rules version 10, log format 5). The design canon is in [[rules/rules-moc]]; this guide is its as-built counterpart, and where the build reads the canon differently the difference is called out in [[#Where the build differs from the canon]]. Where a spec and the code differ, the code wins. Cards, Crew and decks are in [[systems/cards-crew-decks]]; the one bot is in [[systems/bot-training]]. How the rules were built is in the DC-13 and DC-14 rows of [[planning/cycles]]. Every capitalised word is defined in [[rules/glossary]].
 
 ## The shape of a match
 
@@ -22,7 +22,7 @@ A Match is two seats, 0 and 1. Each seat plays a 40-card Deck and brings three C
 
 | Unit | Rule |
 |---|---|
-| Match | First seat to **4** Round wins. After Round 7 the seat with more Round wins takes it. While the seats are level, **sudden-death** Rounds follow until one is won. A Match that can no longer progress ends on a **stalemate** (below). |
+| Match | First seat to **4** Round wins. After Round 7 the seat with more Round wins takes it. While the seats are level, **sudden-death** Rounds follow until one is won. A tied sudden-death Round ends the Match on a **stalemate** (below) when no card was committed all Round, when both Decks and both hands are empty with no refill, or when it is the third in a row to tie, so a Match is over after Round 10 at the latest. |
 | Round | **7** Turns. A Round goes to the seat that won **more of its Turns**; equal Turn wins award no Round win. Nothing is dealt, refilled or reshuffled at Round start. At Round end both rows go to the Piles. |
 | Turn | Each seat draws 1 card, then On start triggers fire, then both seats Commit (each followed by its discard-down), then the Walk scores both rows, then turn end. |
 | Energy | **Energy equals the Turn number**: 1 on Turn 1, 7 on Turn 7, plus any Energy an ability grants that Turn. Unspent Energy is lost. |
@@ -62,7 +62,7 @@ Going first is a real cost. The first seat commits blind. The second seat knows 
 
 `TURN_STARTED` reports the Round, the Turn, the first seat and both Budgets. Each seat then draws one card, the first seat first (`TurnFlow.draw()`).
 
-- **Empty Deck.** A draw from an empty Deck draws nothing and fires `DRAW_EMPTY`. The seat's On empty draw Batch then drains (D1): every such trigger fires, in any Crew slot order, **with no re-check that the Deck is still empty** (spec C29). Then the **resumed draw** (Q11) happens once: if the Deck is no longer empty, the denied card is drawn; if it still is, nothing is drawn and no second On empty draw wakes. This holds for any draw, including a draw made by an effect.
+- **Empty Deck.** A draw from an empty Deck draws nothing and fires `DRAW_EMPTY`. The seat's On empty draw Batch then drains (D1): every such trigger fires, in any Crew slot order, **with no re-check that the Deck is still empty** (spec C29). Then the **resumed draw** (Q11) happens once: if the Deck is no longer empty, the denied card is drawn; if it still is, nothing is drawn and no second On empty draw wakes. This holds for any draw, including a draw made by an effect. The resumed draw is a game step, not a trigger: it still happens when the Batch ended because the Budget (trigger) is spent, and it does not count against the Budget.
 - Then the On start Batch of revealed cards and Crew drains (D2). Quorum, Hex and Dynamo act here, and a prompt here pauses the Turn before anyone Commits.
 
 ### Energy, Budget and Cost
@@ -113,7 +113,7 @@ An exit mark given by the D10 or D11 drain waits for the next turn end.
 
 ### Round end
 
-After Turn 7, `TurnFlow.end_round()` sends **every card on both rows to its Owner's Pile as a Discard** (first seat's row first, slot order; a Saboteur on the other row goes to its Owner, not its Controller), drains On discard once (D12), then awards the Round: the seat with more Turn wins takes it, equal Turn wins award none. `ROUND_ENDED` carries the winner, the wins, the Scores and `turn_wins`. Hands, Decks and Piles stay as they are. `turn_wins` is reset at Round start.
+After Turn 7, `TurnFlow.end_round()` sends **every card on both rows to its Owner's Pile as a Discard** (first seat's row first, slot order; a Saboteur on the other row goes to its Owner, not its Controller), drains On discard once (D12), then awards the Round: the seat with more Turn wins takes it, equal Turn wins award none. `ROUND_ENDED` carries the winner, the wins, the Scores and `turn_wins`. Then the Round's Dross cards leave the Match (`expire_dross()`, see Dross below; the final Round's too, so the Match-end checks read hands without them). Otherwise hands, Decks and Piles stay as they are. `turn_wins` is reset at Round start.
 
 ### Match end
 
@@ -122,7 +122,12 @@ After Turn 7, `TurnFlow.end_round()` sends **every card on both rows to its Owne
 1. A won **sudden-death** Round ends the Match (reason `sudden_death`).
 2. A seat on **4 wins** ends it (`wins`).
 3. After **Round 7**, the seat with more Round wins takes it (`rounds`).
-4. A **tied sudden-death Round with both Decks and both hands empty** is a **stalemate** (spec C12): no later Round can be won. The seat with the higher sum of its Walk Scores over the whole Match wins (`stalemate`); equal sums draw (winner -1). A seat whose Crew shuffles its Pile into its Deck (Dredger) and whose Pile is not empty is not stalled.
+4. A **tied sudden-death Round** is a **stalemate** (`MatchEngine._stalled()`) when any of these holds:
+   - **Both Decks and both hands are empty** (spec C12): no later Round can be won. A seat whose Crew shuffles its Pile into its Deck (Dredger) and whose Pile is not empty is not stalled.
+   - **Neither seat committed a card all Round** (rules 8, cycle 13 C9), whatever the seats still hold.
+   - **It is the third sudden-death Round in a row to tie** (rules 10, cycle 14 C15; `MatchRules.SUDDEN_DEATH_TIES`), so Round 10 is the last. A won sudden-death Round has already ended the Match at check 1, so every earlier one tied and the Round number alone counts them.
+
+   The seat with the higher sum of its Walk Scores over the whole Match wins (`stalemate`); equal sums draw (winner -1).
 
 Otherwise the next Round starts. **Concede** (`concede`) ends it at once; the unfinished Round does not count as played.
 
@@ -249,6 +254,7 @@ A `MatchEvent` has a `kind`, a `payload` and an `owner_seat`. Public events have
 | The Fleeting event | A card sent to its Owner's hand in the exit pass (the event keeps a v6 name; see [[#Changed from v6]]) | Public when the card's identity already was |
 | `CARD_LOOKED` | Delve, Lookout | The looking seat only |
 | `CARD_CREATED`, `CARD_PLACED`, `CONTROL_CHANGED` | Litter's Dross, Twin's copy; Revive putting a Pile card on a row (`CARD_PLACED` is Revive's only); Saboteur changing row | Public |
+| `DROSS_EXPIRED` | A Dross card leaving the Match at the end of the Round: `{owner, card, from: hand/row/pile/deck/pending, reason: round_end}`, after `ROUND_ENDED`, in ascending id | Public |
 | `CREW_FIRED` | A Crew ability fires | Public |
 | `TURN_ENDED`, `ROUND_ENDED`, `CONCEDED`, `MATCH_ENDED` | The ends; `ROUND_ENDED` carries `turn_wins` | Public |
 
@@ -335,17 +341,17 @@ These are places where the code reads the canon in a particular way. The code is
 
 - **Rounding.** [[rules/rules-v2]] says nothing is rounded between Scores. The build is integer, so it rounds to the nearest ten-thousandth after each multiply (spec C3), and Bonus values to the hundredth. Only the final Score is rounded to a whole number.
 - **Rounds and Turn wins.** The glossary and spec C13 say a Round goes to more Turn wins; the code reads `turn_wins`.
-- **Stalemate** (spec C12) is not in [[rules/rules-v2]]. It ends a Match that can no longer progress, on the Match's summed Walk Scores.
+- **Stalemate** (spec C12; cycle 13 C9; cycle 14 C15). [[rules/rules-v2]] states only its limit, the third tied sudden-death Round in a row. The two earlier conditions, empty Decks and hands or no card committed all Round, are the build's. All three end the Match on its summed Walk Scores.
 - **Muted triggers and the budget.** A Muted card's trigger is dropped silently when it comes up, but the pop still counts one against the 50 (the canon says only that every taken trigger counts). After the budget is spent a Muted entry stays silent.
 - **Hand triggers** are public (spec C14); [[rules/rules-v2]] section 8 was amended to say so.
-- **Dross** sits in `cards.json` as a created-only definition (`"created": true`), so the pool file holds 91 entries: 90 cards and Dross. It is never in a Deck.
+- **Dross** is the term for every card an ability creates (Litter's Dross card, Twin's copies; C13). The Dross card sits in `cards.json` as a Dross definition (the pool key stays `"created": true`, `CardDef.dross`), so the pool file holds 91 entries: 90 cards and Dross. It is never in a Deck. A Dross card has an Owner from creation and moves like any card within the Round (a Discard files it in its Owner's Pile; a Pile shuffle may put it in a Deck). It lasts until the end of the Round: `TurnFlow.expire_dross()`, run by `award_round()` after `ROUND_ENDED` and before the next Round (the final Round included), removes every Dross card of lifetime `round` from hand, row, Pile or Deck, in ascending id, with one public `DROSS_EXPIRED {owner, card, from, reason: round_end}` each and no random draw. A few last the whole Match (lifetime `match`).
 - **Void** grants stack per empty draw and end at turn end if no card Scored.
 - **Readings where the canon is silent** (spec C15, accepted as built):
   - **Tithe's cap** of +3 applies per Tithe, per turn end.
   - **Chooser order.** In Cull the Controller chooses first, in Quorum the first committer; the second chooser sees the first's public picks.
   - **Fence's "wrap"** is stepping off the ring of non-Anchored slots. On a row with no ring (fewer than two non-Anchored slots) a step changes nothing, so Fence does nothing.
   - **Skip** moves the card to a random other slot among the non-Anchored slots of its row.
-  - **Fuse** Condemns itself and a random opposing card each time it fires at Power 5 or more, so a Fuse that keeps growing Condemns again.
+  - **Fuse** Condemns itself and a random opposing card each time it fires at Power 5 or more, so a Fuse that keeps growing Condemns again. Its random pick, like Immolator's, is from the whole opposing row: a pick that lands on a protected (Bastion) or already Condemned card misses, visibly, and still uses its RNG draw.
   - **Exhume** asks once, "choose up to two" over both Piles (an "up to N" prompt), not once per card.
 - **Stale comments.** `turn_flow.gd` still names T-numbers in places; the code is current.
 

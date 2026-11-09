@@ -288,8 +288,8 @@ static func _add_ends(
 ## exactly its `exact` options (the discard-down's excess, R70) or, with no `exact`, a
 ## uniform subset of at least its `min` and at most its `max` when it has one (ascending
 ## position, set_answer()); else one
-## uniform option, the decline counted as one more when the prompt is optional (-1 with
-## nothing offered and no decline).
+## uniform option, the decline counted as one more when the prompt is optional (the
+## decline, which the engine accepts, with nothing offered and no decline).
 func _answer(view: SeatView) -> EngineAction:
 	var zone: int = Choice.zone_of(view.prompt)
 	var options: Array[int] = Choice.options_of(view.prompt)
@@ -309,7 +309,9 @@ func _answer(view: SeatView) -> EngineAction:
 	if Choice.is_optional_prompt(view.prompt):
 		answers += 1
 	if answers == 0:
-		return EngineAction.choose(view.seat, zone, -1)
+		# Nothing offered and no decline: the engine takes the decline (NSC-177). No RNG
+		# draw here, as before, so every other answer is unchanged.
+		return EngineAction.decline(view.seat)
 	var pick: int = rng.pick_index(answers)
 	if pick >= options.size():
 		return EngineAction.decline(view.seat)

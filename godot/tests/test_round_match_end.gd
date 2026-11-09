@@ -1,3 +1,4 @@
+# gdlint: disable=max-public-methods
 class_name TestRoundMatchEnd
 extends GdUnitTestSuite
 ## MatchEngine Round and Match end under rules 7 (cycle 9 R1 to R3; DC-13 T03): a Round is
@@ -6,9 +7,9 @@ extends GdUnitTestSuite
 ## Turn 1 is the previous Round's loser, after a tied Round the seat that did not commit
 ## first on its last Turn, and a coin flip only in Round 1 (R3); four wins end the Match,
 ## after Round 7 more wins take it, and level seats play sudden-death Rounds; a tied
-## sudden-death Round with no card committed ends it in a stalemate (rules 8, cycle 13 C9); a
-## concede ends it at once; `rounds_played` counts the ROUND_ENDED events; every later action
-## fails with MATCH_OVER.
+## sudden-death Round with no card committed ends it in a stalemate (rules 8, cycle 13 C9), as
+## does the third in a row to tie (rules 10, cycle 14 C15); a concede ends it at once;
+## `rounds_played` counts the ROUND_ENDED events; every later action fails with MATCH_OVER.
 ##
 ## Round outcomes come from real actions: both seats pass turns 1-6 (each pass answering its
 ## discard-down), and on Turn 7 the chosen winner commits one card (every fixture card is
@@ -36,12 +37,6 @@ func _defs() -> MatchCards:
 	return _cached_defs
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 func _started(match_seed: int) -> MatchEngine:
 	var engine: MatchEngine = FixtureDecks.engine(match_seed, _db())
 	engine.start()
@@ -52,13 +47,13 @@ func _seat_list(engine: MatchEngine, key: String, seat: int) -> Array[int]:
 	var state: Dictionary = engine.full_state()
 	var per_seat: Array = state[key]
 	var raw: Array = per_seat[seat]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _state_ints(engine: MatchEngine, key: String) -> Array[int]:
 	var state: Dictionary = engine.full_state()
 	var raw: Array = state[key]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _state_int(engine: MatchEngine, key: String) -> int:
@@ -84,7 +79,7 @@ func _payload_str(event: MatchEvent, key: String) -> String:
 
 func _payload_ints(event: MatchEvent, key: String) -> Array[int]:
 	var raw: Array = event.payload[key]
-	return _typed(raw)
+	return Typed.ints(raw)
 
 
 func _kinds(events: Array[MatchEvent]) -> Array[int]:
@@ -273,9 +268,9 @@ func test_won_round_payload_and_flow_into_the_next_round() -> void:
 	var ended: MatchEvent = _last(events, MatchEvent.Kind.ROUND_ENDED)
 	assert_int(ended.owner_seat).is_equal(MatchEvent.PUBLIC)
 	assert_int(_payload_int(ended, "round")).is_equal(1)
-	assert_array(_payload_ints(ended, "scores")).is_equal(_typed([0, score]))
-	assert_array(_payload_ints(ended, "wins")).is_equal(_typed([0, 1]))
-	assert_array(_state_ints(engine, "wins")).is_equal(_typed([0, 1]))
+	assert_array(_payload_ints(ended, "scores")).is_equal(Typed.ints([0, score]))
+	assert_array(_payload_ints(ended, "wins")).is_equal(Typed.ints([0, 1]))
+	assert_array(_state_ints(engine, "wins")).is_equal(Typed.ints([0, 1]))
 	assert_int(_state_int(engine, "last_round_winner")).is_equal(1)
 	var kinds: Array[int] = _kinds(events)
 	var at: int = kinds.rfind(MatchEvent.Kind.ROUND_ENDED)
@@ -294,17 +289,17 @@ func test_won_round_payload_and_flow_into_the_next_round() -> void:
 	var turn_ended: MatchEvent = events[at - 2]
 	assert_int(turn_ended.kind).is_equal(MatchEvent.Kind.TURN_ENDED)
 	assert_int(_payload_int(turn_ended, "turn")).is_equal(MatchRules.TURNS)
-	assert_array(_payload_ints(turn_ended, "scores")).is_equal(_typed([0, score]))
+	assert_array(_payload_ints(turn_ended, "scores")).is_equal(Typed.ints([0, score]))
 	var expected_tail: Array[int] = [
 		MatchEvent.Kind.ROUND_STARTED,
 		MatchEvent.Kind.TURN_STARTED,
 		MatchEvent.Kind.CARD_DRAWN,
 		MatchEvent.Kind.CARD_DRAWN,
 	]
-	assert_array(_typed(kinds.slice(at + 1))).is_equal(expected_tail)
+	assert_array(Typed.ints(kinds.slice(at + 1))).is_equal(expected_tail)
 	assert_int(_state_int(engine, "round")).is_equal(2)
 	assert_int(_state_int(engine, "turn")).is_equal(1)
-	assert_array(_state_ints(engine, "scores")).is_equal(_typed([0, 0]))
+	assert_array(_state_ints(engine, "scores")).is_equal(Typed.ints([0, 0]))
 	for seat: int in range(2):
 		assert_array(_seat_list(engine, "board", seat)).is_empty()
 		assert_int(_seat_list(engine, "hand", seat).size()).is_equal(MatchRules.HAND_SIZE + 1)
@@ -317,9 +312,9 @@ func test_tied_round_awards_no_win() -> void:
 	var events: Array[MatchEvent] = _play_round(engine, TIE)
 	var ended: MatchEvent = _last(events, MatchEvent.Kind.ROUND_ENDED)
 	assert_int(_payload_int(ended, "round")).is_equal(1)
-	assert_array(_payload_ints(ended, "scores")).is_equal(_typed([0, 0]))
+	assert_array(_payload_ints(ended, "scores")).is_equal(Typed.ints([0, 0]))
 	assert_int(_payload_int(ended, "winner")).is_equal(-1)
-	assert_array(_payload_ints(ended, "wins")).is_equal(_typed([0, 0]))
+	assert_array(_payload_ints(ended, "wins")).is_equal(Typed.ints([0, 0]))
 	assert_int(_state_int(engine, "last_round_winner")).is_equal(-1)
 	assert_int(_state_int(engine, "round")).is_equal(2)
 
@@ -358,7 +353,7 @@ func test_more_turn_wins_take_the_round_over_the_last_walk() -> void:
 	var ended: MatchEvent = _last(seen, MatchEvent.Kind.ROUND_ENDED)
 	var turn_wins: Array[int] = _payload_ints(ended, "turn_wins")
 	var scores: Array[int] = _payload_ints(ended, "scores")
-	assert_array(turn_wins).is_equal(_typed([6, 1]))
+	assert_array(turn_wins).is_equal(Typed.ints([6, 1]))
 	assert_int(scores[1]).is_greater(scores[0])
 	assert_int(_payload_int(ended, "winner")).is_equal(0)
 
@@ -403,7 +398,7 @@ func test_the_coin_flips_only_in_round_1() -> void:
 	var engine: MatchEngine = _started(SEED)
 	assert_int(engine.awaited_seat()).is_equal(coin)
 	assert_int(_state_int(engine, "rng_state")).is_equal(rng.state)
-	_play_rounds(engine, _typed([TIE, 0, TIE]))
+	_play_rounds(engine, Typed.ints([TIE, 0, TIE]))
 	assert_int(_state_int(engine, "rng_state")).is_equal(rng.state)
 
 
@@ -413,23 +408,23 @@ func test_the_coin_flips_only_in_round_1() -> void:
 func test_four_straight_wins_end_the_match() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var events: Array[MatchEvent] = engine.start().events
-	events.append_array(_play_rounds(engine, _typed([0, 0, 0, 0])))
-	_assert_match_ended(engine, events, 0, MatchEngine.REASON_WINS, _typed([4, 0]), 4)
+	events.append_array(_play_rounds(engine, Typed.ints([0, 0, 0, 0])))
+	_assert_match_ended(engine, events, 0, MatchEngine.REASON_WINS, Typed.ints([4, 0]), 4)
 	_assert_all_rejected_as_over(engine)
 
 
 func test_four_wins_after_ties_end_the_match_early() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var events: Array[MatchEvent] = engine.start().events
-	events.append_array(_play_rounds(engine, _typed([TIE, 1, TIE, 1, 1, 1])))
-	_assert_match_ended(engine, events, 1, MatchEngine.REASON_WINS, _typed([0, 4]), 6)
+	events.append_array(_play_rounds(engine, Typed.ints([TIE, 1, TIE, 1, 1, 1])))
+	_assert_match_ended(engine, events, 1, MatchEngine.REASON_WINS, Typed.ints([0, 4]), 6)
 
 
 func test_more_wins_after_round_7_take_the_match() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var events: Array[MatchEvent] = engine.start().events
-	events.append_array(_play_rounds(engine, _typed([0, 1, 0, 1, 0, TIE, TIE])))
-	_assert_match_ended(engine, events, 0, MatchEngine.REASON_ROUNDS, _typed([3, 2]), 7)
+	events.append_array(_play_rounds(engine, Typed.ints([0, 1, 0, 1, 0, TIE, TIE])))
+	_assert_match_ended(engine, events, 0, MatchEngine.REASON_ROUNDS, Typed.ints([3, 2]), 7)
 
 
 ## 3-3 after Round 7 goes to sudden death: Round 8 starts with `sudden_death`, a tied
@@ -438,14 +433,14 @@ func test_more_wins_after_round_7_take_the_match() -> void:
 func test_level_after_round_7_plays_sudden_death_until_a_win() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
 	var events: Array[MatchEvent] = engine.start().events
-	events.append_array(_play_rounds(engine, _typed([0, 1, 0, 1, 0, 1, TIE])))
+	events.append_array(_play_rounds(engine, Typed.ints([0, 1, 0, 1, 0, 1, TIE])))
 	assert_bool(engine.is_over()).is_false()
 	var started: MatchEvent = _last(events, MatchEvent.Kind.ROUND_STARTED)
 	assert_int(_payload_int(started, "round")).is_equal(8)
 	assert_bool(_payload_bool(started, "sudden_death")).is_true()
 	events.append_array(_play_committed_tie(engine))
-	events.append_array(_play_rounds(engine, _typed([0])))
-	_assert_match_ended(engine, events, 0, MatchEngine.REASON_SUDDEN_DEATH, _typed([4, 3]), 9)
+	events.append_array(_play_rounds(engine, Typed.ints([0])))
+	_assert_match_ended(engine, events, 0, MatchEngine.REASON_SUDDEN_DEATH, Typed.ints([4, 3]), 9)
 
 
 # --- Rules 8: a sudden-death Round with no commits (cycle 13 C9) -----------------------
@@ -456,7 +451,7 @@ func test_level_after_round_7_plays_sudden_death_until_a_win() -> void:
 ## Returns every event from Match start.
 func _to_sudden_death(engine: MatchEngine, match_scores: Array[int]) -> Array[MatchEvent]:
 	var events: Array[MatchEvent] = engine.start().events
-	events.append_array(_play_rounds(engine, _typed([0, 1, 0, 1, 0, 1, TIE])))
+	events.append_array(_play_rounds(engine, Typed.ints([0, 1, 0, 1, 0, 1, TIE])))
 	assert_bool(engine.is_over()).is_false()
 	var started: MatchEvent = _last(events, MatchEvent.Kind.ROUND_STARTED)
 	assert_int(_payload_int(started, "round")).is_equal(8)
@@ -470,13 +465,13 @@ func _to_sudden_death(engine: MatchEngine, match_scores: Array[int]) -> Array[Ma
 ## Match total Score wins: seat 1 here, level on wins at 3-3 but ahead on Score.
 func test_a_sudden_death_round_with_no_commit_ends_in_a_stalemate() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
-	var events: Array[MatchEvent] = _to_sudden_death(engine, _typed([3, 11]))
+	var events: Array[MatchEvent] = _to_sudden_death(engine, Typed.ints([3, 11]))
 	var held: int = 0
 	for seat: int in range(MatchEngine.SEATS):
 		held += _seat_list(engine, "hand", seat).size()
 	assert_int(held).is_greater(0)
 	events.append_array(_play_round(engine, TIE))
-	_assert_match_ended(engine, events, 1, MatchEngine.REASON_STALEMATE, _typed([3, 3]), 8)
+	_assert_match_ended(engine, events, 1, MatchEngine.REASON_STALEMATE, Typed.ints([3, 3]), 8)
 	assert_int(_state_int(engine, "round_committed")).is_equal(0)
 	_assert_all_rejected_as_over(engine)
 
@@ -484,16 +479,16 @@ func test_a_sudden_death_round_with_no_commit_ends_in_a_stalemate() -> void:
 ## C9: the same stalemate with equal Match total Scores is a draw (winner -1).
 func test_a_no_commit_stalemate_on_equal_match_scores_draws() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
-	var events: Array[MatchEvent] = _to_sudden_death(engine, _typed([6, 6]))
+	var events: Array[MatchEvent] = _to_sudden_death(engine, Typed.ints([6, 6]))
 	events.append_array(_play_round(engine, TIE))
-	_assert_match_ended(engine, events, TIE, MatchEngine.REASON_STALEMATE, _typed([3, 3]), 8)
+	_assert_match_ended(engine, events, TIE, MatchEngine.REASON_STALEMATE, Typed.ints([3, 3]), 8)
 
 
 ## C9: a tied sudden-death Round in which a card was committed does not end the Match; the
 ## next sudden-death Round starts, its committed-card count back at 0.
 func test_a_tied_sudden_death_round_with_a_commit_goes_on() -> void:
 	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
-	var events: Array[MatchEvent] = _to_sudden_death(engine, _typed([3, 11]))
+	var events: Array[MatchEvent] = _to_sudden_death(engine, Typed.ints([3, 11]))
 	events.append_array(_play_committed_tie(engine))
 	assert_bool(engine.is_over()).is_false()
 	assert_int(_of_kind(events, MatchEvent.Kind.MATCH_ENDED).size()).is_equal(0)
@@ -516,7 +511,76 @@ func test_rounds_with_no_commit_before_sudden_death_do_not_end_the_match() -> vo
 	var state: Dictionary = engine.full_state()
 	var sudden: bool = state["sudden_death"]
 	assert_bool(sudden).is_true()
-	assert_array(_state_ints(engine, "wins")).is_equal(_typed([0, 0]))
+	assert_array(_state_ints(engine, "wins")).is_equal(Typed.ints([0, 0]))
+
+
+# --- Rules 10: three tied sudden-death Rounds in a row (cycle 14 C15) ------------------
+
+
+## Plays to Round 8 with the Match totals at `match_scores` (_to_sudden_death()), then `ties`
+## committed tied sudden-death Rounds. Each adds the same Walk Scores to both totals, so the
+## gap holds. Returns every event from Match start.
+func _to_sudden_death_ties(
+	engine: MatchEngine, match_scores: Array[int], ties: int
+) -> Array[MatchEvent]:
+	var events: Array[MatchEvent] = _to_sudden_death(engine, match_scores)
+	for _tie: int in range(ties):
+		events.append_array(_play_committed_tie(engine))
+	return events
+
+
+## The other two stalemate conditions are out of the way: the last Round had cards committed
+## and both hands still hold cards, so the third tie alone ended the Match. (The fixture Decks
+## run out in Round 6, but neither hand does: a committed f01 comes back by _give() each tied
+## Round and a discard-down keeps four.)
+func _assert_only_the_ties_stalemated(engine: MatchEngine) -> void:
+	assert_int(_state_int(engine, "round_committed")).is_equal(2)
+	for seat: int in range(MatchEngine.SEATS):
+		assert_array(_seat_list(engine, "hand", seat)).is_not_empty()
+
+
+## C15: two committed ties in sudden death go on: Round 10 starts, still sudden death.
+func test_two_committed_sudden_death_ties_go_on() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death_ties(engine, Typed.ints([3, 11]), 2)
+	assert_bool(engine.is_over()).is_false()
+	assert_int(_of_kind(events, MatchEvent.Kind.MATCH_ENDED).size()).is_equal(0)
+	var started: MatchEvent = _last(events, MatchEvent.Kind.ROUND_STARTED)
+	assert_int(_payload_int(started, "round")).is_equal(10)
+	assert_bool(_payload_bool(started, "sudden_death")).is_true()
+	assert_int(_state_int(engine, "round")).is_equal(10)
+
+
+## C15: the third committed tie in a row ends the Match, reason stalemate; the higher Match
+## total Score wins: seat 1 here, level on wins at 3-3 but ahead on Score. Round 10 is the last.
+func test_the_third_committed_sudden_death_tie_ends_in_a_stalemate() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death_ties(engine, Typed.ints([3, 11]), 3)
+	_assert_match_ended(engine, events, 1, MatchEngine.REASON_STALEMATE, Typed.ints([3, 3]), 10)
+	_assert_only_the_ties_stalemated(engine)
+	var totals: Array[int] = _state_ints(engine, "match_scores")
+	assert_int(totals[1]).is_greater(totals[0])
+	assert_int(_of_kind(events, MatchEvent.Kind.ROUND_STARTED).size()).is_equal(10)
+	_assert_all_rejected_as_over(engine)
+
+
+## C15: the same stalemate with equal Match total Scores is a draw (winner -1).
+func test_a_third_tie_stalemate_on_equal_match_scores_draws() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death_ties(engine, Typed.ints([6, 6]), 3)
+	_assert_match_ended(engine, events, TIE, MatchEngine.REASON_STALEMATE, Typed.ints([3, 3]), 10)
+	_assert_only_the_ties_stalemated(engine)
+	var totals: Array[int] = _state_ints(engine, "match_scores")
+	assert_int(totals[0]).is_equal(totals[1])
+
+
+## C15: a won third sudden-death Round ends the Match first, reason sudden_death, for its
+## winner: seat 0 here, behind on the Match total.
+func test_a_won_third_sudden_death_round_is_not_a_stalemate() -> void:
+	var engine: MatchEngine = FixtureDecks.engine(SEED, _db())
+	var events: Array[MatchEvent] = _to_sudden_death_ties(engine, Typed.ints([3, 11]), 2)
+	events.append_array(_play_round(engine, 0))
+	_assert_match_ended(engine, events, 0, MatchEngine.REASON_SUDDEN_DEATH, Typed.ints([4, 3]), 10)
 
 
 # --- Concede --------------------------------------------------------------------------
@@ -526,13 +590,13 @@ func test_rounds_with_no_commit_before_sudden_death_do_not_end_the_match() -> vo
 ## is not counted.
 func test_concede_by_the_waiting_seat_ends_the_match() -> void:
 	var engine: MatchEngine = _started(SEED)
-	var events: Array[MatchEvent] = _play_rounds(engine, _typed([1]))
+	var events: Array[MatchEvent] = _play_rounds(engine, Typed.ints([1]))
 	var waiting: int = 1 - engine.awaited_seat()
 	var result: ApplyResult = engine.apply(EngineAction.concede(waiting))
 	assert_bool(result.ok).is_true()
 	events.append_array(result.events)
 	assert_array(_kinds(result.events)).is_equal(
-		_typed([MatchEvent.Kind.CONCEDED, MatchEvent.Kind.MATCH_ENDED])
+		Typed.ints([MatchEvent.Kind.CONCEDED, MatchEvent.Kind.MATCH_ENDED])
 	)
 	assert_int(_payload_int(result.events[0], "seat")).is_equal(waiting)
 	var wins: Array[int] = [0, 1]
@@ -560,7 +624,7 @@ func test_concede_while_a_discard_down_is_open() -> void:
 ## the hands stay; each seat's view lists both Piles in full.
 func test_the_final_round_end_leaves_the_rows_in_the_piles() -> void:
 	var engine: MatchEngine = _started(SEED)
-	var events: Array[MatchEvent] = _play_rounds(engine, _typed([0, 0, 0, 0]))
+	var events: Array[MatchEvent] = _play_rounds(engine, Typed.ints([0, 0, 0, 0]))
 	assert_bool(engine.is_over()).is_true()
 	var played: Array[int] = []
 	for event: MatchEvent in _of_kind(events, MatchEvent.Kind.CARD_REVEALED):
@@ -577,10 +641,10 @@ func test_the_final_round_end_leaves_the_rows_in_the_piles() -> void:
 
 
 ## Stalemate (spec C12): random bots on the fixture deck, seeds 1-20, every match ends; a
-## stalemate ending comes after a tied sudden-death Round with both Decks and hands empty or
-## (rules 8, cycle 13 C9) with no card committed, and the winner is the higher Match total
-## Score (-1 when level). At least one seed of the
-## twenty reaches it (seed 5 did before the rule existed).
+## stalemate ending comes after a tied sudden-death Round with both Decks and hands empty,
+## (rules 8, cycle 13 C9) with no card committed or (rules 10, cycle 14 C15) as the third in
+## a row, and the winner is the higher Match total Score (-1 when level). No match passes
+## Round 10. At least one seed of the twenty reaches it (seed 5 did before the rule existed).
 func test_a_stalemate_ends_on_the_match_total_score() -> void:
 	var stalemates: int = 0
 	for match_seed: int in range(1, 21):
@@ -598,17 +662,20 @@ func test_a_stalemate_ends_on_the_match_total_score() -> void:
 		assert_bool(engine.is_over()).is_true()
 		var state: Dictionary = engine.full_state()
 		var result: Dictionary = state["result"]
+		var last_round: int = MatchRules.ROUNDS + MatchRules.SUDDEN_DEATH_TIES
+		var played: int = result["rounds_played"]
+		assert_int(played).is_less_equal(last_round)
 		var reason: String = result["reason"]
 		if reason != MatchEngine.REASON_STALEMATE:
 			continue
 		stalemates += 1
 		var sudden: bool = state["sudden_death"]
 		assert_bool(sudden).is_true()
-		# C9: a Round with no card committed is a stalemate whatever the seats still hold;
-		# otherwise both Decks and hands are empty.
+		# C9: a Round with no card committed is a stalemate whatever the seats still hold, and
+		# C15: so is the third tie in a row; otherwise both Decks and hands are empty.
 		var round_committed: int = state["round_committed"]
 		for seat: int in range(MatchEngine.SEATS):
-			if round_committed == 0:
+			if round_committed == 0 or played == last_round:
 				break
 			assert_array(_seat_list(engine, "deck", seat)).is_empty()
 			assert_array(_seat_list(engine, "hand", seat)).is_empty()

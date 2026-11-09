@@ -36,3 +36,6 @@ Thumbs.db
 # Art pipeline (ADR 0003): generated candidates and the local spend ledger
 art/candidates/
 art/ledger.jsonl
+
+# Cycle screenshots moved out of swept worktrees by scripts/worktree-sweep.sh
+reports/screenshots/

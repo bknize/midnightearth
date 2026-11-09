@@ -34,12 +34,6 @@ func _defs() -> MatchCards:
 	return _cached_defs
 
 
-func _typed(values: Array) -> Array[int]:
-	var out: Array[int] = []
-	out.assign(values)
-	return out
-
-
 ## A state with these rows (seat 0, seat 1), nothing revealed, `first` committing first.
 func _state(row_0: Array[int], row_1: Array[int], first: int) -> MatchState:
 	var state: MatchState = MatchState.new(SEED)
@@ -106,30 +100,30 @@ func test_the_walking_total_adds_power_then_multiplies_by_the_bonus_value() -> v
 	for event: MatchEvent in _of_kind(recorder.events, scored):
 		if _payload_int(event, "seat") == 0:
 			own.append(event)
-	assert_array(_ints_of(own, scored, "power")).is_equal(_typed([3, 2, 4]))
-	assert_array(_ints_of(own, scored, "bonus_value")).is_equal(_typed([10000, 12500, 15000]))
-	assert_array(_ints_of(own, scored, "total")).is_equal(_typed([30000, 62500, 153750]))
+	assert_array(_ints_of(own, scored, "power")).is_equal(Typed.ints([3, 2, 4]))
+	assert_array(_ints_of(own, scored, "bonus_value")).is_equal(Typed.ints([10000, 12500, 15000]))
+	assert_array(_ints_of(own, scored, "total")).is_equal(Typed.ints([30000, 62500, 153750]))
 	for event: MatchEvent in own:
 		assert_int(_payload_int(event, "pass")).is_equal(1)
 		assert_int(event.owner_seat).is_equal(MatchEvent.PUBLIC)
-	assert_array(state.totals).is_equal(_typed([153750, 30000]))
-	assert_array(state.scores).is_equal(_typed([15, 3]))
-	assert_array(state.walk.scored_count).is_equal(_typed([3, 1]))
+	assert_array(state.totals).is_equal(Typed.ints([153750, 30000]))
+	assert_array(state.scores).is_equal(Typed.ints([15, 3]))
+	assert_array(state.walk.scored_count).is_equal(Typed.ints([3, 1]))
 
 
 ## The Walk ends with WALK_ENDED {totals, scores}, its last event; until then the Scores
 ## keep the previous Walk's (R77: the HUD shows them meanwhile), and begin() zeroes the
 ## totals.
 func test_walk_ended_carries_the_totals_and_the_rounded_scores() -> void:
-	var state: MatchState = _state(_typed([SKIM]), _typed([MatchRules.DECK_SIZE + GILT]), 1)
+	var state: MatchState = _state(Typed.ints([SKIM]), Typed.ints([MatchRules.DECK_SIZE + GILT]), 1)
 	state.scores.assign([7, 9])
 	state.totals.assign([70000, 90000])
 	var recorder: Recorder = Recorder.new()
 	ScoreWalk.begin(state)
-	assert_array(state.totals).is_equal(_typed([0, 0]))
-	assert_array(state.scores).is_equal(_typed([7, 9]))
+	assert_array(state.totals).is_equal(Typed.ints([0, 0]))
+	assert_array(state.scores).is_equal(Typed.ints([7, 9]))
 	assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record)).is_false()
-	assert_array(state.scores).is_equal(_typed([7, 9]))
+	assert_array(state.scores).is_equal(Typed.ints([7, 9]))
 	while state.walk.active:
 		assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record)).is_false()
 	var last: MatchEvent = recorder.events[recorder.events.size() - 1]
@@ -137,15 +131,15 @@ func test_walk_ended_carries_the_totals_and_the_rounded_scores() -> void:
 	# Skim: 2 x 1.25 = 2.5, rounded up to 3; Gilt: 4 x 1.5 = 6.
 	var totals: Array = last.payload["totals"]
 	var scores: Array = last.payload["scores"]
-	assert_array(_typed(totals)).is_equal(_typed([25000, 60000]))
-	assert_array(_typed(scores)).is_equal(_typed([3, 6]))
-	assert_array(state.scores).is_equal(_typed([3, 6]))
+	assert_array(Typed.ints(totals)).is_equal(Typed.ints([25000, 60000]))
+	assert_array(Typed.ints(scores)).is_equal(Typed.ints([3, 6]))
+	assert_array(state.scores).is_equal(Typed.ints([3, 6]))
 
 
 ## A reveal is public with the card's Power, Mult and Add (hundredths) and its statuses
 ## (none before DC-13 T04).
 func test_a_reveal_carries_power_mult_add_and_statuses() -> void:
-	var state: MatchState = _state(_typed([SKIM]), _typed([]), 0)
+	var state: MatchState = _state(Typed.ints([SKIM]), Typed.ints([]), 0)
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
 	var revealed: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.CARD_REVEALED)
@@ -161,7 +155,7 @@ func test_a_reveal_carries_power_mult_add_and_statuses() -> void:
 ## change of +1 adds 6; Skim whose Mult grew +0.25 for the match multiplies by 1.5; a
 ## granted Add of +0.5 joins before the Mults (C20).
 func test_memory_and_board_changes_reach_the_score() -> void:
-	var state: MatchState = _state(_typed([PIP, SKIM]), _typed([]), 0)
+	var state: MatchState = _state(Typed.ints([PIP, SKIM]), Typed.ints([]), 0)
 	state.memory_for(PIP).power = 2
 	state.card_state_for(PIP).power_delta = 1
 	state.memory_for(SKIM).mult_add_steps = 25
@@ -180,7 +174,7 @@ func test_memory_and_board_changes_reach_the_score() -> void:
 
 ## A negative Power subtracts before the multiply, so a Score may be negative (R27).
 func test_a_negative_total_gives_a_negative_score() -> void:
-	var state: MatchState = _state(_typed([PIP, SKIM]), _typed([]), 0)
+	var state: MatchState = _state(Typed.ints([PIP, SKIM]), Typed.ints([]), 0)
 	state.card_state_for(PIP).power_delta = -6
 	state.card_state_for(SKIM).power_delta = -4
 	_walk(state, Recorder.new())
@@ -207,7 +201,7 @@ func test_the_cursor_alternates_then_finishes_the_longer_row() -> void:
 
 ## A face-up card on the row Scores again in a later Walk with no second reveal.
 func test_a_revealed_card_scores_again_without_a_reveal() -> void:
-	var state: MatchState = _state(_typed([PIP]), _typed([]), 0)
+	var state: MatchState = _state(Typed.ints([PIP]), Typed.ints([]), 0)
 	_walk(state, Recorder.new())
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
@@ -217,14 +211,14 @@ func test_a_revealed_card_scores_again_without_a_reveal() -> void:
 
 
 func test_an_empty_walk_ends_on_its_first_step() -> void:
-	var state: MatchState = _state(_typed([]), _typed([]), 0)
+	var state: MatchState = _state(Typed.ints([]), Typed.ints([]), 0)
 	ScoreWalk.begin(state)
 	var recorder: Recorder = Recorder.new()
 	assert_bool(ScoreWalk.step(state, _defs(), null, recorder.record)).is_false()
 	assert_bool(state.walk.active).is_false()
 	assert_int(recorder.events.size()).is_equal(1)
 	assert_int(recorder.events[0].kind).is_equal(MatchEvent.Kind.WALK_ENDED)
-	assert_array(state.scores).is_equal(_typed([0, 0]))
+	assert_array(state.scores).is_equal(Typed.ints([0, 0]))
 
 
 # --- The stub abilities ---------------------------------------------------------------
@@ -235,9 +229,9 @@ func test_an_empty_walk_ends_on_its_first_step() -> void:
 ## Scores (DC-13 T06). Each fires once, publicly, in that order.
 func test_each_ability_fires_on_its_moment() -> void:
 	var row_0: Array[int] = [EMBER, COURIER, FLARE]
-	var state: MatchState = _state(row_0, _typed([]), 0)
-	state.seats[0].hand.assign(_typed([PIP]))
-	state.seats[0].deck.assign(_typed([PIP + 2]))
+	var state: MatchState = _state(row_0, Typed.ints([]), 0)
+	state.seats[0].hand.assign(Typed.ints([PIP]))
+	state.seats[0].deck.assign(Typed.ints([PIP + 2]))
 	var recorder: Recorder = Recorder.new()
 	_walk(state, recorder)
 	var fired: Array[MatchEvent] = _of_kind(recorder.events, MatchEvent.Kind.TRIGGER_FIRED)
@@ -265,9 +259,9 @@ func test_each_ability_fires_on_its_moment() -> void:
 	var fire: int = MatchEvent.Kind.TRIGGER_FIRED
 	var order: Array[int] = [reveal, fire, score, reveal, score, fire, reveal, fire, score]
 	assert_array(kinds).is_equal(order)
-	assert_array(state.seats[0].hand).is_equal(_typed([PIP + 2]))
+	assert_array(state.seats[0].hand).is_equal(Typed.ints([PIP + 2]))
 	assert_array(state.seats[0].deck).is_empty()
-	assert_array(state.seats[0].pile).is_equal(_typed([PIP]))
+	assert_array(state.seats[0].pile).is_equal(Typed.ints([PIP]))
 	assert_str(Statuses.exit_mark_of(state, FLARE)).is_equal(Statuses.CONDEMNED)
 	assert_int(state.scores[0]).is_equal(_power(EMBER) + _power(COURIER) + _power(FLARE))
 
@@ -275,7 +269,7 @@ func test_each_ability_fires_on_its_moment() -> void:
 ## An Ongoing ability (Banner) and a plain body fire nothing on either moment; Banner's
 ## Ongoing gives the plain Pip Power +4 when it Scores (DC-13 T06).
 func test_ongoing_and_plain_cards_fire_nothing() -> void:
-	var state: MatchState = _state(_typed([BANNER, PIP]), _typed([]), 0)
+	var state: MatchState = _state(Typed.ints([BANNER, PIP]), Typed.ints([]), 0)
 	for moment: String in ["on_reveal", "on_score"]:
 		assert_array(Abilities.on_moment(BANNER, _defs(), moment)).is_empty()
 		assert_array(Abilities.on_moment(PIP, _defs(), moment)).is_empty()

@@ -22,7 +22,7 @@ enum Kind {
 	WALK_START,
 	## The cursor pulses a card; `revealed = false` means it flips face up first.
 	PULSE,
-	## A card's effect fires (`verb`, `trigger`).
+	## A card's effect fires.
 	EFFECT,
 	## A card's effect found no target.
 	FIZZLE,
@@ -50,8 +50,8 @@ enum Kind {
 	MATCH_END,
 	## A revealed card flips face down in its slot (CARD_UNREVEALED).
 	UNREVEAL,
-	## EXIT_RESOLVED (R81): the exit pass resolves a card. `exit_to` is "pile" (it flies to its
-	## Owner's Pile), "hand" (to the Owner's fan) or "face_down" (it flips in its slot).
+	## EXIT_RESOLVED (R81): the exit pass resolves a card. `exit_to` is PILE (it flies to its
+	## Owner's Pile), HAND (to the Owner's fan) or FACE_DOWN (it flips in its slot).
 	EXIT,
 	## STATUS_SET / STATUS_ENDED: a card gains or loses a badge `word`; `status_on` tells which.
 	STATUS,
@@ -63,27 +63,40 @@ enum Kind {
 	ENERGY_GRANT,
 	## CARD_LOOKED: the viewer looked at an opposing face-down card (`slot`, `from_seat`).
 	LOOK,
-	## A Pile strip slides in (the board makes it; no event maps to it).
-	PILE_SHOW,
-	## The Pile strip slides away.
+	## The Pile strip slides away (the board makes it; no event maps to it).
 	PILE_HIDE,
-	## A Crew's ability fires (CREW_FIRED): `seat`, `slot`, `crew`, `verb`, `trigger`,
-	## `uses_left`. The Crew lifts and settles.
+	## A Crew's ability fires (CREW_FIRED): `seat`, `slot`, `crew`, `verb`, `uses_left`.
+	## The Crew lifts and settles.
 	CREW_FIRE,
 	## An optional prompt was declined (CHOICE_DECLINED): the prompt clears.
 	DECLINE,
 	## The opponent's hand card fires or fizzles (C14, public): its face (`card`) rises above
-	## the opponent's hand, holds and goes back; the fan does not change. `verb`, `trigger`,
-	## `reason` (a fizzle's, "" when it fired).
+	## the opponent's hand, holds and goes back; the fan does not change.
+	## `verb`, `reason` (a fizzle's, "" when it fired).
 	TELEGRAPH,
 	## CARD_CREATED onto a row (Twin's copy): a new face-up card appears at `slot` of `seat`'s
-	## row. A created card going to a hand is a DRAW with `created` set.
+	## row. A created card going to a hand is a DRAW.
 	CREATE,
 	## CARD_PLACED (Revive): a Pile card lands face down at `slot` of `seat`'s row.
 	PLACE,
 	## CONTROL_CHANGED (Saboteur): `card` moves from `from_seat`'s row to `seat`'s (the new
 	## Controller) at `slot`. The Owner is kept (`owner`).
 	CONTROL,
+	## DROSS_EXPIRED: Dross card `card` of Owner `seat` leaves the table from `zone` (hand, row,
+	## pile or deck) and flies off. The Pile count does not change; a card the board is not
+	## showing (a Deck, the opponent's hand) is only a no-op.
+	DROSS_EXPIRE,
+}
+
+## Where an EXIT card goes.
+enum ExitTo {
+	NONE,
+	## It flies off its row to its Owner's Pile.
+	PILE,
+	## It returns to its Owner's fan.
+	HAND,
+	## It flips face down in its slot.
+	FACE_DOWN,
 }
 
 var kind: int = Kind.CLEAR_TABLE
@@ -118,9 +131,9 @@ var chip_delay: float = 0.0
 var cards: Array[int] = []
 var from_slots: Array[int] = []
 var slots_to: Array[int] = []
-## EXIT: "pile", "hand" or "face_down". DISCARD: whether the card left a row (`from_row`),
+## EXIT: an ExitTo. DISCARD: whether the card left a row (`from_row`),
 ## its Pile index and the reason (discard, discard_down, condemned, round_end).
-var exit_to: String = ""
+var exit_to: int = ExitTo.NONE
 var from_row: bool = false
 var pile_index: int = -1
 ## PLACE: whether the placed card came out of its seat's Pile (Revive).
@@ -134,10 +147,8 @@ var old_word: String = ""
 ## Energy stays as it is.
 var amount: int = 0
 var next_turn: bool = false
-## DRAW, CREATE (CARD_CREATED): the definition id and the Owner of a created card. CONTROL: the
+## DRAW, CREATE (CARD_CREATED): the Owner of a created card. CONTROL: the
 ## Owner, which a change of Controller keeps.
-var created: bool = false
-var def_id: String = ""
 var owner: int = -1
 ## LOOK, CONTROL: the seat whose row was looked at, or the card left.
 var from_seat: int = -1
@@ -153,9 +164,8 @@ var slots: Array[int] = []
 ## card is free.
 var budget: int = 0
 var free_first: bool = false
-## EFFECT, FIZZLE, PROMPT: the effect verb; EFFECT: the trigger; PROMPT: the rules text.
+## EFFECT, FIZZLE, PROMPT, CREW_FIRE: the effect verb. PROMPT: the rules text.
 var verb: String = ""
-var trigger: String = ""
 var text: String = ""
 ## STATS: the card's effective cost after the change (-1 when the event carried none), whether
 ## the change is kept as card memory, and whether the card is in the viewer's hand (cycle 8
@@ -172,14 +182,6 @@ var from_hand: bool = false
 var reason: String = ""
 ## CHOICE_SHOW, PROMPT: the zone chosen from and the pick.
 var zone: String = ""
-## PROMPT: the multi-select's required set size (-1 for any size up to the options), its
-## "up to N" bound (`max`, -1 for none; C15 2a), whether it is a multi-select or optional, and
-## the drain point it opened at (P12 `step`, D1..D12).
-var exact: int = -1
-var max_count: int = Choice.NO_MAX
-var multi: bool = false
-var optional: bool = false
-var step: Variant = ""
 var index: int = -1
 var options: Array[int] = []
 var scores: Array[int] = []

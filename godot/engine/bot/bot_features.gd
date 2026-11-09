@@ -165,6 +165,37 @@ static func of(view: SeatView, action: EngineAction, cards: MatchCards) -> Packe
 	return out
 
 
+## What every candidate at `view` has in common: the vector of a pass. patched() turns it into
+## any candidate's, so a decision over many candidates reads the view's position once.
+static func base(view: SeatView, cards: MatchCards) -> PackedInt64Array:
+	var pool_size: int = 0 if cards == null else cards.pool_size()
+	var out: PackedInt64Array = PackedInt64Array()
+	if out.resize(COMPACT.size() + pool_size) != OK:
+		return out
+	var none: Array[int] = []
+	_fill_committed(out, view, null, none, cards)
+	_fill_kept(out, view, none)
+	_fill_position(out, view, 0)
+	return out
+
+
+## of(view, action, cards) from `common` = base(view, cards), which is not changed.
+static func patched(
+	common: PackedInt64Array, view: SeatView, action: EngineAction, cards: MatchCards
+) -> PackedInt64Array:
+	var committed: Array[int] = []
+	if action != null and action.kind == EngineAction.Kind.COMMIT:
+		committed.assign(action.cards)
+	if committed.is_empty() or common.size() < COMPACT.size():
+		return common  # Copy-on-write: a caller that changes it does not change `common`.
+	var out: PackedInt64Array = common.duplicate()
+	_fill_committed(out, view, action, committed, cards)
+	_drop_kept(out, view, committed)
+	out[F.OWN_ROW_AFTER] += committed.size()
+	out[F.ROW_DIFF_AFTER] += committed.size()
+	return out
+
+
 ## The candidate's own features and its card indicators.
 static func _fill_committed(
 	out: PackedInt64Array,
@@ -218,6 +249,19 @@ static func _fill_kept(out: PackedInt64Array, view: SeatView, committed: Array[i
 			var entry: Dictionary = view.own_hand_row[at]
 			var power: int = entry.get("power", 0)
 			out[F.KEPT_POWER] += power
+
+
+## Takes the hand cards the candidate commits back out of the kept features of a pass.
+static func _drop_kept(out: PackedInt64Array, view: SeatView, committed: Array[int]) -> void:
+	for at: int in range(view.own_hand.size()):
+		if not committed.has(view.own_hand[at]):
+			continue
+		out[F.KEPT_COUNT] -= 1
+		out[F.KEPT_COST] -= _cost_at(view, at)
+		if at < view.own_hand_row.size():
+			var entry: Dictionary = view.own_hand_row[at]
+			var power: int = entry.get("power", 0)
+			out[F.KEPT_POWER] -= power
 
 
 ## The position's features: rows after the commit, Scores, wins, the clock and the counts.

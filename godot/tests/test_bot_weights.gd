@@ -35,12 +35,13 @@ func test_defaults_count_committed_power_once() -> void:
 	_assert_defaults(weights)
 
 
-## P15: the committed file loads clean, stamped with the current stamp, on feature set f1,
+## P15: the committed file loads clean, stamped with the current stamp (its stamp field
+## re-stamped r10 by hand at DC-20 T17a, rules 10), on feature set f1,
 ## `k` 64, committed Power at 100 and nothing else weighed.
 func test_committed_file_loads_with_the_current_stamp() -> void:
 	var weights: BotWeights = BotWeights.load(BotWeights.DEFAULT_PATH)
 	assert_str(weights.load_error).is_equal("")
-	assert_str(weights.stamp).is_equal("r8-857b165d5a5d755e")
+	assert_str(weights.stamp).is_equal("r10-857b165d5a5d755e")
 	assert_bool(weights.stamp_matches()).is_true()
 	assert_int(weights.k).is_equal(64)
 	assert_dict(weights.weights).is_equal({"committed_power": 100})

@@ -27,7 +27,7 @@ extends RefCounted
 ##   (`walk.resolutions`, reset by ScoreWalk at each pulse), and per drain outside the Walk
 ##   (`resolutions`, reset by each drain() at D1 to D6 and D9 to D12). When it is spent,
 ##   every entry still queued fizzles `exhausted` (one public TRIGGER_FIZZLED each) and the
-##   queue empties.
+##   queue empties; a Batch's resumed draw (Q11) is still made (_exhaust()).
 ## - Retrigger (Q6): `walk.retrigger_on_reveal[seat]` lists the cards whose "trigger your
 ##   other On reveals twice" applies this Turn (add_retrigger()); each one other than the
 ##   card adds one extra resolution of that card's On reveal right after it, never to an
@@ -38,12 +38,12 @@ extends RefCounted
 
 const KIND_CARD: String = TriggerContext.KIND_CARD
 const KIND_CREW: String = TriggerContext.KIND_CREW
-const MOMENT_REVEAL: String = "on_reveal"
-const MOMENT_DISCARD: String = "on_discard"
 ## Moments with no subject and no seat: every eligible watcher wakes.
-const SEATLESS_MOMENTS: Array[String] = ["on_start", "at_turn_end_before", "at_turn_end_after"]
+const SEATLESS_MOMENTS: Array[String] = [
+	CardAbility.MOMENT_START, CardAbility.MOMENT_TURN_END_BEFORE, CardAbility.MOMENT_TURN_END_AFTER
+]
 ## Moments of a seat (On commit, On empty draw): watchers relate to the seat.
-const SEAT_MOMENTS: Array[String] = ["on_commit", "on_empty_draw"]
+const SEAT_MOMENTS: Array[String] = [CardAbility.MOMENT_COMMIT, CardAbility.MOMENT_EMPTY_DRAW]
 ## The Walk's two drains: they share the pulse's budget.
 const WALK_STEPS: Array[String] = ["D7", "D8"]
 ## What an answered prompt resumes, by the drain point it opened at (P12 `resume`).
@@ -177,7 +177,7 @@ static func watchers(
 	var event: Dictionary = {
 		"moment": moment, "subjects": subjects, "seats": subject_seats, "seat": event_seat
 	}
-	var order: Array[int] = [state.first_seat, 1 - state.first_seat]
+	var order: Array[int] = state.commit_order()
 	for watcher_seat: int in order:
 		var piles: MatchState.SeatPiles = state.seats[watcher_seat]
 		for card: int in piles.board:
@@ -185,7 +185,7 @@ static func watchers(
 				_card_entries(out, cards, event, card, watcher_seat, TriggerContext.ZONE_ROW)
 		for card: int in piles.hand:
 			_card_entries(out, cards, event, card, watcher_seat, TriggerContext.ZONE_HAND)
-	if moment == MOMENT_DISCARD:
+	if moment == CardAbility.MOMENT_DISCARD:
 		_pile_entries(out, state, cards, event)
 	for watcher_seat: int in order:
 		_crew_entries(out, cards, event, watcher_seat)
@@ -210,7 +210,7 @@ static func drain(
 	var queue: TriggerQueue = state.queue
 	queue.step = p_step
 	queue.seat = p_seat
-	if not WALK_STEPS.has(p_step):
+	if not _in_walk(state):
 		queue.resolutions = 0
 	return _run(state, cards, rng, sink)
 
@@ -264,7 +264,7 @@ static func answer(
 
 ## The resolutions counted so far in the pulse (in the Walk) or in the drain outside it.
 static func spent(state: MatchState) -> int:
-	if WALK_STEPS.has(state.queue.step):
+	if _in_walk(state):
 		return state.walk.resolutions
 	return state.queue.resolutions
 
@@ -285,12 +285,9 @@ static func _run(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Call
 			_exhaust(state, cards, sink)
 			return false
 		var entry: Dictionary = _pop(queue)
-		if entry.is_empty():
-			continue
 		# Each pop counts one (P11), a silent Muted one too.
 		_count(state)
-		var card: int = entry["card"]
-		if card >= 0 and not Statuses.fires(state, card):
+		if _is_silent(state, entry):
 			# Q2: Muted (or Silenced) when its trigger comes up: no event, no effect, no wakes.
 			_then_draw(state, sink, entry)
 			continue
@@ -399,7 +396,7 @@ static func _then_draw(state: MatchState, sink: Callable, entry: Dictionary) -> 
 ## seat's `walk.retrigger_on_reveal` other than its own card, for an On reveal of a card
 ## that is not itself an extra resolution.
 static func _retriggers(state: MatchState, ctx: TriggerContext) -> int:
-	if ctx.extra or ctx.is_crew() or ctx.moment != MOMENT_REVEAL:
+	if ctx.extra or ctx.is_crew() or ctx.moment != CardAbility.MOMENT_REVEAL:
 		return 0
 	if ctx.seat < 0 or ctx.seat >= state.walk.retrigger_on_reveal.size():
 		return 0
@@ -413,43 +410,50 @@ static func _retriggers(state: MatchState, ctx: TriggerContext) -> int:
 
 
 ## The budget is spent: every queued entry fizzles `exhausted`, in queue order (a Muted or
-## Silenced one silently drops), and the queue empties (Q4).
+## Silenced one silently drops), and the queue empties (Q4). A Batch's resumed draw (Q11,
+## `then_draw`, carried by its last entry) is a game step, not a trigger (R1, R2; cycle 14
+## C1): it is still made after that entry, exactly as at the end of a normal drain, and
+## counts nothing against the budget.
 static func _exhaust(state: MatchState, cards: MatchCards, sink: Callable) -> void:
 	var queue: TriggerQueue = state.queue
-	var guard: int = queue.size()
-	while not queue.batches.is_empty() and guard >= 0:
-		guard -= 1
-		var entry: Dictionary = _pop(queue)
-		if entry.is_empty():
-			continue
-		var card: int = entry["card"]
-		if card >= 0 and not Statuses.fires(state, card):
-			continue  # A Muted (or Silenced) entry stays silent, budget or not (Q2).
-		var ctx: TriggerContext = _context(state, cards, null, sink, entry, spent(state))
-		_fizzled(ctx, Abilities.REASON_EXHAUSTED)
-	queue.batches.clear()
-
-
-## Takes the oldest entry off the queue (dropping an emptied Batch); {} when none.
-static func _pop(queue: TriggerQueue) -> Dictionary:
 	while not queue.batches.is_empty():
-		var batch: Dictionary = queue.batches[0]
-		var entries: Array = batch["entries"]
-		if entries.is_empty():
-			queue.batches.remove_at(0)
-			continue
-		var entry: Dictionary = entries.pop_front()
-		if entries.is_empty():
-			queue.batches.remove_at(0)
-			if batch.has(KEY_THEN_DRAW):
-				entry[KEY_THEN_DRAW] = batch[KEY_THEN_DRAW]
-		return entry
-	return {}
+		var entry: Dictionary = _pop(queue)
+		# A Muted (or Silenced) entry stays silent, budget or not (Q2).
+		if not _is_silent(state, entry):
+			var ctx: TriggerContext = _context(state, cards, null, sink, entry, spent(state))
+			_fizzled(ctx, Abilities.REASON_EXHAUSTED)
+		_then_draw(state, sink, entry)
+
+
+## Takes the oldest entry off the queue, which holds at least one: no Batch is ever queued
+## empty (wake() queues none, a retrigger's holds at least one entry) and an emptied one is
+## dropped here, its resumed draw (`then_draw`) passed to its last entry.
+static func _pop(queue: TriggerQueue) -> Dictionary:
+	var batch: Dictionary = queue.batches[0]
+	var entries: Array = batch["entries"]
+	var entry: Dictionary = entries.pop_front()
+	if entries.is_empty():
+		queue.batches.remove_at(0)
+		if batch.has(KEY_THEN_DRAW):
+			entry[KEY_THEN_DRAW] = batch[KEY_THEN_DRAW]
+	return entry
+
+
+## Whether `entry`'s card is Muted (or Silenced) now, so its pop is silent (Q2). A Crew
+## entry never is.
+static func _is_silent(state: MatchState, entry: Dictionary) -> bool:
+	var card: int = entry["card"]
+	return card >= 0 and not Statuses.fires(state, card)
+
+
+## Whether the drain in progress is one of the Walk's (D7, D8), on the pulse's budget.
+static func _in_walk(state: MatchState) -> bool:
+	return WALK_STEPS.has(state.queue.step)
 
 
 ## Counts one resolution against the budget of the drain in progress.
 static func _count(state: MatchState) -> void:
-	if WALK_STEPS.has(state.queue.step):
+	if _in_walk(state):
 		state.walk.resolutions += 1
 	else:
 		state.queue.resolutions += 1
@@ -494,56 +498,64 @@ static func _context(
 	return ctx
 
 
-## The verb's prepare(): the match's extra verb table first, then Crew or card abilities.
+## The verb's prepare().
 static func _prepare(ctx: TriggerContext) -> void:
-	var handler: VerbHandler = ctx.cards.verb_handler()
-	if handler != null and handler.handles(ctx.verb):
-		handler.prepare(ctx)
-	elif ctx.is_crew():
-		CrewAbilities.prepare(ctx)
-	else:
-		Abilities.prepare(ctx)
+	_verbs_of(ctx).prepare(ctx)
 
 
-## The verb's resolve(), dispatched as _prepare().
+## The verb's resolve().
 static func _apply(ctx: TriggerContext) -> void:
 	ctx.prompt = {}
+	_verbs_of(ctx).resolve(ctx)
+
+
+## Who takes `ctx`'s verb: the match's extra verb table first, then Crew or card abilities.
+static func _verbs_of(ctx: TriggerContext) -> VerbHandler:
 	var handler: VerbHandler = ctx.cards.verb_handler()
 	if handler != null and handler.handles(ctx.verb):
-		handler.resolve(ctx)
-	elif ctx.is_crew():
-		CrewAbilities.resolve(ctx)
-	else:
-		Abilities.resolve(ctx)
+		return handler
+	if ctx.is_crew():
+		return CrewVerbs.new()
+	return CardVerbs.new()
 
 
 ## TRIGGER_FIRED {seat, card, crew, moment, verb, resolution}: public. A card firing from
 ## its hand is public too (C14, the telegraph) and adds `from_hand: true`; a card firing from
 ## its Deck stays private to its seat (_owner).
 static func _fired(ctx: TriggerContext) -> void:
-	var fired: Dictionary = {
-		"seat": ctx.seat,
-		"card": ctx.card,
-		"crew": ctx.crew.id if ctx.crew != null else "",
-		"moment": ctx.moment,
-		"verb": ctx.verb,
-		"resolution": ctx.resolution,
-	}
-	_mark_hand(ctx, fired)
-	ctx.emit(MatchEvent.Kind.TRIGGER_FIRED, fired, _owner(ctx))
+	var fired: Dictionary = _trigger_payload(ctx)
+	fired["moment"] = ctx.moment
+	fired["verb"] = ctx.verb
+	fired["resolution"] = ctx.resolution
+	_announce(ctx, MatchEvent.Kind.TRIGGER_FIRED, fired)
 
 
 ## TRIGGER_FIZZLED {seat, card, crew, verb, reason}: public, except as _fired().
 static func _fizzled(ctx: TriggerContext, reason: String) -> void:
-	var fizzled: Dictionary = {
-		"seat": ctx.seat,
-		"card": ctx.card,
-		"crew": ctx.crew.id if ctx.crew != null else "",
-		"verb": ctx.verb,
-		"reason": reason,
-	}
-	_mark_hand(ctx, fizzled)
-	ctx.emit(MatchEvent.Kind.TRIGGER_FIZZLED, fizzled, _owner(ctx))
+	var fizzled: Dictionary = _trigger_payload(ctx)
+	fizzled["verb"] = ctx.verb
+	fizzled["reason"] = reason
+	_announce(ctx, MatchEvent.Kind.TRIGGER_FIZZLED, fizzled)
+
+
+## The keys every trigger event starts with, in this order: {seat, card, crew}.
+static func _trigger_payload(ctx: TriggerContext) -> Dictionary:
+	var crew_id: String = ctx.crew.id if ctx.crew != null else ""
+	return {"seat": ctx.seat, "card": ctx.card, "crew": crew_id}
+
+
+## Emits the trigger event `payload` of `kind`: `from_hand` added (_mark_hand()), routed by
+## _owner().
+static func _announce(ctx: TriggerContext, kind: int, payload: Dictionary) -> void:
+	_mark_hand(ctx, payload)
+	ctx.emit(kind, payload, _owner(ctx))
+
+
+## One pick of `ctx`'s fired trigger that missed (Fuse's or Immolator's random Condemn on a
+## protected or already Condemned card, rules 9, cycle 14 R3): TRIGGER_FIZZLED with
+## `reason`, routed as _fizzled(). The trigger has fired; this names the single pick only.
+static func missed(ctx: TriggerContext, reason: String) -> void:
+	_fizzled(ctx, reason)
 
 
 ## Adds `from_hand: true` to a trigger payload whose card is in its seat's hand, so the board
@@ -612,6 +624,7 @@ static func _card_entries(
 static func _pile_entries(
 	out: Array[Dictionary], state: MatchState, cards: MatchCards, event: Dictionary
 ) -> void:
+	var moment: String = CardAbility.MOMENT_DISCARD
 	var subjects: Array[int] = event["subjects"]
 	var subject_seats: Array[int] = event["seats"]
 	for at: int in range(subjects.size()):
@@ -624,10 +637,8 @@ static func _pile_entries(
 			continue
 		for index: int in range(def.abilities.size()):
 			var ability: CardAbility = def.abilities[index]
-			if ability.moment == MOMENT_DISCARD and ability.watch == CardAbility.WATCH_SELF:
-				out.append(
-					_entry(KIND_CARD, holder, subject, -1, index, MOMENT_DISCARD, subject, holder)
-				)
+			if ability.moment == moment and ability.watch == CardAbility.WATCH_SELF:
+				out.append(_entry(KIND_CARD, holder, subject, -1, index, moment, subject, holder))
 
 
 ## Appends the entries of `seat`'s Crew for `event`, by Crew slot: a seatless event wakes
@@ -713,3 +724,25 @@ static func _forward(events: Array[MatchEvent], sink: Callable) -> void:
 		return
 	for event: MatchEvent in events:
 		sink.call(event.kind, event.payload, event.owner_seat)
+
+
+## CrewAbilities behind the VerbHandler protocol (_verbs_of()).
+class CrewVerbs:
+	extends VerbHandler
+
+	func prepare(ctx: TriggerContext) -> void:
+		CrewAbilities.prepare(ctx)
+
+	func resolve(ctx: TriggerContext) -> void:
+		CrewAbilities.resolve(ctx)
+
+
+## Abilities behind the VerbHandler protocol (_verbs_of()).
+class CardVerbs:
+	extends VerbHandler
+
+	func prepare(ctx: TriggerContext) -> void:
+		Abilities.prepare(ctx)
+
+	func resolve(ctx: TriggerContext) -> void:
+		Abilities.resolve(ctx)

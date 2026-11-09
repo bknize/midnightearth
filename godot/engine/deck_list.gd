@@ -6,7 +6,7 @@ extends RefCounted
 ##
 ## Loading checks the shape and that deck ids are unique; validate() checks each deck
 ## against a card pool and a Crew pool: exactly MatchRules.DECK_SIZE card ids, every id in
-## the pool and none of them created-only (Dross), at most MatchRules.MAX_COPIES copies of
+## the pool and none of them a Dross definition, at most MatchRules.MAX_COPIES copies of
 ## one id, and exactly MatchRules.CREW_SIZE different Crew ids, each in the Crew pool (a
 ## Crew may serve more than one deck). Version 3 adds `tag` and the 40-card Deck with
 ## copies; a version-2 list fails on its version. seeded_pick() draws a seat's deck from the
@@ -29,17 +29,17 @@ const KEY_CREW: String = "crew"
 
 # Error prefixes, stable so tests and callers can match on them.
 const ERR_FILE: String = "deck list file"
-const ERR_JSON: String = "bad JSON"
-const ERR_SHAPE: String = "bad shape"
-const ERR_VERSION: String = "unsupported version"
+const ERR_JSON: String = JsonLoad.ERR_JSON
+const ERR_SHAPE: String = JsonLoad.ERR_SHAPE
+const ERR_VERSION: String = JsonLoad.ERR_VERSION
 const ERR_DUPLICATE_DECK: String = "duplicate deck id"
 const ERR_POOL: String = "card pool invalid"
 const ERR_COUNT: String = "wrong deck size"
 const ERR_COPIES: String = "too many copies"
 const ERR_UNKNOWN: String = "unknown card id"
-## A card the pool marks created-only (Dross, `"created": true`): only an ability makes it,
-## so no deck may list it (DC-14 T14).
-const ERR_CREATED: String = "created-only card"
+## A card the pool marks Dross (`"created": true`, CardDef.dross): only an ability makes it,
+## so no deck may list it (DC-14 T14; renamed for C13).
+const ERR_DROSS: String = "Dross card"
 ## A missing or failed Crew pool, other than CREW_SIZE Crew, a Crew twice, a Crew the pool
 ## does not hold.
 const ERR_CREW_POOL: String = "crew pool invalid"
@@ -61,31 +61,18 @@ static func load_default() -> DeckList:
 
 ## Loads a deck list from any path. Missing or unreadable files fail silently.
 static func load_from_path(path: String) -> DeckList:
-	if not FileAccess.file_exists(path):
-		return _failed("%s not found: %s" % [ERR_FILE, path])
-	var file: FileAccess = FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		return _failed("%s unreadable: %s" % [ERR_FILE, path])
-	var text: String = file.get_as_text()
-	file.close()
-	return from_json(text)
+	var file: JsonLoad = JsonLoad.read(path, ERR_FILE)
+	if file.error != "":
+		return _failed(file.error)
+	return from_json(file.text)
 
 
 ## Loads a deck list from JSON text (used by tests with in-memory data).
 static func from_json(text: String) -> DeckList:
-	var json: JSON = JSON.new()
-	var parse_err: Error = json.parse(text)
-	if parse_err != OK:
-		return _failed(
-			"%s at line %d: %s" % [ERR_JSON, json.get_error_line(), json.get_error_message()]
-		)
-	var data: Variant = json.data
-	if not data is Dictionary:
-		return _failed("%s: top level is not an object" % ERR_SHAPE)
-	var root: Dictionary = data
-	var version_problem: String = _version_problem(root)
-	if version_problem != "":
-		return _failed(version_problem)
+	var json: JsonLoad = JsonLoad.parse(text, FORMAT_VERSION)
+	if json.error != "":
+		return _failed(json.error)
+	var root: Dictionary = json.root
 	if not root.has("decks") or not root["decks"] is Array:
 		return _failed("%s: missing decks array" % ERR_SHAPE)
 	var entries: Array = root["decks"]
@@ -205,19 +192,6 @@ static func _failed(message: String) -> DeckList:
 	return out
 
 
-## An error message when `root` has no whole version or not FORMAT_VERSION, else "".
-static func _version_problem(root: Dictionary) -> String:
-	if not root.has("version"):
-		return "%s: missing or non-integer version" % ERR_SHAPE
-	var raw: Variant = root["version"]
-	if not EngineAction.is_whole_number(raw):
-		return "%s: missing or non-integer version" % ERR_SHAPE
-	var version: int = EngineAction.as_int(raw)
-	if version != FORMAT_VERSION:
-		return "%s: %d (expected %d)" % [ERR_VERSION, version, FORMAT_VERSION]
-	return ""
-
-
 ## One deck entry as {id, name, tag, theme, cards: Array[String], crew: Array[String]}, or
 ## an empty Dictionary when its shape is wrong. Sizes, copies and pool membership are
 ## validate()'s.
@@ -278,8 +252,8 @@ static func _deck_problem(deck_entry: Dictionary, cards: CardDb) -> String:
 	for card_id: String in listed:
 		if not cards.has_id(card_id):
 			return "%s: %s lists %s, absent from the pool" % [ERR_UNKNOWN, deck_id, card_id]
-		if cards.card_by_id(card_id).created:
-			return "%s: %s lists %s, which only an ability creates" % [ERR_CREATED, deck_id, card_id]
+		if cards.card_by_id(card_id).dross:
+			return "%s: %s lists %s, which only an ability creates" % [ERR_DROSS, deck_id, card_id]
 		var count: int = copies.get(card_id, 0) + 1
 		copies[card_id] = count
 		if count > MatchRules.MAX_COPIES:

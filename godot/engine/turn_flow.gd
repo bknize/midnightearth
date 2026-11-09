@@ -35,7 +35,7 @@ extends RefCounted
 ## - end_round(): every card on both rows to its Owner's Pile as a Discard, first seat's row
 ##   first, in slot order (R2, R20), On discard once (D12), then the Round is awarded to the
 ##   seat that won more of its Turns (`turn_wins`; equal Turn wins award none, C13),
-##   ROUND_ENDED.
+##   ROUND_ENDED, and every `round` Dross card leaves the Match (expire_dross(), rules 9).
 ##
 ## Drain points (DC-13 T05, TriggerQueue): on_empty_draw() (D1), on_start() (D2),
 ## on_commit() (D3, D5), on_discard() (D4, D6, D10, D12) and at_turn_end() (D9, D11) wake
@@ -43,13 +43,17 @@ extends RefCounted
 ## engine resumes the step after it once the answer has finished the drain
 ## (continue_turn_start(), open_discard_down(), continue_end_turn(), award_round()).
 ## crew_budget_bonus() is Engineer's (CrewAbilities, T07). exit_pass() and end_statuses() are T04's.
+## The seat count is MatchEngine.SEATS (its one owner, NSC-177).
 
-const SEATS: int = 2
 ## The verb of the discard-down prompt.
 const VERB_DISCARD_DOWN: String = "discard_down"
 ## CARD_DISCARDED `from` and `reason` (plan event table).
 const FROM_HAND: String = "hand"
 const FROM_ROW: String = "row"
+## DROSS_EXPIRED `from` of a Dross card leaving the Pile or the Deck (expire_dross(); `hand`
+## and `row` as above).
+const FROM_PILE: String = "pile"
+const FROM_DECK: String = "deck"
 const REASON_DISCARD: String = "discard"
 const REASON_DISCARD_DOWN: String = "discard_down"
 const REASON_CONDEMNED: String = "condemned"
@@ -65,12 +69,6 @@ const STEP_TURN_END_BEFORE: String = "D9"
 const STEP_EXIT_PASS: String = "D10"
 const STEP_TURN_END_AFTER: String = "D11"
 const STEP_ROUND_END: String = "D12"
-const MOMENT_TURN_END_BEFORE: String = "at_turn_end_before"
-const MOMENT_TURN_END_AFTER: String = "at_turn_end_after"
-const MOMENT_EMPTY_DRAW: String = "on_empty_draw"
-const MOMENT_START: String = "on_start"
-const MOMENT_COMMIT: String = "on_commit"
-const MOMENT_DISCARD: String = "on_discard"
 ## What end_round() returns when D12 paused on a prompt: no Round is awarded yet.
 const ROUND_PAUSED: int = -2
 
@@ -84,13 +82,13 @@ static func start_match(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable
 ) -> void:
 	state.reset_crew_uses(cards)
-	for seat: int in range(SEATS):
+	for seat: int in range(MatchEngine.SEATS):
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		piles.deck.clear()
 		for index: int in range(MatchRules.DECK_SIZE):
 			piles.deck.append(seat * MatchRules.DECK_SIZE + index)
 		rng.shuffle_in_place(piles.deck)
-	for seat: int in range(SEATS):
+	for seat: int in range(MatchEngine.SEATS):
 		for _deal: int in range(MatchRules.OPENING_HAND):
 			var card: int = _take_top(state, seat)
 			if card >= 0:
@@ -107,7 +105,7 @@ static func begin_round(state: MatchState, rng: MatchRng, sink: Callable) -> voi
 	state.sudden_death = state.round_number > MatchRules.ROUNDS
 	state.turn = 0
 	state.round_committed = 0
-	for seat: int in range(SEATS):
+	for seat: int in range(MatchEngine.SEATS):
 		state.scores[seat] = 0
 		state.totals[seat] = 0
 		state.turn_wins[seat] = 0
@@ -131,14 +129,15 @@ static func begin_round(state: MatchState, rng: MatchRng, sink: Callable) -> voi
 
 
 ## Turn start (resolution steps 1 to 3): the commit order, each seat's spend and Commit
-## count cleared, TURN_STARTED, the draws (first seat first), then On start. The phase is
-## AWAIT_FIRST. True when a drain (D1 or D2) paused on a prompt.
+## count cleared, TURN_STARTED (with `free_first` per seat, R16), the draws (first seat
+## first), then On start. The phase is AWAIT_FIRST. True when a drain (D1 or D2) paused on a
+## prompt.
 static func begin_turn(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> bool:
 	state.turn += 1
 	if state.turn > 1 and state.last_turn_winner >= 0:
 		state.first_seat = state.last_turn_winner
 	state.phase = MatchState.Phase.AWAIT_FIRST
-	for seat: int in range(SEATS):
+	for seat: int in range(MatchEngine.SEATS):
 		state.energy.spent[seat] = 0
 		state.committed_count[seat] = 0
 	var started: Dictionary = {
@@ -146,6 +145,7 @@ static func begin_turn(state: MatchState, cards: MatchCards, rng: MatchRng, sink
 		"turn": state.turn,
 		"first_seat": state.first_seat,
 		"budgets": [budget(state, cards, 0), budget(state, cards, 1)],
+		"free_first": [state.energy.free_first[0], state.energy.free_first[1]],
 	}
 	sink.call(MatchEvent.Kind.TURN_STARTED, started)
 	return _draws_from(state, cards, rng, sink, 0)
@@ -169,7 +169,7 @@ static func continue_turn_start(
 static func _draws_from(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, index: int
 ) -> bool:
-	var order: Array[int] = [state.first_seat, 1 - state.first_seat]
+	var order: Array[int] = state.commit_order()
 	for at: int in range(index, order.size()):
 		if draw(state, cards, rng, sink, order[at]):
 			return true
@@ -208,7 +208,7 @@ static func resumed_draw(state: MatchState, sink: Callable, seat: int) -> bool:
 ## `seat`'s Budget this Turn (R6, R7): the Turn number plus the Energy granted for this
 ## Turn, plus a Crew's bonus (crew_budget_bonus()). Nothing carries between Turns.
 static func budget(state: MatchState, cards: MatchCards, seat: int) -> int:
-	if seat < 0 or seat >= SEATS:
+	if seat < 0 or seat >= MatchEngine.SEATS:
 		return 0
 	return state.turn + state.energy.grants[seat] + crew_budget_bonus(state, cards, seat)
 
@@ -218,7 +218,7 @@ static func budget(state: MatchState, cards: MatchCards, seat: int) -> int:
 ## amount of every "your Hand size is +N" Ongoing its revealed row cards make apply (Pantry):
 ## Quartermaster with one Pantry is 7 + 2 = 9.
 static func hand_size(state: MatchState, cards: MatchCards, seat: int) -> int:
-	if seat < 0 or seat >= SEATS:
+	if seat < 0 or seat >= MatchEngine.SEATS:
 		return MatchRules.HAND_SIZE
 	var size: int = CrewAbilities.hand_size_set(cards, seat)
 	if size <= 0:
@@ -367,13 +367,18 @@ static func answer_discard_down(
 
 ## Sends `card`, already taken from its hand or row, to its Owner's Pile as a Discard
 ## (R19, R20, R31): CARD_DISCARDED {owner, card, from, reason, pile_index}, public, since a
-## Pile entry is public (R24).
+## Pile entry is public (R24). A Dross card (Litter's Dross, Twin's copy) is filed like any
+## card within its Round (rules 9, cycle 14 R10, C13), so a Reliquary grows from it and a
+## Pile shuffle may put it back in a Deck; expire_dross() removes it at the Round's end.
+## Every card has an Owner (origin_of(); a Dross card from its creation, R8): there is no
+## fallback seat, so an id with none is a programming error, which a test surfaces (the
+## engine never asserts): it is filed nowhere and no event names it.
 static func to_pile(
 	state: MatchState, cards: MatchCards, sink: Callable, card: int, from: String, reason: String
 ) -> void:
 	var owner: int = cards.origin_of(card)
 	if owner < 0:
-		owner = 0
+		return
 	var pile: Array[int] = state.seats[owner].pile
 	pile.append(card)
 	var discarded: Dictionary = {
@@ -425,7 +430,9 @@ static func continue_end_turn(
 ) -> bool:
 	var from: String = after
 	if from == "":
-		if at_turn_end(state, cards, rng, sink, MOMENT_TURN_END_BEFORE, STEP_TURN_END_BEFORE):
+		if at_turn_end(
+			state, cards, rng, sink, CardAbility.MOMENT_TURN_END_BEFORE, STEP_TURN_END_BEFORE
+		):
 			return true
 		from = STEP_TURN_END_BEFORE
 	if from == STEP_TURN_END_BEFORE:
@@ -434,8 +441,11 @@ static func continue_end_turn(
 			return true
 		from = STEP_EXIT_PASS
 	if from == STEP_EXIT_PASS:
-		if at_turn_end(state, cards, rng, sink, MOMENT_TURN_END_AFTER, STEP_TURN_END_AFTER):
+		if at_turn_end(
+			state, cards, rng, sink, CardAbility.MOMENT_TURN_END_AFTER, STEP_TURN_END_AFTER
+		):
 			return true
+	CrewAbilities.end_turn_uses(state, cards)  # A `turn` Crew's uses come back (R6).
 	settle_turn(state, sink)
 	return false
 
@@ -446,7 +456,7 @@ static func settle_turn(state: MatchState, sink: Callable) -> void:
 	end_statuses(state, sink)
 	state.walk.clear_turn_effects()
 	CrewAbilities.end_turn(state)  # Void grants no card used end (T07).
-	for seat: int in range(SEATS):
+	for seat: int in range(MatchEngine.SEATS):
 		state.energy.grants[seat] = state.energy.next_turn_grants[seat]
 		state.energy.next_turn_grants[seat] = 0
 		state.energy.spent[seat] = 0
@@ -473,7 +483,7 @@ static func settle_turn(state: MatchState, sink: Callable) -> void:
 ## awards the Round once the drain has finished).
 static func end_round(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> int:
 	var cleared: Array[int] = []
-	for seat: int in [state.first_seat, 1 - state.first_seat]:
+	for seat: int in state.commit_order():
 		var piles: MatchState.SeatPiles = state.seats[seat]
 		var row: Array[int] = []
 		row.assign(piles.board)
@@ -484,12 +494,13 @@ static func end_round(state: MatchState, cards: MatchCards, rng: MatchRng, sink:
 			cleared.append(card)
 	if not cleared.is_empty() and on_discard(state, cards, rng, sink, cleared, STEP_ROUND_END):
 		return ROUND_PAUSED
-	return award_round(state, sink)
+	return award_round(state, cards, sink)
 
 
 ## The Round is awarded (the second half of end_round(), and what the engine resumes after
-## a D12 paused on a prompt): see end_round(). Returns the winner, or -1.
-static func award_round(state: MatchState, sink: Callable) -> int:
+## a D12 paused on a prompt): see end_round(); then the Round's Dross cards leave the Match
+## (expire_dross()). Returns the winner, or -1.
+static func award_round(state: MatchState, cards: MatchCards, sink: Callable) -> int:
 	var winner: int = leader(state.turn_wins)
 	if winner >= 0:
 		state.wins[winner] += 1
@@ -502,7 +513,72 @@ static func award_round(state: MatchState, sink: Callable) -> int:
 		"turn_wins": MatchState.plain(state.turn_wins),
 	}
 	sink.call(MatchEvent.Kind.ROUND_ENDED, ended)
+	expire_dross(state, cards, sink)
 	return winner
+
+
+## The end of the Round for Dross (rules 9, cycle 14 R10, R11, C13: "dross cards disappear
+## at the end of a round"), after ROUND_ENDED and before the next Round's draws, the final
+## Round of the Match included (so the Match-end checks read the hands without them): every
+## Dross card whose lifetime is `round` (CardDef.expires_at_round_end) leaves the Match from
+## wherever it is (hand, row, Pile or Deck), in ascending id, each forgotten by MatchCards
+## (forget_dross) with one public DROSS_EXPIRED {owner, card, from, reason: round_end}. A
+## `match` Dross card stays. The other cards of each zone keep their order: nothing is
+## shuffled and no random draw is made. No Commit waits here: the second seat's Commit empties
+## `pending` before the Walk, and a Round only ends after a Walk.
+static func expire_dross(state: MatchState, cards: MatchCards, sink: Callable) -> void:
+	if cards == null or state.next_dross_id == MatchCards.DROSS_BASE:
+		return  # No Dross card was made in this Match.
+	var expiring: Array[int] = []
+	for card: int in _all_cards(state):
+		if not MatchCards.is_dross(card):
+			continue
+		var def: CardDef = cards.def_of(card)
+		if def != null and def.expires_at_round_end():
+			expiring.append(card)
+	expiring.sort()
+	for card: int in expiring:
+		var owner: int = cards.origin_of(card)
+		var from: String = _take_anywhere(state, card, sink)
+		if cards.forget_dross(card):
+			pass  # It leaves the Match: no def_of() or origin_of() from now on.
+		var expired: Dictionary = {
+			"owner": owner, "card": card, "from": from, "reason": REASON_ROUND_END
+		}
+		sink.call(MatchEvent.Kind.DROSS_EXPIRED, expired)
+
+
+## Every card in a zone of the Match at Round end: each seat's hand, row, Pile and Deck.
+## Order does not matter (expire_dross() sorts).
+static func _all_cards(state: MatchState) -> Array[int]:
+	var out: Array[int] = []
+	for piles: MatchState.SeatPiles in state.seats:
+		out.append_array(piles.hand)
+		out.append_array(piles.board)
+		out.append_array(piles.pile)
+		out.append_array(piles.deck)
+	return out
+
+
+## Takes `card` out of whichever zone holds it (a row through Statuses.take_from_row, so its
+## Board changes, reveal and looks end) and returns that zone's DROSS_EXPIRED `from`.
+static func _take_anywhere(state: MatchState, card: int, sink: Callable) -> String:
+	for seat: int in range(MatchEngine.SEATS):
+		var piles: MatchState.SeatPiles = state.seats[seat]
+		if piles.board.has(card):
+			if Statuses.take_from_row(state, seat, card, sink):
+				pass  # Revealed or not, it leaves the row.
+			return FROM_ROW
+		if piles.hand.has(card):
+			piles.hand.erase(card)
+			return FROM_HAND
+		if piles.pile.has(card):
+			piles.pile.erase(card)
+			return FROM_PILE
+		if piles.deck.has(card):
+			piles.deck.erase(card)
+			return FROM_DECK
+	return ""
 
 
 ## The seat with the higher of `values`, or -1 when they are equal.
@@ -523,12 +599,13 @@ static func leader(values: Array[int]) -> int:
 static func on_empty_draw(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int
 ) -> bool:
-	return _wake_and_drain(state, cards, rng, sink, MOMENT_EMPTY_DRAW, STEP_EMPTY_DRAW, seat)
+	var moment: String = CardAbility.MOMENT_EMPTY_DRAW
+	return _wake_and_drain(state, cards, rng, sink, moment, STEP_EMPTY_DRAW, seat)
 
 
 ## The On start Batch of revealed cards and Crew wakes and drains (D2).
 static func on_start(state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable) -> bool:
-	return _wake_and_drain(state, cards, rng, sink, MOMENT_START, STEP_ON_START)
+	return _wake_and_drain(state, cards, rng, sink, CardAbility.MOMENT_START, STEP_ON_START)
 
 
 ## `seat`'s On commit Batch (its revealed row cards, its hand cards with `zone: hand`, its
@@ -538,7 +615,7 @@ static func on_commit(
 	state: MatchState, cards: MatchCards, rng: MatchRng, sink: Callable, seat: int
 ) -> bool:
 	var step: String = STEP_FIRST_COMMIT if seat == state.first_seat else STEP_SECOND_COMMIT
-	return _wake_and_drain(state, cards, rng, sink, MOMENT_COMMIT, step, seat)
+	return _wake_and_drain(state, cards, rng, sink, CardAbility.MOMENT_COMMIT, step, seat)
 
 
 ## Each card of `discarded`, in order, wakes its On discard Batch (at Round end, D12, the
@@ -555,23 +632,24 @@ static func on_discard(
 	step: String,
 	seat: int = -1
 ) -> bool:
+	var moment: String = CardAbility.MOMENT_DISCARD
 	var context: Dictionary = {"from": FROM_HAND, "reason": REASON_DISCARD_DOWN}
 	if step == STEP_EXIT_PASS:
 		context = {"from": FROM_ROW, "reason": REASON_CONDEMNED}
 	if step == STEP_ROUND_END:
 		context = {"from": FROM_ROW, "reason": REASON_ROUND_END}
-		if TriggerQueue.wake(state, cards, MOMENT_DISCARD, discarded, -1, context).is_empty():
+		if TriggerQueue.wake(state, cards, moment, discarded, -1, context).is_empty():
 			pass  # Nothing watches the Round-end clear.
 	else:
 		for card: int in discarded:
 			var subjects: Array[int] = [card]
-			if TriggerQueue.wake(state, cards, MOMENT_DISCARD, subjects, -1, context).is_empty():
+			if TriggerQueue.wake(state, cards, moment, subjects, -1, context).is_empty():
 				pass  # Nothing watches this Discard.
 	return TriggerQueue.drain(state, cards, rng, sink, step, seat)
 
 
-## The At turn end Batch of `moment` (MOMENT_TURN_END_BEFORE or _AFTER) wakes and drains at
-## `step` (D9 or D11).
+## The At turn end Batch of `moment` (CardAbility.MOMENT_TURN_END_BEFORE or _AFTER) wakes
+## and drains at `step` (D9 or D11).
 static func at_turn_end(
 	state: MatchState,
 	cards: MatchCards,

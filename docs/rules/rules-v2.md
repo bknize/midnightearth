@@ -4,7 +4,7 @@ tags: [reference, rules-v2, rules]
 status: built
 related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]]", "[[rules/resolution]]", "[[rules/crew-v2]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[cards/Cards]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-09
 uid: effd8870-94a5-4b01-9b84-254a2da735eb
 linear: https://linear.app/night-science-llc/issue/NSC-138/t02-rules-v2
 supersedes:
@@ -26,7 +26,10 @@ note does not repeat them.
 
 **Match.** A Match is won by the first seat to four Round wins. A Round is seven Turns. A
 tied Round awards no win. After Round 7 the seat with more Round wins takes the Match, and
-Rounds continue as sudden death while the seats are level (R5). A Turn is one cycle of draw,
+Rounds continue as sudden death while the seats are level (R5). The third sudden-death Round
+in a row to tie ends the Match in a Stalemate, so a Match is over after Round 10 at the latest:
+the seat with the higher total of its Walk Scores over the Match wins, and equal totals draw
+(cycle 14 C15). A Turn is one cycle of draw,
 Commit, Walk and turn end; the Walk is the scoring pass and Score is its total (R4).
 
 **Round end.** When a Round ends, every card on both rows goes to its Owner's Pile. Each

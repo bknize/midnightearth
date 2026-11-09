@@ -2,9 +2,9 @@
 type: system
 tags: [system, bot, training]
 status: growing
-related: ["[[systems/systems-moc]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[planning/bot-ladder]]", "[[specs/cycle-7-bot-players/spec]]"]
+related: ["[[systems/systems-moc]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[planning/bot-ladder]]", "[[planning/bot-trainer-architecture]]", "[[specs/cycle-11-bot-trainer/spec]]", "[[specs/cycle-13-bot-trainer-b/spec]]"]
 created: 2026-11-05
-updated: 2026-11-05
+updated: 2026-11-09
 uid: 05755c1d-4f49-4116-81c9-e95722b723cc
 linear:
 supersedes:
@@ -12,486 +12,322 @@ supersedes:
 
 # Bots and training
 
-> Who the computer opponents are, how we prove one is stronger than another, and how to run the overnight training that makes them stronger.
+> The computer opponents, how a bot is proven stronger than another, and how a stronger one is
+> trained on the PC.
 
-This guide is written from the code as it stands after cycle 11. The spec
-([[specs/cycle-7-bot-players/spec]]) records why each piece exists. The ledger
-([[planning/bot-ladder]]) records every measured bot. For how a match runs (commits, the
-reveal, the score walk), see [[systems/game-loop]]. For the cards, Crew and decks the bots
-play with, see [[systems/cards-crew-decks]].
+This guide is written from the code as it stands after DC-20 (rules 10). The ledger of every
+measured bot is [[planning/bot-ladder]]. The design and the decisions behind the trainer are
+[[planning/bot-trainer-architecture]], [[specs/cycle-11-bot-trainer/spec]] and
+[[specs/cycle-13-bot-trainer-b/spec]]. For how a match runs, see [[systems/game-loop]]. The
+earlier genetic trainer, the matrix bot and the levels are gone; this guide does not cover them.
 
-One thing to know up front: both shipped weights files still hold the **untrained
-defaults**. They have been re-stamped by hand after each rules change, but nobody has run
-the training yet. So today the "tuned" bot plays almost exactly like the greedy bot. The
-first overnight run is what changes that.
+## The pieces
+
+| Piece | Where | What it does |
+|---|---|---|
+| Bots | `godot/engine/bot/` | `random` and `linear`, built by name in `bot_registry.gd` |
+| Stamp | `godot/engine/bot/bot_stamp.gd`, `trainer/repo.py` | Names the rules and data a measurement belongs to |
+| Match worker | `godot/tools/match_worker.gd` | Plays bot against bot over a seed range, writes records |
+| `make bot-eval` | `scripts/bot-eval.sh`, `scripts/bot/` | SPRT strength test on top of the match worker |
+| Play-out worker | `godot/tools/playout_worker.gd` | Plays one match, or labels one position, per request |
+| Trainer | `trainer/` | Runs labelling jobs, stores them, fits weights; an MCP service on the PC |
+| PC files | `trainer/windows/`, `scripts/pc/` | The runner, the service launcher and its setup |
 
 ## The bots
 
-Every bot is a pure function. It sees one seat's redacted view (never the opponent's
-hand), asks the engine to *preview* its own hypothetical moves, and returns one action. It
-reads no clock and keeps no state between calls. Every random draw comes from a fresh
-generator seeded from the match seed, the round, the turn and a tag. The same view and seed
-always give the same move, so every bot game replays exactly.
+`random` is the default opponent and the floor of the ladder. It picks uniformly among the
+legal commits and the prompt answers, from a per-decision seed. A bot reads only its own
+`SeatView`, its seed and the card definitions, so one view gives one choice on any machine.
 
-| Name | What it does | Levels | Role |
-|---|---|---|---|
-| `random` | Picks uniformly among the legal commits and prompt answers. | 20 only | The floor. |
-| `greedy` | Lists every legal commit (each affordable set, in two or three card orders, at either end of the row), previews each one, and picks the best own-minus-opponent score. | 20 only | The pre-cycle-7 bot, still maintained. |
-| `greedy_v1` | A frozen copy of `greedy` from cycle 6. Edited only when an engine API change forces it, and each edit is logged in the ledger. | 20 only | The yardstick everything is measured against. |
-| `tuned` | The greedy search, pruned and scored by a weighted evaluator (below). | 0 to 20 | The shipped opponent, and the default. |
-| `matrix` | Treats the blind commit as a small game against guessed opponent moves. | 0 to 20 | The experimental second rung. |
+`linear` (`godot/engine/bot/linear_bot.gd`) scores each candidate commit and commits the best.
 
-### The tuned bot
+- A candidate is a feature vector (`BotFeatures`, set version `f1`): 33 compact features such as
+  `committed_power`, `committed_cost` and `budget_left`, then one `card:<id>` count per card in
+  the pool. Every feature is a whole number.
+- The score is the integer sum of feature times weight. Weights are in hundredths, so 100
+  counts a feature once. The highest score wins; a tie is broken by a seeded draw.
+- When there are more than `k` candidates, `k` are kept by a seeded draw (the pass always
+  survives). A hand too large to list is sampled the way `random` samples it.
+- Prompts are answered by `random` on the same seed.
+- The weights file is `godot/engine/bot/data/linear_weights.json`: `version` 2, `bot`, `stamp`,
+  `features`, `k` (64 by default), a `fit` block (`id`, `runs`, `digest`) and `weights` (feature
+  name to whole number; a feature not named weighs 0). A broken file gives the built-in default,
+  `committed_power` 100, and `load_error` says why. The launcher prints it as `Bot weights:`.
 
-The greedy bot previews every candidate, which can be hundreds of previews. The tuned bot
-first ranks the candidates by a cheap **bound**: what the committed cards alone would add
-to its own row, from their printed stats, with no preview at all. It then previews only the
-top `k` (24 today). Each previewed candidate gets a **value**: a weighted sum of 13 named
-features, such as score difference, energy left, cards left, turns left, round wins, the
-opponent's hand size and row-length difference. The highest value wins.
-
-With the default weights (`score_diff` at 100, everything else 0), the value is exactly
-the greedy score. That is deliberate: it makes the pruned bot testable against the full
-search. Prompts (destroy this, recover that, the Crew's optional prompts) are answered the
-same way: preview each option, value it, pick the best.
-
-### The matrix bot
-
-In this game the commit is sequential but blind: the first player commits face down, and the
-second sees only how many cards went down and into which slots. So "my best move" depends on
-what the opponent does or did. The matrix bot models that. It samples a few hands the opponent
-*could* hold (from the opponent's public deck list, minus every card the view shows). From
-those hands it builds the opponent's likely commits and keeps the top `k_opp`. Then it fills a
-table: its own top `k` candidates down the side, the opponent's guesses across the top, and
-in each cell the value of a **joint preview** of both commits together. Regret matching (a
-simple iterative game solver, run for `rm_iterations` rounds) turns that table into a mixed
-strategy. The bot then draws its move from it. If the opponent has already committed, only
-guesses with the same card count and slots are kept.
-
-The joint preview is built so the bot learns nothing hidden. A guessed card gives the
-same result wherever the real card is (hand, deck or burn pile). Prompts are answered exactly
-as the tuned bot does.
-
-### Levels: the seeded push
-
-Difficulty is a level from 0 to 20. Level 20 is full strength and changes nothing. Below 20,
-the bot adds a seeded **push** to each candidate that sits within `push_unit` (10 points) of
-the best: part of its gap to the best, plus a little noise. A weaker level closes more of the
-gap, so near-best moves get picked more often. A move more than 10 points worse is never
-lifted. So a low-level bot makes plausible second-best plays, never obvious blunders.
-The level never removes candidates and never reveals anything. Only `tuned` and `matrix`
-take a level. The launcher takes `--bot=<name>` and `--bot-level=<0..20>`.
-
-### The 10 ms budget
-
-The bot runs synchronously in the game, so a decision must be fast. The rule (R17) is that
-the **99th-percentile decision** in the 50-seed sweep stays under 10 ms. The slowest single
-decision is printed but not judged, since one OS hiccup decides it. `make sweep` measures it
-for the tuned bot, and `make sweep BOT=matrix` for the matrix bot. Speed comes from fixed
-whole-number caps (`k`, `k_opp`, `samples`, `rm_iterations`), never from a timer. A timer
-would make play depend on the machine.
-
-Measured so far: tuned p99 about 6.7 to 7.2 ms before Crew and 9.8 ms with Crew, close to the line. Matrix at 6/3/2/50 measured 8.8 to 9.3 ms
-before Crew and 10.43 and 10.46 ms with Crew. The matrix bot is therefore **exempt from
-R17** for now (cycle 8 C13, cycle 7 C17). That exemption is a decision, not code: the sweep
-asserts p99 under 10 ms for whichever bot it runs.
-
-### Weights files
-
-Each bot with an evaluator has a committed file in `godot/engine/bot/data/`:
-
-| Field | Meaning | tuned | matrix |
-|---|---|---|---|
-| `stamp` | The rules and data the file was measured under (see below) | `r6-c4cbd…` | `r6-c4cbd…` |
-| `k` | Own candidates previewed | 24 | 6 |
-| `k_opp` | Opponent guesses kept | (unused) | 3 |
-| `samples` | Opponent hands sampled | (unused) | 2 |
-| `rm_iterations` | Regret-matching rounds | (unused) | 50 |
-| `push_unit` | The level push's reach, in points | 10 | 10 |
-| `weights` | The 13 features, in hundredths (100 counts a feature once) | `score_diff` 100, rest 0 | same |
-
-Everything is a whole number, so every machine plays alike. If a file is missing or
-broken, the bot falls back to the defaults and the launcher prints one `Bot weights:`
-warning.
-
-## Measuring strength: `make bot-eval`
-
-```bash
-make bot-eval                       # tuned vs greedy_v1, non-regression
-make bot-eval BOT=matrix            # matrix vs greedy_v1
-make bot-eval BOT=matrix REF=tuned  # matrix vs the shipped tuned bot
-scripts/bot-eval.sh --a matrix --b tuned --gainer   # the stricter "is it stronger" test
-```
-
-It prints one summary line and exits 0 (PASS), 1 (FAIL), 2 (CAP) or 3 (error). It is never
-part of `make check`.
-
-### Why paired seeds
-
-Card games are noisy: one lucky shuffle can decide a game. So every seed is played as a
-**pair**: the same shuffle twice, with the bots swapping seats. When the two decks differ,
-the pair is played again with the decks swapped. Each bot then plays each deck from each
-seat on the same cards. Luck of the draw and deck matchups cancel out, and what is left is
-skill.
-
-The two games of a pair are scored together, as 0, 0.5, 1, 1.5 or 2 points for bot A. That
-five-way outcome is the **pentanomial** score. Scoring pairs, not games, matters because
-the two games of a pair are correlated. Treating them as independent would overstate the
-confidence.
-
-### Why SPRT
-
-A fixed number of games is either wasteful (when the difference is obvious) or too few
-(when it is close). The **sequential probability ratio test** checks the evidence after
-every pair and stops as soon as it is sure enough, with 5% error either way. It weighs two
-hypotheses, in Elo-like units:
-
-| Mode | Bounds | PASS means | FAIL means |
-|---|---|---|---|
-| non-regression (the default) | [−25, 0] | A is not worse than B | A is at least 25 Elo worse |
-| gainer (`--gainer`) | [0, +25] | A is about 25 Elo stronger (scores roughly 53.6%) | A is no stronger |
-
-If the seed range (default 1–5000) or the cap (20,000 pairs) runs out first, the result is
-CAP: not enough evidence either way.
-
-### How it runs
-
-`scripts/bot-eval.sh` calls `scripts/bot/driver.py eval`. The driver splits the seeds into
-batches of 25 and starts one headless Godot worker (`godot/tools/bot_worker.gd`) per CPU
-core. Each worker plays its batch and writes JSON lines: one record per decision (with its
-time in µs), per game, per pair, and an end record with counts. Every finished game's log
-is **replayed** and its final state compared, so a determinism bug shows up as a replay
-mismatch. The driver feeds pairs to the SPRT in seed order and stops at the deciding pair.
-Reports land in `godot/reports/bot/<label>-<date>/` (gitignored), with `report.json` beside
-the batches.
-
-### The summary line
-
-```
-bot-eval: a=tuned b=greedy_v1 result=PASS bound=H1 pairs=48 games=96 winrate=0.510±0.036
-first_committer=0.49 p95_us=15412 p99_us=21106 slowest_us=200041 overruns_a=641
-overruns_b=755 stamp=match exit=0
-```
-
-| Field | Meaning |
-|---|---|
-| `result`, `bound` | PASS / FAIL / CAP, and which bound ended it (H1 = the PASS side, H0 = the FAIL side, `cap`) |
-| `pairs`, `games` | How much was played before the test decided |
-| `winrate` | A's mean pair score (0.5 = even) with a 95% interval |
-| `first_committer` | How often the player who committed first won (a fairness check on the rules) |
-| `p95_us`, `p99_us`, `slowest_us` | Decision times, p99 for A's own decisions |
-| `overruns_a`, `overruns_b` | Decisions over 10 ms, per side. Counted, never failed |
-| `stamp` | `match`, or `MISMATCH` when a weights file was stamped under other rules |
-| `reason=` | Only in gainer mode: `rejected` or `replay` turns a PASS into a FAIL |
-
-The timings in an eval are **not** the budget measure. The eval runs a worker on every
-core, and that contention inflates them. The tuned bot shows a p99 of 17 to 21 ms here, but
-about 7 ms in a quiet sweep.
+Both bots must decide within 10 ms. `make sweep BOT=linear` (50 seeds, outside the gate) checks
+p99 under 10 ms and prints `stamp=`; `WEIGHTS=<path>` sweeps another file.
 
 ## The stamp
 
-The stamp says which game a weights file was tuned for:
+`r<RULES_VERSION>-<16 hex>`: the rules version, then the first 16 hex digits of SHA-256 over the
+card pool, the deck list and the Crew pool files, in that order. Today it is
+`r10-857b165d5a5d755e`. `BotStamp.current()` (engine) and `current_stamp` in `trainer/repo.py`
+compute it the same way. Anything that moves the stamp (rules version, cards, decks, Crew)
+makes every older measurement and weights file stale.
+
+Where the stamp is checked:
+
+- Every record the match worker writes carries it. `bot-eval` prints `stamp=match` when the
+  worker's stamp equals the driver's, and `stamp=MISMATCH` when they differ.
+- The match worker's end record also carries `weights_stamp`: `match`, `MISMATCH`, `none`
+  (no weights given) or `BROKEN` (a file that will not load).
+- A play-out worker refuses a weights file whose stamp differs from its own
+  (`godot/tools/playout_handler.gd`, `_weights_problem`): the reply is an `error` that names
+  `rollout_weights` or `generator_weights`. A labelling run is never run on defaults that an old
+  or broken fit file would silently become.
+- A run keeps the stamp it was started under, and `fit` accepts only runs of one stamp.
+
+After an engine change, the ladder's rung 0 is measured again at the new stamp and every higher
+rung is marked unproven until it is re-measured (see [[planning/bot-ladder]], "After an engine
+change").
+
+## The ladder
+
+[[planning/bot-ladder]] holds one row per bot measured at one stamp. Rung 0 is `random`,
+measured against itself (a non-regression pass, about 0.494 win rate). The **yardstick** is the
+highest rung at the current stamp: today `random` at r10, rung 0. A policy is promoted to the
+next rung only after a gainer SPRT PASS against the yardstick and a quiet `make sweep
+BOT=<policy>` with p99 under 10 ms. No `linear` weights file has been promoted yet.
+
+## Measuring strength: `make bot-eval`
 
 ```
-r<RULES_VERSION>-<first 16 hex digits of SHA-256 over cards.json, decks.json, crew.json>
+make bot-eval BOT=linear REF=random WEIGHTS=path/to/linear_weights.json SEEDS=1-5000
 ```
 
-The rules version lives in `godot/engine/match_rules.gd` (6 today). The three data files are
-in `godot/engine/data/`. The engine (`bot_stamp.gd`) and the scripts (`records.py`) compute
-the same string. Today it is `r6-c4cbd3190e297787`.
+`BOT` is side a (default `random`), `REF` is side b (default `random`), `SEEDS` the seed range
+(default `1-5000`) and `WEIGHTS` the weights file for side a. It calls `scripts/bot-eval.sh`,
+which calls `scripts/bot/driver.py eval`; other flags (`--gainer`, `--nonreg`, `--cap`,
+`--decks`, `--budget-us`, `--weights-b`) go to `scripts/bot-eval.sh` directly. It needs Godot
+(`GODOT_BIN`, default the Mac app), Bash and Python 3, and is never part of `make check`.
+`make bot-selftest` runs the driver's unit tests with no Godot.
 
-Every sweep, eval, training run and calibration prints the stamp check. `MISMATCH` never
-fails anything. It means "these weights were tuned for different rules or cards, so their
-strength is unproven." That leads to the **rerun provision** (spec R36, `/cycle test` step
-1b in `.claude/skills/cycle/SKILL.md`, and the checklist in [[planning/bot-ladder]]). When a
-cycle changes the rules version or the data, then before the merge:
+How it measures:
 
-1. `make sweep` and `make sweep BOT=matrix`: read `stamp=` and `p99_us=`.
-2. `make bot-eval` and `make bot-eval BOT=matrix`.
-3. On FAIL or `stamp=MISMATCH`: `make bot-train` for each bot, and commit the promoted
-   weights on the cycle branch.
-4. Add a ledger row, and put the eval line in the cycle's row of [[planning/cycles]].
+- The driver runs `godot/tools/match_worker.gd` in batches. For each seed the worker picks a
+  deck pair with `DeckList.seeded_pick`, then plays both seatings, and when the decks differ
+  both seatings with the decks swapped. So every seed is a **pair** of seat- and deck-swapped
+  games, and luck of the seat or the deck cancels.
+- Each game's log is replayed and compared with the live state. A rejected action or a replay
+  mismatch is a failure.
+- The test is a pentanomial SPRT (`scripts/bot/sprt.py`) with alpha = beta = 0.05. The default
+  mode is non-regression, bounds [-25, 0] Elo; `--gainer` tests [0, +25] Elo. It stops at a
+  result or at the pair cap (20000).
+- Reports are written under `godot/reports/bot/`.
 
-Until now step 3 was deferred to Ben's overnight run, so the files were re-stamped by hand
-(plan P18).
-
-## The training loop: `make bot-train`
-
-```bash
-make bot-train                          # tuned, 8 hours, default label
-make bot-train BOT=matrix HOURS=6       # the matrix bot
-make bot-train LABEL=tuned-night1       # name the run yourself
-```
-
-Training is **(μ+λ) evolution**, a plain genetic algorithm. It spends no model tokens: it
-is Python and headless Godot only (`scripts/bot-train.sh` → `driver.py train` →
-`scripts/bot/evolve.py`).
-
-**The genome** is the weights file's 13 feature weights plus the bot's tunable caps. The
-tuned bot tunes `k` within 1 to 24. The matrix bot tunes `k` within 1 to 6 and `k_opp` within
-1 to 3. Those bounds (`TUNABLE` in `evolve.py`) exist because larger caps break the 10 ms
-budget. `samples`, `rm_iterations` and `push_unit` are copied from the committed file and
-never change. Weights are clamped to ±1000 hundredths.
-
-**One generation:**
-
-1. Eight parents breed eight children: each child takes each gene from one of two random
-   parents, then gets Gaussian noise (σ 20 hundredths on weights, σ 2 on caps). The first
-   generation's parents are the committed weights plus seven mutants of it.
-2. All 16 play a **round robin** (every two individuals, 24 paired seeds) and each plays
-   **`greedy_v1`** (48 paired seeds). That is 3,648 seeds per generation, on every core.
-3. **Fitness** is each individual's pentanomial points per pair, scaled to 0–1. The best
-   eight become the next parents.
-4. A checkpoint `gen-N.json` is written.
-5. If this generation's best beats the best fitness of every earlier generation, it is a
-   **candidate** and goes to promotion. The first generation always yields one.
-
-Every seed range comes from the **run seed**, printed on the first line and stored in each
-checkpoint. A run can be replayed, and a resumed generation breeds the same children.
-
-### Promotion
-
-A candidate must pass three tests in a row (R41, as amended by C16):
-
-1. **Gainer SPRT against `greedy_v1`** (up to 5,000 paired seeds). It must be clearly
-   stronger than the yardstick.
-2. **Gainer SPRT against the committed weights** (best-so-far, R23). It must be clearly
-   stronger than what ships.
-3. **A quiet 50-seed sweep** with the candidate's weights: one Godot process, nothing else
-   running, exactly `make sweep BOT=<bot> WEIGHTS=<file>`. It must pass every invariant
-   with a p99 decision **under 10 ms**.
-
-Why the quiet sweep? Under the all-core eval, the shipped tuned bot itself measured p99
-17.8 ms. A speed test inside the eval would reject everything. In a quiet sweep the same
-bot measures about 7 ms. So speed is judged alone, once both strength tests have passed.
-
-A rejected action or replay mismatch in an eval is a FAIL for that candidate, and the run
-goes on. Any other worker failure stops the run with exit 3.
-
-On promotion the trainer:
-
-- rewrites `godot/engine/bot/data/<bot>_weights.json` with the new genome and the current
-  stamp;
-- copies the old file to `godot/reports/bot/<label>/previous_<bot>_weights.json`;
-- marks the checkpoint `promoted`, prints a `PROMOTED` line, and **stops** with exit 0.
-
-It never commits. A run stops at its first promotion; to keep evolving, start another run.
-
-```mermaid
-flowchart TD
-    P[8 parents] --> B[Breed 8 children<br/>crossover + mutation]
-    B --> R[Round robin of all 16<br/>plus each vs greedy_v1]
-    R --> F[Fitness = points per pair<br/>keep best 8, write gen-N.json]
-    F --> C{Best ever<br/>so far?}
-    C -- no --> T{Hours left?}
-    C -- yes --> G1{Gainer SPRT<br/>vs greedy_v1}
-    G1 -- FAIL or CAP --> T
-    G1 -- PASS --> G2{Gainer SPRT vs<br/>committed weights}
-    G2 -- FAIL or CAP --> T
-    G2 -- PASS --> S{Quiet 50-seed sweep<br/>p99 under 10 ms?}
-    S -- no --> T
-    S -- yes --> W[PROMOTED<br/>write weights file, exit 0]
-    T -- yes --> P
-    T -- no --> N[NOT PROMOTED<br/>weights untouched, exit 2]
-```
-
-### Labels, checkpoints and resume
-
-The default label is `<bot>-<stamp>`, for example `tuned-r6-c4cbd3190e297787`. Starting
-again with the same label **resumes** from the newest checkpoint. A candidate whose
-promotion was interrupted is re-tested first. Once a label has promoted, the next default run
-gets `-2` (then `-3` and so on), so a finished run never swallows the next one. A label whose
-checkpoint carries another stamp is **refused**: the rules changed, so pass a new `LABEL=`.
-A label also refuses a different bot or a different run seed. Reusing an explicit label
-that already promoted does nothing (it says "already promoted" and exits 0).
-
-| Exit | Meaning |
-|---|---|
-| 0 | Promoted (or the label had already promoted) |
-| 2 | Time limit reached, nothing promoted, weights untouched |
-| 3 | Error: no Godot, bad flags, a refused label, a worker crash |
-
-## Calibration: `make bot-calibrate`
-
-Calibration answers "what does level 12 feel like?" in win rates. It plays the tuned bot at
-each level against `greedy_v1` at full strength, on six deck pairings, 200 paired seeds per
-cell. It prints a table and writes it into the `## Calibration` section of
-[[planning/bot-ladder]], between the `calibration:begin` and `calibration:end` markers.
-It then suggests tiers by win rate, not by level number: easy is the level nearest 0.35,
-normal the level nearest 0.50, hard the strongest level.
-
-```bash
-make bot-calibrate                       # about 15 minutes on all cores
-make bot-calibrate LEVELS=10,12,14 NO_LEDGER=1
-```
-
-The current table says level 12 wins about 0.35 against `greedy_v1` (easy). Level 20 wins
-about 0.51 (normal). Since the untrained tuned bot is barely stronger than `greedy_v1`, there
-is no distinct hard tier yet. Two details stand out. Bloom against Echo sits at 0.50 at every
-level, which suggests the matchup decides that game whoever pilots it, and the deck swap
-cancels it. Echo mirrors at level 20 reach 0.58, which fits the tuned bot reading reduced
-costs while `greedy_v1` reads printed ones. Note that the table was measured under stamp `r5`,
-before Crew. Rerun it after the first promotion.
-
-## Running it yourself
-
-### Before you start
-
-- Run from a clean checkout on its own branch, cut from `master`. Promotion rewrites a
-  tracked file, and nothing is committed on `master` directly.
-- Close the Godot editor and anything heavy. Training uses every core.
-- Keep the Mac awake. A sleeping Mac pauses the run. `caffeinate -i` in front of the
-  command prevents idle sleep.
-- Run it in a terminal tab, not piped through `tee`. The driver runs Python in isolated
-  mode (`-I`), so its output is buffered when it is not a terminal, and progress lines
-  would arrive late.
-
-### The overnight run
-
-Train the tuned bot first: it is the one players meet.
-
-```bash
-caffeinate -i make bot-train                 # tuned, 8 hours
-```
-
-Then the matrix bot, on another night or after the first run ends. Never run both at once:
-they fight for cores, and the quiet sweep would no longer be quiet.
-
-```bash
-caffeinate -i make bot-train BOT=matrix
-```
-
-`HOURS=` sets the wall clock (default 8). At least one generation always runs. `LABEL=`
-names the run. Other knobs need the script directly:
-
-```bash
-scripts/bot-train.sh --bot tuned --hours 8 --sigma 40 --label tuned-night2
-```
-
-`--sigma 40` doubles the mutation size, which is the plan's fallback if a first night
-promotes nothing (`tasks.md` T16). `--k-max` and `--k-opp-max` lower the cap bounds.
-`--run-seed` fixes the run seed.
-
-### Watching progress
-
-The terminal prints a line per generation:
+The summary line, one per run:
 
 ```
-bot-train: tuned label=tuned-r6-c4cbd3190e297787 run_seed=123456789 hours=8
-bot-train: gen=1 best=3 fitness=0.5412 candidate=yes
-bot-train: gen=2 best=11 fitness=0.5288 candidate=no
+bot-eval: a=<bot> b=<bot> result=<PASS|FAIL|CAP> bound=<H0|H1|..> pairs=N games=N
+winrate=<w>±<ci> first_committer=<f> p95_us=N p99_us=N slowest_us=N overruns_a=N overruns_b=N
+stamp=<match|MISMATCH> exit=<code>
 ```
 
-`best=` is the individual's index. Its weights are in `gen-N-files/ind-<index>.json`. A
-`candidate=yes` line is followed by two evals and possibly a sweep, which can take a while.
-Fitness is relative to that generation's field, so it can drift down even as the bots get
-better. Only a promotion proves progress.
+Exit codes: 0 pass, 1 fail, 2 cap reached, 3 error (a missing Godot or Python among them).
+A `FAIL` line may end in a `reason=` word. `overruns` count decisions slower than the 10 ms
+budget; they never fail a run on their own. Paste the line into the cycle's row in
+[[planning/cycles]] and the rung's row in [[planning/bot-ladder]].
 
-Everything lives in `godot/reports/bot/<label>/`: the `gen-N.json` checkpoints, the
-`gen-N-files/` weights, one folder per promotion eval (`gen<N>-vs-greedy_v1-<date>/`,
-`gen<N>-vs-best-<date>/`) and, after a promotion, `previous_<bot>_weights.json`. From another
-tab:
+## Training: the loop
 
-```bash
-python3 - godot/reports/bot/tuned-r6-c4cbd3190e297787 <<'EOF'
-import glob, json, os, sys
-paths = glob.glob(os.path.join(sys.argv[1], "gen-*.json"))
-for p in sorted(paths, key=lambda p: int(p.rsplit("-", 1)[1][:-5])):
-    c = json.load(open(p))
-    print("gen %3d  best %.4f  promoted %s  pending %s  %d min"
-          % (c["generation"], c["best"]["fitness"], c["promoted"], bool(c["pending"]),
-             c["elapsed_s"] // 60))
-EOF
-```
+Training is expert iteration with no network in the shipped game. Play-outs grade moves better
+than the current policy can, a learner fits a fast policy to those grades, and the new policy
+can grade the next round.
 
-### Stopping and resuming
+1. **Label.** A run plays many matches with a generator bot, picks one commit decision per
+   match and labels it: each candidate commit is played out to the end of the match many times
+   with hidden cards re-dealt, and its mean result is its value.
+2. **Fit.** The learner turns the labels into one `linear` weights file.
+3. **Measure.** `make bot-eval` and `make sweep BOT=linear` on the Mac decide whether the file
+   is promoted.
+4. **Repeat.** A fit can be the rollout policy or the generator policy of the next run.
 
-Press Ctrl-C. That stops the driver and its Godot workers. Finished generations are kept,
-and the generation in flight is lost. To resume, run the same command again (same `BOT=`,
-and the same `LABEL=` if you set one). `HOURS=` counts from the restart.
+### The play-out worker
 
-### Reading the result
+`godot --headless --path godot -s res://tools/playout_worker.gd`. One JSON object per line in
+on stdin, one per line out, in order. It prints a `hello` line first (stamp, feature set,
+rules version, log format, Godot version), then answers each request. It keeps no state between
+requests. A request line over 1 MiB gets an error reply. The wire format is in
+`godot/tools/playout_protocol.gd`; the work is `godot/tools/playout_handler.gd`.
 
-A promotion ends with one line, ready for the ledger:
+| Request `kind` | Fields | Reply |
+|---|---|---|
+| `play` | `id`, `seed`, `decks` (two ids or empty), `generator`, optional `generator_weights` | `stamp`, the match `log`, `result`, and each seat's commit action indexes |
+| `label` | `id`, `seed`, `decks`, `actions` (the log prefix), `seat`, `k` or `candidates`, `determinizations`, `rollout`, `label_seed`, optional `rollout_weights` | `stamp`, the `candidates`, a `values` entry per candidate (mean, spread, n, wins, draws, losses, capped), their `features`, and the position's Round, Turn and hand |
+| `quit` | none | none; the worker exits 0 |
 
-```
-bot-train: PROMOTED gen=7 stamp=r6-c4cbd3190e297787 vs_greedy_v1=PASS(PASS pairs=… winrate=…)
-vs_best=PASS(PASS pairs=… winrate=…) quiet_sweep=PASS(p99_us=7310)
-```
+A bad line gets an `error` reply carrying the request's `id`. Weights paths are absolute paths
+on the worker's machine, and the stamp rule above applies to them. A 64-bit `seed` travels as
+text, because a JSON number loses it. The worker exits 2 when its data fails to load.
 
-The weights file has been rewritten. Check `git diff godot/engine/bot/data/`, then hand over
-to the orchestrator (or do it yourself):
+### The run
 
-- Commit the weights file, for example `dc-NN: T16 trained weights r6-c4cbd3190e297787`.
-- Run `make check`. A promoted tuned bot plays differently, so the seed-1 golden pins will
-  probably need re-pinning.
-- Run `make sweep` for the bot you trained.
-- Add a ledger row with the `PROMOTED` line, then rerun `make bot-calibrate`.
+A **run** is a labelling job, defined by a config (`trainer/config.py`, `RunConfig`):
 
-Without a promotion, the last line looks like this (and `make` adds `Error 2`, which is
-expected, not a crash):
+| Field | Default | Meaning |
+|---|---|---|
+| `positions` | 2000 | Positions to label |
+| `k` | 8 | Candidates labelled per position |
+| `determinizations` | 16 | Play-outs per candidate |
+| `rollout` | `random` | Bot that plays the play-outs |
+| `generator` | `random` | Bot that plays the matches the positions come from |
+| `decks` | `seeded` | `seeded` or `all_pairings` |
+| `workers` | 16 | Worker processes |
+| `batch` | 25 | Positions per committed batch |
+| `run_seed` | 0 | Seed of every choice in the run |
+| `hours` | 8.0 | Time limit |
+| `rollout_weights`, `generator_weights` | `""` | A **fit id** whose weights the `linear` rollout or generator uses; `""` is the committed file |
 
-```
-bot-train: NOT PROMOTED label=tuned-r6-… generations=41 (this run 41) best_fitness=0.55
-last_candidate=gen12 vs_greedy_v1=FAIL(exit 1)(FAIL pairs=… winrate=…) stamp=r6-… exit=2
-```
+`trainer/farm.py` keeps a pool of play-out workers; a worker that dies is restarted and its
+request retried, and a request that fails alone does not stop the run. `trainer/run.py` plays a
+match, picks a commit decision with a seeded choice, labels it and commits the batch. The same
+config and `run_seed` give the same labels. A run stops at `positions` or at its `hours` limit, whichever
+comes first; a position whose request fails is skipped and counted.
 
-Nothing changed in the repository. Record the best candidate's result in the ledger, and
-consider a second night with a wider `--sigma`.
+A run goes `queued`, `running`, then `done`; it may be `stopping`, `stopped`, `interrupted` (the
+service restarted under it) or `failed`. `stopped` and `interrupted` runs can be resumed from
+the last committed batch. Only one run is active at a time.
 
-### The matrix caveat
+### The run store
 
-The quiet sweep has no exemption: it requires p99 under 10 ms for every bot. With Crew, the
-matrix bot at its shipped caps (6/3/2/50) measured 10.4 ms. So a matrix candidate at those
-caps will most likely fail with `quiet_sweep=FAIL … reason=p99`. One that evolved a smaller
-`k` or `k_opp` might pass. Settling this (lower caps, or a different rule) is the open
-decision from cycle 7 C17. Also note that the trainer's second test pits a matrix candidate
-against the committed **matrix** weights. The spec's milestone check (R54) also wants it to
-beat the **tuned** bot: run
-`scripts/bot-eval.sh --a matrix --b tuned --gainer` after a promotion.
+Under `TRAINER_DATA` (default `~/trainer-data`; on the PC `C:\Users\trainer\trainer-data\`),
+created by the service (`trainer/store.py`):
+
+- `trainer.db`, a sqlite3 file: `runs`, `positions`, `labels` and `fits`.
+- `runs/<run id>/`: `labels-<batch>.jsonl` shards and `report.json`.
+- `fits/<fit id>/`: `linear_weights.json` and `report.json`.
+- `logs/` and `serve.lock`.
+
+A batch is committed as one step: the shard file is renamed into place, then the database
+transaction commits. On open, `recover()` removes a stray shard or temp file, so after a crash
+a batch is either all there or not there. The database is the truth. `sync_code` never touches
+this folder, so back it up before wiping the PC.
+
+### The fit
+
+`trainer/fit.py` (`run_fit`), with numpy as its only dependency. Inputs are finished runs
+(`done` or `stopped`) that share one stamp, one feature set and the same `rollout`, `rollout_weights` and
+`generator_weights`.
+
+- Within a position, every two candidates with different mean values make one example: the
+  difference of their feature vectors, ordered by the higher value. A model with no intercept
+  is right on a pair when the better candidate scores higher.
+- The loss is L2 logistic loss on the scaled differences, with weight 1 / (pairs in that
+  position) per pair, so no position dominates. It is minimised by full-batch gradient descent
+  with Nesterov momentum from a zero start, for `iterations` steps.
+- A `holdout` share of positions (chosen by the fit `seed`) is held back and only scored.
+- The weights are scaled so the largest has magnitude 1000000, the most the file accepts, and
+  rounded to whole numbers. The same runs and config give the same bytes on one machine.
+- The output is `linear_weights.json` (stamp, feature set, `k`, the `fit` block, the non-zero
+  weights) and `report.json` (counts, pair agreement on fitted and held-out pairs, before and
+  after rounding, loss and the top weights).
+
+`FitConfig` fields: `runs` (run ids, required), `l2` (1e-3), `iterations` (500, at most
+100000), `holdout` (0.1, below 0.5), `seed` (0), `k` (64, written into the file). One fit runs
+at a time, and a labelling run may be active meanwhile.
+
+A fit is not promoted by being fit. The weights file is copied from the fit's folder (see
+`get_artifact`), measured with `make bot-eval ... WEIGHTS=` and swept, and only then committed
+as `godot/engine/bot/data/linear_weights.json`. Its stamp must equal the code's.
+
+## The service and its MCP verbs
+
+`python -I trainer serve --host 0.0.0.0 --port 8765` (`trainer/server.py`) is an MCP service
+over HTTP. Every request needs the bearer token from the PC's token file, checked before any
+MCP handling; the Mac reads it from `BOT_TRAINER_TOKEN` in `.env`, and `.mcp.json` names the
+server `bot-trainer`. The token is never printed or written anywhere else. The service holds
+`serve.lock`, so a second copy refuses to start. Every tool returns an object; a failure is
+`{"error": text}`.
+
+| Verb | Arguments | Does |
+|---|---|---|
+| `health` | none | Host, Python, `mcp` and numpy versions, Godot, GPU, free disk, checked-out commit, the service's own commit, `code_stamp`, workers busy, active run, `restart_loop`, uptime |
+| `sync_code` | `commit`, `bundle_b64` or `inbox_file` | Fetches a git bundle into the training repository, checks the commit out in the work tree and runs the Godot import; refused while a run is active |
+| `start_run` | `config` | Starts a labelling run; refused while another is active, or when a `*_weights` fit id is unknown, not done or at another stamp |
+| `fit` | `config` | Starts a learner job; returns the `fit_id` |
+| `get_artifact` | `fit_id`, `name` (`weights` or `report`) | That file as base64 with its sha256 |
+| `run_status` | `run_id` (a run or a fit) | State, progress, restarts, rate, elapsed, eta, last error |
+| `stop_run` | `run_id` | Stops at the next batch boundary |
+| `resume_run` | `run_id` | Resumes a stopped or interrupted run |
+| `list_runs` | none | Every run with its state |
+| `get_report` | `run_id` | The run's `report.json` |
+| `sample_positions` | `run_id`, `n`, `seed` | `n` labelled positions, candidates ordered by mean |
+
+A typical night, from the Mac: `sync_code` the commit, `health` (check `code_stamp`), `start_run`,
+poll `run_status`, `fit` on the finished runs, `get_artifact` the weights, then `bot-eval` and
+`sweep` on the Mac.
+
+### Updating the service
+
+When `sync_code` changes anything under `trainer/`, it replies `restart: scheduled`. The service
+then exits with code 75, and the loop in `trainer/windows/start-mcp.cmd` starts it again on the
+new code. `health` shows `restart_loop: true` when that loop is behind the service. Without the
+loop the reply is `restart: needed` and the service stays up on the old code. Any other exit
+code ends the loop.
+
+### The local CLI
+
+`python -I trainer run --config run.json [--data DIR]` runs a labelling job without the service,
+printing a line per batch and a final `run <id> <state>` line; `--resume <run id>` resumes one.
+`python -I trainer selftest` and `make trainer-test` run the unit tests in `trainer/tests/`
+(no Godot; the learner's tests skip without numpy).
+
+## The training PC
+
+A Windows 10 machine with a non-admin account `trainer`, reached from the Mac over SSH. A
+non-admin session cannot change scheduled tasks, and every process it starts dies when the
+session closes. So long work goes through the **runner**:
+
+- The `trainer-runner` scheduled task starts at boot and runs `trainer/windows/runner-shim.ps1`,
+  which runs `runner.ps1` from `C:\Users\trainer\trainer\`.
+- The runner holds `queue\.lock` and polls `queue\` for `.cmd` jobs, running each detached (so
+  it survives an SSH disconnect) with its output in `logs\`. At boot it also starts every
+  `.cmd` in `autostart\`; the service launcher `start-mcp.cmd` lives there.
+- Other files: `swap-runner.*` replaces a live runner, `swap-start-mcp.cmd` replaces the
+  launcher on a running PC (cmd.exe re-reads a running batch file by byte offset, so the file
+  cannot simply be overwritten), `make-token.ps1` creates the token file and
+  `grant-batch-logon.ps1` grants the "log on as a batch job" right the task needs.
+- `scripts/pc/pvp-server.cmd` starts the PVP match server (port 8766) the same way. It is a
+  separate service from the trainer.
+
+Layout: `C:\Users\trainer\trainer\` (runner, `queue\`, `autostart\`, `logs\`),
+`C:\Users\trainer\me\` (`repo`, `work`, `inbox`, `venv`, `logs`), the token file at
+`C:\Users\trainer\.trainer\token`, and the run store above. Godot 4.6.3 (console build) and a
+Python venv with `mcp` and numpy are installed under `C:\Users\trainer\`. The trainer finds
+Godot through `GODOT_BIN`, then the PC install path, then `godot` on `PATH`
+(`trainer/repo.py`).
+
+`trainer/windows/SETUP.md` is the setup guide: Part 1 (over SSH as `trainer`, no admin) builds
+the folders, venv, first code bundle, token, runner and service; Part 2 is the admin-only
+steps for a fresh PC (the account, OpenSSH, the firewall rules for the Mac, no sleep, the
+scheduled task). PowerShell 5.1 mangles quotes passed to native programs, so put logic in files
+rather than `python -c`. Keep the PC on the LAN only.
 
 ## Troubleshooting
 
-| Symptom | Cause and fix |
-|---|---|
-| `worker seeds … exit 3` mid-run | The checkout changed under the run. A merge into the worktree during a DC-10 training smoke did exactly this. Never merge, switch branches, pull or edit `godot/` while a run uses that checkout. Restore it, then resume. |
-| `Godot not found at …` | Set `GODOT_BIN=/path/to/Godot`. |
-| `label … holds a checkpoint stamped … current stamp is …` | The rules or data changed since that run. Start fresh with a new `LABEL=`. |
-| `stamp=MISMATCH` on any line | The weights were tuned for other rules. Not an error: it is the signal to retrain. |
-| `quiet sweep FAIL reason=p99` | Too slow, or the machine was busy at that moment. Keep the Mac idle; for the matrix bot, see the caveat above. |
-| `REJECTED (… worker exit 1)` | A candidate made an illegal move or a game failed to replay. The run carries on, but this points at a bug worth reporting. |
-| Eval timings far above 10 ms | CPU contention from the all-core eval. Expected; judge speed by `make sweep`. |
-| No output for a long time | Output is buffered when piped. Watch the checkpoints instead. |
+- **`stamp=MISMATCH` or a `stamp ... is not the worker's` error.** The code, the data and the
+  weights file are at different stamps. Sync the right commit, or refit.
+- **`health` shows an old `code_stamp` or `restart: needed`.** The restart loop is not behind
+  the service. Check `restart_loop`; replace `start-mcp.cmd` as `SETUP.md` Part 1 step 8 says.
+- **`sync_code` is refused.** A run or a sync is active. `stop_run` first.
+- **A run ends `interrupted`.** The service or the PC restarted. `resume_run`.
+- **`fit` says numpy missing.** `health` shows `numpy: none`; install numpy in the PC's venv.
+- **Godot not found.** Set `GODOT_BIN`, or install it where `SETUP.md` says.
 
 ## Where to look in the code
 
-| File | Responsibility |
+| Thing | File |
 |---|---|
-| `godot/engine/bot/bot_player.gd` | Base class: `choose()`, the per-decision seed |
-| `godot/engine/bot/bot_registry.gd` | Every bot by name, levels, default weights, `default_name()` = `tuned` |
-| `godot/engine/bot/greedy_bot.gd`, `reference/greedy_v1_bot.gd`, `random_bot.gd` | The reference bots |
-| `godot/engine/bot/candidate_gen.gd` | All candidate commits, the cheap bound and ranking |
-| `godot/engine/bot/evaluator.gd` | The 13 features, the weighted value, the level push |
-| `godot/engine/bot/tuned_bot.gd` | The shipped bot: top-`k` previews, prompts, Crew prompts |
-| `godot/engine/bot/matrix_bot.gd`, `hand_sampler.gd`, `regret_matching.gd` | The matrix bot, opponent hand sampling, the solver |
-| `godot/engine/bot/bot_weights.gd`, `bot_stamp.gd`, `data/*_weights.json` | Weights files and the stamp |
-| `godot/tools/bot_worker.gd`, `bot_worker_records.gd` | Headless worker: plays seed pairs, times, replays, writes JSONL |
-| `godot/tests/sweep/test_sweep.gd` | The 50-seed sweep and its p99 assertion |
-| `scripts/bot/driver.py` | `eval`, `train`, `calibrate`, `selftest`; worker fan-out and the summary line |
-| `scripts/bot/sprt.py`, `records.py` | The pentanomial SPRT; aggregates and the Python stamp |
-| `scripts/bot/evolve.py` | The trainer: genome, generations, checkpoints, promotion |
-| `scripts/bot/calibrate.py` | The level grid and the ledger table |
-| `scripts/bot-eval.sh`, `scripts/bot-train.sh`, `Makefile` | Entry points (`bot-eval`, `bot-train`, `bot-calibrate`, `bot-selftest`, `sweep`) |
-
-`make bot-selftest` runs the Python unit tests for the driver, SPRT, trainer and
-calibration.
+| Bots, registry, stamp | `godot/engine/bot/` (`linear_bot.gd`, `bot_features.gd`, `bot_weights.gd`, `bot_registry.gd`, `bot_stamp.gd`) |
+| Labelling play-outs | `godot/engine/rollout.gd` |
+| Workers | `godot/tools/` (`match_worker.gd`, `playout_worker.gd`, `playout_handler.gd`, `playout_protocol.gd`) |
+| Strength test | `scripts/bot-eval.sh`, `scripts/bot/` (`driver.py`, `sprt.py`, `records.py`) |
+| Trainer | `trainer/` (`server.py`, `run.py`, `farm.py`, `fit.py`, `store.py`, `config.py`, `sync.py`, `repo.py`) |
+| PC | `trainer/windows/`, `scripts/pc/` |
 
 ## Related
 
-- [[systems/systems-moc]]
-- [[systems/game-loop]]: the match the bots play
-- [[systems/cards-crew-decks]]: the cards, Crew and decks the stamp hashes
-- [[planning/bot-ladder]]: every measured bot, the calibration table, the rerun checklist
-- [[planning/cycles]]: the cycle log rows for DC-08, DC-10 and DC-11
-- [[specs/cycle-7-bot-players/spec]], [[specs/cycle-7-bot-players/plan]], [[specs/cycle-7-bot-players/tasks]]
-- [[specs/cycle-8-ramp-bounce-crew/spec]]: Crew, the three-file stamp (R58) and C13
+- [[planning/bot-ladder]]: every measured bot, the promotion rule.
+- [[planning/bot-trainer-architecture]]: the design and the T1 to T7 decisions.
+- [[specs/cycle-11-bot-trainer/spec]] and [[specs/cycle-13-bot-trainer-b/spec]]: why each piece exists.
+- [[systems/game-loop]] and [[systems/cards-crew-decks]]: the match and the cards the bots play.

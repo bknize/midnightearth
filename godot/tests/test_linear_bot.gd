@@ -178,6 +178,56 @@ func test_k_sampling_keeps_k() -> void:
 	)
 
 
+## NSC-245 (R35): with 1024 candidates listed and `k` 5, every seed offers the pass exactly
+## once and stays within `k`. The cut reproduced here is the old first `k` of the same shuffle
+## (the positive control: it drops the pass), with the pass in its last place, which shows no
+## draw was added. Counted negatively, Power makes the offered pass the commit.
+func test_the_pass_candidate_survives_the_cut() -> void:
+	var costs: Array[int] = []
+	var powers: Array[int] = []
+	var indices: Array[int] = []
+	for index: int in range(10):
+		costs.append(1)
+		powers.append(index + 1)
+	var view: SeatView = _hand_view(costs, powers, 10)
+	var listed: Array[EngineAction] = RandomBot.candidates_for(view, _defs())
+	var k: int = 5
+	assert_int(listed.size()).is_greater(k)
+	assert_array(listed[0].cards).is_empty()
+	for index: int in range(listed.size()):
+		indices.append(index)
+	var old_cut_dropped: int = 0
+	for bot_seed: int in range(1, 33):
+		var bot: LinearBot = LinearBot.new(
+			bot_seed, _defs(), _weights('{"committed_power": -100}', k)
+		)
+		var kept: Array[EngineAction] = bot.candidates(view)
+		assert_int(kept.size()).is_equal(k)
+		var passes: int = 0
+		for candidate: EngineAction in kept:
+			if candidate.cards.is_empty():
+				passes += 1
+		assert_int(passes).is_equal(1)
+		assert_array(bot.choose(view, null).cards).is_empty()
+		var shuffled: Array[int] = []
+		shuffled.assign(indices)
+		bot.decision_rng(view, LinearBot.COMMIT_TAG).shuffle_in_place(shuffled)
+		var expected: Array[int] = []
+		expected.assign(shuffled.slice(0, k))
+		if not expected.has(0):
+			old_cut_dropped += 1
+			expected[k - 1] = 0
+		expected.sort()
+		for place: int in range(k):
+			var wanted: EngineAction = listed[expected[place]]
+			assert_dict(kept[place].to_dict()).is_equal(wanted.to_dict())
+	assert_int(old_cut_dropped).is_greater(0)
+	var one: LinearBot = LinearBot.new(3, _defs(), _weights('{"committed_power": 100}', 1))
+	var only: Array[EngineAction] = one.candidates(view)
+	assert_int(only.size()).is_equal(1)
+	assert_array(only[0].cards).is_empty()
+
+
 ## R6: a 20-card hand (over ENUMERATE_MAX) is sampled by RandomBot.large_hand_commit: at
 ## most `k` distinct candidates, each legal for the engine's checks, and the commit legal and
 ## the same for one seed.

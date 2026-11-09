@@ -90,7 +90,23 @@ overrides it): `trainer.db` (runs, positions, labels, fits), `runs\<id>\` (the l
 
    Check `C:\Users\trainer\me\logs\serve.log`. Later code updates come through `sync_code`,
    which also refreshes `C:\Users\trainer\trainer\runner.ps1` (a runner already running keeps
-   the old copy until it restarts).
+   the old copy until it restarts). A sync that changes `trainer/` replies `restart: scheduled`,
+   the service exits with code 75 and the loop in `start-mcp.cmd` starts it on the new code.
+   `health` shows `restart_loop: true` when that loop is behind the service; without it a sync
+   replies `restart: needed` and the service stays up on the old code.
+
+8. Changing `start-mcp.cmd` on a running PC. `sync_code` never copies it, and cmd.exe re-reads a
+   running batch file by byte offset, so the file in `autostart\` cannot be overwritten while the
+   service runs from it. With no run active and no training night under way:
+
+   ```sh
+   scp trainer/windows/start-mcp.cmd PC:C:/Users/trainer/trainer/start-mcp.new
+   scp trainer/windows/swap-start-mcp.cmd PC:C:/Users/trainer/trainer/queue/swap-start-mcp.cmd
+   ```
+
+   The runner takes the job within 5 s: it kills the service, moves the new file over the old
+   once nothing is reading it and starts the service from it. Check
+   `C:\Users\trainer\trainer\logs\` for its log and `health` for `restart_loop: true`.
 
 ## Part 2. Admin steps for a fresh PC only
 
@@ -171,4 +187,5 @@ password manager; nothing below contains a secret.
    Without the batch-logon right the task fails at logon with `2147943785` (0x80070569).
 
 8. Install Godot 4.6.3 (console build) and the NuGet Python 3.14 under
-   `C:\Users\trainer\tools\`, and `setx GODOT_BIN` as `trainer`; then continue with Part 1.
+   `C:\Users\trainer\tools\`; then continue with Part 1. The trainer looks for Godot in one
+   place (`trainer/repo.py`): `GODOT_BIN` when set, else that path, else `godot` on PATH.

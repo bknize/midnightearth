@@ -20,7 +20,7 @@ extends RefCounted
 ## step), return 0.3, discard 0.45, exit 0.45, empty draw 0.4, shuffle-in 0.5, energy grant
 ## 0.3, look 0.4, unreveal 0.35, a public hand trigger (C14) 0.5 in the viewer's fan or 1.2
 ## for the opponent's telegraph, pile strip show / hide 0.25 (made by the board's prompt code
-## through pile_step(), no event maps to them), walk end 0.6 (the tally fly-in and the count).
+## through pile_hide_step(), no event maps to them), walk end 0.6 (the tally fly-in and the count).
 ## Turn start, walk start, prompt, turn end and match end are instant (a prompt waits on the
 ## player, not on a clock). TURN_STARTED carries the Budget; ENERGY_GRANTED raises it.
 
@@ -204,7 +204,6 @@ static func _crew_fire(event: MatchEvent) -> BoardStep:
 	step.slot = payload.get("slot", -1)
 	step.crew = payload.get("crew", "")
 	step.verb = payload.get("verb", "")
-	step.trigger = payload.get("moment", "")
 	step.uses_left = payload.get("uses_left", -1)
 	step.duration = CREW_TIME
 	return step
@@ -217,12 +216,24 @@ static func _unreveal(event: MatchEvent) -> BoardStep:
 	return step
 
 
-## A PILE_SHOW or PILE_HIDE step for the Pile strip (R78): no engine event maps to it.
-static func pile_step(show: bool, speed: float) -> BoardStep:
+## A PILE_HIDE step for the Pile strip (R78): no engine event maps to it.
+static func pile_hide_step(speed: float) -> BoardStep:
 	var step: BoardStep = BoardStep.new()
-	step.kind = BoardStep.Kind.PILE_SHOW if show else BoardStep.Kind.PILE_HIDE
+	step.kind = BoardStep.Kind.PILE_HIDE
 	step.duration = PILE_TIME / (speed if speed > 0.0 else 1.0)
 	return step
+
+
+## The BoardStep.ExitTo for an EXIT_RESOLVED `to` word; NONE for anything else.
+static func _exit_to(word: String) -> int:
+	match word:
+		"pile":
+			return BoardStep.ExitTo.PILE
+		"hand":
+			return BoardStep.ExitTo.HAND
+		"face_down":
+			return BoardStep.ExitTo.FACE_DOWN
+	return BoardStep.ExitTo.NONE
 
 
 ## Index of the CARD_SCORED that answers the CARD_REVEALED at `at` (same card, before the
@@ -389,7 +400,8 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			_append_status(out, event)
 		"EXIT_RESOLVED":
 			var exit_step: BoardStep = _row_exit_step(BoardStep.Kind.EXIT, event)
-			exit_step.exit_to = payload.get("to", "")
+			var to_word: String = payload.get("to", "")
+			exit_step.exit_to = _exit_to(to_word)
 			var mark: String = payload.get("mark", "")
 			exit_step.word = status_word(mark)
 			var instead: String = payload.get("instead_of", "")
@@ -405,6 +417,12 @@ static func _steps_for(event: MatchEvent, viewer: int, after_deal: bool) -> Arra
 			out.append(declined)
 		"CARD_UNREVEALED":
 			out.append(_unreveal(event))
+		"DROSS_EXPIRED":
+			var expired: BoardStep = _card_step(BoardStep.Kind.DROSS_EXPIRE, event)
+			expired.zone = payload.get("from", "")
+			expired.reason = payload.get("reason", "")
+			expired.duration = DISCARD_TIME
+			out.append(expired)
 		"CARD_RETURNED":
 			var returned: BoardStep = _row_exit_step(BoardStep.Kind.RETURN, event)
 			returned.duration = RETURN_TIME
@@ -461,13 +479,8 @@ static func _created(event: MatchEvent) -> BoardStep:
 	var to_row: bool = payload.get("to", "hand") == "row"
 	var kind: int = BoardStep.Kind.CREATE if to_row else BoardStep.Kind.DRAW
 	var step: BoardStep = _card_step(kind, event)
-	step.created = true
 	step.slot = payload.get("slot", -1)
 	step.owner = payload.get("owner", step.seat)
-	var raw: Variant = payload.get("def", "")
-	if raw is String:
-		var named: String = raw
-		step.def_id = named
 	step.duration = CREATE_TIME if to_row else DRAW_TIME
 	return step
 
@@ -496,7 +509,6 @@ static func _trigger(event: MatchEvent, viewer: int) -> BoardStep:
 	var kind: int = BoardStep.Kind.EFFECT if fired else BoardStep.Kind.FIZZLE
 	var step: BoardStep = _card_step(kind, event)
 	step.verb = payload.get("verb", "")
-	step.trigger = payload.get("moment", "")
 	step.reason = payload.get("reason", "")
 	step.duration = EFFECT_TIME if fired else FIZZLE_TIME
 	if from_hand and step.seat == viewer:
@@ -518,6 +530,10 @@ static func _turn_start(event: MatchEvent, viewer: int) -> BoardStep:
 	if viewer >= 0 and viewer < budgets.size():
 		var own_budget: int = budgets[viewer]
 		start.budget = own_budget
+	var free: Array = payload.get("free_first", [])
+	if viewer >= 0 and viewer < free.size():
+		var own_free: bool = free[viewer]
+		start.free_first = own_free
 	return start
 
 
@@ -543,7 +559,9 @@ static func _append_status(out: Array[BoardStep], event: MatchEvent) -> void:
 
 
 ## PROMPT_OPENED: the prompt of P12 {seat, card, crew, verb, zone, options, multi, exact, min,
-## optional, resume, step} (+ `max` for an "up to N" prompt) plus `text`.
+## optional, resume, step} (+ `max` for an "up to N" prompt) plus `text`. The step keeps only
+## what the board reads (the rules text, the zone, the options); the rest comes from
+## `MatchSource.open_prompt()`.
 static func _prompt(event: MatchEvent) -> BoardStep:
 	var payload: Dictionary = event.payload
 	var step: BoardStep = _make(BoardStep.Kind.PROMPT, event)
@@ -553,11 +571,6 @@ static func _prompt(event: MatchEvent) -> BoardStep:
 	step.verb = payload.get("verb", "")
 	step.text = payload.get("text", "")
 	step.zone = payload.get("zone", "")
-	step.multi = payload.get("multi", false)
-	step.optional = payload.get("optional", false)
-	step.exact = payload.get("exact", -1)
-	step.max_count = payload.get("max", Choice.NO_MAX)
-	step.step = payload.get("step", "")
 	var raw_options: Array = payload.get("options", [])
 	step.options.assign(raw_options)
 	return step

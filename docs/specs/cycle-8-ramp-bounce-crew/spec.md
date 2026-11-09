@@ -4,7 +4,7 @@ tags: [spec, cycle-8-ramp-bounce-crew, engine, board, cards]
 status: approved
 related: ["[[specs/cycle-8-ramp-bounce-crew/plan]]", "[[specs/cycle-8-ramp-bounce-crew/tasks]]", "[[specs/cycle-6-constructed-decks/spec]]", "[[specs/cycle-7-bot-players/spec]]", "[[specs/cycle-5-walk-cursor/spec]]", "[[specs/cycle-4-card-effects/spec]]", "[[planning/phase-3-game-loop]]", "[[planning/phase-1-tech-stack]]", "[[planning/cycles]]"]
 created: 2026-11-04
-updated: 2026-11-05
+updated: 2026-11-09
 uid: 919b9406-6aea-4411-95d3-dac408f59245
 linear: https://linear.app/night-science-llc/project/cycle-8-ramp-bounce-crew-c3fe684d879f
 supersedes:
@@ -435,22 +435,22 @@ for the match"). The gdUnit budget stays the 30 s cycle 7 C15 recorded (C12).
 ## Definition of done
 
 Milestone A
-- [ ] R1–R33 and R71–R74 each covered by a named gdUnit4 case, the boot log, the sweep line
+- [x] R1–R33 and R71–R74 each covered by a named gdUnit4 case, the boot log, the sweep line
       or a step of the verification.
-- [ ] `make check` green, gdUnit under 30 s; the seed-1 golden (`GOLDEN_TUNED`) re-pinned
+- [x] `make check` green, gdUnit under 30 s; the seed-1 golden (`GOLDEN_TUNED`) re-pinned
       under the four-deck pairing; the sweep line clean with `p99_us` under 10 ms and
       `stamp=match` after the re-stamp.
-- [ ] Cycle 7's rerun provision as R32 restates it: the `make bot-eval` line and the hand
+- [x] Cycle 7's rerun provision as R32 restates it: the `make bot-eval` line and the hand
       re-stamp pasted into the cycles row and a ledger row.
-- [ ] Ben has reviewed the Bloom and Echo tables (cycle 6 C7).
-- [ ] Two screenshots: a hand face with a grown mark and a reduced cost beside the printed
+- [ ] Ben has reviewed the Bloom and Echo tables (cycle 6 C7). (superseded: the Bloom and Echo decks were replaced by the rules-v2 canon (DC-13, DC-14), DC-20 T19)
+- [x] Two screenshots: a hand face with a grown mark and a reduced cost beside the printed
       row card; an Echo card face down in its slot at turn end next to a revealed neighbour.
 
 Milestone B
-- [ ] R39–R66 covered as above; a format-3 log fails replay.
-- [ ] `make check` green under 30 s; golden re-pinned if the Crew change it; sweep clean
+- [x] R39–R66 covered as above; a format-3 log fails replay.
+- [x] `make check` green under 30 s; golden re-pinned if the Crew change it; sweep clean
       (`p99_us` under 10 ms); the stamp covers `crew.json` and the fixture pin is re-pinned.
-- [ ] Two screenshots: the Crew line with a "1 left" badge and a "spent" Crew; an optional
+- [x] Two screenshots: the Crew line with a "1 left" badge and a "spent" Crew; an optional
       prompt with the Skip button beside the glowing eligible cards.
-- [ ] Constitution Check passes (see plan).
+- [x] Constitution Check passes (see plan).
 - [x] Spec, plan and tasks signed off by Ben (2026-11-04: "Looks good"); committed before implementation begins.

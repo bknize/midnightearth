@@ -38,6 +38,9 @@ const END_SERVER_ERROR: String = PvpLog.REASON_SERVER_ERROR
 ## `closed` reasons the room sends besides END_SERVER_ERROR.
 const CLOSED_FINISHED: String = "finished"
 const CLOSED_REPLACED: String = "replaced"
+## R29: a seat may drop and reconnect this many times in one match; the next drop counts as
+## the seat leaving (a flapping connection must not hold the room for ever).
+const MAX_DISCONNECTS_PER_SEAT: int = 5
 
 ## The room's code (RoomCodes), as the registry keys it.
 var code: String = ""
@@ -64,6 +67,8 @@ var _ended_ms: int = -1
 var _end: Dictionary = {}
 ## The log's `disconnects`: PvpLog.disconnect_entry per drop, in order.
 var _disconnects: Array[Dictionary] = []
+## How many `events` messages the seats were dealt: the count a rejoined client resumes from.
+var _accepted_count: int = 0
 ## Bumped whenever log_record() would change, so the server rewrites the file only then.
 var _revision: int = 0
 
@@ -128,6 +133,14 @@ func join(conn: int, identity: Dictionary, deck: String, now_ms: int) -> Array[O
 	return _start(now_ms)
 
 
+## Whether a `rejoin` carrying `install_id` would be served: the match is in play or over and
+## a seat that has not left holds that install id (R48). Changes nothing.
+func holds_seat_for(install_id: String) -> bool:
+	if _phase != Phase.RUNNING and _phase != Phase.FINISHED:
+		return false
+	return _rejoin_seat(install_id) >= 0
+
+
 ## Reattaches `conn` to the seat whose install id `identity` carries (R46): `resync` with
 ## the seat's whole redacted history and its view, and `opponent back` to the other seat
 ## when the seat had dropped. A seat still holding an older connection hands over to `conn`
@@ -156,6 +169,7 @@ func rejoin(conn: int, identity: Dictionary, _now_ms: int) -> Array[Outbound]:
 	# Shared, not copied: every caller encodes the Outbound before the room's next call.
 	message[NetProtocol.KEY_EVENTS] = slot.history
 	message[NetProtocol.KEY_VIEW] = _engine.view_for(seat).to_dict()
+	message[NetProtocol.KEY_ACTIONS] = _accepted_count
 	out.append(Outbound.to(conn, message))
 	return out
 
@@ -179,6 +193,9 @@ func act(conn: int, action: EngineAction, now_ms: int) -> Array[Outbound]:
 		out.append(Outbound.to(conn, _rejected(code_now, forced)))
 		return out
 	var result: ApplyResult = _engine.apply(forced)
+	if result == null:
+		# R26: an engine that answers nothing is a server error; the one failure path.
+		return fail(now_ms)
 	if not result.ok:
 		out.append(Outbound.to(conn, _rejected(result.error, forced)))
 		return out
@@ -203,6 +220,8 @@ func leave(conn: int, now_ms: int) -> Array[Outbound]:
 	if _phase == Phase.RUNNING:
 		slot.lost_at_ms = -1
 		var result: ApplyResult = _engine.apply(EngineAction.concede(seat))
+		if result == null:
+			return fail(now_ms)
 		if result.ok:
 			_accepted(result, now_ms, out)
 	_close_when_both_gone()
@@ -218,6 +237,8 @@ func connection_lost(conn: int, now_ms: int) -> Array[Outbound]:
 	if seat < 0:
 		return out
 	var slot: SeatSlot = _seats[seat]
+	if _phase == Phase.RUNNING and _drops_of(seat) >= MAX_DISCONNECTS_PER_SEAT:
+		return leave(conn, now_ms)
 	slot.connection_id = -1
 	if _phase == Phase.WAITING:
 		_close()
@@ -390,6 +411,7 @@ func _start(now_ms: int) -> Array[Outbound]:
 ## `events` message with its view; the end recorded when the engine ended the match.
 func _accepted(result: ApplyResult, now_ms: int, out: Array[Outbound]) -> void:
 	_revision += 1
+	_accepted_count += 1
 	for seat: int in range(MatchEngine.SEATS):
 		var slot: SeatSlot = _seats[seat]
 		var events: Array = NetCodec.dicts_of(result.events_for(seat))
@@ -461,13 +483,23 @@ func _rejoin_seat(install_id: String) -> int:
 	return -1
 
 
+## How many times `seat` has dropped in this match (R29).
+func _drops_of(seat: int) -> int:
+	var count: int = 0
+	for entry: Dictionary in _disconnects:
+		var entry_seat: int = entry.get(PvpLog.KEY_SEAT, -1)
+		if entry_seat == seat:
+			count += 1
+	return count
+
+
 ## The last disconnect of `seat` is marked reconnected.
 func _mark_reconnected(seat: int) -> void:
 	for at: int in range(_disconnects.size() - 1, -1, -1):
 		var entry: Dictionary = _disconnects[at]
-		var entry_seat: int = entry.get("seat", -1)
+		var entry_seat: int = entry.get(PvpLog.KEY_SEAT, -1)
 		if entry_seat == seat:
-			entry["reconnected"] = true
+			entry[PvpLog.KEY_RECONNECTED] = true
 			return
 
 
