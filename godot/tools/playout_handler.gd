@@ -245,7 +245,7 @@ static func _hand_of(view: SeatView, cards: MatchCards) -> Array:
 ## k times and de-duplicates by cards and slots, so it can return fewer than k commits, while
 ## this labeller retries up to k * LARGE_HAND_TRIES draws to reach k distinct ones. The two
 ## stay as they are: changing either draw count would move the committed labels or the
-## `linear` bot's sweep (NSC-245, R37).
+## `linear` bot's sweep (B-51, R37).
 static func _large_hand_candidates(
 	view: SeatView, cards: MatchCards, k: int, label_seed: int
 ) -> Array[EngineAction]:

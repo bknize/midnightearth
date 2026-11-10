@@ -6,7 +6,6 @@ related: ["[[specs/cycle-11-bot-trainer/plan]]", "[[specs/cycle-11-bot-trainer/t
 created: 2026-11-07
 updated: 2026-11-09
 uid: 98fa6820-8ac6-4413-8a30-e30ed6cb3a6b
-linear: https://linear.app/night-science-llc/project/cycle-11-bot-trainer-cycle-a-play-outs-ladder-from-random-trainer-11ab3927f350
 supersedes:
 ---
 
@@ -442,4 +441,4 @@ Milestone A2 (`cycle-11b-bot-trainer`):
 - [x] `docs/systems/bot-training.md` rewritten (after Ben's working-copy edits are settled),
       `CLAUDE.md` has the `trainer/` row, the cycle rows carry the PC's rollouts per second
       (R56, R57). (DC-17: rollouts per second recorded; the guide and the `CLAUDE.md` row went
-      to Backlog with T13, NSC-204, Ben 3b 2026-11-07.) (done at DC-20 T19, NSC-204)
+      to Backlog with T13, cycle-11 T13, Ben 3b 2026-11-07.) (done at DC-20 T19, cycle-11 T13)

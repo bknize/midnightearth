@@ -223,7 +223,7 @@ static func walk_end_total(state: MatchState, cards: MatchCards, seat: int) -> i
 
 ## Creates a card of `def` Owned by `owner` (plan P6, rules 9 R8: the seat it is created
 ## for, never a fallback): the next Dross id, recorded once in MatchCards.record_dross
-## (DC-20 T03, NSC-179). Returns the id; nowhere yet (the caller places it). -1, taking no
+## (DC-20 T03, B-24). Returns the id; nowhere yet (the caller places it). -1, taking no
 ## id, when `def` is null or `owner` is not a seat.
 static func create(state: MatchState, cards: MatchCards, def: CardDef, owner: int) -> int:
 	if def == null or owner < 0 or owner >= MatchEngine.SEATS:

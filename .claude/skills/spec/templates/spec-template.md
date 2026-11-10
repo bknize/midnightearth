@@ -6,7 +6,6 @@ related: ["[[specs/<slug>/plan]]", "[[specs/<slug>/tasks]]", "[[planning/phase-1
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 uid: <uuid4 from `uuidgen | tr A-Z a-z`>
-linear:
 supersedes:
 ---
 

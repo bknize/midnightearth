@@ -6,7 +6,6 @@ related: ["[[specs/cycle-0-scaffolding/spec]]", "[[specs/cycle-0-scaffolding/tas
 created: 2026-11-02
 updated: 2026-11-02
 uid: 4c863c6d-322c-47df-a8d6-df34e515d021
-linear: https://linear.app/night-science-llc/project/cycle-0-scaffolding-6db3f9c856a0
 supersedes:
 ---
 

@@ -290,7 +290,7 @@ static func scan_orphans(logs_dir: String) -> int:
 
 
 ## Renames every `<file>.json.tmp` in `dated` with no `<file>.json` beside it to that
-## `.json` (NSC-226 S3). A tmp beside its `.json` is left: the next write replaces it.
+## `.json` (cycle-12 T13 S3). A tmp beside its `.json` is left: the next write replaces it.
 static func _promote_lone_tmps(dated: String) -> void:
 	for file_name: String in DirAccess.get_files_at(dated):
 		if not file_name.ends_with(FILE_SUFFIX + TMP_SUFFIX):

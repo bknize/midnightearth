@@ -1,6 +1,6 @@
 class_name TestNetText
 extends GdUnitTestSuite
-## NetCodec's checks on untrusted client text (NSC-226 S4): names cleaned to the title
+## NetCodec's checks on untrusted client text (cycle-12 T13 S4): names cleaned to the title
 ## screen's rule, install ids short and plain, room codes only from the alphabet, and
 ## anything the server prints clipped and masked.
 

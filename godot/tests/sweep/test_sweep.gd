@@ -1,6 +1,6 @@
 class_name TestSweep
 extends FullMatchHarness
-## The 50-seed bot-vs-bot sweep (DC-05 T07, R39; moved out of test_full_match.gd at NSC-133).
+## The 50-seed bot-vs-bot sweep (DC-05 T07, R39; moved out of test_full_match.gd at B-14).
 ## It runs outside the gate: `make check` skips res://tests/sweep, `make sweep` (or
 ## `scripts/check.sh sweep`) runs it, at /cycle test and for bot reruns. The bot is
 ## BotRegistry.default_name() (`random`, cycle 9 R70, R73) unless the SWEEP_BOT environment
@@ -31,9 +31,9 @@ const FIXED_SEEDS: int = 30
 ## Seeds up to this one are leak-scanned at every step; later seeds only at the steps that
 ## end a turn (and the start).
 const EVERY_STEP_SCAN_LAST: int = 50
-## The 99th-percentile decision the sweep allows, in microseconds (R17, NSC-74, C14).
+## The 99th-percentile decision the sweep allows, in microseconds (R17, B-09, C14).
 const DECISION_BUDGET_US: int = 10000
-## The environment variable naming the bot to sweep instead of the default (NSC-133).
+## The environment variable naming the bot to sweep instead of the default (B-14).
 const BOT_ENV: String = "SWEEP_BOT"
 ## The environment variable naming the weights file a `linear` sweep plays (cycle 13 P6);
 ## unset or empty is the committed file.
@@ -83,11 +83,11 @@ static var sweep_bot: String = ""
 ## The weights file the sweep played ("" none given).
 static var sweep_weights: String = ""
 static var sweep_prompts: int = 0
-## The longest single walk of the sweep in pulses, and its seed (DC-06 T03, R25, NSC-74).
+## The longest single walk of the sweep in pulses, and its seed (DC-06 T03, R25, B-09).
 static var longest_walk: int = 0
 static var longest_walk_seed: int = 0
 ## Per pairing ("a/b", _pairings()): {seeds, longest, longest_seed, slowest_us, slowest_seed};
-## set by the sweep test (DC-07 T08, R38; read at T13 for NSC-74).
+## set by the sweep test (DC-07 T08, R38; read at T13 for B-09).
 static var pairing_records: Dictionary = {}
 
 # --- Helpers --------------------------------------------------------------------------
@@ -128,7 +128,7 @@ static func _fixed_decks(match_seed: int) -> Array[String]:
 	return out
 
 
-## The sweep's bot: SWEEP_BOT when set, else the registry default (NSC-133).
+## The sweep's bot: SWEEP_BOT when set, else the registry default (B-14).
 func _bot_name() -> String:
 	var wanted: String = OS.get_environment(BOT_ENV)
 	if wanted != "":
@@ -201,7 +201,7 @@ func test_fifty_seed_sweep_keeps_every_invariant() -> void:
 	_print_pairings()
 	_assert_pairings()
 	assert_int(ended).is_equal(SWEEP_LAST - SWEEP_FIRST + 1)
-	# R17 (NSC-74, DC-08; cycle 9 R85): 99% of the bot's decisions within the budget.
+	# R17 (B-09, DC-08; cycle 9 R85): 99% of the bot's decisions within the budget.
 	var too_slow: String = (
 		"99th-percentile decision %d us over the %d us budget (slowest %d us, seed %d)"
 		% [p99_us, DECISION_BUDGET_US, slowest_us, slowest_seed]
@@ -318,7 +318,7 @@ func _record_pairing(run: FullMatchRun) -> void:
 
 
 ## One line per pairing played for the orchestrator to read at verification (DC-07 T13,
-## NSC-74): "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=.. slowest_us=.. seed=..".
+## B-09): "Sweep pairing <a>/<b>: seeds=.. longest=.. seed=.. slowest_us=.. seed=..".
 func _print_pairings() -> void:
 	for pairing: String in _pairings():
 		var record: Dictionary = pairing_records.get(pairing, _empty_record())

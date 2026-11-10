@@ -6,7 +6,6 @@ related: ["[[decisions/0002-one-branch-per-cycle]]", "[[specs/cycle-3-board-feed
 created: 2026-11-03
 updated: 2026-11-03
 uid: ad542daf-f955-4038-8e64-d121a9df705c
-linear: https://linear.app/night-science-llc/project/cycle-3-board-feedback-df262f0f4d6f
 supersedes:
 ---
 
@@ -18,20 +17,20 @@ so every code task goes to `implementer`. `reviewer` reads diffs, and `orchestra
 run them; "passes" is confirmed at T08. Every brief carries the typed-strict checklist
 from the DC-01 lessons.
 
-T01 and T02 are the existing Backlog issues NSC-50 and NSC-48, moved into this project
-(C7). NSC-49 has no code of its own: its suspected fix is in T01, and T08's 10-run check
+T01 and T02 are the existing Backlog issues cycle-3 T01 and cycle-3 T02, moved into this project
+(C7). B-05 has no code of its own: its suspected fix is in T01, and T08's 10-run check
 closes it.
 
-| # | Task | Area | Depends on | Acceptance check | Who |
-|---|---|---|---|---|---|
-| 1 | **NSC-50** pointer and drag hygiene: `pointer_tracker.feed(event, gui_blocked)` plus the shim's `gui_get_hovered_control` check (P12); `_awaited` cache (P13); `pointer.cancel()` in `_clear_table_now` (P14); `drag_controller.gd` cancels a stray drag start (P15), recorded line by line in `addons/THIRD_PARTY_LICENSES.md` | input, board, addon | – | `test_pointer_tracker.gd` gains cases: a blocked press emits nothing through motion and release; the next unblocked press works; a blocked press's touch duplicate is blocked too. `may_act` no longer calls `driver.view()`. Under `addons/`, only `drag_controller.gd` and the licence note change | implementer |
-| 2 | **NSC-48** layout: `Root/TopInfo` to the top-left corner; `LineCardLayout` with `max_width = 26` on both rows; `NameLabel` word wrap and font size (P16); `BoardHud.reason_text` and the phrase table (P17); new `test_result_text.gd` | board, ui | – | Suite covers all four reasons, both concede seats and the unknown-reason fallback. No `board.gd` change beyond passing the round count to `show_result` | implementer |
-| 3 | `board/lift_rules.gd` (`may_lift`, `step_touches`) and `test_lift_rules.gd` | board | – | Suite covers R2 and R11 for every `Place` × face-up combination, and every true and false case of `step_touches` in the plan, using steps from a real seed-1 match | implementer |
-| 4 | Unseen rim: `Rim` in `board_card.tscn`, `set_unseen` / `is_unseen` / `copy_face_from` in `board_card.gd`; `_revealed_ids` and `_refresh_rims()` in `board.gd` (P8, P9) | board | 1, 2 | Code covers R17–R21. `_refresh_rims()` runs after staging changes, player commit, reveal, unstage-all, clear and new match. Only cards on `player_row` that are not in `_revealed_ids` are unseen | implementer |
-| 5 | Drop-zone glows: `ZoneGlow` on `PlayerRow` and `PlayerHand` in `board.tscn`; idle, hover and refuse looks; wiring on drag start, zone enter and exit, drag stop and table clear (P10, P11) | board | 4 | Code covers R12–R16. `PlayerHand`'s zone signals are connected. Both glows are hidden after a drop, a refusal, a cancel and `_clear_table_now`. The opponent's collections get no glow | implementer |
-| 6 | Card pick-up: `board/card_lift.gd`; `Camera3D/Dimmer`; HUD hidden while held; tap routing and Escape (P5); drag and hover lock (P6); runner put-down before touching steps (P7); `drop_now` on a new match (P1–P4, P7) | board | 3, 5 | Code covers R1–R11. The real card stays in its collection and is hidden while held. The stand-in copies its face and rim. Put-down targets the real card's transform at put-down time. Every await in the runner uses the node-owned wait pattern | implementer |
-| 7 | Review of T01–T06 against the spec and the Constitution Check, reading the `drag_controller.gd` patch in full | all | 1–6 | Ranked findings. Each blocker is fixed by `implementer` before T08 (fixes commit as `dc-04: T07 review fixes`) | reviewer |
-| 8 | Verification (below), which also closes NSC-49 | all | 1–7 | All boxes checked | orchestrator |
+| # | Task | Area | Depends on | Acceptance check | Who | Status |
+|---|---|---|---|---|---|---|
+| 1 | **cycle-3 T01** pointer and drag hygiene: `pointer_tracker.feed(event, gui_blocked)` plus the shim's `gui_get_hovered_control` check (P12); `_awaited` cache (P13); `pointer.cancel()` in `_clear_table_now` (P14); `drag_controller.gd` cancels a stray drag start (P15), recorded line by line in `addons/THIRD_PARTY_LICENSES.md` | input, board, addon | – | `test_pointer_tracker.gd` gains cases: a blocked press emits nothing through motion and release; the next unblocked press works; a blocked press's touch duplicate is blocked too. `may_act` no longer calls `driver.view()`. Under `addons/`, only `drag_controller.gd` and the licence note change | implementer | done |
+| 2 | **cycle-3 T02** layout: `Root/TopInfo` to the top-left corner; `LineCardLayout` with `max_width = 26` on both rows; `NameLabel` word wrap and font size (P16); `BoardHud.reason_text` and the phrase table (P17); new `test_result_text.gd` | board, ui | – | Suite covers all four reasons, both concede seats and the unknown-reason fallback. No `board.gd` change beyond passing the round count to `show_result` | implementer | done |
+| 3 | `board/lift_rules.gd` (`may_lift`, `step_touches`) and `test_lift_rules.gd` | board | – | Suite covers R2 and R11 for every `Place` × face-up combination, and every true and false case of `step_touches` in the plan, using steps from a real seed-1 match | implementer | done |
+| 4 | Unseen rim: `Rim` in `board_card.tscn`, `set_unseen` / `is_unseen` / `copy_face_from` in `board_card.gd`; `_revealed_ids` and `_refresh_rims()` in `board.gd` (P8, P9) | board | 1, 2 | Code covers R17–R21. `_refresh_rims()` runs after staging changes, player commit, reveal, unstage-all, clear and new match. Only cards on `player_row` that are not in `_revealed_ids` are unseen | implementer | done |
+| 5 | Drop-zone glows: `ZoneGlow` on `PlayerRow` and `PlayerHand` in `board.tscn`; idle, hover and refuse looks; wiring on drag start, zone enter and exit, drag stop and table clear (P10, P11) | board | 4 | Code covers R12–R16. `PlayerHand`'s zone signals are connected. Both glows are hidden after a drop, a refusal, a cancel and `_clear_table_now`. The opponent's collections get no glow | implementer | done |
+| 6 | Card pick-up: `board/card_lift.gd`; `Camera3D/Dimmer`; HUD hidden while held; tap routing and Escape (P5); drag and hover lock (P6); runner put-down before touching steps (P7); `drop_now` on a new match (P1–P4, P7) | board | 3, 5 | Code covers R1–R11. The real card stays in its collection and is hidden while held. The stand-in copies its face and rim. Put-down targets the real card's transform at put-down time. Every await in the runner uses the node-owned wait pattern | implementer | done |
+| 7 | Review of T01–T06 against the spec and the Constitution Check, reading the `drag_controller.gd` patch in full | all | 1–6 | Ranked findings. Each blocker is fixed by `implementer` before T08 (fixes commit as `dc-04: T07 review fixes`) | reviewer | done |
+| 8 | Verification (below), which also closes B-05 | all | 1–7 | All boxes checked | orchestrator | done |
 
 **Waves.** Wave 1 runs T01, T02 and T03 in parallel (disjoint files). Wave 2 is T04,
 wave 3 is T05 and wave 4 is T06, because each of them edits `board.gd`. Then T07 and T08.
@@ -76,40 +75,17 @@ Run 2026-11-03 on `cycle-3-board-feedback` with the editor opened on the cycle w
       visible, row glow in the hover look, hand glow idle. It was retaken once: in the
       first take, Card3D's drag tilt turned the card edge-on after a 90 px synthesized
       jump.
-- [x] **NSC-48.** In both screenshots the opponent fan sits clear of `TopInfo`, now top
+- [x] **cycle-3 T02.** In both screenshots the opponent fan sits clear of `TopInfo`, now top
       left. Eight cards need 23.5 units under a 26-unit `max_width`, so each card takes
       its full 3.0 step with no overlap. Names wrap only at spaces ("Placeholder 20" on one
       line at size 28). All four reason phrases are checked by `test_result_text`
       (R22–R24).
-- [x] **NSC-50 / NSC-49.** A gitignored harness, deleted after the run, made 10 scripted
+- [x] **cycle-3 T01 / B-05.** A gitignored harness, deleted after the run, made 10 scripted
       Pause → Concede runs through `Input.parse_input_event`. Each run had two cards on the
       row and a card under the Concede button. Result: `DC04 concede runs: 10/10`, each
       followed by Rematch, with 0 errors (R25, R29).
 - [x] `obsidian-cli vault=docs orphans` reports nothing new (`unresolved` is not available
       in this CLI build).
-
-## Linear (exercised 2026-11-03)
-
-Project [Cycle 3 — board feedback](https://linear.app/night-science-llc/project/cycle-3-board-feedback-df262f0f4d6f), state Planned until `/cycle plan DC-04` puts
-the issues into milestone `DC-04 board-feedback`. Label `spec/cycle-3-board-feedback` on
-all. New issues carry `area/cards` (plus `area/ui` on T06) and `type/feature` (T03–T06)
-or `type/chore` (T07, T08). GitHub links point at `cycle-3-board-feedback` until
-`/cycle test` rewrites them to `master` (ADR 0002).
-
-| Task | Issue | Blocked by |
-|---|---|---|
-| T01 | NSC-50 (moved from Cycle 2, retitled `T01 …`) | – |
-| T02 | NSC-48 (moved from Cycle 2, retitled `T02 …`) | – |
-| T03 | NSC-51 | – |
-| T04 | NSC-52 | NSC-50, NSC-48 |
-| T05 | NSC-53 | NSC-52 |
-| T06 | NSC-54 | NSC-51, NSC-53 |
-| T07 | NSC-55 | NSC-50, NSC-48, NSC-51 … NSC-54 |
-| T08 | NSC-56 | NSC-55 |
-| – | NSC-49 (moved from Cycle 2; closes with T08) | NSC-50 |
-
-All nine are in Todo. NSC-48, NSC-49 and NSC-50 keep their Cycle 2 spec links and gained
-a "Spec (cycle 3)" section.
 
 ## Commit plan
 

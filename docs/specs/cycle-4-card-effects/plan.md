@@ -6,7 +6,6 @@ related: ["[[specs/cycle-4-card-effects/spec]]", "[[specs/cycle-4-card-effects/t
 created: 2026-11-03
 updated: 2026-11-04
 uid: baf3efcd-e891-4436-93b4-b54f789cf07e
-linear: https://linear.app/night-science-llc/project/cycle-4-card-effects-032a703ba2d5
 supersedes:
 ---
 

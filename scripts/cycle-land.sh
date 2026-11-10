@@ -2,18 +2,23 @@
 # cycle-land.sh - land one implementer's work on the cycle branch in a single call
 # (/cycle run step 3, ADR 0006). It replaces about seven separate orchestrator turns.
 #
-#   scripts/cycle-land.sh --co-author "<Name <email>>" <agent worktree> <cycle worktree> \
-#       <NN> <issue id> "<title>"
+#   scripts/cycle-land.sh --co-author "<Name <email>>" [--tasks <note>] <agent worktree> \
+#       <cycle worktree> <NN> <task id> "<title>"
 #
-# Steps: commit the agent worktree as `dc-NN: <issue> <title>` (untracked .uid files stay
+# <task id> is a task of the cycle's tasks.md (T07) or a backlog item (B-12). --tasks names
+# the note that holds its row, relative to the cycle worktree
+# (docs/specs/<slug>/tasks.md, or docs/planning/backlog.md).
+#
+# Steps: commit the agent worktree as `dc-NN: <task> <title>` (untracked .uid files stay
 # out); merge it into the cycle worktree's branch with --no-ff as
-# `cycle-NN: <issue> <title>`; run scripts/check.sh there; on a green gate fold any
-# generated .uid files into the merge commit. Prints one line when green, and the last 40
-# lines of the gate when red. Linear is not touched: see scripts/linear-move.sh.
+# `cycle-NN: <task> <title>`; run scripts/check.sh there; on a green gate set the task's
+# Status cell to `done` (scripts/dashboard.py --set, when --tasks is given) and fold that
+# and any generated .uid files into the merge commit. Prints one line when green, and the
+# last 40 lines of the gate when red.
 #
 # Exit codes:
 #   0 merged on a green gate
-#   1 red gate (the merge stays, so the fix lands on top of it; the issue stays In Progress)
+#   1 red gate (the merge stays, so the fix lands on top of it; the task stays todo)
 #   2 bad usage
 #   3 merge conflict (the merge is left in progress: resolve it, or `git merge --abort`
 #     and re-dispatch with the conflict in the brief)
@@ -24,15 +29,18 @@
 set -uo pipefail
 
 usage() {
-  echo 'usage: scripts/cycle-land.sh --co-author "<Name <email>>" <agent worktree> <cycle worktree> <NN> <issue id> "<title>"' >&2
+  echo 'usage: scripts/cycle-land.sh --co-author "<Name <email>>" [--tasks <note>] <agent worktree> <cycle worktree> <NN> <task id> "<title>"' >&2
   exit 2
 }
 
-coauthor=""
-if [ "${1:-}" = "--co-author" ]; then
-  coauthor="${2:-}"
-  shift 2 2>/dev/null || usage
-fi
+coauthor=""; tasks=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --co-author) coauthor="${2:-}"; shift 2 2>/dev/null || usage ;;
+    --tasks) tasks="${2:-}"; shift 2 2>/dev/null || usage ;;
+    *) break ;;
+  esac
+done
 [ -n "$coauthor" ] && [ $# -eq 5 ] || usage
 agent="$1"; cycle="$2"; nn="$3"; issue="$4"; title="$5"
 
@@ -83,10 +91,20 @@ if ! (cd "$cycle" && eval "$gate") >"$log" 2>&1; then
   exit 1
 fi
 
+marked=""
+if [ -n "$tasks" ]; then
+  if python3 -I "$cycle/scripts/dashboard.py" --set "$cycle/$tasks" "$issue" done >/dev/null 2>"$log.set"; then
+    git -C "$cycle" add -- "$tasks"
+    marked=", $issue marked done"
+  else
+    marked=", but $issue was NOT marked done ($(tail -n 1 "$log.set"))"
+  fi
+  rm -f "$log.set"
+fi
 git -C "$cycle" add -- ':(glob)**/*.uid' 2>/dev/null
 if ! git -C "$cycle" diff --cached --quiet; then
   git -C "$cycle" commit -q --amend --no-edit || {
-    echo "cycle-land: gate green, but folding .uid files into the merge failed" >&2; exit 4; }
+    echo "cycle-land: gate green, but folding the status and .uid files into the merge failed" >&2; exit 4; }
 fi
 
-echo "cycle-land: $issue merged as $(git -C "$cycle" rev-parse --short HEAD) on $branch; gate green ($(tail -n 1 "$log"))"
+echo "cycle-land: $issue merged as $(git -C "$cycle" rev-parse --short HEAD) on $branch; gate green ($(tail -n 1 "$log"))$marked"

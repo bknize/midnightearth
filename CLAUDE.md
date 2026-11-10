@@ -9,7 +9,7 @@ R1–R9). This file is the short version every agent must obey.
 | Path | What | Rules |
 |---|---|---|
 | `docs/` | Obsidian vault (notes, specs, ADRs) | Plain Markdown + `[[wikilinks]]`; `.gdignore` hides it from Godot |
-| `docs/specs/<slug>/` | `spec.md`, `plan.md`, `tasks.md` per feature | Written by `/spec`, exercised into Linear by `/exercise` |
+| `docs/specs/<slug>/` | `spec.md`, `plan.md`, `tasks.md` per feature | Written by `/spec`; the `Status` column of `tasks.md` is the progress record (ADR 0007) |
 | `godot/` | The Godot project | Mobile renderer, Compatibility-clean shaders (D2) |
 | `godot/engine/` | Pure match engine (from cycle 1) | Typed GDScript, deterministic, seeded RNG, serializable action log (D4) |
 | `godot/net/` | Client network code (from cycle 12) | Protocol, codec, `NetClient`, `RemoteMatchSource`, the headless bot client; typed GDScript, no engine state on the client (ADR 0005) |
@@ -21,7 +21,7 @@ R1–R9). This file is the short version every agent must obey.
 | `godot/tests/` | gdUnit4 suites | One suite per engine module |
 | `godot/art/` | Approved art (`/art approve`) | Git LFS; every image has an entry in `art/manifest.json` (ADR 0003) |
 | `art/` | `manifest.json` (tracked); `candidates/` and `ledger.jsonl` (gitignored) | Written only by the artist and `scripts/art-*` |
-| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees), `art-fetch.sh` / `art-approve.sh` / `art-sheet.py` (art pipeline), `replicate-mcp.sh` (starts the Replicate MCP with the `.env` token), `cycle-land.sh` (commit, merge and gate one issue), `linear-move.sh` (bulk Linear status moves) | Bash, `set -uo pipefail`; `art-sheet.py` is Python (Pillow) |
+| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees), `art-fetch.sh` / `art-approve.sh` / `art-sheet.py` (art pipeline), `replicate-mcp.sh` (starts the Replicate MCP with the `.env` token), `cycle-land.sh` (commit, merge and gate one task, then mark it done), `dashboard.py` (writes `docs/dashboard.html` from the task notes; `--set` changes one Status cell) | Bash, `set -uo pipefail`; `art-sheet.py` (Pillow) and `dashboard.py` (standard library) are Python |
 | `.claude/` | Agents, skills, hook settings | The orchestrator pattern lives here |
 
 ## The build gate: `make check`
@@ -46,7 +46,7 @@ warnings to errors, so every project `.gd` is fully typed; test suites are exemp
 ## Roles (P1)
 
 - **Orchestrator** — the Claude Code session (Opus 5.5). Owns a dev cycle, dispatches
-  implementers, runs `make check`, drives the Godot MCP, posts to Linear, runs
+  implementers, runs `make check`, drives the Godot MCP, keeps the task statuses, runs
   `/code-review` and `/simplify` at `/cycle test`. Each verb starts in a new session, and
   `/cycle run` starts another at a wave boundary past about 250k of context (ADR 0006).
 - **Interrogator** — a top-level session on Fable 5.1, one per `/spec` (ADR 0006);
@@ -62,7 +62,7 @@ warnings to errors, so every project `.gd` is fully typed; test suites are exemp
   MCP within the image cap in its brief, and shows contact sheets. Never edits code or
   imports art; the orchestrator approves picks with `scripts/art-approve.sh`.
 
-Cycle verbs: `/spec <slug>` → `/exercise <slug>` → `/cycle plan DC-NN` → `/cycle run
+Cycle verbs: `/spec <slug>` → `/cycle plan DC-NN` → `/cycle run
 DC-NN` → `/cycle test DC-NN`. Art verbs, outside the cycle: `/art direction | explore |
 generate | approve`.
 
@@ -70,35 +70,35 @@ generate | approve`.
 
 Every note in `docs/` has this frontmatter: `type` (spec | plan | tasks | adr | system |
 planning | moc | reference), `tags`, `status`, `related`, `created`, `updated`, `uid`
-(uuid4, for `obsidian://adv-uri?vault=docs&uid=`), `linear` (issue or project URL),
+(uuid4, for `obsidian://adv-uri?vault=docs&uid=`),
 `supersedes`. Template: `docs/Templates/note.md`. Link with `[[path/from/vault/root]]`.
 After writing notes run `obsidian-cli vault=docs unresolved` and `… orphans`
 (the `vault=` flag goes before the command).
 
-## Linear (P4)
+## Tasks (ADR 0007)
 
-One team (key `NSC`), a project per spec, a milestone per dev
-cycle (`DC-NN <theme>`), labels `area/*`, `type/*`, `spec/<slug>`. Every issue carries a
-`## Spec` section with the vault uid link and the GitHub blob URL (always on `master`,
-resolving once the cycle is merged and pushed; ADR 0006). The orchestrator pulls
-issues through the Linear MCP; nothing is pushed from Linear.
+The vault is the only record of the work; there is no ticket tracker. A task is a row of
+`docs/specs/<slug>/tasks.md`, cited as `T07` inside its cycle and `cycle-N T07` outside
+it. Work outside any spec (follow-ups, bugs, ideas) is a row of
+`docs/planning/backlog.md`, cited as `B-nn`. `docs/planning/cycles.md` has one row per
+dev cycle (`DC-NN <theme>`).
 
-Issue status is the orchestrator's job, moved when the event actually happens, never
-ahead of it: **Backlog** (follow-ups and ideas outside a cycle) → **Todo** (`/exercise`,
-or picked at `/cycle plan`) → **In Progress** (its implementer is dispatched; a red gate
-or re-dispatch keeps it here, with a comment quoting the failure) → **In Review** (merged
-into the cycle branch on a green gate; comment names the merge commit) → **Done** (the
-cycle branch is merged into `master` at `/cycle test`). An issue dropped from a cycle goes
-back to Backlog with its milestone removed and a comment saying why. Subagents have no
-Linear access; they report, and the orchestrator updates Linear. Status moves go through
-`scripts/linear-move.sh`, falling back to the MCP when `.env` has no `LINEAR_API_KEY`.
+A row's `Status` cell is the orchestrator's job, changed when the event actually happens,
+never ahead of it: a task is **todo** (written by `/spec`; a red gate or re-dispatch keeps
+it here) → **done** (merged into the cycle branch on a green gate, set by
+`scripts/cycle-land.sh`) or **dropped** (left out of the cycle, with the reason in the
+row). A backlog item is **open** → **done** or **dropped** the same way. The cells live on
+the cycle branch, so `master` shows a task done only once the cycle has merged. Subagents
+never edit a Status cell; they report, and the orchestrator sets it
+(`scripts/dashboard.py --set <note> <id> <status>`). `/cycle test` runs `make dashboard`,
+which rewrites `docs/dashboard.html` from these notes.
 
 ## Git
 
 Every changeset gets its own branch, cut from `master` before its first edit (never at
 commit time) and named for the set. **A dev cycle is one changeset from spec to test**
 (`docs/decisions/0002-one-branch-per-cycle.md`): its branch is named for the spec slug,
-`cycle-N-<theme>`, cut at `/spec`, and carries the spec, the `/exercise` write-back, one
+`cycle-N-<theme>`, cut at `/spec`, and carries the spec, one
 commit per task, review fixes and the verification outcome. It merges into `master` only
 at `/cycle test`, when the cycle is complete. A cycle with no spec of its own cuts
 `cycle-N-<theme>` at `/cycle plan`, with the next unused N. Approved art lands
@@ -108,7 +108,7 @@ takes `--no-ff` merges of those branches, made when Ben asks or a verb's steps s
 (`/cycle test`). Commit only when Ben asks or the task list says so. Commit messages end
 with the Co-Authored-By line the session provides. Never push unless Ben asks.
 
-The main checkout sits on the cycle branch during `/spec` and `/exercise`, so the vault
+The main checkout sits on the cycle branch during `/spec`, so the vault
 shows the new notes; from `/cycle plan` on, the branch lives in its own `git worktree`
 and the main checkout is back on `master`. `/cycle run` sweeps each wave's agent
 worktrees once merged and `/cycle test` sweeps the cycle worktree after the `master`
@@ -120,7 +120,7 @@ work in a worktree.
 
 Tokens live only in `.env` (gitignored). `.mcp.json` uses `${VAR}` placeholders.
 Launch through `scripts/claude-with-env.sh`. Never print a token in chat, a note, a
-commit or a Linear comment.
+commit.
 
 ## Do not touch
 

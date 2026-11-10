@@ -437,7 +437,7 @@ func test_the_cached_pool_size_and_weight_vector_match_the_uncached() -> void:
 	assert_int(BotWeights.defaults().vector_for(null).size()).is_equal(BotFeatures.COMPACT.size())
 
 
-## NSC-233: base() and a patch per candidate are the whole vector, at every commit decision of
+## B-50: base() and a patch per candidate are the whole vector, at every commit decision of
 ## real matches (hands with the free first card, grown cards and large hands among them) and
 ## at the hand-built view, with and without the free first card.
 func test_the_base_and_a_patch_equal_the_whole_vector() -> void:

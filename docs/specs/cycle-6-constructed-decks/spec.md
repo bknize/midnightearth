@@ -6,7 +6,6 @@ related: ["[[specs/cycle-6-constructed-decks/plan]]", "[[specs/cycle-6-construct
 created: 2026-11-04
 updated: 2026-11-04
 uid: 07879b22-a661-4503-ac79-398cff33e19d
-linear: https://linear.app/night-science-llc/project/cycle-6-constructed-decks-3965e3da3936
 supersedes:
 ---
 
@@ -40,7 +39,7 @@ row, and every match, deck pairing included, still replays from its log.
   (C11).
 - No duplicate cards in a deck (C3), no deck builder, no more than one deck per theme.
 - No card-list reader in the picker (C16); the tile shows name and theme only.
-- No change to the bot's search width or its budget; NSC-74 stays in Backlog (C14).
+- No change to the bot's search width or its budget; B-09 stays in Backlog (C14).
 - No card art, names are working names (C16), no sound, no iOS build (D8).
 - No change to rounds, round wins, sudden death, concede, hand cap, deal or draw rules
   except where an effect says so.
@@ -192,7 +191,7 @@ row, and every match, deck pairing included, still replays from its log.
   flat, and choosing the best own-minus-opponent score, ties by its seed.
 - R38. The bot shall never return an action the engine rejects, and its choice shall
   depend only on its seed and its view; the slowest decision shall be measured per deck
-  pairing at verification and posted to NSC-74 (no change to the budget).
+  pairing at verification and posted to B-09 (no change to the budget).
 
 ### The picker (C16)
 
@@ -268,7 +267,7 @@ row, and every match, deck pairing included, still replays from its log.
 | C11 | Round 3 Q3: three movement rulings | 3a: the cost-reduction card moves to cycle 7's bounce deck and "move an enemy card to the far left" takes its place; "on swap" fires on any move of the card and gives +2 until the walk ends; the neighbour card gives ×1.25 to each side (R28, R33) |
 | C12 | Round 3 Q1: the destroyed pile and recovery | 1b: a destroyed pile per seat, and the prompt offers either seat's pile; a stolen card scores for its new controller, which adds the origin/controller distinction (R8, R16–R21) |
 | C13 | Round 4 Q1: over-curve bodies | 1a: the loader cap becomes flat 0..cost+4; vanilla rows stay within cost+2 as a guideline (R3) |
-| C14 | Round 4 Q2: the bot across decks | 2a: "bonus first" = +-part, then ×-part, then flat; no new order, no per-deck hint; the multi-destroy by the k-lowest-flat rule; NSC-74 re-measured per pairing (R36–R38) |
+| C14 | Round 4 Q2: the bot across decks | 2a: "bonus first" = +-part, then ×-part, then flat; no new order, no per-deck hint; the multi-destroy by the k-lowest-flat rule; B-09 re-measured per pairing (R36–R38) |
 | C15 | Round 4 Q3: the golden and the sweep | 3c: a seeded pairing per seed when no flag names a deck; the golden is seed 1 under its own pairing (R6, R53) |
 | C16 | Round 4 Q4: picker flow and names | 4b: the picker as proposed but without the card-list reader; working names "Ruin" (destruction) and "Drift" (movement); flags or autoplay skip the picker; "Decks" buttons in the pause and result menus (R39–R43) |
 | C18 | Round 5 Q1: the un-reveal's scope | 1a, Ben: "however a one-time-use card that does this for the entire board would be good, or maybe as a Crew power". Only the carrier is protected (R31); the board-wide one-shot is recorded as a cycle 7 idea (Open items) |
@@ -276,7 +275,7 @@ row, and every match, deck pairing included, still replays from its log.
 | C20 | Round 5 Q3: the switch card | 3a: the verb and its label are retired; fixture c13 becomes vanilla (R15) |
 | C21 | At sign-off, Ben asked whether cycle 8 (bot tuning) could be specced and run alongside this cycle; the orchestrator advised against it since T02, T03 and T08 rewrite `GreedyBot`; Ben: "Nevermind, proceed with 6". The set is approved as written; cycle 8 follows cycle 7 |
 | C22 | T12 review (2026-11-04): a copy of a card showing both a × part and a + part kept only one; and the hand-cap recovery left a ghost card on the board | Ben 1a 2a 3a: fix both before T13 with the low-risk speed changes; Mirror (R34) copies the target's whole current bonus, both parts, as its base; the nits are fixed in the same pass and the plan's error list follows P7 (`NOT_ELIGIBLE` for a set on a single-target prompt) |
-| C23 | T13 verification (2026-11-04): Ben asked that every card show rules text, not just a title (19 of 40 shipped cards have no effect); then the table review, the 17 s test stage (13.9 s of tests plus about 3 s of Godot start-up) and four visual problems | Ben: "Sign off", read as all (a): every card without an effect shows reminder text from its stats ("When this scores, your mult ×1.25." / "+1." / "Scores its flat at your mult."); the Ruin and Drift tables are approved as shipped (C7); the 15 s test budget is gdUnit's own run time; the visual problems go to Backlog as NSC-99 |
+| C23 | T13 verification (2026-11-04): Ben asked that every card show rules text, not just a title (19 of 40 shipped cards have no effect); then the table review, the 17 s test stage (13.9 s of tests plus about 3 s of Godot start-up) and four visual problems | Ben: "Sign off", read as all (a): every card without an effect shows reminder text from its stats ("When this scores, your mult ×1.25." / "+1." / "Scores its flat at your mult."); the Ruin and Drift tables are approved as shipped (C7); the 15 s test budget is gdUnit's own run time; the visual problems go to Backlog as B-12 |
 | C17 | Defaults stated in rounds 3 and 4, no objection | "Power" means flat; the copy takes the target's current flat and bonus as the copier's base (R34); a reverse moves every card on the row under the DC-06 cursor rules (R29); a discard with an empty hand fizzles and the card still scores; a card keeps its origin and gains a controller, a recovered card goes to the recovering seat's hand and plays for it, a return sends it to its controller's hand, round start returns every card to its origin deck (R8, R9, R20); faces show "×1.25" / "+1" and the tally the mult to two decimals (R44, R45) |
 
 ## Scenarios
@@ -359,7 +358,7 @@ with two bonus kinds (C2, C6). The orchestrator may append both to
       the boot expectation if it checks values, and the cycles log; the autoplay board
       prints the same line.
 - [ ] The 50-seed sweep replays every log under seeded pairings; the slowest decision per
-      pairing is posted to NSC-74.
+      pairing is posted to B-09.
 - [ ] Ben has reviewed the Ruin and Drift tables (C7).
 - [ ] Three screenshots: the picker with both columns picked; a multi-select prompt with
       two cards selected and "Destroy 2" showing; a face reading "×1.25" with a "×1.56"

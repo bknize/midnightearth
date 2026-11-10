@@ -10,7 +10,7 @@ const GLOW_SIZE: Vector2 = Vector2(2.9, 3.9)
 const GLOW_PEAK_ALPHA: float = 0.6
 ## Drawn after the prompt's dimmer (render priority 1), so a glowing card stays lit.
 const GLOW_PRIORITY: int = 2
-## The face text of a glowing card draws after its glow (NSC-164), so the glow never tints it.
+## The face text of a glowing card draws after its glow (B-19), so the glow never tints it.
 const TEXT_PRIORITY: int = GLOW_PRIORITY + 1
 ## A selected card (multi-select) glows this colour instead of the board's gold.
 const SELECTED_TINT: Color = Color(0.35, 0.95, 0.55)

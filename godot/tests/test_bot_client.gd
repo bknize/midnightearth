@@ -4,7 +4,7 @@ extends FullMatchHarness
 ## server of T06 (FakeNetClient, FakeMatchServer): no sockets. Covered: the flags, joining
 ## and hosting a whole match to its `PVP client:` line and exit code 0, the hello it sends
 ## (kind bot, name bot:random), a refusal and an abandonment ending with 1, and a client
-## restarted with the same `--install-id` rejoining its seat (NSC-226).
+## restarted with the same `--install-id` rejoining its seat (cycle-12 T13).
 
 const SEED: int = 1
 const CODE: String = "K7QX"

@@ -81,7 +81,7 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(out["stamp"], stamp_of(self.root / "work"))
         self.assertTrue(out["stamp"].startswith("r7-"))
         self.assertIn("import_s", out)
-        self.assertEqual(list((self.root / "inbox").glob("*.bundle")), [])  # NSC-228
+        self.assertEqual(list((self.root / "inbox").glob("*.bundle")), [])  # B-45
         self.assertEqual(fake.envs[-1]["GIT_LFS_SKIP_SMUDGE"], "1")
         self.assertIn("--import", fake.calls[-1])
         # second sync checks out in the existing worktree

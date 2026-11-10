@@ -6,7 +6,6 @@ related: ["[[specs/cycle-3-board-feedback/spec]]", "[[specs/cycle-3-board-feedba
 created: 2026-11-03
 updated: 2026-11-03
 uid: e53bb301-c199-436f-9e3f-666c08d82a57
-linear: https://linear.app/night-science-llc/project/cycle-3-board-feedback-df262f0f4d6f
 supersedes:
 ---
 
@@ -26,7 +25,7 @@ addon-patch work on top of the DC-03 board. Nothing touches `godot/engine/`.
 | Shaders/cards | no | rim, glow and dimmer are unshaded `StandardMaterial3D` with alpha, Compatibility-clean (D2) |
 | Tests | yes | new `tests/test_lift_rules.gd`, `tests/test_result_text.gd`; extended `test_pointer_tracker.gd` |
 | Vault/docs | yes | this set; the DC-04 row in [[planning/cycles]] at `/cycle test` |
-| Linear | yes | new project "Cycle 3 — board feedback"; NSC-48, NSC-49 and NSC-50 move into it (C7) |
+| Linear | yes | new project "Cycle 3 — board feedback"; cycle-3 T02, B-05 and cycle-3 T01 move into it (C7) |
 
 ## Design choices
 
@@ -38,17 +37,17 @@ addon-patch work on top of the DC-03 board. Nothing touches `godot/engine/`.
 | P4 | **Timings**: lift 0.25 s and put-down 0.2 s, ease out cubic, not scaled by `speed` (player-driven). R9 and R10 put-downs use the same 0.2 s, or 0 for R10 | Responsive. Autoplay never lifts |
 | P5 | **Tap routing**: the board connects to `PointerShim.tapped`. If no card is held and `may_lift`, it lifts the `BoardCard` that owns the hit collider. If a card is held, any tap puts it down. Escape is handled in `board._unhandled_input` before the pause check: held → put down and mark the event handled | R1, R5, C9 |
 | P6 | **Drag lock while held**: the board's lock (`_is_locked`, used by `BoardDragStrategy`) also returns true while a card is held. Hover pop is suppressed by setting `hover_disabled` on the player's collections while held | R6 |
-| P7 | **Queue and the held card** (C6, R9): before `_play(step)`, the runner asks `LiftRules.step_touches(step, held)`. If true, it awaits `card_lift.put_down()` and then plays the step. The await uses the node-owned wait pattern from the NSC-45 fix, so exit never leaks a coroutine | R8, R9 |
+| P7 | **Queue and the held card** (C6, R9): before `_play(step)`, the runner asks `LiftRules.step_touches(step, held)`. If true, it awaits `card_lift.put_down()` and then plays the step. The await uses the node-owned wait pattern from the cycle-2 T09 fix, so exit never leaks a coroutine | R8, R9 |
 | P8 | **Rim**: a `MeshInstance3D` child `Rim` in `board_card.tscn`. It is a `PlaneMesh` 2.5 × 3.5 scaled by 1.08, just behind the card mesh, unshaded, colour `Color(0.35, 0.75, 1.0, 0.9)`, hidden by default. `BoardCard.set_unseen(on: bool)`. The board keeps it equal to "on `player_row` and not revealed" (R17–R21) by calling one `_refresh_rims()` after every staging change, commit, reveal and clear | C4, C9. One recompute point, no per-path bookkeeping |
 | P9 | **Revealed set**: `_revealed_ids: Dictionary[int, bool]` on the board, filled in `_reveal` for seat 0 and cleared at round sweep and new match. Unseen = on `player_row` and not in `_revealed_ids` | R18 needs to know which committed cards have played their reveal |
 | P10 | **Zone glows**: one `MeshInstance3D` `ZoneGlow` per player collection in `board.tscn` (`PlayerRow/ZoneGlow`, `PlayerHand/ZoneGlow`), a flat quad sized to that collection's drop-zone shape, unshaded, transparent. Three looks: idle glow (alpha 0.18, pale gold), hover (alpha 0.35), refuse (red, alpha 0.35). `board._on_drag_started` shows both; `mouse_enter_drop_zone` / `mouse_exit_drop_zone` on both collections set hover; `_on_drag_stopped` and `_clear_table_now` hide both | R12–R16 |
 | P11 | **Refuse state**: shown on the row panel while `_drag_from_hand and not _card_affordable(card)`, in place of glow and hover | R14 |
-| P12 | **GUI presses** (R25, NSC-50.2, suspected cause of NSC-49): on a press, `PointerShim` asks `get_viewport().gui_get_hovered_control()`. If that control's `mouse_filter` is not `MOUSE_FILTER_IGNORE`, it calls `tracker.feed(event, true)` (`gui_blocked`). The tracker then swallows that gesture until the press ends. The tracker owns the rule, so the suite tests it headless; the shim only supplies the flag. The HUD's full-screen containers already use `mouse_filter = 2` (ignore), so only buttons and panels block | One check at the press. Motion and release keep flowing (a drag that crosses the HUD still works), and the tracker stays testable without a viewport |
-| P13 | **`may_act` cache** (NSC-50.1): `_awaited: bool` is set in `_advance()` / `_on_turn_started` from `driver.view().is_awaited()` once per step, and `may_act` reads it | R26 |
-| P14 | **Drag reset** (NSC-50.3): `_clear_table_now` calls `pointer.cancel()` before clearing collections. The DragController handles the cancel and drops its drag state. If any state remains (checked in review), add a `reset()` to the patch | R27 with no addon change if possible |
-| P15 | **Stray drag start** (NSC-50.4): in `drag_controller.gd` `_on_pointer_drag_started`, when nothing is selected, call `pointer.cancel()` so the tracker leaves drag mode. Recorded in `THIRD_PARTY_LICENSES.md` | R28 |
-| P16 | **Layout** (NSC-48): the HUD's round, turn and energy panel (`Root/TopInfo`) moves from top centre to the top-left corner, clear of the opponent fan. Both rows get a `LineCardLayout` sub-resource with `max_width = 26` (8 × 2.5 + 7 × 0.5 = 23.5 fits; the default 20 overlaps). `NameLabel` uses `autowrap_mode = 2` (word) and a font size picked so the longest name in `engine/data/cards.json` wraps only at spaces | R22, R23 |
-| P17 | **Result phrases** (NSC-48): a static `BoardHud.reason_text(reason: String, winner: int, rounds: int) -> String` | R24 |
+| P12 | **GUI presses** (R25, cycle-3 T01.2, suspected cause of B-05): on a press, `PointerShim` asks `get_viewport().gui_get_hovered_control()`. If that control's `mouse_filter` is not `MOUSE_FILTER_IGNORE`, it calls `tracker.feed(event, true)` (`gui_blocked`). The tracker then swallows that gesture until the press ends. The tracker owns the rule, so the suite tests it headless; the shim only supplies the flag. The HUD's full-screen containers already use `mouse_filter = 2` (ignore), so only buttons and panels block | One check at the press. Motion and release keep flowing (a drag that crosses the HUD still works), and the tracker stays testable without a viewport |
+| P13 | **`may_act` cache** (cycle-3 T01.1): `_awaited: bool` is set in `_advance()` / `_on_turn_started` from `driver.view().is_awaited()` once per step, and `may_act` reads it | R26 |
+| P14 | **Drag reset** (cycle-3 T01.3): `_clear_table_now` calls `pointer.cancel()` before clearing collections. The DragController handles the cancel and drops its drag state. If any state remains (checked in review), add a `reset()` to the patch | R27 with no addon change if possible |
+| P15 | **Stray drag start** (cycle-3 T01.4): in `drag_controller.gd` `_on_pointer_drag_started`, when nothing is selected, call `pointer.cancel()` so the tracker leaves drag mode. Recorded in `THIRD_PARTY_LICENSES.md` | R28 |
+| P16 | **Layout** (cycle-3 T02): the HUD's round, turn and energy panel (`Root/TopInfo`) moves from top centre to the top-left corner, clear of the opponent fan. Both rows get a `LineCardLayout` sub-resource with `max_width = 26` (8 × 2.5 + 7 × 0.5 = 23.5 fits; the default 20 overlaps). `NameLabel` uses `autowrap_mode = 2` (word) and a font size picked so the longest name in `engine/data/cards.json` wraps only at spaces | R22, R23 |
+| P17 | **Result phrases** (cycle-3 T02): a static `BoardHud.reason_text(reason: String, winner: int, rounds: int) -> String` | R24 |
 
 ### Phrase table (R24)
 
@@ -159,7 +158,7 @@ No engine state and nothing serialized. Board-side state:
   warning and frees the stand-in.
 - **`gui_get_hovered_control` and emulated touch** → the press comes as an emulated mouse
   event first (cycle-2 C2), so the same check applies. Proven at the iOS milestone.
-- **NSC-49 might not be the pointer** → T08's 10-run scripted Pause → Concede decides it.
+- **B-05 might not be the pointer** → T08's 10-run scripted Pause → Concede decides it.
   If it still fails, it goes back to Backlog with the log, per C8.
 - **board.gd is touched by five tasks** → waves in tasks.md keep at most one board.gd
   writer in flight at a time.

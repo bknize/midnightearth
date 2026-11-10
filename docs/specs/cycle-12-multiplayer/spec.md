@@ -6,7 +6,6 @@ related: ["[[specs/cycle-12-multiplayer/plan]]", "[[specs/cycle-12-multiplayer/t
 created: 2026-11-07
 updated: 2026-11-09
 uid: 17e6faab-f877-43e1-ad27-7d4bdc5bff7f
-linear: https://linear.app/night-science-llc/project/cycle-12-pvp-through-a-match-server-on-the-testing-pc-130cdbdf69c0
 supersedes:
 ---
 
@@ -415,7 +414,7 @@ The interview (three rounds):
 - [x] Title screen, one-column picker, waiting screen and PVP board behave per A to C;
       Play vs Bot unchanged (G) and the golden lines unchanged.
 - [ ] The server runs on the PC as `trainer`, started by the scheduled task, printing `PVP
-      server ready …`; Ben's checklist (R65) is complete, with the CGNAT check recorded. (moved to NSC-248: the router forward, the CGNAT check and the public address are Ben's steps, DC-20 T19)
+      server ready …`; Ben's checklist (R65) is complete, with the CGNAT check recorded. (moved to B-54: the router forward, the CGNAT check and the public address are Ben's steps, DC-20 T19)
 - [x] A match from the Mac (editor client plus headless bot client) against the PC's server
       over the LAN completes; its log on the PC replays (R59); the hardening, reconnect and
       abandonment probes behave per D and E.

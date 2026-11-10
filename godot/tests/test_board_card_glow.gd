@@ -1,6 +1,6 @@
 class_name TestBoardCardGlow
 extends GdUnitTestSuite
-## NSC-164: a glowing card's face text draws after its glow, and a selected card glows a
+## B-19: a glowing card's face text draws after its glow, and a selected card glows a
 ## different colour from an eligible one. Also the LOOK mark (DC-14 T15).
 
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")

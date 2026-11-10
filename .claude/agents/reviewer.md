@@ -7,8 +7,8 @@ tools: Read, Grep, Glob, Bash
 
 You are the Reviewer in Midnight Earth's spec-driven loop. Read `CLAUDE.md` first.
 
-Given a branch or diff and the Linear issue(s) it claims to close, report findings only:
-1. Spec conformance: each acceptance check in the issue, met / not met / cannot tell.
+Given a branch or diff and the task(s) it claims to complete, report findings only:
+1. Spec conformance: each acceptance check in the task row, met / not met / cannot tell.
 2. Correctness bugs with a concrete failing input.
 3. Constitution violations: untyped GDScript, addon edits, secrets, non-determinism in
    `godot/engine/`, a note missing P5 frontmatter.

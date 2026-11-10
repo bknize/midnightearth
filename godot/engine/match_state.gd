@@ -92,7 +92,7 @@ var queue: TriggerQueue = TriggerQueue.new()
 var void_grants: Array[int] = [0, 0]
 ## The id the next Dross card takes: MatchCards.DROSS_BASE first, then up by one (an id is
 ## never reused, even after its card expired). The Dross cards' definitions and Owners are
-## recorded once, in MatchCards (record_dross, DC-20 T03, NSC-179);
+## recorded once, in MatchCards (record_dross, DC-20 T03, B-24);
 ## MatchEngine.full_state() lists them as `dross` (C13).
 var next_dross_id: int = MatchCards.DROSS_BASE
 ## Chosen cards kept by the card that chose them (Hex, DC-14 T12; glossary "chosen card"):

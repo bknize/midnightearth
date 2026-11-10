@@ -6,7 +6,6 @@ related: ["[[systems/systems-moc]]", "[[systems/game-loop]]", "[[systems/bot-tra
 created: 2026-11-05
 updated: 2026-11-09
 uid: 692bf835-9b24-4738-9df5-6a5ed267a33e
-linear: https://linear.app/night-science-llc/issue/NSC-160
 supersedes:
 ---
 
@@ -324,7 +323,7 @@ A match needs one deck id per seat. You can name them in the deck picker (a "You
 
 ## Adding content
 
-Every content change is a data change, and many also need engine work. Content changes go through the normal cycle (`/spec` → `/exercise` → `/cycle`).
+Every content change is a data change, and many also need engine work. Content changes go through the normal cycle (`/spec` → `/cycle`).
 
 ### Add a card
 

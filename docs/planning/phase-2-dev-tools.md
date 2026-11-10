@@ -6,7 +6,6 @@ related: ["[[planning/planning-moc]]"]
 created: 2026-11-02
 updated: 2026-11-02
 uid: f15a4be6-95c4-4bbd-a816-517412cb4bde
-linear:
 supersedes:
 phase: 2-dev-tools
 ---
@@ -236,7 +235,7 @@ midnightearth/
 | P1 | **The pattern is built on Claude Code primitives.** `.claude/agents/` defines interrogator (Fable 5.1), implementer (Sonnet 5.5; Opus 5.5 for engine-critical tasks) and an optional reviewer; skills `/spec`, `/exercise`, `/cycle plan`, `/cycle run`, `/cycle test`; one worktree per independent issue; the Workflow tool when three or more issues are independent; the orchestrator session runs on Opus 5.5. | Role prompts and skills are cycle-0 deliverables; score is not used |
 | P2 | **`docs/` is the Obsidian vault; the Godot project lives in `godot/`.** A `.gdignore` in `docs/` hides it from Godot. Obsidian's stale registration of the repo root is re-pointed to `docs/`. | `.obsidian/` committed minus per-machine state; planning docs stay where they are |
 | P3 | **Claude works the vault as plain files plus the official CLI**, with the kepano/obsidian-skills plugin for Obsidian-flavored Markdown. The archive's vault-interrogator is ported with its stack section rewritten; the TF-IDF autolinker is retired; no Obsidian MCP server. | CLI must be on PATH for scripts; `obsidian unresolved|backlinks|orphans` run after each writing session |
-| P4 | **One Linear team, key renamed `NIG` → `NSC`** (Ben's amendment; no new `ME` team). Free plan, cycles disabled, one project per spec, a milestone per dev cycle (`DC-01 <theme>`), labels `area/*`, `type/*`, `spec/*`, GitHub integration on the private repo with Linear branch names and `Fixes NSC-12` in PR bodies. | Issue keys become `NSC-n`; the key rename and the GitHub app install are Ben's manual steps in Linear's UI (the MCP has no team-edit tool); the four onboarding issues get archived |
+| P4 | **One Linear team, key renamed `NIG` → `NSC`** (Ben's amendment; no new `ME` team). Free plan, cycles disabled, one project per spec, a milestone per dev cycle (`DC-01 <theme>`), labels `area/*`, `type/*`, `spec/*`, GitHub integration on the private repo with Linear branch names and `Fixes cycle-0 T08` in PR bodies. | Issue keys become `NSC-n`; the key rename and the GitHub app install are Ben's manual steps in Linear's UI (the MCP has no team-edit tool); the four onboarding issues get archived |
 
 ### Round 2 (Ben, 2026-11-02, all recommendations accepted)
 

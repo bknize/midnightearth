@@ -203,7 +203,7 @@ func test_hidden_sets_are_empty_for_a_seat_out_of_range() -> void:
 	assert_object(Rollout.determinize(engine, -1, 3)).is_null()
 
 
-## R18 (NSC-213): a paused drain pins its kept entry's card and subject, the card lists of
+## R18 (B-44): a paused drain pins its kept entry's card and subject, the card lists of
 ## its data and the subjects it woke; an amount, a stage or a slot equal to a live hidden
 ## card's id pins nothing.
 func test_a_paused_entry_pins_card_ids_only() -> void:
@@ -329,8 +329,8 @@ func test_the_same_seeds_give_the_same_labels() -> void:
 		assert_int(entry["spread"]).is_greater_equal(0)
 
 
-## label() works the view, hidden sets and mappings out once per position (NSC-210) and
-## reads outcomes without serializing (NSC-211); each label must equal the one built the
+## label() works the view, hidden sets and mappings out once per position (B-41) and
+## reads outcomes without serializing (B-42); each label must equal the one built the
 ## straightforward way, a public determinize() and play() per candidate and deal.
 func test_a_label_equals_determinize_and_play_per_deal() -> void:
 	var engine: MatchEngine = _position()
@@ -403,7 +403,7 @@ func test_a_play_out_value_follows_the_formula() -> void:
 	assert_bool(played["rejected"]).is_false()
 	if not played["capped"]:
 		assert_bool(copy.is_over()).is_true()
-	# The outcome reads (NSC-211) agree with the full state.
+	# The outcome reads (B-42) agree with the full state.
 	var full: Dictionary = copy.full_state()
 	assert_array(copy.round_wins()).is_equal(_ints(full["wins"]))
 	var ended: Dictionary = full["result"]

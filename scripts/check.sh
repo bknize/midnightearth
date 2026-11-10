@@ -124,12 +124,12 @@ run_gdunit() {
   esac
 }
 
-# The gate's suites: all of res://tests except the 50-seed sweep (res://tests/sweep, NSC-133).
+# The gate's suites: all of res://tests except the 50-seed sweep (res://tests/sweep, B-14).
 stage_test() {
   run_gdunit test 'Statistics:' --add res://tests --ignore res://tests/sweep
 }
 
-# The 50-seed sweep (NSC-133), outside `all`: SWEEP_BOT=<name> sweeps another bot than
+# The 50-seed sweep (B-14), outside `all`: SWEEP_BOT=<name> sweeps another bot than
 # BotRegistry.default_name() (make sweep BOT=matrix); SWEEP_WEIGHTS=<abs path> builds it on that weights file. Prints the sweep's summary lines.
 stage_sweep() {
   run_gdunit sweep 'Sweep:|Sweep pairing|Statistics:' --add res://tests/sweep

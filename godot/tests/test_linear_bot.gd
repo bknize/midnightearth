@@ -178,7 +178,7 @@ func test_k_sampling_keeps_k() -> void:
 	)
 
 
-## NSC-245 (R35): with 1024 candidates listed and `k` 5, every seed offers the pass exactly
+## B-51 (R35): with 1024 candidates listed and `k` 5, every seed offers the pass exactly
 ## once and stays within `k`. The cut reproduced here is the old first `k` of the same shuffle
 ## (the positive control: it drops the pass), with the pass in its last place, which shows no
 ## draw was added. Counted negatively, Power makes the offered pass the commit.

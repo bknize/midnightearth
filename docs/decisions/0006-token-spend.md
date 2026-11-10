@@ -6,7 +6,6 @@ related: ["[[decisions/decisions-moc]]", "[[decisions/0002-one-branch-per-cycle]
 created: 2026-11-08
 updated: 2026-11-08
 uid: fd5e3707-2266-4d87-99e8-867efbcf1e49
-linear:
 supersedes:
 ---
 

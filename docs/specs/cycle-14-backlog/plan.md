@@ -6,7 +6,6 @@ related: ["[[specs/cycle-14-backlog/spec]]", "[[specs/cycle-14-backlog/tasks]]",
 created: 2026-11-08
 updated: 2026-11-09
 uid: 5879f247-28b2-4618-b63d-84d7477e1b10
-linear: https://linear.app/night-science-llc/project/cycle-14-backlog-sweep-1f4a4af95173
 supersedes:
 ---
 
@@ -27,7 +26,7 @@ choice, the choice is in the decisions table so tasks.md can point at it.
 | Bots, tools, trainer | yes | `godot/engine/bot/`, `godot/tools/match_worker.gd`, `trainer/` (Python, its own tests), `scripts/bot/` |
 | Tooling/scripts | yes | `scripts/worktree-sweep.sh`, the edit hook under `scripts/hooks/`; Bash with `set -uo pipefail` |
 | Vault/docs | yes | `docs/rules/*`, `docs/systems/*`, `docs/planning/cycles.md` and `bot-ladder.md`, finished specs' DoD boxes, `CLAUDE.md` rows; link audit with `obsidian-cli` |
-| Linear | yes | existing project P-NSC-16; milestone `DC-20 backlog-sweep`; `/exercise` maps tasks onto the existing issues (one task may close several) and creates issues only for the few tasks with no issue of their own |
+| Linear | yes | existing project cycle-14-backlog; milestone `DC-20 backlog-sweep`; `/exercise` maps tasks onto the existing issues (one task may close several) and creates issues only for the few tasks with no issue of their own |
 
 ## Decisions (the HOW the spec left open)
 
@@ -45,8 +44,8 @@ choice, the choice is in the decisions table so tasks.md can point at it.
 | P10 | Determinization pins (R18) | `Rollout._pinned` pins `card` and `subject` of each entry and the prompt's source as today; for a paused drain it pins only the kept entry's `card` and `subject` and the ids under keys the engine documents as card lists (`chosen`, `cards`), never every whole number. `test_rollout.gd` case: a paused entry carrying an amount equal to a live card id is not pinned. |
 | P11 | Board fixes (R19–R25) | `board.gd._apply` calls `hud.set_piles` only on steps that change a Pile (or `set_piles` keeps `note_deck` until `note_deck` is cleared by its own timer); `may_act()` is false when `_closed`; `_on_match_closed` clears the connection note; the tap path in `card_lift`/`board.gd` checks `_halted` where the drag path does; `CARD_EXPIRED` maps to a fly-off step without a Pile arrival. `test_card_lift.gd` is a new suite over `card_lift.gd` and the halted paths. |
 | P12 | PVP polish (R26–R33) | `MatchRoom.fail` called from the act path's error branch; a per-address wrong-code counter in `RoomRegistry` (5 misses per 60 s, 60 s cooling, constants); every timer in `match_server.gd`, `match_room.gd` and `net_client.gd` reads `Time.get_ticks_msec()`, `Time.get_unix_time_from_system` only in `pvp_log.gd` timestamps; `_disconnects` cap 5 per seat per match; a resync over 1 MiB closes the client with `resync_too_large`; `server.log` rotates at 8 MiB keeping 3; the bot client's `actions=` counter resets on rejoin; `PvpLog.scan_orphans` reads the header line only (the writer puts the header first). Proven by `test_match_room.gd`, `test_room_registry.gd`, `test_match_server_loopback.gd` and `test_pvp_log.gd`. |
-| P13 | Trainer (R34–R39) | NSC-245's Python items and NSC-209 in one task; the Godot-side items of NSC-245 (`LinearBot` pass candidate, `match_worker` `_weights_stamp`) in a separate `implementer-engine` task because `LinearBot` is engine code and it moves the `linear` sweep counters (recorded, not pinned); NSC-233's code items in a third task after the first; protocol, hello, label reply and schema untouched (R37). The label digest of the committed 20-position file is run before T15 and after T17 on the Mac and written in the task notes. NSC-231 is an orchestrator check over SSH at T15. |
-| P14 | Cleanup (C12) | Each cleanup issue is one task whose only acceptance is unchanged behaviour: the golden lines, the sweep summary, and the suites of the files it touches. The structural items of NSC-189 (step dispatch split, seven flags to a phase enum, `exit_to` enum, BoardStep field pruning, PILE_SHOW) are done inside the one board-core task after the board bug task merges, so the bug fixes are not written twice. |
+| P13 | Trainer (R34–R39) | B-51's Python items and B-40 in one task; the Godot-side items of B-51 (`LinearBot` pass candidate, `match_worker` `_weights_stamp`) in a separate `implementer-engine` task because `LinearBot` is engine code and it moves the `linear` sweep counters (recorded, not pinned); B-50's code items in a third task after the first; protocol, hello, label reply and schema untouched (R37). The label digest of the committed 20-position file is run before T15 and after T17 on the Mac and written in the task notes. B-48 is an orchestrator check over SSH at T15. |
+| P14 | Cleanup (C12) | Each cleanup issue is one task whose only acceptance is unchanged behaviour: the golden lines, the sweep summary, and the suites of the files it touches. The structural items of B-34 (step dispatch split, seven flags to a phase enum, `exit_to` enum, BoardStep field pruning, PILE_SHOW) are done inside the one board-core task after the board bug task merges, so the bug fixes are not written twice. |
 | P15 | Tests and the budget (R43, R44) | The `_typed()` helper lives in `godot/tests/fixtures/typed.gd` (a static helper, no `class_name` clash: the file names one class only). The budget task runs last among code tasks; the orchestrator gives the implementer the per-suite timings from `godot/reports/test.log`, and the implementer trims the slowest suites (fewer seeds in sweeps that are not the 50-seed sweep, shared fixtures, no sleeps) without dropping a case. |
 | P16 | Tooling (R41, R42) | `worktree-sweep.sh` lists worktrees with `git worktree list --porcelain`, removes only those whose branch is `git merge-base --is-ancestor` of the target and whose path lies under this checkout's `.worktrees` (or the path the Makefile uses), and before removal moves `*.png` under the worktree's `godot/reports/` and screenshot folder to `reports/screenshots/<branch>/` in the main checkout. The edit hook prepends `~/.local/bin` to PATH and prints `edit hook: gdlint not found, lint skipped` when it is still missing. |
 | P17 | Documents (R45–R48) | The canon task writes the rulings in `docs/rules/` and the two systems guides; the docs task rewrites `docs/systems/bot-training.md` from the code after the trainer wave, adds the three `CLAUDE.md` rows, refreshes "Planned next", ticks or supersedes DoD boxes and lists the two Ben boxes for the orchestrator's question. The ladder row and the cycles row are the orchestrator's at T09 and T20. |
@@ -155,7 +154,7 @@ Trainer:
 - Protocol drift between the Mac and the PC during the trainer wave → R37 forbids protocol
   and schema changes; T15–T17 run only between nights; the PC is re-synced once before
   night 3.
-- The board core refactor (NSC-189) and the bug fixes collide → the chain T10 → T12 → T13 is
+- The board core refactor (B-34) and the bug fixes collide → the chain T10 → T12 → T13 is
   strictly serial, and `test_board_steps*.gd` plus the seed-1 board line pin behaviour.
 - The 30 s gdUnit budget tightens as suites grow → T18 runs last with measured timings; if a
   suite cannot be trimmed without dropping a case, the orchestrator asks Ben rather than
@@ -168,5 +167,5 @@ Trainer:
 
 ## Open questions
 
-- None for the design. The two NSC-252 Definition-of-done boxes that need Ben are put to him
+- None for the design. The two B-58 Definition-of-done boxes that need Ben are put to him
   at `/cycle plan` as one plain-text question (R47).

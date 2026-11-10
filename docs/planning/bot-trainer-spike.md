@@ -6,7 +6,6 @@ related: ["[[planning/bot-trainer-architecture]]", "[[planning/planning-moc]]", 
 created: 2026-11-06
 updated: 2026-11-07
 uid: 6ff633e9-bfe0-48b8-af55-206e04d5aa3b
-linear:
 supersedes:
 ---
 

@@ -3,7 +3,7 @@ extends PvpLeakHarness
 ## The P15 leak scan over every PVP message (cycle 12 T03; plan P15; spec R21, R33, R67) on
 ## GATE_SEEDS seeds, inside the gate's 30-second budget (R69). The scan itself lives in
 ## PvpLeakHarness; tests/sweep/test_pvp_leaks_sweep.gd runs it on SWEEP_SEEDS under
-## `make sweep`. Rules 9 (cycle 14 R15, NSC-249): a Crew's stats change on a card in the
+## `make sweep`. Rules 9 (cycle 14 R15, B-55): a Crew's stats change on a card in the
 ## first committer's pending face-down Commit reaches that seat only.
 
 const PENDING_SEED: int = 1

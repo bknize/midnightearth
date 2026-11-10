@@ -150,7 +150,7 @@ static func build(
 	view.first_seat = state.first_seat
 	view.sudden_death = state.sudden_death
 	view.prompt = _prompt(state, view.seat, cards)
-	# Seat-indexed: MatchEngine.SEATS owns the count (NSC-177).
+	# Seat-indexed: MatchEngine.SEATS owns the count (B-22).
 	for index: int in range(MatchEngine.SEATS):
 		var uses: Array = state.crew_uses[index]
 		view.crew_uses[index] = uses.duplicate()
