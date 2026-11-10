@@ -21,7 +21,7 @@ R1–R9). This file is the short version every agent must obey.
 | `godot/tests/` | gdUnit4 suites | One suite per engine module |
 | `godot/art/` | Approved art (`/art approve`) | Git LFS; every image has an entry in `art/manifest.json` (ADR 0003) |
 | `art/` | `manifest.json` (tracked); `candidates/` and `ledger.jsonl` (gitignored) | Written only by the artist and `scripts/art-*` |
-| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees), `art-fetch.sh` / `art-approve.sh` / `art-sheet.py` (art pipeline), `replicate-mcp.sh` (starts the Replicate MCP with the `.env` token), `cycle-land.sh` (commit, merge and gate one task, then mark it done), `dashboard.py` (writes the note `docs/dashboard.md` from the task notes; `--set` changes one Status cell), `training-pull.sh` (pulls the autopilot's findings from the PC over SSH alias `midnight-pc` and computes the figures), `obsidian/dashboard.css` (the dashboard's CSS snippet, copied by Ben into `docs/.obsidian/snippets/`) | Bash, `set -uo pipefail`; `art-sheet.py` (Pillow) and `dashboard.py` (standard library) are Python |
+| `scripts/` | Gate, hooks, bootstrap, wrapper, `godot-editor.sh` (status / close / open / switch the editor between checkouts), `worktree-sweep.sh` (remove merged worktrees), `art-fetch.sh` / `art-approve.sh` / `art-sheet.py` (art pipeline), `replicate-mcp.sh` (starts the Replicate MCP with the `.env` token), `cycle-land.sh` (commit, merge and gate one task, then mark it done), `dashboard.py` (writes the note `docs/dashboard.md` from the task notes; `--set` changes one Status cell), `release.sh` (`make release`: gate, export macOS and Windows from a staged copy without the dev addons, publish a GitHub Release from the pushed tip of `master`; ADR 0008), `training-pull.sh` (pulls the autopilot's findings from the PC over SSH alias `midnight-pc` and computes the figures), `obsidian/dashboard.css` (the dashboard's CSS snippet, copied by Ben into `docs/.obsidian/snippets/`) | Bash, `set -uo pipefail`; `art-sheet.py` (Pillow) and `dashboard.py` (standard library) are Python |
 | `.claude/` | Agents, skills, hook settings | The orchestrator pattern lives here |
 
 ## The build gate: `make check`
@@ -35,6 +35,10 @@ Godot MCP (P7). If `make` itself fails on the Xcode license, use `scripts/check.
 Before the gate, `/cycle test` runs `/code-review medium` then `/simplify` on the cycle's
 diff, report-only and `medium` unless Ben names otherwise, never `ultra` unprompted
 (`docs/decisions/0004-review-tools-in-the-cycle.md`).
+
+`make release` publishes a playtest build (macOS and Windows zips) as a GitHub Release,
+outside the gate and only when Ben asks; `make release DRY_RUN=1` builds without uploading
+(`docs/decisions/0008-playtest-releases.md`).
 
 `make sweep` runs the 50-seed bot sweep (`godot/tests/sweep/`) outside the gate, at
 `/cycle test` and for bot reruns; `make sweep BOT=<name>` sweeps another bot.

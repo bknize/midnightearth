@@ -30,3 +30,8 @@ trainer-test: ; @python3 -I -m unittest discover -s trainer/tests -t .
 # the backlog note. Run at the end of a cycle (`/cycle test`). No Godot.
 .PHONY: dashboard
 dashboard:  ; @python3 -I scripts/dashboard.py
+# The playtest release (docs/decisions/0008-playtest-releases.md), outside `check`: gate, export
+# macOS + Windows, publish a GitHub Release from the pushed tip of master.
+# `make release DRY_RUN=1` builds into build/out and uploads nothing.
+.PHONY: release
+release:    ; @scripts/release.sh$(if $(DRY_RUN), --dry-run)

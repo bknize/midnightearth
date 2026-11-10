@@ -39,3 +39,6 @@ art/ledger.jsonl
 
 # Cycle screenshots moved out of swept worktrees by scripts/worktree-sweep.sh
 reports/screenshots/
+
+# Playtest builds (scripts/release.sh)
+build/
