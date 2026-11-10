@@ -23,6 +23,7 @@ class Stub:
 
     def __init__(self, replies: List[Any]) -> None:
         self.replies = list(replies)
+        self.bodies: List[Any] = []
         stub = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -36,7 +37,7 @@ class Stub:
 
             def do_POST(self) -> None:
                 n = int(self.headers.get("Content-Length", "0"))
-                self.rfile.read(n)
+                stub.bodies.append(json.loads(self.rfile.read(n) or b"null"))
                 item = stub.replies.pop(0)
                 if isinstance(item, float):
                     time.sleep(item)
@@ -85,6 +86,7 @@ class AdvisorTest(unittest.TestCase):
     def run_advise(self, replies: List[Any], reply_timeout: float = 5.0,
                    pins: Any = None) -> advisor.Advice:
         stub = Stub(replies)
+        self.stub = stub
         self.addCleanup(stub.close)
         cfg = advisor.AdvisorConfig(server_path="/bin/llama-server", model_path="/m/q.gguf",
                                     port=stub.port, reply_timeout_s=reply_timeout,
@@ -121,6 +123,18 @@ class AdvisorTest(unittest.TestCase):
         self.assertEqual(a.reason, "")
         self.assertIn("invalid reply", a.fallback_reason)
         self.assertEqual(a.plan, advisor.default_plan(True))
+        self.assert_stopped()
+
+    def test_request_turns_thinking_off(self) -> None:
+        self.run_advise([GOOD])
+        body = self.stub.bodies[0]
+        self.assertEqual(body["chat_template_kwargs"], {"enable_thinking": False})
+        self.assertEqual(body["max_tokens"], advisor.REPLY_MAX_TOKENS)
+
+    def test_empty_replies_say_so(self) -> None:
+        a = self.run_advise(["", ""])
+        self.assertEqual(a.source, "fallback")
+        self.assertIn("empty reply", a.fallback_reason)
         self.assert_stopped()
 
     def test_unknown_knob(self) -> None:

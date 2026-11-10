@@ -593,7 +593,14 @@ class Autopilot:
                 "reason": advice.reason, "seconds": advice.seconds}
         plan = dict(val.plan)
         trial: Optional[List[Any]] = None
-        if val.trial is not None:
+        if val.trial is not None and advice.source == "fallback":
+            # The fallback is a fixed rule, never an experiment (R20): a value of it outside the
+            # bounds is carried as the nearest in-bounds value, as narrowing does (T14).
+            name, value = val.trial[0], val.trial[1]
+            plan[name] = knobs.clamp(name, value, st["bounds"])
+            notes.append("fallback %s=%r is outside the bounds: carried %r, no trial"
+                         % (name, value, plan[name]))
+        elif val.trial is not None:
             trial = [val.trial[0], val.trial[1]]
             plan[val.trial[0]] = val.trial[1]
             notes.append("trial block for %s=%r" % (val.trial[0], val.trial[1]))

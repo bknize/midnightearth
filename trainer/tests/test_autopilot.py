@@ -294,6 +294,19 @@ class AutopilotCase(unittest.TestCase):
         self.assertEqual(self.service.run_cfgs[-1]["positions"], 9000)
         self.assertEqual(len(self.advisor.calls), 2)  # no advice after a trial block
 
+    def test_fallback_outside_bounds_is_clamped_not_trialled(self) -> None:
+        """A fallback plan is never an experiment (R20): its value outside narrowed bounds is
+        carried as the nearest in-bounds value (T14 on the PC ran a trial from a fallback)."""
+        self.advisor.script = [Advice(source="fallback", fallback_reason="empty reply",
+                                      plan={"positions": 9000})]
+        self.go(stop_after=2)
+        es = self.entries()
+        self.assertEqual([e["kind"] for e in es], ["full", "full"])
+        self.assertEqual(es[1]["plan_source"], "fallback")
+        self.assertIsNone(es[1]["trial"])
+        self.assertEqual(es[1]["plan"]["positions"], 4000)
+        self.assertTrue(any("no trial" in n for n in es[1]["plan_notes"]))
+
     def test_trial_fail_refused_with_fallback(self) -> None:
         self.service.lpm_fn = lambda cfg: 100.0 if cfg["positions"] <= 4000 else 5.0
         self.advisor.script = [Advice(plan={"positions": 9000})]

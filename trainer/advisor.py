@@ -23,6 +23,7 @@ HISTORY_ENTRIES = 8
 HEALTH_POLL_S = 1.0
 STOP_WAIT_S = 20.0
 ABANDON_POLL_S = 0.2
+REPLY_MAX_TOKENS = 2048  # a reply is a few hundred tokens
 
 _LIVE: Set[Any] = set()  # llama-server children not yet stopped; the atexit hook ends them
 _LIVE_LOCK = threading.Lock()
@@ -325,6 +326,9 @@ class Advisor:
              stop: Optional[threading.Event] = None) -> Tuple[Optional[Dict[str, Any]], str]:
         body = json.dumps({
             "messages": messages, "temperature": 0.2,
+            # No thinking: the reply is one small JSON object, and a thinking model (Qwen3.5 on
+            # the PC) used the whole per-slot context on it and returned nothing (T14).
+            "chat_template_kwargs": {"enable_thinking": False}, "max_tokens": REPLY_MAX_TOKENS,
             "response_format": {"type": "json_schema",
                                 "json_schema": {"name": "plan_reply", "strict": True,
                                                 "schema": REPLY_SCHEMA}},
@@ -337,15 +341,20 @@ class Advisor:
                 return None, "request failed: %s" % (str(exc) or type(exc).__name__)
             if status != 200:
                 return None, "HTTP %d" % status
+            finish = ""
             try:
-                content = json.loads(text)["choices"][0]["message"]["content"]
-            except (ValueError, KeyError, IndexError, TypeError):
+                choice = json.loads(text)["choices"][0]
+                content = choice["message"]["content"]
+                finish = str(choice.get("finish_reason") or "")
+            except (ValueError, KeyError, IndexError, TypeError, AttributeError):
                 content = text
             content = content if isinstance(content, str) else json.dumps(content)
             raws.append(content)
             reply, problem = parse_reply(content, pins)
             if reply is not None:
                 return reply, ""
+            if not content.strip():
+                problem = "empty reply (finish_reason %s)" % (finish or "unknown")
         return None, "invalid reply twice: " + problem
 
     def _stop(self, handle: Any) -> None:
