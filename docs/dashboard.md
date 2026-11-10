@@ -5,7 +5,7 @@ tags: [moc, dashboard, planning]
 status: evergreen
 related: ["[[planning/cycles]]", "[[planning/backlog]]", "[[specs/specs-moc]]", "[[decisions/0007-no-ticket-tracker]]"]
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-10
 uid: 5d0c3b1e-7a52-4c8e-9f41-2b6e0a7d9c13
 supersedes:
 ---
@@ -18,9 +18,40 @@ source note and run `make dashboard` again.
 
 | Dev cycles done | Tasks done | Tasks to do | Open backlog items |
 |---|---|---|---|
-| 21 / 21 | 208 / 210 | 2 | 7 |
+| 21 / 22 | 221 / 223 | 2 | 10 |
 
 ## Cycles
+
+> [!success]- [[specs/cycle-16-training-autopilot/spec|training autopilot]] · 13 / 13
+> <progress value="13" max="13"></progress> DC-22 · [[specs/cycle-16-training-autopilot/spec|spec]] · [[specs/cycle-16-training-autopilot/plan|plan]] · [[specs/cycle-16-training-autopilot/tasks|tasks]]
+>
+> - **DC-22 training-autopilot** · 2026-11-09 → in progress · Mac side done 2026-11-09
+>
+> | # | Task | Area | Who | Status |
+> |---|---|---|---|---|
+> | T01 | Close DC-21's hand-run rounds | vault | orchestrator | <span class="st st-done">done</span> |
+> | T02 | Knobs: the table, bounds, hard limits, `validate` with one trial value and refusals (P9; R18, R23, R24, R27, R… | tooling | implementer | <span class="st st-done">done</span> |
+> | T03 | Findings log | tooling | implementer | <span class="st st-done">done</span> |
+> | T04 | Judge and champion | tooling | implementer | <span class="st st-done">done</span> |
+> | T05 | Advisor: LLM server start and stop, prompt, reply schema, retry, timeout, the fallback rule, the request recor… | tooling | implementer | <span class="st st-done">done</span> |
+> | T06 | The loop: blocks, iterations, deadline and grace, trial blocks, plateau, faults, stop, state file and resume,… | tooling | implementer | <span class="st st-done">done</span> |
+> | T07 | Steering: validate, apply, archive, refuse (P13; R29 to R31) | tooling | implementer | <span class="st st-done">done</span> |
+> | T08 | Service wiring | tooling | implementer | <span class="st st-done">done</span> |
+> | T09 | Mac pull and figures | tooling | implementer | <span class="st st-done">done</span> |
+> | T10 | Windows files and setup | tooling | implementer | <span class="st st-done">done</span> |
+> | T11 | The `/training` skill and the digest note's first version | tooling, vault | implementer | <span class="st st-done">done</span> |
+> | T12 | Docs: `CLAUDE.md` (layout rows, the skill verbs), `docs/systems/bot-training.md`, architecture decisions T8 on… | vault | implementer | <span class="st st-done">done</span> |
+> | T13 | Review of the cycle's diff | tooling | reviewer | <span class="st st-done">done</span> |
+>
+> **Verification: 7 of 7 checked**
+>
+> - ☑ `make check` exits 0 and `make trainer-test` is green on the Mac.
+> - ☑ `sync_code` the branch to the PC
+> - ☑ Short-block proof on the PC
+> - ☑ `sync_code` refused while it ran, accepted after the stop.
+> - ☑ `/training digest` on the Mac
+> - ☑ No screenshot
+> - ☑ `obsidian-cli vault=docs unresolved` reports nothing new.
 
 > [!success]- [[specs/cycle-14-backlog/spec|Cycle 14 — backlog sweep]] · 21 / 21
 > <progress value="21" max="21"></progress> DC-20 · [[specs/cycle-14-backlog/spec|spec]] · [[specs/cycle-14-backlog/plan|plan]] · [[specs/cycle-14-backlog/tasks|tasks]]
@@ -594,7 +625,7 @@ source note and run `make dashboard` again.
 
 ## Backlog
 
-> [!todo]+ Open · 7
+> [!todo]+ Open · 10
 > | # | Item | Status | Where |
 > |---|---|---|---|
 > | B-54 | PVP server: router forward, CGNAT check and public address | <span class="st st-open">open</span> | Training nights and router |
@@ -604,6 +635,9 @@ source note and run `make dashboard` again.
 > | B-61 | DC-20 review nits: resync failure reason, free-first drop, verb handler allocation, expired Dross Memory | <span class="st st-open">open</span> | – |
 > | B-62 | PC at the DC-20 tip: redeploy, trainer tests, planted log rotation | <span class="st st-open">open</span> | Training nights and router |
 > | B-63 | Hidden card ids in public exit and unreveal events (sweep fails on trained linear weights) | <span class="st st-open">open</span> | DC-21 training-rounds |
+> | B-64 | DC-22 review nits (trainer autopilot): `_advise`'s `base` duplicates `_enforce`; `_apply_judge_cap` reads cap only for a None check; findings.jsonl re-parsed several times per boundary and per status call | <span class="st st-open">open</span> | DC-22 follow-up |
+> | B-65 | DC-22 simplify (trainer): advisor's llama-server stop lacks the Windows `taskkill /T` tree kill of `judge._end`; digest's `result=` regex differs from `judge.outcome_of`; copied number validators (use `config._int`/`_number`); JSON-dict read and free-name loops written twice; free disk GiB vs `/health` GB; dead `seed_done`, `DEFAULT_PLAN`, `clear_champion`, `Steering.date`; `_seed_block` duplicates `_judge_stage`; ~20 scattered `_halting` checks (one `_Halt` exception); autopilot reaches into `service._stamp_fn`/`store`; weights special-cased by name in 4+ places (belongs in the WEIGHTS kind); fallback plan routed through the trial detector; agreement 0.0 for "not measured" (use None); stamp hashed 3× in `autopilot_start`; every `Service()` builds the autopilot eagerly; `state.json` written twice per run start; 1 s drain polling while a stop is pending; real sleeps in two tests | <span class="st st-open">open</span> | DC-22 follow-up |
+> | B-66 | PC at the DC-22 merge: `sync_code` the review fixes (R1–R6), trainer tests on the PC, and replace the proof steering (`positions` 200 to 400) through `/training steer` before a real night | <span class="st st-open">open</span> | DC-22 follow-up |
 
 > [!success]- Closed · 56
 > | # | Item | Status | Where |

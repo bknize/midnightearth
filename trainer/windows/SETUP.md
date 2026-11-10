@@ -108,6 +108,88 @@ overrides it): `trainer.db` (runs, positions, labels, fits), `runs\<id>\` (the l
    once nothing is reading it and starts the service from it. Check
    `C:\Users\trainer\trainer\logs\` for its log and `health` for `restart_loop: true`.
 
+## Training autopilot
+
+The autopilot (`trainer/autopilot.py`, spec cycle 16) runs the training loop inside the
+trainer service: blocks of labelling, fit and judging, with a local LLM proposing each block's
+plan. It replaces the night `.cmd` jobs and `spike\night*.py`, which are retired: do not
+schedule or run them, and delete any copies still under `C:\Users\trainer\spike\` once the
+autopilot has run one block. The data directory below is `C:\Users\trainer\trainer-data\`
+(`TRAINER_DATA` overrides it); everything the autopilot writes is under `autopilot\`.
+
+**The LLM config.** Put `autopilot\config.json` there (example:
+`trainer/windows/autopilot-config.example.json`; other fields are refused):
+
+| Field | Meaning |
+|---|---|
+| `server_path` | `llama-server.exe` |
+| `model_path` | the `.gguf` model file |
+| `host`, `port` | where the server listens; keep `127.0.0.1` and `8080` |
+| `server_args` | the `llama-server` arguments; the default is the spike's working line |
+| `health_timeout_s` | seconds to wait for `/health` after launch (default 300) |
+| `reply_timeout_s` | seconds to wait for the advisor's reply (default 300) |
+| `model_name` | label written to the advisor files; defaults to the model file's name |
+
+```sh
+ssh PC 'New-Item -ItemType Directory -Force C:\Users\trainer\trainer-data\autopilot | Out-Null'
+scp trainer/windows/autopilot-config.example.json PC:C:/Users/trainer/trainer-data/autopilot/config.json
+```
+
+Then edit the two paths to match the PC. The autopilot starts and stops the LLM server itself
+at block boundaries and never leaves it running: do not start it by hand, and a `llama-server`
+still running between blocks is a fault.
+
+**First start.** After `sync_code`, call the MCP tool `autopilot_start` with the start config
+(example: `trainer/windows/autopilot-start.example.json`). Its fields:
+
+| Field | Meaning |
+|---|---|
+| `block_hours` | length of a full block (3.0) |
+| `grace_minutes` | extra minutes allowed to finish a stage past the deadline (20) |
+| `trial_minutes` | budget of a trial block for one out-of-bounds value (20) |
+| `min_positions` | fewest labelled positions worth fitting and judging (300) |
+| `plateau_blocks` | blocks without a new champion before the plateau flag is set (6) |
+| `disk_floor_gb` | the autopilot starts no work below this much free disk (5) |
+| `judge_cap` | pair cap of each judge game set; a capped judgment counts as no change |
+| `candidates` | fit ids judged first to seed the champion: F0 `05182ca9d62f` and the fit of DC-21's last round (replace the placeholder) |
+| `run_seed_base` | each run's seed is this plus a counter, so no two runs share a seed |
+
+Unknown fields are refused. `autopilot_status` shows the block, stage, deadline and champion.
+
+**Stopping.** Either call the MCP tool `autopilot_stop`, or, with the MCP down, over SSH:
+
+```sh
+scp trainer/windows/autopilot-stop.cmd PC:C:/Users/trainer/trainer/autopilot-stop.cmd
+ssh PC 'C:\Users\trainer\trainer\autopilot-stop.cmd'
+```
+
+Both raise one flag, the file `C:\Users\trainer\trainer-data\autopilot\STOP`. The autopilot
+looks for it at safe points (after a labelling batch, between fit and judge, between judge
+games), writes the open block's entry marked `interrupted`, clears `running`, removes the file
+and stops within 10 minutes. Stop it before `sync_code`, then start it again.
+
+**Restarts.** The service starts at every boot from `autostart\`. If the autopilot was running
+when the service last stopped, it starts again and resumes the open block at its original
+wall-clock deadline: a reboot does not extend a block. While it runs, `sync_code` is refused
+with a message naming the autopilot.
+
+**Where things are** (under `C:\Users\trainer\trainer-data\autopilot\`):
+
+| Path | What |
+|---|---|
+| `findings.jsonl` | one entry per block, append-only; the Mac pulls this |
+| `state.json` | running flag, block, deadline, open run and stage, counters |
+| `champion.json` | the champion's fit id, stamp, judge lines and block |
+| `advisor\<block>.json` | the advisor's prompt digest, model and reply |
+| `advisor\llama-server.log` | the LLM server's output |
+| `steering\` | steering files applied (`<n>.json`) or refused (`refused-<n>.json`) |
+| `STOP` | the stop flag, present only between a request and the stop |
+
+**Steering inbox.** The Mac copies an approved `steering.json` to
+`C:\Users\trainer\me\inbox\steering.json`. At the next block boundary the autopilot validates
+it, moves it to `steering\<n>.json` and applies it; an invalid file, or one without
+`approved_by`, is moved to `steering\refused-<n>.json`.
+
 ## Part 2. Admin steps for a fresh PC only
 
 Run in one elevated PowerShell window on the PC, in order. The account's password goes in a

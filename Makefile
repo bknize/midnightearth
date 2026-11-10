@@ -22,7 +22,9 @@ sweep:      ; @$(if $(filter command line,$(origin BOT)),SWEEP_BOT=$(BOT) )$(if 
 bot-eval:   ; @scripts/bot-eval.sh --a $(BOT) --b $(REF) --seeds $(SEEDS)$(if $(filter command line,$(origin WEIGHTS)), --weights $(WEIGHTS))
 bot-selftest: ; @python3 -I scripts/bot/driver.py selftest
 # The bot trainer's unit tests (cycle 11 P19), outside `check`. No Godot.
-.PHONY: trainer-test
+.PHONY: trainer-test training-digest
+# The training digest (cycle 16 P17): outside `check`, contacts the PC once (one scp).
+training-digest: ; @scripts/training-pull.sh
 trainer-test: ; @python3 -I -m unittest discover -s trainer/tests -t .
 # The progress dashboard (ADR 0007): docs/dashboard.md from every tasks.md, cycles.md and
 # the backlog note. Run at the end of a cycle (`/cycle test`). No Godot.

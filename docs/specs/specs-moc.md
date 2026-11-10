@@ -4,7 +4,7 @@ tags: [moc, specs]
 status: evergreen
 related: ["[[home]]"]
 created: 2026-11-02
-updated: 2026-11-08
+updated: 2026-11-09
 uid: 99ef0f47-bcd6-4654-ad1f-ab1f1db9df29
 supersedes:
 ---
@@ -33,3 +33,4 @@ written by `/spec <slug>`. The `Status` column of each `tasks.md` is the progres
 | [[specs/cycle-12-multiplayer/spec|cycle-12-multiplayer]] ([[specs/cycle-12-multiplayer/plan|plan]], [[specs/cycle-12-multiplayer/tasks|tasks]]) | approved |
 | [[specs/cycle-13-bot-trainer-b/spec|cycle-13-bot-trainer-b]] ([[specs/cycle-13-bot-trainer-b/plan|plan]], [[specs/cycle-13-bot-trainer-b/tasks|tasks]]) | approved |
 | [[specs/cycle-14-backlog/spec|cycle-14-backlog]] ([[specs/cycle-14-backlog/plan|plan]], [[specs/cycle-14-backlog/tasks|tasks]]) | approved |
+| [[specs/cycle-16-training-autopilot/spec|cycle-16-training-autopilot]] ([[specs/cycle-16-training-autopilot/plan|plan]], [[specs/cycle-16-training-autopilot/tasks|tasks]]) | approved |

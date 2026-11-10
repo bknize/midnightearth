@@ -2,7 +2,7 @@
 type: system
 tags: [system, bot, training]
 status: growing
-related: ["[[systems/systems-moc]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[planning/bot-ladder]]", "[[planning/bot-trainer-architecture]]", "[[specs/cycle-11-bot-trainer/spec]]", "[[specs/cycle-13-bot-trainer-b/spec]]"]
+related: ["[[systems/systems-moc]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "[[planning/bot-ladder]]", "[[planning/bot-trainer-architecture]]", "[[specs/cycle-11-bot-trainer/spec]]", "[[specs/cycle-13-bot-trainer-b/spec]]", "[[specs/cycle-16-training-autopilot/spec]]", "[[systems/training-digest]]"]
 created: 2026-11-05
 updated: 2026-11-09
 uid: 05755c1d-4f49-4116-81c9-e95722b723cc
@@ -301,6 +301,54 @@ the folders, venv, first code bundle, token, runner and service; Part 2 is the a
 steps for a fresh PC (the account, OpenSSH, the firewall rules for the Mac, no sleep, the
 scheduled task). PowerShell 5.1 mangles quotes passed to native programs, so put logic in files
 rather than `python -c`. Keep the PC on the LAN only.
+
+## The autopilot
+
+Cycle 16 ([[specs/cycle-16-training-autopilot/spec]]) automates the loop above. DC-21's
+hand-run rounds are paused (Ben, 2026-11-09); the round in flight finishes, is judged once and
+its fit is the first champion candidate.
+
+- **A block** is a 3-hour budget (the start configuration may name another) of iterations. An
+  **iteration** is a labelling run, a fit on its labels and a judgment of the fit. A run cut by
+  the budget is fitted only if it holds the minimum positions. A block ends within budget plus
+  a grace (20 minutes) and always appends one entry to the findings log.
+- **Judge and champion.** The judge plays gainer matches of a new fit against `random` and, if
+  one exists, the champion. A fit that passes both becomes the champion; a fail or a cap keeps
+  the old one. The champion lives on the PC. The autopilot never writes to the training
+  worktree, `godot/engine/bot/` or a branch; promotion stays with Ben, `make sweep` and
+  [[planning/bot-ladder]]. If the code stamp's feature set differs from the champion's, it
+  starts with no champion.
+- **Advisor.** At each block boundary the local LLM (Qwen3.5-9B through llama.cpp) is asked for
+  the next plan, given recent entries, bounds, steering notes and the plateau state. Its model,
+  prompt digest and full reply are recorded. A missing, late or invalid reply, or an unlisted
+  knob, falls back to a fixed rule: the plan of the last block that made a champion, else the
+  default. The LLM server is stopped while a block runs. It never edits code.
+- **Knobs, bounds, trials, hard limits.** The table is `trainer/knobs.py`: generator, rollout,
+  their weights (blank or the champion), positions, determinizations, `k`, workers, and the
+  fit's `l2`, iterations and holdout. In-bounds values are used. A value outside the bounds but
+  inside the hard limit runs a trial block of about 20 minutes first (one per boundary); it
+  must show no error and throughput at or above the floor, then it joins the allowed values,
+  else it is refused. A value outside a hard limit is refused with no trial. A block never
+  changes a knob.
+- **Steering.** The Mac may send a steering file, read at the next block boundary, that
+  narrows or widens bounds within the hard limits, lists values to avoid, pins a knob, or adds
+  prompt notes. Ben approves every file (R32). An invalid file is refused and the steering in
+  force stays.
+- **Plateau and faults.** Six blocks in a row with no new champion mark a plateau in the entry
+  and tell the advisor; the autopilot keeps running. It stops on free disk below the floor or
+  after three failed blocks, recording the fault.
+- **Stop, restart, sync.** A stop reaches a safe point, writes the entry marked `interrupted`
+  and finishes within 10 minutes. If the service restarts while the autopilot was running, it
+  resumes the open block with its original deadline. `sync_code` is refused while it runs.
+  Tools: `autopilot_start`, `autopilot_stop`, `autopilot_status`, `get_findings`.
+- **Files on the PC**, under `<data>/autopilot/`: `state.json` (atomic stage state),
+  `findings.jsonl` (append-only), `config.json` (LLM server settings), the `STOP` flag, the
+  advisor's replies and the `steering/` folder (accepted `<n>.json`, refused `refused-<n>.json`).
+- **The Mac.** `make training-digest` (`scripts/training-pull.sh`, SSH alias `midnight-pc`)
+  reads the PC once, fetches the entries the Mac lacks into `godot/reports/bot/autopilot/` and
+  computes the figures with no LLM. The `/training` skill (`digest | steer | start | stop |
+  status`) has the orchestrator rewrite [[systems/training-digest]] and put steering to Ben. The
+  Mac contacts the PC only when Ben asks (R43).
 
 ## Troubleshooting
 

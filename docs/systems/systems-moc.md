@@ -22,5 +22,7 @@ describe the result, and link back to the specs for edge cases.
   effect model, the four decks card by card, the eight Crew, and how to add content.
 - [[systems/bot-training|Bots and training]]: the bots, how strength is measured, the
   stamp and rerun rule, the overnight training loop, calibration, and how to run it.
+- [[systems/training-digest|Training digest]]: the autopilot's figures by day, champion
+  history, steering in force, and the orchestrator's reading (rewritten by `/training digest`).
 
 The original rules sketch is still in [[planning/phase-3-game-loop]].

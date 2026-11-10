@@ -2,16 +2,16 @@
 type: planning
 tags: [planning, bot, training, llm, architecture]
 status: growing
-related: ["[[planning/planning-moc]]", "[[specs/cycle-9-rules-v2/spec]]", "[[specs/ruleset-v2/spec]]", "[[planning/bot-trainer-spike]]", "[[systems/bot-training]]", "[[planning/bot-ladder]]", "[[systems/game-loop]]", "[[specs/cycle-7-bot-players/spec]]"]
+related: ["[[planning/planning-moc]]", "[[specs/cycle-9-rules-v2/spec]]", "[[specs/ruleset-v2/spec]]", "[[planning/bot-trainer-spike]]", "[[systems/bot-training]]", "[[planning/bot-ladder]]", "[[systems/game-loop]]", "[[specs/cycle-7-bot-players/spec]]", "[[specs/cycle-16-training-autopilot/spec]]"]
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-09
 uid: 1260ecea-5fcf-425a-bf1f-6951276f5c24
 supersedes:
 ---
 
 # Bot trainer: an LLM-assisted program on the training PC
 
-> The proposed architecture for a bot-training app on Ben's Windows laptop. It labels positions with scored play-outs, uses a local LLM as a deck operator to propose plans, distils a fast scripted policy from the labels, and is driven from the Mac over MCP on the LAN. Ben's decisions (T1–T8) are at the end; the build goes through `/spec`.
+> The proposed architecture for a bot-training app on Ben's Windows laptop. It labels positions with scored play-outs, uses a local LLM as a deck operator to propose plans, distils a fast scripted policy from the labels, and is driven from the Mac over MCP on the LAN. Ben's decisions (T1–T20) are at the end; the build goes through `/spec`.
 
 ## Why the current loop is not enough
 
@@ -266,6 +266,19 @@ ledger row in [[planning/bot-ladder]].
 | T6 | Where the code lives | **(a) `trainer/` in this repo** | Same commit and stamp as the engine. Add a row to the CLAUDE.md layout table and a `make trainer-test` target (Python unit tests, runnable on both machines). |
 | T7 | Remote access to the PC | **(b) SSH into a separate non-admin Windows account, `trainer`** | Windows' built-in OpenSSH server. Key login only (the Mac's dedicated key `~/.ssh/midnight_pc`), passwords off, `AllowUsers trainer`, and port 22 open only to the Mac's address on the Private profile. The orchestrator installs per-user tools (Python, Godot, llama.cpp, models) and runs everything as `trainer`. Anything needing admin stays with Ben at the PC: the SSH server, firewall rules, the NVIDIA driver, system-wide Git, power and update settings. Long jobs are started detached, outside the SSH session's job object, so a dropped connection or a sleeping Mac doesn't kill them. |
 | T8 | After the spike | **(a) Keep SSH for maintenance; runs go through the MCP server's fixed verbs** | The MCP design above stands. SSH is for setup, updates and diagnosis. The trainer service runs as `trainer` too, so neither path has admin rights. |
+| T9 | Autopilot unit | **(a) Blocks of label → fit → judge iterations** | A block holds as many iterations as fit in its 3-hour budget, ends with a findings entry, then the LLM sets the next block's plan. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 1.1) |
+| T10 | LLM changes between blocks | **(b) Typed knobs within bounds, plus trials** | Values outside the bounds, inside a hard limit, run a short trial block first. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 1.2) |
+| T11 | Judging without the Mac | **(a) A champion on the PC** | Gainer matches against `random` and the champion; nothing reaches the repo without Ben and the Mac's sweep. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 1.3) |
+| T12 | DC-21 rhythm | **(b) Pause DC-21 now** | Hand-run rounds wait for the autopilot. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 1.4) |
+| T13 | Findings to the Mac | **(a) The Mac pulls only when Ben asks** | One read; a script or skill does it. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 2.1) |
+| T14 | Steering from the Mac | **(a) A steering file read at each block boundary** | Ben approves every change. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 2.2) |
+| T15 | Interrupted runs | **(a) Safe-point stop, partial entry, resume after reboot** | A code sync needs a stop first. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 2.3) |
+| T16 | DC-21 round in flight | **(a) Let it finish** | Judged once as the last hand-run round; its fit is the first champion candidate. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 2.4) |
+| T17 | What a trial must prove | **(a) Safety only** | No error and throughput above a floor; hard limits are never exceeded. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 3.1) |
+| T18 | Stopping for lack of progress | **(a) Never** | Plateau is marked and told to the LLM; it stops only on low disk or three failed blocks. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 3.2) |
+| T19 | Mac side form | **(a) Script and skill** | The script fetches and computes; the skill has the orchestrator analyse and propose steering. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 3.3) |
+| T20 | Proof the cycle is done | **(a) Tests on both machines, a short-block proof on the PC, one digest** | The first real night is outside the cycle. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 3.4) |
+| T21 | Advisor thinking | **(b) Off** | The advisor's request turns thinking off (`enable_thinking` false, replies capped at 2,048 tokens): in the T14 proof Qwen3.5 thought for 8,396 tokens, filled its 10,240-token slot (`-np 4` over 40,960) and returned nothing, twice, while plans are bounded, trialled and judged anyway. Rejected: (a) a `thinking` switch in `config.json` with `-np 1` and a 600 s wait; (c) always on. Reassess if the advisor's plans look poor. (Ben, 2026-11-09, cycle 16 T14) |
 
 The options as they were put to Ben:
 

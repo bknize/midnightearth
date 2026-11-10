@@ -32,6 +32,9 @@ B-01 to B-63 were Linear issues until 2026-11-09, renumbered in the order they w
 | B-61 | DC-20 review nits: resync failure reason, free-first drop, verb handler allocation, expired Dross Memory | open | – |
 | B-62 | PC at the DC-20 tip: redeploy, trainer tests, planted log rotation | open | Training nights and router |
 | B-63 | Hidden card ids in public exit and unreveal events (sweep fails on trained linear weights) | open | DC-21 training-rounds |
+| B-64 | DC-22 review nits (trainer autopilot): `_advise`'s `base` duplicates `_enforce`; `_apply_judge_cap` reads cap only for a None check; findings.jsonl re-parsed several times per boundary and per status call | open | DC-22 follow-up |
+| B-65 | DC-22 simplify (trainer): advisor's llama-server stop lacks the Windows `taskkill /T` tree kill of `judge._end`; digest's `result=` regex differs from `judge.outcome_of`; copied number validators (use `config._int`/`_number`); JSON-dict read and free-name loops written twice; free disk GiB vs `/health` GB; dead `seed_done`, `DEFAULT_PLAN`, `clear_champion`, `Steering.date`; `_seed_block` duplicates `_judge_stage`; ~20 scattered `_halting` checks (one `_Halt` exception); autopilot reaches into `service._stamp_fn`/`store`; weights special-cased by name in 4+ places (belongs in the WEIGHTS kind); fallback plan routed through the trial detector; agreement 0.0 for "not measured" (use None); stamp hashed 3× in `autopilot_start`; every `Service()` builds the autopilot eagerly; `state.json` written twice per run start; 1 s drain polling while a stop is pending; real sleeps in two tests | open | DC-22 follow-up |
+| B-66 | PC at the DC-22 merge: `sync_code` the review fixes (R1–R6), trainer tests on the PC, and replace the proof steering (`positions` 200 to 400) through `/training steer` before a real night | open | DC-22 follow-up |
 
 ## Closed
 

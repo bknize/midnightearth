@@ -27,9 +27,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     if cmd == "serve":
         from trainer.server import serve
         return serve(args[1:])
+    if cmd == "digest":
+        from trainer.digest import cli_digest
+        return cli_digest(args[1:])
     if cmd == "selftest":
         return _selftest()
-    print("usage: python -I trainer serve|run|selftest")
+    print("usage: python -I trainer serve|run|digest [--dir D]|selftest")
     return 2
 
 
