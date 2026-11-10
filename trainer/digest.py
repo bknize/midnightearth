@@ -89,8 +89,10 @@ def _group(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
             iterations += 1
             labels += int(_num(it.get("labels")))
             seconds += _num(it.get("label_seconds"))
-            fitted.append(_num(it.get("agreement_fitted")))
-            heldout.append(_num(it.get("agreement_heldout")))
+            if it.get("run") and it.get("fit"):  # a fit of this block's run: seed candidates,
+                # trials and interrupted iterations have no agreement and would read as 0.0
+                fitted.append(_num(it.get("agreement_fitted")))
+                heldout.append(_num(it.get("agreement_heldout")))
             judge_random[judge_outcome(it.get("judge_random"))] += 1
             judge_champion[judge_outcome(it.get("judge_champion"))] += 1
     hours = sum(_hours(e) for e in entries)

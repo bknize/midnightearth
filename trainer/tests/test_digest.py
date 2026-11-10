@@ -144,6 +144,26 @@ class DigestTest(unittest.TestCase):
         self.assertIn("line 1", line)
         self.assertFalse((self.dir / "figures.json").exists())
 
+    def test_agreement_counts_only_fitted_iterations(self) -> None:
+        """Seed candidates, trials and interrupted iterations carry no agreement: they are left
+        out of the mean and the last value (T14 on the PC read 0.30 / 0.0)."""
+        log = FindingsLog(self.dir / "findings.jsonl")
+        seed = new_entry(1, "seed", "done", "2026-11-10T04:00:00Z", "2026-11-10T04:05:00Z")
+        seed["iterations"] = [new_iteration(fit="c1")]
+        full = new_entry(2, "full", "done", "2026-11-10T04:05:00Z", "2026-11-10T04:20:00Z")
+        full["iterations"] = [new_iteration(run="r1", fit="f1", agreement_fitted=0.6,
+                                            agreement_heldout=0.5)]
+        cut = new_entry(3, "full", "interrupted", "2026-11-10T04:20:00Z", "2026-11-10T04:22:00Z")
+        cut["iterations"] = [new_iteration(run="r2")]
+        for e in (seed, full, cut):
+            log.append(e)
+        code, _line = digest(self.dir)
+        self.assertEqual(code, 0)
+        total = json.loads((self.dir / "figures.json").read_text())["total"]
+        self.assertEqual((total["agreement_fitted_mean"], total["agreement_fitted_last"]),
+                         (0.6, 0.6))
+        self.assertEqual(total["agreement_heldout_last"], 0.5)
+
     @MAC_SCRIPT
     def test_pull_script_one_scp(self) -> None:
         fixture = self.dir / "remote.jsonl"
