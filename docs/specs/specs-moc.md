@@ -13,7 +13,7 @@ supersedes:
 
 Each spec is a folder with `spec.md` (what), `plan.md` (how) and `tasks.md` (steps),
 written by `/spec <slug>`. The `Status` column of each `tasks.md` is the progress record
-([[decisions/0007-no-ticket-tracker]]); `docs/dashboard.html` shows them all.
+([[decisions/0007-no-ticket-tracker]]); [[dashboard]] shows them all.
 
 | Slug | Status |
 |---|---|

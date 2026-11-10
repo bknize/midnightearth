@@ -16,6 +16,7 @@ Entry point. Everything in this vault is plain Markdown with wikilinks; the sche
 
 - [[planning/planning-moc|Planning]] — the three planning phases and the cycle log
 - [[specs/specs-moc|Specs]] — one folder per feature: spec, plan, tasks
+- [[dashboard|Dashboard]] — every cycle, task and backlog item with its status, written by `make dashboard`
 - [[decisions/decisions-moc|Decisions]] — ADRs
 - [[systems/systems-moc|Systems]] — plain-language guides to how the game works today: the game loop, cards and Crew, the bots and training
 - [[art/art-direction|Art direction]] — the look of the cards, the prompt skeleton and the `generate` model

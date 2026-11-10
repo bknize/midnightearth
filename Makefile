@@ -26,7 +26,7 @@ bot-selftest: ; @python3 -I scripts/bot/driver.py selftest
 # The training digest (cycle 16 P17): outside `check`, contacts the PC once (one scp).
 training-digest: ; @scripts/training-pull.sh
 trainer-test: ; @python3 -I -m unittest discover -s trainer/tests -t .
-# The progress dashboard (ADR 0007): docs/dashboard.html from every tasks.md, cycles.md and
+# The progress dashboard (ADR 0007): docs/dashboard.md from every tasks.md, cycles.md and
 # the backlog note. Run at the end of a cycle (`/cycle test`). No Godot.
 .PHONY: dashboard
 dashboard:  ; @python3 -I scripts/dashboard.py
