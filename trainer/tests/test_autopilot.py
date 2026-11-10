@@ -361,6 +361,20 @@ class AutopilotCase(unittest.TestCase):
         self.assertEqual(self.advisor.defaults, [False, True])
         self.assertIsInstance(self.judge.calls[0][2], threading.Event)
 
+    def test_seed_champion_takes_the_fit_records_stamp(self) -> None:
+        """A seeded champion is saved with its fit's stamp and feature set, not the seed block's
+        blank ones, so the next start keeps it (T14 on the PC)."""
+        class Store:
+            def get_fit(self, fit_id: str) -> Dict[str, Any]:
+                return {"fit_id": fit_id, "stamp": "S1", "feature_set": "FS1", "state": "done"}
+        self.service.store = Store()  # type: ignore[attr-defined]
+        self.judge.script = ["pass"]
+        self.go(stop_after=1, candidates=["c1"])
+        champ = J.load_champion(self.tmp)
+        self.assertEqual((champ["stamp"], champ["feature_set"]), ("S1", "FS1"))
+        kept, note = J.champion_for(self.tmp, "FS1", "S1")
+        self.assertEqual((kept["fit_id"] if kept else None, note), ("c1", ""))
+
     # stop
 
     def test_stop_during_labelling(self) -> None:
@@ -682,3 +696,24 @@ class AutopilotCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JudgeGodotTest(unittest.TestCase):
+    """The judge gets the service's Godot: the driver's default is the Mac's path (T14 on the
+    PC: every seed judgment errored with GODOT_BIN unset)."""
+
+    def test_uses_the_service_lookup(self) -> None:
+        from unittest import mock
+        from trainer import autopilot as ap
+        with mock.patch.object(ap, "godot_bin", return_value=r"C:\godot\godot.exe"):
+            self.assertEqual(ap._judge_godot(), r"C:\godot\godot.exe")
+
+    def test_empty_when_no_godot(self) -> None:
+        from unittest import mock
+        from trainer import autopilot as ap
+        from trainer.repo import GodotNotFound
+
+        def missing() -> str:
+            raise GodotNotFound("none")
+        with mock.patch.object(ap, "godot_bin", side_effect=missing):
+            self.assertEqual(ap._judge_godot(), "")

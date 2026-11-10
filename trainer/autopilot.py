@@ -27,7 +27,17 @@ from typing import Any, Callable, Dict, List, Optional
 
 from trainer import findings, knobs, steering
 from trainer import judge as judge_mod
+from trainer.repo import GodotNotFound, godot_bin
 from trainer.store import ACTIVE, LIVE_FIT, weights_path, write_atomic
+
+
+def _judge_godot() -> str:
+    """The Godot the service itself uses (the PC's install when $GODOT_BIN is unset): the
+    driver's own default is the Mac's path, so the judge must always be told. '' when none."""
+    try:
+        return godot_bin()
+    except GodotNotFound:
+        return ""
 
 STATE_NAME = "state.json"
 STOP_NAME = "STOP"
@@ -155,8 +165,7 @@ class Autopilot:
     def _default_judge(self) -> Any:
         work = Path(getattr(self.service, "root", ".")) / "work"
         return judge_mod.Judge(judge_mod.JudgeConfig(
-            worktree=work, godot_bin=os.environ.get("GODOT_BIN", ""),
-            reports_dir=str(self.dir / "judge")))
+            worktree=work, godot_bin=_judge_godot(), reports_dir=str(self.dir / "judge")))
 
     def _default_feature_set(self) -> str:
         try:
@@ -894,7 +903,18 @@ class Autopilot:
             self._note("fit %s: the judge hit its cap; champion kept" % fit_id)
 
     def _promote(self, fit_id: str, j: Any) -> None:
+        """The champion record takes the fit's own stamp and feature set from the store (a seed
+        candidate was fitted before this block, which has no stamp of its own yet); the block's
+        values stand in only when the store has no record."""
         st = self.state
-        judge_mod.save_champion(self.data_dir, fit_id, st["stamp"], st["feature_set"],
+        stamp, feature_set = st["stamp"], st["feature_set"]
+        try:
+            rec = self.service.store.get_fit(fit_id)
+        except Exception:
+            rec = None
+        if rec:
+            stamp = str(rec.get("stamp") or stamp)
+            feature_set = str(rec.get("feature_set") or feature_set)
+        judge_mod.save_champion(self.data_dir, fit_id, stamp, feature_set,
                                 j.line_random, j.line_champion, st["block"])
         st["champion"] = fit_id
