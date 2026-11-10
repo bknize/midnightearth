@@ -133,7 +133,7 @@ static func label(
 	weights_path: String = ""
 ) -> Array[Dictionary]:
 	# The view and the hidden sets are the same for every play-out of the position, and so
-	# is each determinization's relabelled state for every candidate (NSC-210, NSC-233): work
+	# is each determinization's relabelled state for every candidate (B-41, B-50): work
 	# them out once. Each play-out still gets its own copy of that state and, through
 	# from_state, its own MatchCards copy, since what a play-out changes and the cards it
 	# creates must not reach the next one.

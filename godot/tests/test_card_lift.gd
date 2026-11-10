@@ -1,6 +1,6 @@
 class_name TestCardLift
 extends GdUnitTestSuite
-## CardLift (NSC-58, R23): lift, put-down, drop_now, a freed held card; and the Board's tap and
+## CardLift (B-07, R23): lift, put-down, drop_now, a freed held card; and the Board's tap and
 ## drag paths over a real Board, which refuse once the match is closed or over.
 
 const CARD_SCENE: PackedScene = preload("res://board/board_card.tscn")

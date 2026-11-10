@@ -16,8 +16,8 @@ extends RefCounted
 ## used when the named bot is `linear`.
 ## `seed` and `label_seed` are whole numbers or decimal strings (a 64-bit seed does not
 ## survive a JSON float, so the trainer sends it as text; a numeric seed of magnitude 2^53 or
-## more is refused, NSC-207). `id` is a number or a string, echoed back as given.
-## A request line is at most MAX_REQUEST_BYTES long (NSC-208); the worker answers a longer
+## more is refused, B-38). `id` is a number or a string, echoed back as given.
+## A request line is at most MAX_REQUEST_BYTES long (B-39); the worker answers a longer
 ## one with too_long_reply() and never parses it, so parse_request does not check the length.
 ##
 ## parse_request returns {"error": text, "id": the id when readable, else null} for a bad
@@ -33,7 +33,7 @@ extends RefCounted
 const KIND_PLAY: String = "play"
 const KIND_LABEL: String = "label"
 const KIND_QUIT: String = "quit"
-## The longest request line, in bytes (NSC-208): ten times a 2000-action prefix (about 150 KB)
+## The longest request line, in bytes (B-39): ten times a 2000-action prefix (about 150 KB)
 ## with headroom. The worker reads each line with a buffer of this size. OS.read_string_from_stdin
 ## returns a longer line in pieces of MAX_REQUEST_BYTES - 1 bytes with no marker, so a line
 ## of that many bytes or more is taken as over-long (is_over_long), never parsed.
@@ -180,7 +180,7 @@ static func _bad(request_id: Variant, message: String) -> Dictionary:
 
 ## Reads the seed `name` (a whole number or a decimal string) into `out`; the problem, or "".
 ## A numeric seed of magnitude 2^53 or more is refused: a JSON number is a float and would
-## round it (NSC-207), so the client sends such a seed as a string.
+## round it (B-38), so the client sends such a seed as a string.
 static func _read_seed(name: String, value: Variant, out: Array[int]) -> String:
 	if value is float:
 		var number: float = value
@@ -328,7 +328,7 @@ static func encode(reply: Dictionary) -> String:
 
 
 ## Whether a line of `byte_count` bytes is over-long: a longer line reaches the worker in
-## pieces of MAX_REQUEST_BYTES - 1 bytes, so that length already counts as over (NSC-208).
+## pieces of MAX_REQUEST_BYTES - 1 bytes, so that length already counts as over (B-39).
 static func is_over_long(byte_count: int) -> bool:
 	return byte_count >= MAX_REQUEST_BYTES - 1
 

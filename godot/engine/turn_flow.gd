@@ -43,7 +43,7 @@ extends RefCounted
 ## engine resumes the step after it once the answer has finished the drain
 ## (continue_turn_start(), open_discard_down(), continue_end_turn(), award_round()).
 ## crew_budget_bonus() is Engineer's (CrewAbilities, T07). exit_pass() and end_statuses() are T04's.
-## The seat count is MatchEngine.SEATS (its one owner, NSC-177).
+## The seat count is MatchEngine.SEATS (its one owner, B-22).
 
 ## The verb of the discard-down prompt.
 const VERB_DISCARD_DOWN: String = "discard_down"

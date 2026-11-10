@@ -6,7 +6,6 @@ related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[systems/game-lo
 created: 2026-11-06
 updated: 2026-11-09
 uid: 50ec83af-22d5-4bb1-9262-1e94e9a6cfac
-linear: https://linear.app/night-science-llc/issue/NSC-137/t01-glossary
 supersedes:
 ---
 

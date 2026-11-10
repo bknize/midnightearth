@@ -6,7 +6,6 @@ related: ["[[specs/cycle-16-training-autopilot/spec]]", "[[specs/cycle-16-traini
 created: 2026-11-09
 updated: 2026-11-09
 uid: 74e6318b-174d-4bdd-9381-86e61fd51df5
-linear: https://linear.app/night-science-llc/project/cycle-16-training-autopilot-016e673341f1
 supersedes:
 ---
 
@@ -142,7 +141,7 @@ fits stay in the existing run store. On the Mac: `godot/reports/bot/autopilot/fi
   process tree and checks the port is free before the block starts; a leftover counts as a fault.
 - A Windows Update reboot mid-block → P2 and P3; proven in the verification task by a service
   restart.
-- Engine fixes (NSC-262) reach the PC only when the autopilot is stopped → the skill's `stop`,
+- Engine fixes (B-63) reach the PC only when the autopilot is stopped → the skill's `stop`,
   `sync_code`, `start` sequence; a changed feature set drops the champion (R39).
 - Disk growth over days → the disk floor (R34) and labels-on-disk in the digest figures.
 

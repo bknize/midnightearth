@@ -314,7 +314,7 @@ class StoppingRuleTest(unittest.TestCase):
 
 
     def test_second_pair_of_an_undecided_seed_is_dropped(self) -> None:
-        """NSC-206: seed 100 has two pairs (decks swapped); the first decides the test, so
+        """B-37: seed 100 has two pairs (decks swapped); the first decides the test, so
         the second pair's p record, games 2 and 3 and their decisions leave the aggregates."""
         recs: List[Dict[str, Any]] = [{"t": "p", "seed": i, "points_a": 1.0}
                                       for i in range(1, 100)]

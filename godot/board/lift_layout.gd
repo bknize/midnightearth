@@ -1,6 +1,6 @@
 class_name LiftLayout
 extends RefCounted
-## Pure screen layout of the prompt reader (NSC-85, DC-06 plan P16): how big the lifted card
+## Pure screen layout of the prompt reader (B-11, DC-06 plan P16): how big the lifted card
 ## stands and where the action button sits under it. All rects are in viewport pixels. The
 ## card is centred; with a button to place, the card shrinks until a button-high band under it
 ## fits inside the safe area, so the button never overlaps the card.

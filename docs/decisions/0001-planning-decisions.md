@@ -6,7 +6,6 @@ related: ["[[decisions/decisions-moc]]", "[[planning/phase-1-tech-stack]]", "[[p
 created: 2026-11-02
 updated: 2026-11-02
 uid: 285595b4-b038-4bbb-b0a7-cc553591cb82
-linear:
 supersedes:
 ---
 

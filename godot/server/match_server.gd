@@ -22,7 +22,7 @@ extends Node
 ## for a socket a rejoin took over) is closed `close_grace_ms` after that message, so the
 ## client reads it first.
 ##
-## Capacity (NSC-226 S5): at most `max_connections` open connections and `max_per_ip` from
+## Capacity (cycle-12 T13 S5): at most `max_connections` open connections and `max_per_ip` from
 ## one address; a connection past either completes the WebSocket handshake and its first
 ## message (normally `hello`) is answered `refused too_many_connections` or
 ## `too_many_from_address` (the client reads the server is full, R38), then it is closed.

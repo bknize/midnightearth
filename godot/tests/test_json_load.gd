@@ -1,6 +1,6 @@
 class_name TestJsonLoad
 extends GdUnitTestSuite
-## JsonLoad (NSC-185): the file, JSON, top-level and version steps the three pool loaders
+## JsonLoad (B-30): the file, JSON, top-level and version steps the three pool loaders
 ## share, each error message byte for byte, and through each loader with its own label.
 
 const FORMAT: int = 7

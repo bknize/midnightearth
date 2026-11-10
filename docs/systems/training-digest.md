@@ -6,7 +6,6 @@ related: ["[[specs/cycle-16-training-autopilot/spec]]", "[[systems/bot-training]
 created: 2026-11-09
 updated: 2026-11-09
 uid: 0a750fb8-9d41-4cbf-aeb4-3cafbec46399
-linear:
 supersedes:
 ---
 

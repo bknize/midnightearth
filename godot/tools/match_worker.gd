@@ -12,7 +12,7 @@ extends SceneTree
 ## was given carries the current stamp ("match"), not ("MISMATCH"), no `linear` side was given
 ## one ("none"), or a `linear` side's file is missing or broken, so it plays the built-in
 ## defaults ("BROKEN"). The decision record's `legal` is -1 unless `--legal` is given: counting
-## the legal commits at every decision is work nothing in scripts/bot reads (NSC-212).
+## the legal commits at every decision is work nothing in scripts/bot reads (B-43).
 ##
 ## Per seed: the deck pair is DeckList.seeded_pick (or the flag); the games are (a@0, b@1)
 ## and (b@0, a@1), and when the two decks differ the same two with the decks swapped (two

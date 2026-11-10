@@ -86,7 +86,7 @@ class FarmTest(unittest.TestCase):
 
     def test_one_reply_per_request_buffered_or_unbuffered(self) -> None:
         # The stub flushes explicitly; the real worker needs flush_stdout_on_print for the
-        # same (NSC-209). This pins the farm's side: one reply per request either way.
+        # same (B-40). This pins the farm's side: one reply per request either way.
         for flags in (["-I"], ["-I", "-u"]):
             farm = Farm([sys.executable] + flags + [STUB], 1, timeout=30.0, start_timeout=30.0)
             farm.start()

@@ -8,7 +8,7 @@ extends BotPlayer
 ## enumerable (LegalPlays.ENUMERATE_MAX cards or fewer); when they number more than the
 ## weights' `k`, `k` of them are kept, drawn uniformly (a shuffle of their indices, the first
 ## `k` kept in ascending order) from decision_rng(view, COMMIT_TAG), except that the pass
-## always survives (NSC-245): it takes the last kept place when the shuffle cut it, for no
+## always survives (B-51): it takes the last kept place when the shuffle cut it, for no
 ## extra draw, so the other kept candidates stay a uniform draw. A hand too large to
 ## enumerate is sampled as `random` samples it: `k` draws of RandomBot.large_hand_commit from
 ## that same generator, duplicates dropped, in draw order (R6). Every kept candidate is scored

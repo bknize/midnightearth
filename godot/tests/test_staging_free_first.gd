@@ -1,6 +1,6 @@
 class_name TestStagingFreeFirst
 extends GdUnitTestSuite
-## Staging.can_afford agrees with Staging.insert at a free-first Turn (NSC-186, R21).
+## Staging.can_afford agrees with Staging.insert at a free-first Turn (B-31, R21).
 
 
 func test_a_cost_seven_card_is_affordable_on_budget_four_at_a_free_first_turn() -> void:

@@ -6,7 +6,6 @@ related: ["[[planning/planning-moc]]", "[[specs/cycle-9-rules-v2/spec]]", "[[spe
 created: 2026-11-06
 updated: 2026-11-09
 uid: 1260ecea-5fcf-425a-bf1f-6951276f5c24
-linear:
 supersedes:
 ---
 

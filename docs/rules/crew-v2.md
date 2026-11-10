@@ -6,7 +6,6 @@ related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]
 created: 2026-11-06
 updated: 2026-11-06
 uid: 26ab55eb-ddf5-41d2-8013-ecc04ea1a9ea
-linear: https://linear.app/night-science-llc/issue/NSC-140/t04-crew-v2
 supersedes:
 ---
 

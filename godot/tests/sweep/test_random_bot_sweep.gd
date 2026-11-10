@@ -1,7 +1,7 @@
 class_name TestRandomBotSweep
 extends GdUnitTestSuite
 ## The random bot's shipped-deck case (cycle 9 R70, DC-13 T08), moved out of test_random_bot.gd
-## at NSC-251 (cycle-14 R43) to keep the gate's test stage under 30 s. It runs with the sweep
+## at B-57 (cycle-14 R43) to keep the gate's test stage under 30 s. It runs with the sweep
 ## (`scripts/check.sh sweep`), outside the gate, and does not read SWEEP_BOT: two random bots
 ## always play. It prints no `Sweep:` line.
 

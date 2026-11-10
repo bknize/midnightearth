@@ -28,7 +28,7 @@ extends RefCounted
 ## (EngineAction): its slots resolve to the row's right end when it is validated, and the
 ## resolved slots are what the state, the COMMITTED event and the action log hold.
 
-## The seat count, owned here only (TurnFlow, SeatView and the tools read it; NSC-177).
+## The seat count, owned here only (TurnFlow, SeatView and the tools read it; B-22).
 const SEATS: int = 2
 const REASON_WINS: String = "wins"
 const REASON_ROUNDS: String = "rounds"
@@ -161,7 +161,7 @@ func is_over() -> bool:
 
 
 ## Both seats' Round wins, indexed by seat: a copy of what full_state()["wins"] holds,
-## read without serializing the match (Rollout's outcomes, NSC-211). Public.
+## read without serializing the match (Rollout's outcomes, B-42). Public.
 func round_wins() -> Array[int]:
 	var out: Array[int] = []
 	out.assign(_state.wins)
@@ -208,7 +208,7 @@ func view_for(seat: int) -> SeatView:
 ## The full-state read, for tests and replay only: it includes hidden information,
 ## everything view_for() omits (seed, stream state, Decks, hands, pending). Its `dross`
 ## lists the Dross cards still in the Match, instance id to {def, owner}, from their one
-## record in MatchCards (DC-20 T03, NSC-179); an expired card is gone from it.
+## record in MatchCards (DC-20 T03, B-24); an expired card is gone from it.
 func full_state() -> Dictionary:
 	var out: Dictionary = _state.to_dict()
 	out["dross"] = _dross_dict()
@@ -320,7 +320,7 @@ func _check_set(action: EngineAction) -> int:
 
 
 ## A well-formed decline: _check_prompted and the prompt is optional (NOT_OPTIONAL), or a
-## single-target prompt that offers nothing, which no choice could answer (NSC-177).
+## single-target prompt that offers nothing, which no choice could answer (B-22).
 func _check_decline(action: EngineAction) -> int:
 	var code: int = _check_prompted(action)
 	if code != EngineError.Code.NONE:
@@ -426,7 +426,7 @@ func _run_walk() -> void:
 ## Any other prompt (none in play: every ability prompt is a paused drain's; the tests open
 ## one by hand) closes through Abilities (CHOICE_MADE or CHOICE_DECLINED). Either way the
 ## match then goes on through _resume_after: the step after the drain point, or the
-## prompt's own `resume` and `step` (NSC-177).
+## prompt's own `resume` and `step` (B-22).
 func _answer(zone: int, indices: Array[int], declined: bool) -> void:
 	if TurnFlow.is_discard_down(_state.prompt):
 		var seat: int = _prompt_seat()
@@ -459,7 +459,7 @@ func _answer(zone: int, indices: Array[int], declined: bool) -> void:
 ## goes on with its draws and On start, a Commit with its discard-down, the Walk with the
 ## pulse's score stage after a D7 and the next pulse, turn end with its next step, Round end
 ## with the award. A drain that pauses again leaves the phase AWAIT_CHOICE. Every
-## Choice.RESUMES value has a branch (test_engine.gd pins it, NSC-177), and Choice.resume_of
+## Choice.RESUMES value has a branch (test_engine.gd pins it, B-22), and Choice.resume_of
 ## maps an unknown `resume` to RESUME_WALK, so no answered prompt is left awaiting nobody.
 func _resume_after(resume: String, step: String, seat: int) -> void:
 	if resume == Choice.RESUME_TURN_START:

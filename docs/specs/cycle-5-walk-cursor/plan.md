@@ -6,7 +6,6 @@ related: ["[[specs/cycle-5-walk-cursor/spec]]", "[[specs/cycle-5-walk-cursor/tas
 created: 2026-11-04
 updated: 2026-11-04
 uid: 22f3d35a-fbfd-44ef-9184-5bb6cf88239c
-linear: https://linear.app/night-science-llc/project/cycle-5-the-walk-cursor-a06cd75587c4
 supersedes:
 ---
 
@@ -29,7 +28,7 @@ builds on the DC-05 modules ([[specs/cycle-4-card-effects/plan]]); no new engine
 | Input | minimal | The prompt reader reuses the existing `tapped` signal and Escape path; played cards stay undraggable |
 | Tooling/scripts | minimal | `scripts/check.sh` keeps its boot grep; the golden it expects is re-pinned at T09 |
 | Vault/docs | yes | This set, the specs MOC row, the DC-06 row in [[planning/cycles]] at `/cycle test` |
-| Linear | yes | Project "Cycle 5 — the walk cursor", milestone `DC-06 walk-cursor`, labels `area/engine`, `area/cards`, `area/ui`, `type/feature`, `spec/cycle-5-walk-cursor` (filled by `/exercise`); NSC-73 closes at `/cycle test`, NSC-74 gets the new measurement as a comment |
+| Linear | yes | Project "Cycle 5 — the walk cursor", milestone `DC-06 walk-cursor`, labels `area/engine`, `area/cards`, `area/ui`, `type/feature`, `spec/cycle-5-walk-cursor` (filled by `/exercise`); B-08 closes at `/cycle test`, B-09 gets the new measurement as a comment |
 
 ## Module layout (changed files)
 
@@ -73,7 +72,7 @@ builds on the DC-05 modules ([[specs/cycle-4-card-effects/plan]]); no new engine
 | P8 | **The destroyed look.** `BoardCard.set_destroyed(true)`: the card's own `Dimmer`-style darkening (modulate on the face and back materials to the DC-04 dimmer level), a fixed tilt (`rotation.z` about 9°, `rotation.x` about 4°, deterministic per slot parity so neighbours do not match) applied on top of the layout's transform each frame the layout settles, and a `Crack` quad child at `NOTE_Z` with an unshaded transparent material whose `albedo_texture` is the placeholder (a generated `ImageTexture` of jagged white lines on alpha, built once in code) and is read from `godot/art/` through one exported path when present. `set_destroyed(false)` on `clear_def` | R26, R27, C11, C13; no addon change; the texture slot is the art hand-off (ADR 0003 manifest when the image lands) |
 | P9 | **Steps.** `DESTROY` (0.35 s: dim, tilt and crack fade in; the card does not leave); `PULSE` gains `destroyed: bool` (flip only, `REVEAL_TIME`, no lift, no chips) and `again: bool` (0.12 s like a revealed pulse; the chips show); `CLEAR_DESTROYED` (0.45 s fly-out, today's destroy animation) from `DESTROYED_CLEARED`; `TURN_END` keeps `scores` and gains the duration the fly-in and count need (0.6 s) | R28–R30, R34 |
 | P10 | **Pulse folding** (`BoardSteps._scored_after`) stays keyed on the card id; a destroyed reveal has no score and folds nothing; a re-score with no reveal yields its own `PULSE` from `CARD_SCORED` with `again` | Today's folding already matches by id, so the destroyed and second-score cases fall out |
-| P11 | **Two numbers in the tracker.** `ScoreTracker.tally: [score, score]`, `tally_mults`, `held: [int, int]`. `WALK_START` zeroes the tally and the mults, leaves `held`; `PULSE` with a score updates the tally; `TURN_END` sets `held = scores` and clears the tally; `CLEAR_TABLE` resets all. The HUD shows `held` (R33); `walking` is dropped from the HUD contract | R32–R35, C17; the half-walk number (NSC-73) cannot appear because nothing feeds `held` during a walk |
+| P11 | **Two numbers in the tracker.** `ScoreTracker.tally: [score, score]`, `tally_mults`, `held: [int, int]`. `WALK_START` zeroes the tally and the mults, leaves `held`; `PULSE` with a score updates the tally; `TURN_END` sets `held = scores` and clears the tally; `CLEAR_TABLE` resets all. The HUD shows `held` (R33); `walking` is dropped from the HUD contract | R32–R35, C17; the half-walk number (B-08) cannot appear because nothing feeds `held` during a walk |
 | P12 | **Chips.** `ScoreChips` spawns `Label3D` chips above the pulsed card: when `bonus != 0`, "×M" (gold, 0.25 s rise and fade) then "+N" (seat colour, 0.25 s), else "+N" alone; both inside the pulse's duration budget, so the pulse step's duration becomes `max(PULSE_TIME, chips)`; `added == 0` still shows "+0". Nothing for a destroyed pulse | R31, R28, C14 |
 | P13 | **Tally and count.** `RowTally` is a `Label3D` per side anchored at the row's right end, text `score ×mult`, visible from `WALK_START` to `TURN_END`. At `TURN_END` it tweens to `BoardHud.score_anchor(seat)` (unprojected to the table plane) over 0.3 s, then `BoardHud.count_to(seat, total, 0.3)` steps the label from `held` to the new total and the tally hides. Durations divide by the autoplay speed (R36) | R32, R34, R36, C15 |
 | P14 | **Lift rules.** `LiftRules.step_touches` adds `DESTROY` (mark), `CLEAR_DESTROYED` and any `PULSE` of the held card (already there); a destroyed face-up card can still be lifted to read (DC-04) and its tilt is suspended while held | R37 |
@@ -187,7 +186,7 @@ the return path never sees it (P6), and round start clears it with the rest.
   `DESTROYED_CLEARED`, the view's `destroyed` flag next to a hidden id) → the T03 leak scan
   covers both events and the row entries in every redacted view of the sweep.
 - **Bot time** → unchanged search; walks have one pulse per slot; T09 records the slowest
-  decision and the longest walk for NSC-74.
+  decision and the longest walk for B-09.
 - **`board.gd` touched by two tasks (T06, T07)** → they run in different waves.
 - **Chip legibility at the DC-04 lift size and over a dimmed card** → T06 picks the font size
   and the rise height; screenshot 2 checks it.

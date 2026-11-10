@@ -166,7 +166,7 @@ static func strings(value: Variant) -> Array[String]:
 	return out
 
 
-# --- Untrusted text (NSC-226 S4) --------------------------------------------------------
+# --- Untrusted text (cycle-12 T13 S4) --------------------------------------------------------
 
 
 ## A player name as the server keeps and prints it: control characters dropped, then the

@@ -1,6 +1,6 @@
 class_name TestVerbTable
 extends GdUnitTestSuite
-## VerbTable (NSC-185): the table reads CardAbility and CrewDef share, and the amount and
+## VerbTable (B-30): the table reads CardAbility and CrewDef share, and the amount and
 ## uses checks with each pool's error strings byte for byte.
 
 const TABLE: Dictionary[String, Dictionary] = {

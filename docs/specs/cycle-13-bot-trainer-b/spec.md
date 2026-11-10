@@ -6,7 +6,6 @@ related: ["[[specs/cycle-13-bot-trainer-b/plan]]", "[[specs/cycle-13-bot-trainer
 created: 2026-11-07
 updated: 2026-11-09
 uid: 3c3e6b99-3719-4405-b164-29c44ff6db23
-linear: https://linear.app/night-science-llc/project/cycle-13-bot-trainer-cycle-b-the-learner-the-linear-bot-rung-1-64d41cbb8498
 supersedes:
 ---
 
@@ -50,11 +49,11 @@ next run, and after two or three such iterations the best policy is rung 1 of th
 - **No automatic chaining** of run → fit → next run inside the trainer; the orchestrator
   drives each step by its verb (round 2, 4a).
 - **No prompt labels** (cycle 11 C6): the `linear` bot answers prompts as `random` does.
-- **No edit** to `docs/systems/bot-training.md` (NSC-204 stays blocked on Ben's uncommitted
+- **No edit** to `docs/systems/bot-training.md` (cycle-11 T13 stays blocked on Ben's uncommitted
   edit in the main checkout); the architecture note and the ladder are the records this
   cycle appends to.
-- **NSC-231** (PC throughput) and **NSC-233** (deeper trainer cleanups) stay in Backlog;
-  **NSC-232** (fold `inspect` into `label`) is done here, since the label reply changes anyway
+- **B-48** (PC throughput) and **B-50** (deeper trainer cleanups) stay in Backlog;
+  **B-49** (fold `inspect` into `label`) is done here, since the label reply changes anyway
   (interrogator default, round 2 preamble, not vetoed).
 - No board, picker or scene change; no iOS build (D8); no push; nothing on `master`; no token
   anywhere but `.env` and the PC's token file (P6).
@@ -134,7 +133,7 @@ over one or more finished runs. "The yardstick" is the ladder's: today `random`,
 
 - R13. The play-out worker's `label` reply shall carry, per candidate, its feature vector,
   and shall carry the feature-set version, the position's Round and Turn and the seat's hand
-  as card ids and names; the `inspect` request shall be removed (NSC-232).
+  as card ids and names; the `inspect` request shall be removed (B-49).
 - R14. The play-out worker's `label` and `play` requests shall accept an optional weights
   file path for the rollout bot and for the generator bot, used when the named bot is
   `linear`; without one the committed file is used.
@@ -247,8 +246,8 @@ over one or more finished runs. "The yardstick" is the ladder's: today `random`,
 | C8 | Round 2 Q4, closing: (a) the iterations are the verification, the branch lives for the nights, `/cycle test` after the last; (b) close after iteration 0, iterate after the merge | 4a |
 | C9 | DC-18 T09, 2026-11-08: iteration 0's gainer against `random` stopped (exit 3) on two `greed` mirrors that hit the 2,000-action cap. In sudden death the F0 bot held its last card and passed every turn, the other seat had no cards, every Round tied 0-0, and `MatchEngine._stalled()` (cycle 9 C12) fires only with both hands empty. Q1 the rule: (a) a sudden-death Round in which neither seat commits a card ends the Match as a stalemate (higher Match total Score wins, equal totals draw), `RULES_VERSION` 7 to 8, night 1 rerun under the new stamp; (b) the same rule with no version bump; (c) leave the rules, `bot-eval` scores a capped game as a draw. Q2 timing: (a) fix first, gainer reruns clean, then night 2; (b) night 2 now, fix in parallel | Ben: "1a 2a". New stamp `r8-857b165d5a5d755e`; night 1 (run c61172712da8, fit 91579a1f5ef6) is superseded and rerun as iteration 0 under r8 |
 
-Defaults stated by the interrogator and not vetoed (round 2 preamble and this spec): NSC-232
-folded in, NSC-231 and NSC-233 left in Backlog; a fit reads the runs named in its config, the
+Defaults stated by the interrogator and not vetoed (round 2 preamble and this spec): B-49
+folded in, B-48 and B-50 left in Backlog; a fit reads the runs named in its config, the
 latest iteration's run by default, never a mix of rollout policies by accident (R23 refuses
 mixed stamps or feature sets, and the orchestrator names one run per fit); the built-in
 default weights count committed Power once (R9); ties in the `linear` bot are broken by its
@@ -309,12 +308,12 @@ cycle A's label digests are not comparable with cycle B's (R16).
 - Read only: the rest of `godot/engine/`; `docs/rules/*`; `docs/planning/*` except the two
   notes above; the archive.
 - Never: `docs/.obsidian/`; `godot/addons/*`; `.env`; `godot/.godot/`; `godot/reports/`; the
-  archive; `docs/systems/bot-training.md` (NSC-204 waits for Ben); the token.
+  archive; `docs/systems/bot-training.md` (cycle-11 T13 waits for Ben); the token.
 
 ## Definition of done
 
 - [ ] `make check` green, gdUnit under 30 s; golden unchanged; `make sweep` (random)
-      unchanged (R12, R36). (superseded: gdUnit ran 30.8 s, waived by Ben 2a, NSC-251, DC-20 T19)
+      unchanged (R12, R36). (superseded: gdUnit ran 30.8 s, waived by Ben 2a, B-57, DC-20 T19)
 - [x] Feature suite: the pinned seed-1 vector, the card indicators, every feature a whole
       number from the view and the candidate only (R1 to R4).
 - [x] `linear` suite: highest score wins, ties by seed, `k` sampling, prompts as `random`,
@@ -327,7 +326,7 @@ cycle A's label digests are not comparable with cycle B's (R16).
 - [x] `make trainer-test` green on the Mac (learner tests skipped without numpy) and on the PC
       (R29, R37); `fit`, `get_artifact`, the extended `run_status`/`list_runs`/`get_report`
       and the two new config fields proven over MCP (R21 to R30).
-- [ ] Iterations run per R32 and R33, each line and figure in the cycle row (R35). (iterations 1 and 2 moved to NSC-243, DC-20 T19)
+- [ ] Iterations run per R32 and R33, each line and figure in the cycle row (R35). (iterations 1 and 2 moved to cycle-13 T10, DC-20 T19)
 - [x] Rung 1 promoted per R34, or nothing promoted and the measurements recorded (C1).
 - [x] No screenshot: proof by text lines (R38).
 - [x] Constitution Check passes (see plan); spec, plan and tasks signed off by Ben and

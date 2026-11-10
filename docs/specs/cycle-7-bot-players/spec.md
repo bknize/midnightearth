@@ -6,7 +6,6 @@ related: ["[[specs/cycle-7-bot-players/plan]]", "[[specs/cycle-7-bot-players/tas
 created: 2026-11-04
 updated: 2026-11-09
 uid: 9586d342-7d13-4094-b199-d93b9f7d6a9a
-linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
 ---
 
@@ -132,7 +131,7 @@ orchestrator exactly which two commands to run before merging.
 - R16. `--bot-level=<0..20>` shall set the opponent's level for the board and autoplay, and
   the worker shall take a level per seat; the default is 20.
 
-### The decision budget (NSC-74; C10)
+### The decision budget (B-09; C10)
 
 - R17. On the verification machine, the 99th-percentile decision of the 50-seed sweep by the
   shipped bot at full strength shall be under 10 ms, and the sweep shall print the 95th and
@@ -294,7 +293,7 @@ orchestrator exactly which two commands to run before merging.
 
 | # | Question | Decision |
 |---|---|---|
-| C1 | Round 1 Q1: what "online" means | 1a: the pruned, tunable bot is the in-game opponent on the board, in autoplay and the smoke, under the 10 ms budget (closes NSC-74); one bot interface for board, smoke, sweep and scripts |
+| C1 | Round 1 Q1: what "online" means | 1a: the pruned, tunable bot is the in-game opponent on the board, in autoplay and the smoke, under the 10 ms budget (closes B-09); one bot interface for board, smoke, sweep and scripts |
 | C2 | Round 1 Q2: what "low effort and token spend" bounds | 2c: "Only runtime matters; the build may be as long as it needs"; a run spends zero model tokens |
 | C3 | Round 1 Q3: how much of phase 2 goes in this spec | 3b: both phases in full, one spec, two milestones |
 | C4 | Round 1 Q4: which engine | 4a: cycle 6's; `/cycle plan` waits for cycle 6 to merge; the orchestrator re-bases or re-cuts the branch. Ben's rider: "with provisions on how to rerun these systems after significant engine changes" (R33–R38) |

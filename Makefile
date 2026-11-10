@@ -14,7 +14,7 @@ parse:      ; @scripts/check.sh parse
 boot:       ; @scripts/check.sh boot
 test:       ; @scripts/check.sh test
 bootstrap:  ; @scripts/bootstrap.sh
-# The 50-seed sweep (NSC-133), outside `check`. `make sweep BOT=matrix` sweeps that bot;
+# The 50-seed sweep (B-14), outside `check`. `make sweep BOT=matrix` sweeps that bot;
 # `WEIGHTS=<abs path>` builds it on that weights file.
 .PHONY: sweep
 sweep:      ; @$(if $(filter command line,$(origin BOT)),SWEEP_BOT=$(BOT) )$(if $(filter command line,$(origin WEIGHTS)),SWEEP_WEIGHTS=$(WEIGHTS) )scripts/check.sh sweep
@@ -26,3 +26,7 @@ bot-selftest: ; @python3 -I scripts/bot/driver.py selftest
 # The training digest (cycle 16 P17): outside `check`, contacts the PC once (one scp).
 training-digest: ; @scripts/training-pull.sh
 trainer-test: ; @python3 -I -m unittest discover -s trainer/tests -t .
+# The progress dashboard (ADR 0007): docs/dashboard.html from every tasks.md, cycles.md and
+# the backlog note. Run at the end of a cycle (`/cycle test`). No Godot.
+.PHONY: dashboard
+dashboard:  ; @python3 -I scripts/dashboard.py

@@ -216,7 +216,7 @@ func test_an_ownerless_id_is_filed_nowhere() -> void:
 	assert_array(rec.events).is_empty()
 
 
-## replace_def is a test fixture (DC-20 T03, NSC-179): no script outside godot/tests calls
+## replace_def is a test fixture (DC-20 T03, B-24): no script outside godot/tests calls
 ## it, and MatchCards has no such method.
 func test_replace_def_is_fixtures_only() -> void:
 	assert_bool(MatchCards.new().has_method("replace_def")).is_false()

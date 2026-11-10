@@ -6,7 +6,6 @@ related: ["[[specs/cycle-7-bot-players/spec]]", "[[specs/cycle-7-bot-players/tas
 created: 2026-11-04
 updated: 2026-11-05
 uid: 7395b17a-0387-4b44-8464-fcbdaefd3ca6
-linear: https://linear.app/night-science-llc/project/cycle-7-bot-players-c711d1c8bc83
 supersedes:
 ---
 
@@ -28,7 +27,7 @@ onto `master` then (C4).
 | Shaders/cards | no | |
 | Tooling/scripts | yes | `godot/tools/bot_worker.gd` (headless SceneTree script), `scripts/bot/*.py` (Python 3 stdlib), `scripts/bot-eval.sh`, `scripts/bot-train.sh` (`set -uo pipefail`), Makefile targets `bot-eval`, `bot-train`, `bot-calibrate`; the `/cycle test` checklist line (orchestrator, under `.claude/skills/cycle/`) |
 | Vault/docs | yes | this spec set, `docs/planning/bot-ladder.md` (type `planning`), rows in `cycles.md` and `specs-moc.md` |
-| Linear | yes | one project "Cycle 7 — bot players", two milestones (A, B; the next two `DC-NN`), labels `area/engine`, `area/tooling`, `type/feature`, `spec/cycle-7-bot-players`; NSC-74 closes at milestone A's `/cycle test` |
+| Linear | yes | one project "Cycle 7 — bot players", two milestones (A, B; the next two `DC-NN`), labels `area/engine`, `area/tooling`, `type/feature`, `spec/cycle-7-bot-players`; B-09 closes at milestone A's `/cycle test` |
 
 ## Modules
 
@@ -234,7 +233,7 @@ did not change, except R17 (spec C14).
   otherwise `push = ⌊weakness·gap/128⌋ + ⌊spread·draw/128⌋`, one draw per candidate.
 - **P9 tie-breaks.** TunedBot reuses GreedyBot's own commit seed `[round, turn]` and prompt
   seed, so R12 holds bit for bit; at level 20 no push draw is taken.
-- **P17 overruns.** The greedy references are over the 10 ms budget by design (NSC-74), so
+- **P17 overruns.** The greedy references are over the 10 ms budget by design (B-09), so
   the worker never exits 1 for an overrun: it counts `overruns_a` and `overruns_b`; a
   gainer run fails only on a rejected action or a replay mismatch; its `p99_us` and the
   overrun counts are printed, not decisive, since a parallel eval on all cores overruns by OS

@@ -6,7 +6,6 @@ related: ["[[planning/planning-moc]]"]
 created: 2026-11-02
 updated: 2026-11-07
 uid: 0f3968e1-885c-4732-941f-388209e92578
-linear:
 supersedes:
 phase: 1-tech-stack
 ---

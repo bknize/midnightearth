@@ -6,7 +6,6 @@ related: ["[[planning/planning-moc]]"]
 created: 2026-11-02
 updated: 2026-11-05
 uid: cf1602f7-03cf-44f4-b4d4-7cfa2339fe9a
-linear:
 supersedes:
 phase: 3-game-loop
 ---

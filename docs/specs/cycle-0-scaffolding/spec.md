@@ -6,7 +6,6 @@ related: ["[[planning/phase-1-tech-stack]]", "[[planning/phase-2-dev-tools]]", "
 created: 2026-11-02
 updated: 2026-11-02
 uid: 8185c02f-3b93-4b9d-9c11-651bcb7784bf
-linear: https://linear.app/night-science-llc/project/cycle-0-scaffolding-6db3f9c856a0
 supersedes:
 ---
 

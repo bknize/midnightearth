@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gd-edit-gate.sh - PostToolUse hook (cycle-0 R20-R22, NSC-36).
+# gd-edit-gate.sh - PostToolUse hook (cycle-0 R20-R22, B-04).
 #
 # Claude Code pipes the tool call as JSON on stdin. For an Edit/Write of a project .gd
 # file (under godot/, not under godot/addons/), run gdlint and a single-file Godot parse

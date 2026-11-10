@@ -356,7 +356,7 @@ func test_twin_creates_a_copy_in_hand() -> void:
 	assert_dict(created[0].payload).is_equal(
 		{"seat": 0, "card": copy, "def": "cb06", "owner": 0, "to": "hand", "slot": -1}
 	)
-	# One record of Dross cards, MatchCards (DC-20 T03, NSC-179): none in MatchState.
+	# One record of Dross cards, MatchCards (DC-20 T03, B-24): none in MatchState.
 	assert_bool(state.to_dict().has("dross")).is_false()
 
 

@@ -27,7 +27,7 @@ func test_a_pile_tap_is_ignored_while_a_deck_top_prompt_is_open() -> void:
 
 
 ## Seat 1's prompt (the joiner, viewer 1) lands on the player's own side of the table, and each
-## spot maps back to the engine's own option (NSC-226 B1).
+## spot maps back to the engine's own option (cycle-12 T13 B1).
 func test_a_seat_one_prompt_resolves_to_the_players_own_cards() -> void:
 	var own_size: int = 2
 	for zone: String in ["own_hand", "own_board"]:

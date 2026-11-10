@@ -6,7 +6,6 @@ related: ["[[home]]", "[[systems/game-loop]]", "[[systems/cards-crew-decks]]", "
 created: 2026-11-02
 updated: 2026-11-05
 uid: 9f6cc5ad-1669-465a-8323-bfcc7f791323
-linear:
 supersedes:
 ---
 

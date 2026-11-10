@@ -309,7 +309,7 @@ func _answer(view: SeatView) -> EngineAction:
 	if Choice.is_optional_prompt(view.prompt):
 		answers += 1
 	if answers == 0:
-		# Nothing offered and no decline: the engine takes the decline (NSC-177). No RNG
+		# Nothing offered and no decline: the engine takes the decline (B-22). No RNG
 		# draw here, as before, so every other answer is unchanged.
 		return EngineAction.decline(view.seat)
 	var pick: int = rng.pick_index(answers)

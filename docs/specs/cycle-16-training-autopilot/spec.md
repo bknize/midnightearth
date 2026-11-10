@@ -6,7 +6,6 @@ related: ["[[specs/cycle-16-training-autopilot/plan]]", "[[specs/cycle-16-traini
 created: 2026-11-09
 updated: 2026-11-09
 uid: 6f6414f9-c78a-46a7-b52a-cad81db04a0d
-linear: https://linear.app/night-science-llc/project/cycle-16-training-autopilot-016e673341f1
 supersedes:
 ---
 
@@ -35,7 +34,7 @@ logs over days and days of running."
 - Nothing is promoted into the repo by the autopilot. Promotion stays with Ben, the Mac's
   `make sweep` and the ladder ([[planning/bot-ladder]]).
 - No push from the PC to the Mac, no scheduled pull, no watcher loop on the Mac (Ben R2 1a).
-- The hidden-information leak NSC-262 is not fixed here; it blocks promotion, not training.
+- The hidden-information leak B-63 is not fixed here; it blocks promotion, not training.
 - The first real night of 3-hour blocks is the first use, outside this cycle (Ben R3 4a).
 
 ## Actors

@@ -6,7 +6,6 @@ related: ["[[specs/<slug>/spec]]", "[[specs/<slug>/tasks]]", "[[planning/phase-1
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 uid: <uuid4 from `uuidgen | tr A-Z a-z`>
-linear:
 supersedes:
 ---
 
@@ -28,7 +27,6 @@ mark them "no".
 | Shaders/cards | y/n | foil and card shaders, Compatibility-clean (D2): mediump-safe, no `SCREEN_TEXTURE` |
 | Tooling/scripts | y/n | `scripts/`, `Makefile`, hooks, `.claude/` agents and skills; Bash with `set -uo pipefail` |
 | Vault/docs | y/n | notes under `docs/` with P5 frontmatter; link audit with `obsidian-cli` |
-| Linear | y/n | project per spec, milestone per dev cycle, labels `area/*`, `type/*`, `spec/<slug>` (filled by `/exercise`) |
 
 ## Interfaces and contracts
 <Engine function signatures and action shapes, signals between scenes and engine,
@@ -47,9 +45,9 @@ Verify against the root `CLAUDE.md`. Every relevant rule, with a verdict.
 | Engine is deterministic: seeded RNG, no wall-clock, no node access, serializable action log (D4) | PASS/FAIL | |
 | `make check` gate contract: import, lint, parse, boot, test all green; Godot exit codes never trusted | PASS/FAIL | |
 | Implementers never run Godot or `make check`; only the orchestrator verifies | PASS/FAIL | |
-| Notes carry P5 frontmatter (`type`, `tags`, `status`, `related`, `created`, `updated`, `uid`, `linear`, `supersedes`) and `[[path/from/vault/root]]` links | PASS/FAIL | |
+| Notes carry P5 frontmatter (`type`, `tags`, `status`, `related`, `created`, `updated`, `uid`, `supersedes`) and `[[path/from/vault/root]]` links | PASS/FAIL | |
 | No edits under the do-not-touch list (`docs/.obsidian/`, `godot/addons/*` outside a recorded patch, `.env`, `godot/.godot/`, `godot/reports/`, the archive) | PASS/FAIL | |
-| Secrets only in `.env`; `.mcp.json` uses `${VAR}` placeholders; no token in chat, notes, commits or Linear | PASS/FAIL | |
+| Secrets only in `.env`; `.mcp.json` uses `${VAR}` placeholders; no token in chat, notes or commits | PASS/FAIL | |
 | Each changeset on its own branch (a cycle: one `cycle-N-<theme>` branch from `/spec` to `/cycle test`), one commit per task, nothing committed directly on `master`, merged with `--no-ff` | PASS/FAIL | |
 
 **Result:** PASS / needs revision.

@@ -6,7 +6,6 @@ related: ["[[home]]"]
 created: 2026-11-02
 updated: 2026-11-08
 uid: 41430a6e-3e5f-4243-86a0-bbdcc659a9e8
-linear:
 supersedes:
 ---
 
@@ -23,3 +22,4 @@ ADR that names the old one in `supersedes`.
 | [[decisions/0004-review-tools-in-the-cycle]] | Review tools in the cycle: /code-review and /simplify at /cycle test | accepted |
 | [[decisions/0005-match-server-for-pvp]] | A match server for PVP: headless Godot on the testing PC; PVE stays local (amends D4) | accepted |
 | [[decisions/0006-token-spend]] | Cutting token spend: fresh sessions, two scripts, /spec on a Fable session | accepted |
+| [[decisions/0007-no-ticket-tracker]] | No ticket tracker: task statuses in tasks.md, a backlog note, a static dashboard (replaces P4) | accepted |

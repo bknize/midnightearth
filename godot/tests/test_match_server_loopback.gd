@@ -147,7 +147,7 @@ func test_a_half_handshake_is_closed_at_the_deadline_and_only_it() -> void:
 	assert_bool(await _play_one(players)).is_true()
 
 
-## R36 as a sliding window (NSC-226 S6): no one-second span admits more than 20 messages,
+## R36 as a sliding window (cycle-12 T13 S6): no one-second span admits more than 20 messages,
 ## so 20 at once and 20 more just before the second is up is refused at the 21st.
 func test_no_one_second_window_admits_more_than_twenty_messages() -> void:
 	var server: MatchServer = auto_free(MatchServer.new())
