@@ -38,21 +38,26 @@ Waves: tasks 1 to 4 together; then 5; then 6 and 9; then 7 and 8; then 10 and 11
 
 Task 14, owned by the orchestrator:
 
-- [ ] `make check` exits 0 and `make trainer-test` is green on the Mac.
-- [ ] `sync_code` the branch to the PC; trainer tests green on the PC.
-- [ ] Short-block proof on the PC: `autopilot_start` with `block_hours` 0.25 and the two
+- [x] `make check` exits 0 and `make trainer-test` is green on the Mac.
+- [x] `sync_code` the branch to the PC; trainer tests green on the PC.
+- [x] Short-block proof on the PC: `autopilot_start` with `block_hours` 0.25 and the two
       candidates of task 1. One read of the log afterwards shows a `seed` entry naming a
       champion, three `full` entries, one with `plan_source` `advisor`, one `fallback` (forced
       by a wrong LLM server path in `config.json` for one boundary), one `trial` entry (forced by
       a steering file that narrows `positions` below the advisor's last value), one
       `interrupted` entry from a stop, and a block resumed after a service restart ending at its
       original deadline.
-- [ ] `sync_code` refused while it ran, accepted after the stop.
-- [ ] `/training digest` on the Mac: one SSH connection, `figures.md` written, the digest note
+- [x] `sync_code` refused while it ran, accepted after the stop.
+- [x] `/training digest` on the Mac: one SSH connection, `figures.md` written, the digest note
       rewritten.
-- [ ] No screenshot (no visible feature); the proof is the findings lines, quoted in the cycle
+- [x] No screenshot (no visible feature); the proof is the findings lines, quoted in the cycle
       row of `docs/planning/cycles.md`.
-- [ ] `obsidian-cli vault=docs unresolved` reports nothing new.
+- [x] `obsidian-cli vault=docs unresolved` reports nothing new.
+
+Outcome (2026-11-10): every box holds; the findings lines are quoted in the DC-22 row of
+[[planning/cycles]]. Four defects found on the PC were fixed on the branch first (judge without
+Godot, seeded champion without a stamp, advisor thinking past its context, a fallback starting a
+trial), and two test and digest faults.
 
 ## Commit plan
 
