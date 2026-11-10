@@ -59,6 +59,12 @@ Outcome (2026-11-10): every box holds; the findings lines are quoted in the DC-2
 Godot, seeded champion without a stamp, advisor thinking past its context, a fallback starting a
 trial), and two test and digest faults.
 
+`/cycle test` (2026-11-10): `/code-review medium` and `/simplify` ran report-only on the
+cycle's diff. Ben chose 1a: the six correctness findings R1 to R6 were fixed with tests
+(`dc-22: review fixes`), and the rest were filed as [[planning/backlog]] B-64 and B-65. After the
+fixes, `scripts/check.sh` passed all stages and `make trainer-test` ran 302 tests OK on the Mac.
+The fixes have not run on the PC yet (B-66).
+
 ## Commit plan
 
 The whole cycle is one changeset on `cycle-16-training-autopilot`, cut from `master` at `/spec`
