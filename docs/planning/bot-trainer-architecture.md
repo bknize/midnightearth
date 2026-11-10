@@ -278,6 +278,7 @@ ledger row in [[planning/bot-ladder]].
 | T18 | Stopping for lack of progress | **(a) Never** | Plateau is marked and told to the LLM; it stops only on low disk or three failed blocks. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 3.2) |
 | T19 | Mac side form | **(a) Script and skill** | The script fetches and computes; the skill has the orchestrator analyse and propose steering. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 3.3) |
 | T20 | Proof the cycle is done | **(a) Tests on both machines, a short-block proof on the PC, one digest** | The first real night is outside the cycle. (Ben, 2026-11-09, [[specs/cycle-16-training-autopilot/spec]], answer 3.4) |
+| T21 | Advisor thinking | **(b) Off** | The advisor's request turns thinking off (`enable_thinking` false, replies capped at 2,048 tokens): in the T14 proof Qwen3.5 thought for 8,396 tokens, filled its 10,240-token slot (`-np 4` over 40,960) and returned nothing, twice, while plans are bounded, trialled and judged anyway. Rejected: (a) a `thinking` switch in `config.json` with `-np 1` and a 600 s wait; (c) always on. Reassess if the advisor's plans look poor. (Ben, 2026-11-09, cycle 16 T14) |
 
 The options as they were put to Ben:
 
