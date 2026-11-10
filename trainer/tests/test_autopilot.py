@@ -271,6 +271,57 @@ class AutopilotCase(unittest.TestCase):
         self.assertEqual(self.service.fit_cfgs, [])
         self.assertTrue(any("not fitted" in n for n in e["plan_notes"]))
 
+    def test_run_completing_a_plan_below_min_positions_is_fitted(self) -> None:
+        """A plan whose `positions` is under min_positions still fits a finished run, while a
+        run cut short of its plan below min_positions is skipped."""
+        self.service.total = 200
+        self.advisor.stop_after = 1
+        self.assertNotIn("error", self.ap.start({**CFG, "min_positions": 300}))
+        self.ap.state["plan"]["positions"] = 200
+        self.ap.run_loop()
+        self.assertEqual(self.entries()[0]["iterations"][0]["fit"], "f1")
+
+    def test_run_cut_short_below_min_positions_not_fitted(self) -> None:
+        self.service.total = 100000
+        self.service.rate = 0.04  # about 120 of the planned 1000 by the deadline
+        self.advisor.stop_after = 1
+        self.assertNotIn("error", self.ap.start({**CFG, "min_positions": 300}))
+        self.ap.run_loop()
+        it = self.entries()[0]["iterations"][0]
+        self.assertLess(it["positions"], 300)
+        self.assertEqual(it["fit"], "")
+
+    def _fit_store(self, **rec: Any) -> None:
+        class Store:
+            def get_fit(self, fit_id: str) -> Optional[Dict[str, Any]]:
+                return rec or None
+        self.service.store = Store()  # type: ignore[attr-defined]
+        setattr(self.service, "_stamp_fn", lambda: "S1")
+        path = Path(weights_path(self.tmp, "f9"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
+
+    def test_fit_ok_needs_a_done_fit_of_this_stamp_and_feature_set(self) -> None:
+        self.ap.state["feature_set"] = "FS1"
+        self._fit_store(state="done", stamp="S1", feature_set="FS1")
+        self.assertTrue(self.ap._fit_ok("f9"))
+        self.assertFalse(self.ap._fit_ok("nofile"))
+        self._fit_store(state="done", stamp="S2", feature_set="FS1")
+        self.assertFalse(self.ap._fit_ok("f9"))
+        self._fit_store(state="done", stamp="S1", feature_set="FS2")
+        self.assertFalse(self.ap._fit_ok("f9"))
+        self._fit_store(state="running", stamp="S1", feature_set="FS1")
+        self.assertFalse(self.ap._fit_ok("f9"))
+
+    def test_fit_trial_refuses_a_run_too_small_to_fit(self) -> None:
+        self.assertNotIn("error", self.ap.start(CFG))  # min_positions 100
+        st = self.ap.state
+        st.update(kind="trial", trial=["l2", 0.5], run_id=None, stage="label",
+                  last_run={"run_id": "r1", "positions": 50, "labels": 5, "label_seconds": 60.0})
+        self.assertEqual(self.ap._trial_block(), "error")
+        self.assertIn("large enough", st["fault"])
+        self.assertEqual(self.service.fit_cfgs, [])
+
     def test_champion_weights_knob_resolves(self) -> None:
         self.go(stop_after=2)
         self.assertEqual(self.service.run_cfgs[0]["rollout_weights"], "")

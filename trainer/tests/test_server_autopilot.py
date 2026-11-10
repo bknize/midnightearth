@@ -99,6 +99,16 @@ class ServerAutopilotTest(unittest.TestCase):
         self.assertEqual(found["problems"], [])
         self.assertIn("error", svc.autopilot_stop())
 
+    def test_hand_started_run_and_fit_refused_while_autopilot_runs(self) -> None:
+        svc = self.service()
+        svc.autopilot_start(CFG)
+        for reply in (svc.start_run({}), svc.fit({"runs": ["r1"]})):
+            self.assertIn("autopilot is running", reply["error"])
+            self.assertIn("autopilot_stop", reply["error"])
+        svc.autopilot_stop()
+        self.wait_stopped(svc)
+        self.assertNotIn("autopilot is running", svc.start_run({}).get("error", ""))
+
     def test_get_findings_after_filters(self) -> None:
         svc = self.service()
         for _ in range(2):
