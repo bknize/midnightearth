@@ -257,7 +257,7 @@ func test_protocol_names_its_constants() -> void:
 	assert_int(NetProtocol.MAX_MESSAGE_BYTES).is_equal(16384)
 	assert_int(NetProtocol.CLIENT_KINDS.size()).is_equal(7)  # ping: DC-19 review
 	assert_int(NetProtocol.SERVER_KINDS.size()).is_equal(12)  # pong: DC-19 review
-	# same_install, idle_timeout: NSC-226; too_many_connections, too_many_from_address: DC-19
+	# same_install, idle_timeout: cycle-12 T13; too_many_connections, too_many_from_address: DC-19
 	assert_int(NetProtocol.REASONS.size()).is_equal(16)
 	assert_bool(NetProtocol.is_client_kind(NetProtocol.T_PING)).is_true()
 	for kind: String in NetProtocol.CLIENT_KINDS:

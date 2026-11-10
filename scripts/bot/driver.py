@@ -98,7 +98,7 @@ def feed_until_decided(test: sprt.Sprt,
                        recs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Feed a batch's pair records to `test` in order and stop at the first pair that
     decides it (R28: the stopping rule is checked per pair, never per batch). Returns the
-    records of the pairs fed (NSC-206): each fed pair's `p` record and the games and
+    records of the pairs fed (B-37): each fed pair's `p` record and the games and
     decisions of its two games (a seed's k-th pair owns games 2k and 2k+1), plus the
     batch's own `end` record, whose counts (rejected, overruns) cover the whole batch."""
     seen: Dict[Any, int] = {}

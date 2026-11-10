@@ -115,7 +115,7 @@ func _stamp_of(bot_a: String, bot_b: String, path_a: String, path_b: String) -> 
 	return MatchWorkerRecords.weights_stamp_of(bot_names, paths)
 
 
-## NSC-245: a side whose bot takes no weights is ignored whatever its file holds; a `linear`
+## B-51: a side whose bot takes no weights is ignored whatever its file holds; a `linear`
 ## side's stale file is MISMATCH, its current file match, and a missing or broken file BROKEN
 ## whichever side holds it and whatever the other holds. The committed file counts too: broken,
 ## it would have a `linear` side with no flag play the defaults under `none`.

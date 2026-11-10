@@ -6,7 +6,6 @@ related: ["[[specs/cycle-6-constructed-decks/spec]]", "[[specs/cycle-6-construct
 created: 2026-11-04
 updated: 2026-11-04
 uid: fed830cd-fc7e-4843-be80-a86d6fefb0d0
-linear: https://linear.app/night-science-llc/project/cycle-6-constructed-decks-3965e3da3936
 supersedes:
 ---
 
@@ -269,7 +268,7 @@ Curve 4-4-3-3-2-2-2; 11 effect cards, 9 vanilla; ×1.25 on six, ×1.5 on one, ×
   the leak scan in the sweep covers piles and recoveries; a recovered unrevealed card's
   identity reaches only its new controller.
 - **Bot time with multi previews** → at most n+1 previews per sacrifice prompt (n ≤ 7);
-  measured per pairing at verification; NSC-74 stays open.
+  measured per pairing at verification; B-09 stays open.
 - **`board.gd` touched by three tasks** → waves keep one writer at a time.
 - **Picker in the boot path** → `Main ready` prints once the picker (or the board, under
   flags) is in the tree; the headless autoplay run passes `--autoplay` and never sees

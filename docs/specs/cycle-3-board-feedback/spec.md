@@ -6,7 +6,6 @@ related: ["[[specs/cycle-3-board-feedback/plan]]", "[[specs/cycle-3-board-feedba
 created: 2026-11-03
 updated: 2026-11-03
 uid: a8896f79-3a81-48ed-bbe0-f88ee3bd9c44
-linear: https://linear.app/night-science-llc/project/cycle-3-board-feedback-df262f0f4d6f
 supersedes:
 ---
 
@@ -17,7 +16,7 @@ supersedes:
 Cycle 3 answers Ben's first hands-on test of the cycle-2 board with three changes. Tapping a
 card picks it up to examine it. Drop zones glow while a drag is in progress. Cards the
 opponent has not seen yet get a rim. The cycle also takes in the three issues left in
-Backlog after DC-03: NSC-48 (layout), NSC-49 (the concede-click flake) and NSC-50 (four
+Backlog after DC-03: cycle-3 T02 (layout), B-05 (the concede-click flake) and cycle-3 T01 (four
 review nits).
 
 ## Intent
@@ -99,7 +98,7 @@ reaches the table.
 - R20. The rim shall stay on a card while it is being dragged along the row or held.
 - R21. Cards in the hand and the opponent's cards shall have no rim.
 
-### Layout (NSC-48)
+### Layout (cycle-3 T02)
 
 - R22. At 1280 × 720, the opponent's face-down fan shall be fully visible, with no HUD
   panel covering it.
@@ -108,7 +107,7 @@ reaches the table.
 - R24. The result panel shall give the end reason as a phrase, one per reason: `wins`,
   `rounds`, `sudden_death` and `concede` (plan, phrase table).
 
-### Pointer and drag hygiene (NSC-50, NSC-49)
+### Pointer and drag hygiene (cycle-3 T01, B-05)
 
 - R25. When a press lands on a HUD control that takes mouse input, the pointer shim shall
   ignore that press and the rest of its gesture, so the table sees no press, drag or tap.
@@ -119,7 +118,7 @@ reaches the table.
 - R28. If a drag starts with no card selected, then the drag controller shall end the
   gesture, so the pointer leaves drag mode at once.
 - R29. When the player presses Pause and then Concede, the board shall concede, whatever
-  cards lie under the menu (NSC-49).
+  cards lie under the menu (B-05).
 
 ### Unchanged
 
@@ -140,7 +139,7 @@ reaches the table.
 | C4 | Marker for cards the opponent hasn't seen | 4b: a tinted rim around the card (no badge) |
 | C5 | How the pick-up works | 5a: the card lifts out of its slot to fill the screen and flies back into the same slot; the slot stays open while it is held; you only ever see one card. A stand-in may carry it for the trip so the card layouts never fight the tween |
 | C6 | Pick-up during animations | 6b: allowed, and the animation queue keeps playing underneath. Edge-case rule (orchestrator, stated with round 2's answers): a step that would move, flip or remove the held card puts it down first (R9) |
-| C7 | Backlog issues in Linear | 7a: move NSC-48, NSC-49 and NSC-50 into the Cycle 3 project under DC-04, add `spec/cycle-3-board-feedback`, keep their Cycle 2 spec links; `/exercise` does not duplicate them |
+| C7 | Backlog issues in Linear | 7a: move cycle-3 T02, B-05 and cycle-3 T01 into the Cycle 3 project under DC-04, add `spec/cycle-3-board-feedback`, keep their Cycle 2 spec links; `/exercise` does not duplicate them |
 | C8 | Proof at `/cycle test` | 8a: two screenshots (a card held; a drag in progress with zones glowing and staged cards rimmed), node queries for each state, and a scripted Pause → Concede run repeated 10 times with cards on the row under the menu |
 | C9 | Defaults (stated in round 2, no objection) | Static cool-blue rim drawn as a slightly larger card-shaped plane behind the card, no shader; the rim stays on during a drag; no pick-up mid-drag; Escape puts a held card down before it can open pause; mouse hover pop unchanged |
 
@@ -194,9 +193,9 @@ reaches the table.
       on `board/verify/board_seed1.tscn`
 - [ ] The zone panels behave as R12–R16, confirmed mid-drag by node queries
 - [ ] Rims follow R17–R21 across stage, commit, reveal and unstage
-- [ ] NSC-48's three acceptance boxes are checked (R22–R24)
-- [ ] NSC-50's four items are fixed (R25–R28), and the Pause → Concede run passes 10
-      times out of 10 (R29, closing NSC-49)
+- [ ] cycle-3 T02's three acceptance boxes are checked (R22–R24)
+- [ ] cycle-3 T01's four items are fixed (R25–R28), and the Pause → Concede run passes 10
+      times out of 10 (R29, closing B-05)
 - [ ] `make check` is green and the seed-1 autoplay line is unchanged (R30)
 - [ ] Two screenshots: a card held, and a drag with glowing zones and rimmed staged cards
       (C8)

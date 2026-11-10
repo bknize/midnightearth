@@ -1,6 +1,6 @@
 class_name TestAbilitiesVerbs
 extends GdUnitTestSuite
-## The verb coverage of Abilities' dispatch (NSC-185): every verb of CardAbility.VERBS is
+## The verb coverage of Abilities' dispatch (B-30): every verb of CardAbility.VERBS is
 ## listed here exactly once by what takes it; every queued verb has exactly one handler and
 ## no Ongoing verb is queued. A new verb fails until it is listed and its module handles it,
 ## where before it loaded fine and silently fizzled.

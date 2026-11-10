@@ -6,7 +6,6 @@ related: ["[[specs/cycle-5-walk-cursor/plan]]", "[[specs/cycle-5-walk-cursor/tas
 created: 2026-11-04
 updated: 2026-11-04
 uid: 7d2789fb-7ac5-4a11-9226-2e4b6d7bf00a
-linear: https://linear.app/night-science-llc/project/cycle-5-the-walk-cursor-a06cd75587c4
 supersedes:
 ---
 
@@ -36,7 +35,7 @@ preview follows the same cursor, and every match still replays from its log.
 
 - No new card, no change to the 20-card table, no second deck.
 - No change to prompt eligibility or zones beyond C9, and no reader-with-button outside a
-  prompt (staging stays a drag, C22); no change to the bot's search (NSC-74 stays in
+  prompt (staging stays a drag, C22); no change to the bot's search (B-09 stays in
   Backlog; its number is re-measured, C16).
 - No art generation inside the cycle (D3): the cracked overlay is a procedural placeholder
   behind one texture slot; a later `/art` run replaces it (C13).
@@ -129,7 +128,7 @@ preview follows the same cursor, and every match still replays from its log.
 - R24. The engine shall raise its rules version; a log of the previous rules version shall
   fail replay with a version mismatch (cycle 1 R34). The log format shall not change.
 - R25. The bot shall still never return an action the engine rejects, and its slowest
-  decision over the 50-seed sweep shall be measured and recorded at verification (NSC-74 is
+  decision over the 50-seed sweep shall be measured and recorded at verification (B-09 is
   not changed by this cycle).
 
 ### Board: the destroyed look (C10, C13)
@@ -160,7 +159,7 @@ preview follows the same cursor, and every match still replays from its log.
 - R34. When the turn ends, each side's tally shall fly into that side's HUD score, the HUD
   score shall count from the held total to the turn's total, and the tally shall clear.
 - R35. While a prompt pauses the walk, the chips, the tally and the HUD shall hold their
-  last values (this closes NSC-73).
+  last values (this closes B-08).
 - R36. Under autoplay, chip, tally and count durations shall divide by the speed like every
   other step.
 - R37. If the next step would destroy, flip, move, re-pulse or clear the held card, then the
@@ -220,13 +219,13 @@ defaults stated in rounds 2 and 4 with no objection.
 | C13 | Round 2 Q3 and Round 3 Q1: scope and the crack art | Ben: "big overhaul. Let's add an animation above a card as it pulses, showing the new score and bonus like balatro. Then, at the end of the round, that gets added to the round total with another animation"; then 1a: a procedural crack placeholder behind one texture slot, the real overlay through `/art` later, outside the cycle (R27) |
 | C14 | Round 3 Q2: the chip's content | 2a: Balatro-style, "×M" chip when the bonus is non-zero, then "+N"; a destroyed card's flip shows nothing (R31, R28) |
 | C15 | Round 3 Q3: when and how the tally runs | "a and c", resolved by C17: a running tally by each row during the walk, flying into the HUD score at turn end with a count (R32, R34) |
-| C16 | Round 3 Q4: NSC-74 | 4a: out; stays in Backlog; verification measures the slowest decision again and records it (R25) |
-| C17 | Round 4: the HUD number while the walk runs | 1a: holds the previous turn's total until the tally flies in, then counts to the new total; the live number lives in the row tally only; NSC-73 closes with this cycle (R33–R35) |
+| C16 | Round 3 Q4: B-09 | 4a: out; stays in Backlog; verification measures the slowest decision again and records it (R25) |
+| C17 | Round 4: the HUD number while the walk runs | 1a: holds the previous turn's total until the tally flies in, then counts to the new total; the live number lives in the row tally only; B-08 closes with this cycle (R33–R35) |
 | C19 | Ben's addition after the first sign-off request | In his words: "When selecting a card, for instance, tapping the card should zoom it in like the typical reader view, with an additional action button. This lets players read the card before selecting it. The action button's text should change based on the action. 'Swap', 'Discard', etc." (R40–R47) |
 | C20 | Round 5 Q1 and Q2: the tap flow and the button | 1a: a tap on a glowing card lifts it with one action button; the button submits; a tap on the card, the table or Escape puts it down; another glowing card swaps the lift; non-eligible face-up cards lift with no button. 2a: a HUD button under the lifted card, plain Theme, labels "Swap", "Discard", "Switch", "Return"; the banner keeps the rules text (R40–R44, R47) |
 | C21 | Round 5 Q3: a face-down card in the reader during a prompt | 3a, with Ben's caveat: "In the case of selecting an enemy's card, it will not flip over and show the face." Own face-down cards show their face and flip back on put-down; an opponent's stay a back (R45, R46) |
 | C22 | Round 5 Q4: scope of the reader-with-button | 4a: prompts only this cycle; staging a hand card stays a drag (R47) |
-| C23 | After T08, Ben reconsidered C2, C3 and C7 | In his words: "This change cements 'reveal' as an event before 'scoring'. Therefore, a swap which happens BEFORE scoring, should score the fresh card now and the original card later." The score stage of a pulse belongs to the slot: the card on it once the reveal stage's effects resolve scores. The moved card scores later if it landed ahead, not this walk if behind (R5, R11). Built by reopening NSC-76 (T01) and re-dispatching the engine agent (3a) |
+| C23 | After T08, Ben reconsidered C2, C3 and C7 | In his words: "This change cements 'reveal' as an event before 'scoring'. Therefore, a swap which happens BEFORE scoring, should score the fresh card now and the original card later." The score stage of a pulse belongs to the slot: the card on it once the reveal stage's effects resolve scores. The moved card scores later if it landed ahead, not this walk if behind (R5, R11). Built by reopening cycle-5 T01 (T01) and re-dispatching the engine agent (3a) |
 | C24 | The card landing on the pulsed slot is face down | 1a: it reveals in full now (bonus-0 spend, its on-reveal, the opponent's watchers), then scores (R5) |
 | C25 | The card landing on the pulsed slot already scored this walk | 2a: it scores again now, with `again` (R5, R9). A destroyed card landing there flips if face down and scores nothing (orchestrator default, existing rule R13) |
 | C18 | Defaults stated in rounds 2 and 4, no objection | A return-marked destroyed card is discarded, not returned (R19); the random destroy picks only among live cards (R17); the preview treats the opponent's face-down cards as inert slots rather than removing them (R23); the HUD's "×mult" readout leaves the HUD for the tally and the chips (R33) |
@@ -318,10 +317,10 @@ orchestrator may append the new cursor rule to [[planning/phase-3-game-loop]] at
       boot expectation if it checks the values, and the cycles log; the autoplay board
       prints the same line.
 - [ ] The 50-seed sweep replays every log; the slowest bot decision and the longest walk
-      are recorded for NSC-74.
+      are recorded for B-09.
 - [ ] Three screenshots: a destroyed card lying dimmed, askew and cracked on a row with the
       row tally visible; the chips above a scoring card; an eligible card lifted during
       c12's prompt with the "Swap" button.
-- [ ] NSC-73 is closed by the orchestrator when the cycle merges, citing R33–R35.
+- [ ] B-08 is closed by the orchestrator when the cycle merges, citing R33–R35.
 - [ ] Constitution Check passes (see plan).
 - [x] Spec, plan and tasks signed off by Ben (2026-11-04); committed before implementation begins.

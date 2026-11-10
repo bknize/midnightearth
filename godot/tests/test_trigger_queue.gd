@@ -284,7 +284,7 @@ func test_a_muted_entry_left_when_the_budget_runs_out_stays_silent() -> void:
 	assert_bool(state.queue.is_empty()).is_true()
 
 
-## Cycle 14 R1, R2 (C1, NSC-178): an effect's On empty draw Batch (Q11, `then_draw`) whose
+## Cycle 14 R1, R2 (C1, B-23): an effect's On empty draw Batch (Q11, `then_draw`) whose
 ## first trigger refills the Deck spends the pulse's last resolution; the rest of the Batch
 ## (two cards, then seat 0's Void) fizzles `exhausted`, and the denied draw is still made
 ## once, right after the Batch's last entry. The draw is a game step: `spent` is unchanged.
@@ -559,7 +559,7 @@ func test_a_full_state_taken_while_paused_replays_and_resumes_the_same_way() -> 
 	var current: Dictionary = queue["current"]
 	assert_dict(current).is_not_empty()
 	var copy: MatchState = engine._state.duplicate()
-	# full_state() adds `dross` (the Dross cards) from MatchCards (NSC-179: one record); the
+	# full_state() adds `dross` (the Dross cards) from MatchCards (B-24: one record); the
 	# rest is the state.
 	var state_only: Dictionary = paused.duplicate(true)
 	state_only.erase("dross")

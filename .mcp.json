@@ -4,10 +4,6 @@
       "command": "npx",
       "args": ["-y", "godot-mcp-server@0.6.1"]
     },
-    "linear": {
-      "type": "http",
-      "url": "https://mcp.linear.app/mcp"
-    },
     "replicate": {
       "command": "scripts/replicate-mcp.sh",
       "args": []

@@ -6,7 +6,6 @@ related: ["[[specs/cycle-14-backlog/spec]]", "[[specs/cycle-14-backlog/tasks]]"]
 created: 2026-11-08
 updated: 2026-11-08
 uid: 60040c02-e4f3-416d-b44e-4575e4672bb6
-linear: https://linear.app/night-science-llc/issue/NSC-254/t08-review-of-the-rules-wave
 supersedes:
 ---
 
@@ -74,7 +73,7 @@ Ben, 2026-11-08 (`1a 2a 3a 4a`):
 2. S2: accepted, no code. R10 asks for `from`, and `SeatView` already gives the opponent
    `opponent_hand_count` and `deck_counts`, so the event tells them nothing new.
 3. Nits: fix N3, N4, N5 and N8 now and remove N6. File N1, N2, N7 and N9 together in Backlog.
-4. NSC-180 leftovers: leave them, recorded on NSC-180. Moving the D8 drain reorders events
+4. B-25 leftovers: leave them, recorded on B-25. Moving the D8 drain reorders events
    (item 5), and a Level cache isn't worth the risk (item 6). No new issue.
 
 ## Related

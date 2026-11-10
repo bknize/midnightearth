@@ -14,7 +14,7 @@ extends SceneTree
 const EXIT_OK: int = 0
 const EXIT_STARTUP: int = 2
 ## The buffer of one read, PlayoutProtocol.MAX_REQUEST_BYTES (1 MiB: the largest request, a
-## label prefix of at most 2000 actions, is about 150 KB; NSC-208). Godot 4.6's
+## label prefix of at most 2000 actions, is about 150 KB; B-39). Godot 4.6's
 ## OS.read_string_from_stdin returns one line without its newline, but splits a line longer
 ## than the buffer into unmarked pieces of at most buffer - 1 bytes. A read of that length
 ## is therefore taken as the start of an over-long request: _run drains the rest of the line

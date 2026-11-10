@@ -124,7 +124,7 @@ static func give(cards: MatchCards, instances: Array[int], def: CardDef) -> bool
 	return ok
 
 
-## Fixtures only (DC-20 T03, NSC-179: the engine has no such method): replaces the
+## Fixtures only (DC-20 T03, B-24: the engine has no such method): replaces the
 ## definition of the Deck instance `instance` of `cards` with `def` (a card carrying a stub
 ## verb) and adds its verbs to has_verb(). False, changing nothing, for an id outside the
 ## Decks or a null `def`. The deck lists and every other instance keep theirs.

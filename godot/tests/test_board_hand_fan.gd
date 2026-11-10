@@ -1,6 +1,6 @@
 class_name TestBoardHandFan
 extends GdUnitTestSuite
-## The board's fans follow the engine (NSC-155): under rules 7 hands persist across Rounds, so
+## The board's fans follow the engine (cycle-9 T11): under rules 7 hands persist across Rounds, so
 ## CLEAR_TABLE must leave them alone, and every change of the opponent's hand reaches the board
 ## as a step (DEAL, DRAW, OPPONENT_COMMIT, a hand DISCARD, RETURN). Replays seed 1's autoplay
 ## match through BoardSteps with the board's own bookkeeping (a count per seat) and compares the

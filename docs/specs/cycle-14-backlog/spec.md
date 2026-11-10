@@ -6,7 +6,6 @@ related: ["[[specs/cycle-14-backlog/plan]]", "[[specs/cycle-14-backlog/tasks]]",
 created: 2026-11-08
 updated: 2026-11-09
 uid: c8aa5fd2-7c20-4eb7-a929-fcf46d9068f3
-linear: https://linear.app/night-science-llc/project/cycle-14-backlog-sweep-1f4a4af95173
 supersedes:
 ---
 
@@ -18,8 +17,8 @@ net, trainer, tooling, vault)  ·  **Status:** approved
 ## Intent
 
 Every Backlog issue left by cycles 3 to 13 is either closed by dev cycle DC-20 or lives
-under its own milestone in the one project [Cycle 14 — backlog sweep](https://linear.app/night-science-llc/project/cycle-14-backlog-sweep-1f4a4af95173)
-(P-NSC-16), so that every earlier project is complete. Ben (2026-11-08): "For next cycle,
+under its own milestone in the one project Cycle 14 — backlog sweep
+(cycle-14-backlog), so that every earlier project is complete. Ben (2026-11-08): "For next cycle,
 I want to collect all the backlogs, so every other cycle can be closed out as complete."
 
 The cycle settles six rules rulings first, moves the rules version to 9 once, and then
@@ -29,14 +28,14 @@ the stale documents.
 
 ## Non-goals
 
-- Training night 2 and 3 (NSC-243), the promotion of a learned policy (NSC-244), the
-  linear bot's 10 ms budget (NSC-250) and Ben's router checklist (NSC-248). They stay in
-  P-NSC-16 under their own milestone and do not hold DC-20 open.
-- The protocol and schema items of NSC-233 (feature names in the hello, `feature_set`
-  dropped from the label reply, the `fits.runs` column): they stay in P-NSC-16 for the
+- Training night 2 and 3 (cycle-13 T10), the promotion of a learned policy (cycle-13 T11), the
+  linear bot's 10 ms budget (B-56) and Ben's router checklist (B-54). They stay in
+  cycle-14-backlog under their own milestone and do not hold DC-20 open.
+- The protocol and schema items of B-50 (feature names in the hello, `feature_set`
+  dropped from the label reply, the `fits.runs` column): they stay in cycle-14-backlog for the
   training milestone, because a protocol change between two nights risks a Mac/PC mismatch
   (C10).
-- NSC-176 (the random bot's shared seed for same-turn prompts without a source card): closed
+- B-21 (the random bot's shared seed for same-turn prompts without a source card): closed
   as won't-fix (C7). The shared seed is deterministic and legal.
 - New cards, Crew, decks or rules beyond the six rulings below. No art. No iOS build.
 - Any change to the card pool, deck list or Crew JSON files: the stamp's hash half stays
@@ -45,7 +44,7 @@ the stale documents.
 ## Actors
 
 - Ben: rules authority (the rulings), sign-off, the two Definition-of-done boxes of
-  NSC-252 that need his word.
+  B-58 that need his word.
 - A player: sees the board fixes (deck notes, Crew beats, Lantern's free first card, the
   tap path, the abandoned PVP board) and the PVP server's behaviour.
 - The engine: carries the rulings, the new events and rules version 9.
@@ -62,30 +61,30 @@ the stale documents.
 - R1. When a seat's draw finds the Deck empty and its On empty draw Batch ends because the
   pulse's Budget (trigger) of Q4 is spent, the engine shall still make the denied draw once
   if the Deck is no longer empty, exactly as it does when the Batch ends by resolving
-  (NSC-178, C1).
+  (B-23, C1).
 - R2. The engine shall treat the resumed draw of Q11 as a game step, not a trigger: it
   shall not count against the Budget and shall not fizzle as "exhausted".
 - R3. When Immolator or Fuse chooses a random opposing card to Condemn, the engine shall
   draw from the whole opposing row, as today, and a pick that lands on a card that cannot
   be Condemned (Bastion's protection) or that already holds the Condemned mark shall be a
   visible miss: the engine shall emit a fizzle for that pick whose reason names the
-  protection or the existing mark, and the pick shall still consume its RNG draw (NSC-181,
+  protection or the existing mark, and the pick shall still consume its RNG draw (B-26,
   C2).
 - R4. While a Level is read on either row, the engine shall level only the revealed cards of
   a row: a face-down card on that row shall keep its own Power until it is revealed, and
-  from its reveal shall be levelled like any revealed card (NSC-183, C3).
+  from its reveal shall be levelled like any revealed card (B-28, C3).
 - R5. The engine shall read the lowest Power for Level among the revealed cards only, as
   today; R4 changes which cards receive the levelled Power, not which cards supply it.
 - R6. When a card ability or a Crew with a `uses` count above 0 fires, the engine shall count
   that ability's uses down by one for the scope its data names, and once none is left shall
   not fire it again within that scope; one firing counts one use however many prompts it
-  opens, and a declined ability counts none (NSC-182, C4; cycle 8 R6 and R43 made good;
+  opens, and a declined ability counts none (B-27, C4; cycle 8 R6 and R43 made good;
   T08 review, N8).
 - R7. If an ability's `uses` is 0 or absent, then the engine shall treat it as unlimited, as
   today, so no shipped card or Crew changes behaviour.
 - R8. The engine shall give every created card an Owner at the moment it is created (the
   seat whose hand or row it is created in), and shall never file a card in a Pile by a
-  fallback seat (NSC-175, C6).
+  fallback seat (B-20, C6).
 - R9. The card format shall let a Dross card (every created card is Dross, Twin's copies
   included) carry a lifetime of either `round` (the default when absent) or `match`; the
   format version shall not change and the shipped card pool file shall not be edited (C9,
@@ -106,37 +105,37 @@ the stale documents.
 
 - R13. When a Crew's ability fires, the engine shall emit a public `CREW_FIRED` event
   carrying the seat, the Crew slot, the Crew id, the moment, the verb and the uses left
-  (unlimited shown as such), in addition to the `TRIGGER_FIRED` it emits today (NSC-187,
+  (unlimited shown as such), in addition to the `TRIGGER_FIRED` it emits today (B-32,
   C5).
 - R14. When a Crew changes a card's stats, the engine shall emit that `STATS_CHANGED` with the
-  same cost clamp, key order and `cause` as a card ability's stats change (NSC-184).
+  same cost clamp, key order and `cause` as a card ability's stats change (B-29).
 - R15. While a card sits in a pending face-down Commit, the engine shall route every private
   event about it (including a Crew's `STATS_CHANGED`) to the committing seat only, never to
-  the opponent (NSC-249).
+  the opponent (B-55).
 - R16. When a seat's Turn starts with a free first card (Lantern), the engine shall say so in
-  the `TURN_STARTED` event, so a viewer can learn it without reading the SeatView (NSC-186).
+  the `TURN_STARTED` event, so a viewer can learn it without reading the SeatView (B-31).
 - R17. The engine shall not change the action log's format or contents for any of R13 to
   R16: they are event changes, and every rules-9 log shall replay to the same result.
 - R18. When the rollout determinizes a paused trigger drain, it shall pin only the numbers
   that are card ids (the entry's card and subject, the prompt's source) and shall not treat
-  other numbers in the kept entry or its data as cards (NSC-213, C10).
+  other numbers in the kept entry or its data as cards (B-44, C10).
 
 ### C. The board (PVE and PVP)
 
 - R19. While a deck note is showing, the board shall keep it through every later step until
-  the note's own end, instead of clearing it at the next step (NSC-188).
+  the note's own end, instead of clearing it at the next step (B-33).
 - R20. When the board receives a `CREW_FIRED` event, it shall play its Crew-fire beat (the
-  Crew lifts and settles) for that Crew slot (NSC-187).
+  Crew lifts and settles) for that Crew slot (B-32).
 - R21. When a Turn starts with a free first card for the player's seat, the board shall show
   it (the HUD's free-first state), and shall clear it once the free card is committed or the
-  Turn ends (NSC-186).
+  Turn ends (B-31).
 - R22. If the board is halted (match ended, closed, or a prompt that forbids it), then a tap
-  on a card shall not lift it, matching what the drag path already does (NSC-58).
+  on a card shall not lift it, matching what the drag path already does (B-07).
 - R23. The board shall have a `test_card_lift.gd` suite covering lift, put-down, the halted
-  tap and the halted drag (NSC-58).
+  tap and the halted drag (B-07).
 - R24. When a PVP match is abandoned under the player, the board shall clear the "Connection
   … lost" note, disable Pass and Commit, and show "Match abandoned" with Leave only
-  (NSC-246 board sub-item).
+  (B-52 board sub-item).
 - R25. When the board receives the created-card removal event of R10, it shall take the
   card off the table (the card flies off, with no Pile arrival; the Pile count drops by one
   only when the Dross left the Pile, C13).
@@ -145,29 +144,29 @@ the stale documents.
 
 - R26. If a room's act path fails, then the server shall mark the room failed through the
   one failure path (`MatchRoom.fail`), close its clients with the failure reason and keep
-  every other room running (NSC-246 R41).
+  every other room running (B-52 R41).
 - R27. If one address sends a wrong room code more than a small fixed number of times within
   a minute, then the server shall refuse its next join attempts for a cooling period and
-  log it (NSC-246 room-code guessing).
+  log it (B-52 room-code guessing).
 - R28. The server shall measure every timeout, grace period and reconnect window with a
   monotonic clock, so a wall-clock change never fires or delays one; wall-clock time shall
-  appear only in log timestamps (NSC-246).
+  appear only in log timestamps (B-52).
 - R29. If a seat disconnects and reconnects more than a fixed cap of times in one match,
-  then the server shall treat the next disconnect as the seat leaving (NSC-246 flapping).
+  then the server shall treat the next disconnect as the seat leaving (B-52 flapping).
 - R30. If a resync message would exceed the 1 MiB send limit, then the server shall close
-  that client with a stated reason instead of dropping the message silently (NSC-246).
+  that client with a stated reason instead of dropping the message silently (B-52).
 - R31. The server shall rotate `server.log` by size, keeping a fixed small number of past
-  files (NSC-246).
+  files (B-52).
 - R32. When a bot client rejoins a room, the server shall count its `actions=` from the
-  actions actually accepted after the rejoin, not from zero (NSC-246).
+  actions actually accepted after the rejoin, not from zero (B-52).
 - R33. When the server starts, `PvpLog.scan_orphans` shall read only each file's header
-  (not parse every log) to mark interrupted matches incomplete (NSC-246).
+  (not parse every log) to mark interrupted matches incomplete (B-52).
 
 ### E. The trainer (between training nights)
 
-- R34. The fit shall weight paired positions as NSC-245 describes, and shall report the
+- R34. The fit shall weight paired positions as B-51 describes, and shall report the
   weighting in the fit record, so later fits are reproducible (C10).
-- R35. The trainer shall apply the remaining NSC-245 items: `validate_runs` rejects mixed
+- R35. The trainer shall apply the remaining B-51 items: `validate_runs` rejects mixed
   policies, the Windows lock uses `os.replace`, the two large-hand paths are documented where they
   differ (changing either moves labels or the `linear` sweep), fit validation and creation
   are atomic under the lock, the Makefile honours `WEIGHTS`, power iteration starts from a
@@ -176,14 +175,14 @@ the stale documents.
 - R36. The trainer shall own one run state machine (store-owned, one `ActiveRun`, one
   restart loop, one Godot path, one sampling path, a shared stamp module, `argparse`,
   run-row counters, the pool_key memo and candidate-independent feature base, power
-  iteration on XtX) as NSC-233's code items describe; the label digest of the committed
+  iteration on XtX) as B-50's code items describe; the label digest of the committed
   position file shall be recorded before and after and any change explained (C10).
 - R37. The trainer shall not change the play-out protocol version, the hello message, the
   label reply or the `fits` table schema in this cycle (C10).
 - R38. The play-out worker shall flush its output explicitly after every reply, never relying
-  on `print()` buffering (NSC-209).
+  on `print()` buffering (B-40).
 - R39. The orchestrator shall check the PC's rollouts per worker against the Mac's and record
-  the batch and worker sizing it settles on (NSC-231); anything needing admin is noted, not
+  the batch and worker sizing it settles on (B-48); anything needing admin is noted, not
   done.
 - R40. The trainer wave shall land only between training nights, never during one, and
   nothing shall be synced to the PC while a night runs (Ben, 2026-11-08). It lands before
@@ -194,13 +193,13 @@ the stale documents.
 - R41. `scripts/worktree-sweep.sh` shall never delete a worktree whose branch is not merged
   into the target, shall never remove a worktree registered by another checkout or session,
   and shall preserve the cycle's gitignored screenshots (or move them to a stated folder)
-  before removing a merged cycle worktree (NSC-75).
+  before removing a merged cycle worktree (B-10).
 - R42. If `gdlint` is not on the edit hook's PATH, then the hook shall print one line saying
-  so instead of skipping the lint silently, and shall look in `~/.local/bin` first (NSC-57).
+  so instead of skipping the lint silently, and shall look in `~/.local/bin` first (B-06).
 - R43. `make check`'s test stage shall finish its gdUnit suites in under 30 s on the Mac with
-  every suite still run (NSC-251).
+  every suite still run (B-57).
 - R44. The test tree shall have one shared `_typed()` helper, and no suite shall carry its
-  own copy (NSC-191).
+  own copy (B-36).
 
 ### G. Documents and ledger
 
@@ -209,11 +208,11 @@ the stale documents.
   and `systems/game-loop` and `systems/cards-crew-decks` shall match.
 - R46. `docs/systems/bot-training.md` shall describe the trainer as it stands after this cycle
   (the linear bot, `fit`, the PC runner, the ladder) and `CLAUDE.md`'s layout table shall
-  gain rows for `trainer/`, `godot/title/` and `scripts/pc/` (NSC-204).
+  gain rows for `trainer/`, `godot/title/` and `scripts/pc/` (cycle-11 T13).
 - R47. `docs/planning/cycles.md` shall have a current "Planned next" paragraph, and every
   Definition-of-done box in a finished spec shall be ticked or marked superseded; the two
   boxes that need Ben shall be put to him as one plain-text question at `/cycle plan`
-  (NSC-252).
+  (B-58).
 - R48. When the stamp moves to r9, [[planning/bot-ladder]] shall gain a rung-0 row at
   `r9-857b165d5a5d755e` with the `bot-eval` line, the r8 rows marked as measuring nothing at
   the current stamp, and the committed `linear_weights.json` re-stamped by hand (ladder R5).
@@ -245,7 +244,7 @@ Settled before the interview by the orchestrator's conversation with Ben (2026-1
 
 | # | Question | Answer |
 |---|---|---|
-| S1 | One project for every Backlog issue; DC-20 one cycle run in waves; the PC-night trainer work (NSC-243, NSC-244, NSC-250) and the router checklist (NSC-248) under their own milestone, not holding DC-20 open; the one-L-per-cycle rule broken knowingly | 1a |
+| S1 | One project for every Backlog issue; DC-20 one cycle run in waves; the PC-night trainer work (cycle-13 T10, cycle-13 T11, B-56) and the router checklist (B-54) under their own milestone, not holding DC-20 open; the one-L-per-cycle rule broken knowingly | 1a |
 | S2 | This short spec first; it settles the rulings and golden-line moves, then the waves | 2a |
 | S3 | The engine-rule wave lands first; the spec decides whether it moves the stamp; night 2 starts on the final stamp once that wave merges; trainer-code items land between nights | "Rules wave first" |
 
@@ -253,21 +252,21 @@ The interview:
 
 | # | Round, question | Answer |
 |---|---|---|
-| C1 | R1 Q1, NSC-178: does the resumed draw survive an exhausted Budget? | 1a: yes, it is a game step, not a trigger (R1, R2) |
-| C2 | R1 Q2, NSC-181: should Immolator and Fuse leave protected and Condemned cards out of the pool? | 2b: no, the whole row stays the pool; a blocked pick is a visible miss (R3) |
-| C3 | R1 Q3, NSC-183: does Level apply to face-down cards? | 3a: no (R4, R5) |
-| C4 | R1 Q4, NSC-182: enforce `uses` or remove it? | 4a: enforce now (R6, R7) |
-| C5 | R2 Q1, NSC-187: CREW_FIRED from the engine or a board mapping? | 1a: the engine emits CREW_FIRED with the uses left (R13, R20) |
-| C6 | R2 Q2, NSC-175: Owner at creation or refuse in `to_pile`? | 2a, with: "dross cards also have a duration, like buffs. Some 'created' cards can last the whole match, but most of them will disappear when they're sent to the pile." (R8; the duration became C9) |
-| C7 | R2 Q3, NSC-176: accept the random bot's seed fix and its golden move? | 3b: leave it, close as won't-fix |
+| C1 | R1 Q1, B-23: does the resumed draw survive an exhausted Budget? | 1a: yes, it is a game step, not a trigger (R1, R2) |
+| C2 | R1 Q2, B-26: should Immolator and Fuse leave protected and Condemned cards out of the pool? | 2b: no, the whole row stays the pool; a blocked pick is a visible miss (R3) |
+| C3 | R1 Q3, B-28: does Level apply to face-down cards? | 3a: no (R4, R5) |
+| C4 | R1 Q4, B-27: enforce `uses` or remove it? | 4a: enforce now (R6, R7) |
+| C5 | R2 Q1, B-32: CREW_FIRED from the engine or a board mapping? | 1a: the engine emits CREW_FIRED with the uses left (R13, R20) |
+| C6 | R2 Q2, B-20: Owner at creation or refuse in `to_pile`? | 2a, with: "dross cards also have a duration, like buffs. Some 'created' cards can last the whole match, but most of them will disappear when they're sent to the pile." (R8; the duration became C9) |
+| C7 | R2 Q3, B-21: accept the random bot's seed fix and its golden move? | 3b: leave it, close as won't-fix |
 | C8 | R2 Q4: bump `RULES_VERSION` to 9? | 4b: no (superseded by C9) |
 | C9 | R3 Q1: where does the created-card lifetime rule land? | 1a: in this cycle's rules wave, with `RULES_VERSION` 9 after all, the re-pin, the rung-0 re-measure and the PC redeploy (R9–R12, R48, R49) |
-| C10 | R3 Q2: which trainer items are in DC-20? | 2a: NSC-245 whole (pair weighting included), NSC-233's code items, NSC-209, NSC-231, NSC-213 in the rules wave; NSC-233's protocol and schema items stay for the training milestone (R18, R34–R39) |
+| C10 | R3 Q2: which trainer items are in DC-20? | 2a: B-51 whole (pair weighting included), B-50's code items, B-40, B-48, B-44 in the rules wave; B-50's protocol and schema items stay for the training milestone (R18, R34–R39) |
 | C11 | R3 Q3: when does night 2 start, and where does the trainer wave sit? | 3a: night 2 once the rules wave has merged and been deployed to the PC; the trainer wave after night 2, before night 3 (R40, R50) |
-| C12 | R3 Q4: all the cleanup, or local items only? | 4a: all of it, the structural items as their own tasks (NSC-185, NSC-189, NSC-190) |
+| C12 | R3 Q4: all the cleanup, or local items only? | 4a: all of it, the structural items as their own tasks (B-30, B-34, B-35) |
 | C13 | After the T03 merge (Ben, 2026-11-08): "'Dross' is the term we will use for 'created cards'. Twin's copies are Dross cards. Let's make the default rule 'dross cards disappear at the end of a round' to make Reliquary useful." Then 1a 2a 3c | 1a: at Round end every `round` Dross leaves every zone (hand, rows, Pile, Deck), after the award and before the next draws, one `DROSS_EXPIRED` each; 2a: lifetimes `round` (default) and `match`, `until_piled` dropped; 3c: full rename in code (`created` → Dross: `record_created`, `CardDef.created`, `CARD_EXPIRED` → `DROSS_EXPIRED`) as well as the canon. Supersedes C9's `until_piled` default (R9–R11) |
 | C14 | After T13 (Ben, 2026-11-09, 1a; PvP testing put off, so night 2 had not started): which order for the trainer wave and night 2? | 1a: the trainer wave now, before night 2, overriding C11's order; DC-20 no longer waits on a night. Accepted: night 2 trains on the new pair weighting while F0 (`d9c99be2c60b`) was fit under the old one, so comparing iterations is less clean; the training checkout syncs after T17; F0 still needs a re-stamp or refit before night 2; night 2 still waits on PvP testing |
-| C15 | After T17 (Ben, 2026-11-09, `1a 2a`): the `linear` sweep's seed 33 never ends, because a `cb09` mirror at 3–3 ties every sudden-death Round and Fleeting refills both hands. Change the rule? And where does T17's skipped one-sampling-path item go? | 1a: rules 10, three tied sudden-death Rounds in a row end the Match in a stalemate (higher Match total Score wins, equal totals draw), so the Match ends after Round 10 at the latest; the extra task T17a lands before T18, moves the stamp to `r10-857b165d5a5d755e`, and redoes the ladder row and the PC redeploy. Overrides R49 and R52 for T17a alone. 2a: the skipped item goes to NSC-257, because `legal` -1 is in the label reply (R37) |
+| C15 | After T17 (Ben, 2026-11-09, `1a 2a`): the `linear` sweep's seed 33 never ends, because a `cb09` mirror at 3–3 ties every sudden-death Round and Fleeting refills both hands. Change the rule? And where does T17's skipped one-sampling-path item go? | 1a: rules 10, three tied sudden-death Rounds in a row end the Match in a stalemate (higher Match total Score wins, equal totals draw), so the Match ends after Round 10 at the latest; the extra task T17a lands before T18, moves the stamp to `r10-857b165d5a5d755e`, and redoes the ladder row and the PC redeploy. Overrides R49 and R52 for T17a alone. 2a: the skipped item goes to B-59, because `legal` -1 is in the label reply (R37) |
 
 Facts corrected during the interview: the PC's PVP server already ran stamp
 `r8-857b165d5a5d755e` (redeployed at `master` cc2b695, 80 gate suites green), so the only
@@ -341,9 +340,9 @@ redeploy this cycle is the one C9 brings.
   PC; the label digest recorded before and after R36.
 - [ ] Tooling R41–R44: a planted unmerged worktree survives a sweep; the hook prints its
   missing-gdlint line; gdUnit under 30 s; no `_typed()` copies left.
-- [ ] Documents R45–R47 updated; the two NSC-252 boxes decided by Ben.
-- [ ] Every DC-20 issue in P-NSC-16 is Done at `/cycle test`; NSC-243, NSC-244, NSC-248 and
-  NSC-250 and the NSC-233 protocol items remain under the training milestone.
+- [ ] Documents R45–R47 updated; the two B-58 boxes decided by Ben.
+- [ ] Every DC-20 issue in cycle-14-backlog is Done at `/cycle test`; cycle-13 T10, cycle-13 T11, B-54 and
+  B-56 and the B-50 protocol items remain under the training milestone.
 - [ ] `make check` is green.
 - [ ] Constitution Check passes (see plan).
 - [ ] Spec, plan and tasks signed off by Ben and committed before implementation begins.

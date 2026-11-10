@@ -97,7 +97,7 @@ func is_holding() -> bool:
 
 ## Picks the card up. Does nothing if a card is already held. `show_face` turns a face-down
 ## card of the player's own face up in the lift (R45); it flips back down on put-down.
-## `with_button` leaves room under the card for the prompt's action button (NSC-85).
+## `with_button` leaves room under the card for the prompt's action button (B-11).
 func lift(card: BoardCard, show_face: bool = false, with_button: bool = false) -> void:
 	if held != null or card == null or _camera == null or not _spawn.is_valid():
 		return
@@ -176,7 +176,7 @@ func _target() -> Transform3D:
 	return _lift_pose()
 
 
-## Where the action button goes under the held card, in viewport pixels (NSC-85).
+## Where the action button goes under the held card, in viewport pixels (B-11).
 func button_rect() -> Rect2:
 	return LiftLayout.button_rect(_view_size(), _safe(), _fill)
 

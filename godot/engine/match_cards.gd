@@ -10,7 +10,7 @@ extends RefCounted
 ## the cards an ability creates in a match (milestone B: the Dross card, Twin's copies; C13),
 ## take ids from DROSS_BASE up, never colliding with a Deck card; record_dross() gives one its
 ## definition and Owner, and def_of() and origin_of() answer for it as for a Deck card (its
-## verbs join has_verb()). This is the one record of the Dross cards (DC-20 T03, NSC-179):
+## verbs join has_verb()). This is the one record of the Dross cards (DC-20 T03, B-24):
 ## MatchState keeps only the next id to hand out, and MatchEngine.full_state() lists the
 ## record as `dross`. A Dross card removed at the end of the Round (CardDef.lifetime `round`,
 ## TurnFlow.expire_dross, rules 9) is dropped from it by forget_dross(). A failed build holds

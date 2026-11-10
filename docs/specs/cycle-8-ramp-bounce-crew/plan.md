@@ -6,7 +6,6 @@ related: ["[[specs/cycle-8-ramp-bounce-crew/spec]]", "[[specs/cycle-8-ramp-bounc
 created: 2026-11-04
 updated: 2026-11-04
 uid: 92033b9a-898a-4fe2-b919-576ee5dddb85
-linear: https://linear.app/night-science-llc/project/cycle-8-ramp-bounce-crew-c3fe684d879f
 supersedes:
 ---
 

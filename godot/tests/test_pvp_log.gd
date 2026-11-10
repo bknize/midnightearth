@@ -336,7 +336,7 @@ func test_the_orphan_scan_decides_from_the_header_alone() -> void:
 
 
 ## A crash between the old file's removal and the rename leaves only `<file>.json.tmp`: the
-## scan promotes it and marks it interrupted (NSC-226 S3).
+## scan promotes it and marks it interrupted (cycle-12 T13 S3).
 func test_a_lone_tmp_is_promoted_and_marked_interrupted() -> void:
 	var engine: MatchEngine = _new_engine(SEED)
 	assert_bool(engine.start().ok).is_true()
@@ -354,7 +354,7 @@ func test_a_lone_tmp_is_promoted_and_marked_interrupted() -> void:
 
 
 ## A failed write is not counted as written: the server retries it on the next poll, and a
-## closed room is kept until its record is on disk (NSC-226 S3).
+## closed room is kept until its record is on disk (cycle-12 T13 S3).
 func test_a_failed_log_write_is_retried_on_the_next_flush() -> void:
 	var table: PvpTable = PvpTable.create(SEED)
 	table.start()

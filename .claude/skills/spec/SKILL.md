@@ -16,7 +16,7 @@ license: MIT
 A repeatable workflow that turns a fuzzy request into three reviewable notes (spec,
 plan, tasks) before any code is written. It interviews first, then emits the artifacts,
 constrained by the project constitution in the root `CLAUDE.md`. It is step one of the
-cycle lifecycle: `/spec <slug>` then `/exercise <slug>` then `/cycle plan|run|test`.
+cycle lifecycle: `/spec <slug>` then `/cycle plan|run|test`.
 
 ## Who runs it
 
@@ -32,7 +32,7 @@ model without Ben saying so.
 Rules for the session while it runs this skill:
 
 - Never write code, and never touch `godot/`, `scripts/` or `.claude/` under this skill.
-  Git is limited to step 0 and the commit in step 7.3. Linear and Godot wait for later verbs.
+  Git is limited to step 0 and the commit in step 7.3. Godot waits for later verbs.
 - Never answer your own questions or assume an answer. End each round and wait for Ben.
 - Record every answer in the spec's Clarifications table with the date, quoting Ben's own
   words when he wrote more than a letter.
@@ -92,8 +92,8 @@ touches. Check `docs/specs/` for an existing set with that slug; if one exists, 
 it rather than starting a second.
 
 Then cut the set's branch before writing anything (`CLAUDE.md`, Git). The branch is
-named for the slug and is the cycle branch: it carries the spec, the `/exercise`
-write-back and the whole dev cycle, and merges into `master` only at `/cycle test`.
+named for the slug and is the cycle branch: it carries the spec
+and the whole dev cycle, and merges into `master` only at `/cycle test`.
 `git switch -c <slug> master` from a clean `master` (or `git switch <slug>` when updating
 a set whose cycle has not merged yet). Every note this skill writes lands on that
 branch.
@@ -152,7 +152,8 @@ anything fails, revise the plan; do not proceed.
 Fill `templates/tasks-template.md`: a numbered, dependency-ordered, independently
 reviewable task list derived from the plan. Each task names its area, its acceptance
 check and who does it: `implementer`, `implementer-engine` (anything under
-`godot/engine/`), `reviewer` or `orchestrator`. The last task is always verification.
+`godot/engine/`), `reviewer` or `orchestrator`. The last task is always verification. Every row ends with a
+`Status` cell, `todo` when written; only the orchestrator changes it (`CLAUDE.md`, Tasks).
 
 ### 7. Handoff
 1. Write the three notes to `docs/specs/<slug>/spec.md`, `plan.md`, `tasks.md`, each
@@ -164,14 +165,14 @@ check and who does it: `implementer`, `implementer-engine` (anything under
 3. **The skill stops at Ben's sign-off.** Commit only when Ben says to, on the
    `<slug>` branch cut in step 0, never on `master`: `git add docs/specs/<slug>`
    (plus the specs MOC row if you added one), `git commit -m "spec: <slug>"` with the
-   Co-Authored-By line the session provides. Stay on the branch: `/exercise` runs on it
-   next. Do not merge it; the cycle branch merges into `master` only at `/cycle test`
+   Co-Authored-By line the session provides. Stay on the branch: `/cycle plan` moves it
+   to a worktree. Do not merge it; the cycle branch merges into `master` only at `/cycle test`
    (`docs/decisions/0002-one-branch-per-cycle.md`). Never push.
-4. Tell Ben the next verb is `/exercise <slug>`, which turns the tasks into Linear issues,
+4. Tell Ben the next verb is `/cycle plan DC-NN`, which picks the tasks into a dev cycle,
    and offer to start it. Implementation is a separate step. Once the spec is committed and
    Ben says yes, start it with `mcp__ccd_session__start_session`: `initiation` `user_asked`,
-   `context` `fresh`, `model` `claude-opus-5-5`, `use_worktree` `false` (`/exercise` needs
-   this checkout on the cycle branch), with a prompt to run `/exercise <slug>` and background
+   `context` `fresh`, `model` `claude-opus-5-5`, `use_worktree` `false` (`/cycle plan` starts
+   from this checkout), with a prompt to run `/cycle plan DC-NN <theme>` and background
    naming the three notes. If the tool is refused or missing, ask Ben to start the session.
 5. Final link audit, before reporting: if `obsidian-cli` is on PATH
    (`command -v obsidian-cli`), run `obsidian-cli vault=docs unresolved` and
@@ -189,7 +190,6 @@ related: ["[[specs/<slug>/plan]]", "[[planning/phase-1-tech-stack]]"]
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 uid: <uuid4, lowercase, from uuidgen>
-linear:               # empty until /exercise fills it
 supersedes:
 ```
 

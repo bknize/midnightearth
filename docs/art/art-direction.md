@@ -6,7 +6,6 @@ related: ["[[decisions/0003-art-agent]]", "[[planning/phase-1-tech-stack]]", "[[
 created: 2026-11-03
 updated: 2026-11-04
 uid: 5bf8298d-cd5f-4d0b-8566-50f3839f1ed3
-linear:
 supersedes:
 ---
 

@@ -6,7 +6,6 @@ related: ["[[specs/ruleset-v2/spec]]", "[[home]]", "[[cards/Cards]]", "[[systems
 created: 2026-11-06
 updated: 2026-11-06
 uid: b0909580-fb5b-4111-8770-f0cbb68f71b6
-linear: https://linear.app/night-science-llc/issue/NSC-142/t06-test-decks-moc-and-home
 supersedes:
 ---
 

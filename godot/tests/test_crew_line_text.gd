@@ -14,7 +14,7 @@ func test_an_unlimited_crew_has_no_badge() -> void:
 
 
 ## The joiner (engine seat 1) sees its own Crew on its own line (table seat 0) and the host's
-## on the far line (NSC-226 S2).
+## on the far line (cycle-12 T13 S2).
 func test_a_seat_one_player_reads_its_own_crew_on_its_own_line() -> void:
 	var per_seat: Array[Array] = [["host_a", "host_b"], ["join_a"]]
 	assert_array(CrewLine.seat_entries(per_seat, 0, 1)).is_equal(["join_a"])

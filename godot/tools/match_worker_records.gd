@@ -60,7 +60,7 @@ const END_FIELDS: Array[String] = [
 ]
 ## The end record's `weights_stamp` values (cycle 13 R15, plan P6): every weights file used
 ## carries the current stamp, one does not, or no side has a weights file. WEIGHTS_BROKEN
-## (NSC-245): a `linear` side is playing the built-in defaults because its file is missing or
+## (B-51): a `linear` side is playing the built-in defaults because its file is missing or
 ## broken; scripts/bot/driver.py counts every value but match and none as a mismatch.
 const WEIGHTS_MATCH: String = "match"
 const WEIGHTS_MISMATCH: String = "MISMATCH"
@@ -69,7 +69,7 @@ const WEIGHTS_BROKEN: String = "BROKEN"
 
 
 ## One `choose` call. `action` is EngineAction.to_dict(); `legal` is the candidate count or
-## UNKNOWN (also when the worker runs without --legal, NSC-212); level, previewed, best,
+## UNKNOWN (also when the worker runs without --legal, B-43); level, previewed, best,
 ## second, chosen and push are always UNKNOWN (the random bot exposes none).
 static func decision(
 	match_seed: int,

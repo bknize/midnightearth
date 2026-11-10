@@ -6,7 +6,6 @@ related: ["[[systems/systems-moc]]", "[[systems/cards-crew-decks]]", "[[systems/
 created: 2026-11-05
 updated: 2026-11-09
 uid: 50267112-4326-429c-b245-ff481bd6da6b
-linear: https://linear.app/night-science-llc/issue/NSC-160
 supersedes:
 ---
 

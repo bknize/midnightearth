@@ -1,6 +1,6 @@
 class_name TestLiftLayout
 extends GdUnitTestSuite
-## LiftLayout (NSC-85): the reader's action button sits under the lifted card, never over it,
+## LiftLayout (B-11): the reader's action button sits under the lifted card, never over it,
 ## and stays inside the safe area.
 
 const BASE: float = 0.9

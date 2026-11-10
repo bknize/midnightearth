@@ -1,6 +1,6 @@
 class_name TestDeckStripLayout
 extends GdUnitTestSuite
-## NSC-163: the Pile strip's world rectangle clears both rows, both Crew lines and the HUD's
+## B-18: the Pile strip's world rectangle clears both rows, both Crew lines and the HUD's
 ## top-right buttons at 1280 x 720 and on narrower aspects.
 
 const ROW_SIZE: Vector2 = Vector2(26.0, 4.0)

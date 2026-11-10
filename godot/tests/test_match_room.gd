@@ -140,7 +140,7 @@ func test_join_after_ten_minutes_is_refused_room_expired() -> void:
 
 
 ## Two clients on one device share its install id; a join from the host's own id is refused,
-## since a rejoin could not tell the two seats apart (NSC-226 S7). The room keeps waiting
+## since a rejoin could not tell the two seats apart (cycle-12 T13 S7). The room keeps waiting
 ## and a joiner from another device still starts it.
 func test_join_from_the_hosts_install_id_is_refused_same_install() -> void:
 	var table: PvpTable = PvpTable.create(SEED)

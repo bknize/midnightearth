@@ -6,7 +6,6 @@ related: []      # wikilinks from the vault root, e.g. "[[planning/phase-1-tech-
 created: {{date}}
 updated: {{date}}
 uid:             # uuidgen | tr A-Z a-z  — used by obsidian://adv-uri?vault=docs&uid=
-linear:          # issue or project URL once exercised
 supersedes:      # ADRs only: the note this replaces
 ---
 

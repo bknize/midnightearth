@@ -9,7 +9,7 @@ extends RefCounted
 ## its action button sit on top of it as for any other eligible card.
 
 ## The strip rests on the opponent's Crew level, right of its Crew line and left of the HUD's
-## top-right buttons, so it covers neither row, either Crew line nor the HUD (NSC-163). It may
+## top-right buttons, so it covers neither row, either Crew line nor the HUD (B-18). It may
 ## cover the opponent's hand, which is all backs. World units; the camera sits 30 from the
 ## table with a 45 degree vertical fov, so its half width is aspect * VIEW_HALF_HEIGHT.
 const REST_Y: float = 8.8

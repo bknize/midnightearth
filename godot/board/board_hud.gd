@@ -258,7 +258,7 @@ func hide_prompt() -> void:
 
 
 ## Shows the reader's action button (R40, R41), a plain Theme Button. `rect` is where it goes
-## in viewport pixels, under the lifted card (CardLift.button_rect, NSC-85); an empty rect keeps
+## in viewport pixels, under the lifted card (CardLift.button_rect, B-11); an empty rect keeps
 ## it at the bottom centre.
 func show_action(text: String, rect: Rect2 = Rect2()) -> void:
 	if _action_button == null:

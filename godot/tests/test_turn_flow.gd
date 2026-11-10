@@ -175,7 +175,7 @@ func test_an_empty_deck_draws_nothing_and_emits_draw_empty() -> void:
 	assert_array(state.seats[1].hand).is_equal(Typed.ints([40, 41, 42]))
 
 
-## Rules 9 (cycle 14 R16, NSC-186): TURN_STARTED says which seat starts its Turn with a
+## Rules 9 (cycle 14 R16, B-31): TURN_STARTED says which seat starts its Turn with a
 ## free first card (Lantern), `free_first` per seat from the state's Energy, so a viewer
 ## learns it without the SeatView. An event change only: nothing else moves.
 func test_turn_started_carries_free_first_per_seat() -> void:

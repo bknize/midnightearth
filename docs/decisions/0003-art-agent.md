@@ -6,7 +6,6 @@ related: ["[[decisions/decisions-moc]]", "[[decisions/0001-planning-decisions]]"
 created: 2026-11-03
 updated: 2026-11-03
 uid: ff0299b9-0ac0-41a1-82d3-f94730c09ebd
-linear:
 supersedes:
 ---
 

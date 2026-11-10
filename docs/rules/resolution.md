@@ -6,7 +6,6 @@ related: ["[[specs/ruleset-v2/spec]]", "[[rules/rules-moc]]", "[[rules/glossary]
 created: 2026-11-06
 updated: 2026-11-08
 uid: 9c79b710-60a3-417d-9318-688d5cc19439
-linear: https://linear.app/night-science-llc/issue/NSC-139/t03-resolution-chart
 supersedes:
 ---
 

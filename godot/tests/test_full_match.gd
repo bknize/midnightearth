@@ -10,7 +10,7 @@ extends FullMatchHarness
 ## the other seat's hand, Deck, face-down Commit and unlooked face-down row cards as hidden;
 ## ten seeds of random against random end, replay and scan clean.
 ## The 50-seed sweep and its "Sweep: ..." / "Sweep pairing ..." lines live in
-## sweep/test_sweep.gd, outside the gate (NSC-133: `make sweep`); the shared play-and-check
+## sweep/test_sweep.gd, outside the gate (B-14: `make sweep`); the shared play-and-check
 ## helpers are in fixtures/full_match_harness.gd.
 ## Cycle 8 (DC-09 T04; R8, R10, R31): the seeded pairing draws from the shipped decks
 ## (greed and ramp since DC-13 T02); a commit's cost reads the card's memory (an ability's

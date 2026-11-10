@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # strict-override.sh - sourced by scripts/check.sh and scripts/hooks/gd-edit-gate.sh so the
-# gate and the edit hook promote the same typed-GDScript warnings to errors (NSC-36).
+# gate and the edit hook promote the same typed-GDScript warnings to errors (B-04).
 #
 #   write_override <file> <strict|tests>
 #
