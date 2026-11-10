@@ -100,8 +100,10 @@ the state, so no two runs share a seed.
 bound must lie inside the hard limit; a missing `approved_by` is refused.
 
 **CLI**: `python -m trainer digest [--dir godot/reports/bot/autopilot]` prints one summary line
-and writes the two figures files; exit 1 on a line of `findings.jsonl` that does not parse,
-naming the line.
+and writes the two figures files. A line of `findings.jsonl` that does not parse is named on
+stderr, skipped and listed under "Skipped lines" in the figures; exit 1 only when no line parses
+(changed at review, DC-22: a torn line stays in the append-only log for good, so failing on it
+would fail every later digest).
 
 ## Data model
 
