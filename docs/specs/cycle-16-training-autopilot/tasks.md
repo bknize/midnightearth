@@ -18,7 +18,7 @@ clock); they never run Godot, the LLM or the PC.
 
 | # | Task | Area | Depends on | Acceptance check | Who | Status |
 |---|---|---|---|---|---|---|
-| 1 | Close DC-21's hand-run rounds (P21): judge the round in flight once, record it in the DC-21 row on `cycle-15-training`, mark DC-21 paused, note the two candidate fit ids | vault | – | The DC-21 row names the last hand-run round, the pause and the candidates | orchestrator | todo |
+| 1 | Close DC-21's hand-run rounds (P21): judge the round in flight once, record it in the DC-21 row on `cycle-15-training`, mark DC-21 paused, note the two candidate fit ids | vault | – | The DC-21 row names the last hand-run round, the pause and the candidates | orchestrator | done |
 | 2 | Knobs: the table, bounds, hard limits, `validate` with one trial value and refusals (P9; R18, R23, R24, R27, R28) | tooling | – | `trainer/tests/test_knobs.py`: in bounds, out of bounds, past the hard limit, unknown knob, two out-of-bounds values | implementer | done |
 | 3 | Findings log: entry schema, append with fsync, read after a block number (P12; R13 to R16) | tooling | – | `test_findings.py`: append-only, a torn last line is reported and skipped, `after` filter | implementer | done |
 | 4 | Judge and champion: run the eval driver twice, parse the lines, champion file, feature-set check (P5, P6; R7 to R10, R39) | tooling | – | `test_judge.py` with a stub driver: pass/pass, fail, cap, error, no champion, changed feature set | implementer | done |
