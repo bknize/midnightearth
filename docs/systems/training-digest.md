@@ -61,17 +61,22 @@ inside the 5-minute grace.
 
 ## Steering in force
 
-Steering 2 (the proof's, sent 2026-11-09): `positions` bounds 200 to 400, a note asking for 800.
-Steering 1 (`positions` 200 to 600) came before it. Allowed extras: `positions` 1000 and 800.
+Steering 3 (approved by Ben 2026-11-10, in the PC inbox, applied at the first block boundary
+after the next start): `positions` back to its default bounds, 500 to 4000, and two notes: the
+proof steering is withdrawn, and the goal is a fit that beats F0 head to head (round 2's F2 reached
+held-out 0.581 but lost to F0 at 0.393). No pins, nothing avoided.
+
+Until it is applied, steering 2 (the proof's, sent 2026-11-09) is in the state: `positions` 200
+to 400, a note asking for 800. Steering 1 (`positions` 200 to 600) came before it. Allowed
+extras: `positions` 1000 and 800, both inside the default bounds.
 
 ## Reading and proposals
 
 The figures say only that the machinery works on the PC: seed, advisor, fallback, trial, stop,
 resume and the digest. Fifteen-minute blocks label too few positions (200 to 325) for a fit to
 beat F0, and a 40-pair judge mostly caps. They say nothing yet about what the advisor can do over
-3-hour blocks. Before the first real night, the proof's steering should be replaced: its 200 to
-400 bounds would hold every block far below the 1,000 to 4,000 positions a fit needs. That needs
-a steering file Ben approves (`/training steer`). The start config should be the example's
+3-hour blocks. Steering 3 replaces the proof's 200 to 400 bounds, which would have held every
+block far below the 1,000 to 4,000 positions a fit needs. The start config should be the example's
 (`block_hours` 3, `judge_cap` 200, default reserve and `min_positions`).
 
 ## Related
