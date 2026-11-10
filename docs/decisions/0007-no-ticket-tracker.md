@@ -38,7 +38,7 @@ subjects and in the Outcome column of [[planning/cycles]].
    [[planning/backlog]], `open`, `done` or `dropped`.
 3. **A static dashboard, tracked** (2a). `make dashboard` runs `scripts/dashboard.py`
    (standard library), which reads every `tasks.md`, [[planning/cycles]] and the backlog
-   and writes `docs/dashboard.html`. `/cycle test` runs it before the merge into `master`.
+   and writes `docs/dashboard.md`, a vault note with wikilinks to every spec (first written as `docs/dashboard.html`; changed the same day on Ben's "1a" to the question of a note or a page). `/cycle test` runs it before the merge into `master`.
 4. **Grouped by spec** (3a). The page has one block per spec, labelled with the dev cycles
    that built it, because one `tasks.md` can span two cycles.
 5. **Old ids rewritten** (4c). Every `NSC-nnn` in the repo became the task it stood for

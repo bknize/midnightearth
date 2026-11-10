@@ -148,7 +148,7 @@ the gate summary plus the spec's text smoke lines, and steps 2-3 are skipped.
      `DC-NN follow-up`) for anything that failed, was skipped or was left out;
    - append the outcome to the cycle's row in `docs/planning/cycles.md` (gate summary,
      what was verified, what was left out, the follow-ups' ids);
-   - `make dashboard`, which rewrites `docs/dashboard.html` from those notes;
+   - `make dashboard`, which rewrites the note `docs/dashboard.md` from those notes;
    - commit the four as `dc-NN: outcome`.
 5. From the main checkout, merge `<cycle branch>` into `master` with `--no-ff` (message
    `cycle-NN: <theme>`). Hand the editor back with `scripts/godot-editor.sh switch main`

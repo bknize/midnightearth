@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """dashboard.py - the project's progress record, read from the vault (ADR 0007).
 
-  scripts/dashboard.py                      write docs/dashboard.html
+  scripts/dashboard.py                      write docs/dashboard.md
   scripts/dashboard.py --out <file>         write it somewhere else
   scripts/dashboard.py --set <note> <id> <status>
                                             set one row's Status cell: a task (T07) in a
@@ -9,11 +9,11 @@
 
 Sources: every docs/specs/<slug>/tasks.md (the task table's Status column and the
 verification checkboxes), docs/planning/cycles.md (the DC rows) and
-docs/planning/backlog.md. Standard library only; the page is one self-contained file.
+docs/planning/backlog.md. Standard library only. The output is a vault note: wikilinks to
+every spec, plan and tasks note, one folding callout per spec and for the backlog.
 
 Exit codes: 0 written or set, 1 the row or a source was not found, 2 bad usage.
 """
-import html
 import re
 import sys
 from datetime import date
@@ -189,68 +189,45 @@ def set_status(path, wanted, status):
 
 # --- rendering ---------------------------------------------------------------------
 
-def inline(text):
-    """Escape, then the little Markdown the notes use: wikilinks, code spans."""
-    text = re.sub(r"\[\[([^\]|]+)\|([^\]]+)\]\]", r"\2", text)
-    text = re.sub(r"\[\[([^\]]+)\]\]", lambda m: m.group(1).split("/")[-2] if "/" in m.group(1) else m.group(1), text)
-    text = html.escape(text, quote=False)
-    text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
-    return re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
+NOTE_UID = "5d0c3b1e-7a52-4c8e-9f41-2b6e0a7d9c13"
+NOTE_CREATED = "2026-11-09"
 
 
 def short(text, limit=110):
+    """The head of a long cell, cut where it leaves no open code span or wikilink."""
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text) if text.startswith("**") else text
     cut = re.search(r"[:;(]", text)
     head = text[:cut.start()].strip() if cut and 12 <= cut.start() <= limit else text
-    return head if len(head) <= limit else head[:limit].rstrip() + "…"
+    if len(head) > limit:
+        head = head[:limit].rstrip() + "…"
+    if head.count("[[") > head.count("]]"):
+        head = head[:head.rindex("[[")].rstrip() + "…"
+    if head.count("`") % 2:
+        head = head[:head.rindex("`")].rstrip() + "…"
+    return head
 
 
-def bar(done, dropped, total):
-    if not total:
-        return ""
-    d, x = 100.0 * done / total, 100.0 * dropped / total
-    return ('<span class="bar" role="img" aria-label="%d of %d done"><span class="fill" style="width:%.1f%%"></span>'
-            '<span class="drop" style="width:%.1f%%"></span></span>' % (done, total, d, x))
+def cell(text):
+    """Text for a table cell: a pipe (a wikilink alias, a code span) is escaped."""
+    return re.sub(r"(?<!\\)\|", r"\\|", text)
 
 
-def pill(status):
-    return '<span class="pill %s">%s</span>' % (html.escape(status), html.escape(status))
+def status(value):
+    return value if value in ("done", "dropped") else "**%s**" % value
 
 
-CSS = """
-:root{--bg:#f6f5f1;--card:#fff;--ink:#1c1f24;--mute:#687078;--line:#dedbd3;--done:#2f7d5b;
---todo:#b3721b;--drop:#8a8f96;--accent:#2a5f8f;--code:#eeece6}
-@media (prefers-color-scheme:dark){:root{--bg:#14171b;--card:#1c2026;--ink:#e6e4de;--mute:#98a0a8;
---line:#2c323a;--done:#5fbf93;--todo:#e0a550;--drop:#737a82;--accent:#7fb2de;--code:#262b32}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-main{max-width:1040px;margin:0 auto;padding:32px 16px 64px}
-h1{font-size:26px;margin:0 0 4px}h2{font-size:17px;margin:36px 0 12px}
-.sub{color:var(--mute);margin:0 0 24px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
-.stat b{display:block;font-size:24px;font-variant-numeric:tabular-nums}.stat span{color:var(--mute);font-size:13px}
-details{background:var(--card);border:1px solid var(--line);border-radius:10px;margin:0 0 10px}
-summary{cursor:pointer;padding:12px 16px;display:grid;grid-template-columns:1fr auto 120px;gap:14px;align-items:center;list-style:none}
-summary::-webkit-details-marker{display:none}
-summary .name{font-weight:600}summary .meta{display:block;color:var(--mute);font-size:13px;font-weight:400}
-.count{font-variant-numeric:tabular-nums;color:var(--mute);white-space:nowrap}
-.bar{display:flex;height:8px;border-radius:4px;background:var(--line);overflow:hidden}
-.fill{background:var(--done)}.drop{background:var(--drop)}
-.body{padding:0 16px 14px;overflow-x:auto}
-table{border-collapse:collapse;width:100%;font-size:14px}
-th{text-align:left;color:var(--mute);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
-th,td{padding:6px 10px 6px 0;border-top:1px solid var(--line);vertical-align:top}
-td.id{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--mute)}td.nw{white-space:nowrap;color:var(--mute)}
-h3{font-size:13px;margin:16px 0 6px;color:var(--mute);font-weight:600}
-.pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12px;border:1px solid currentColor}
-.pill.done{color:var(--done)}.pill.todo,.pill.open{color:var(--todo)}.pill.dropped{color:var(--drop)}
-.dc{margin:0 0 10px;padding:0;list-style:none;color:var(--mute);font-size:13px}
-.dc b{color:var(--ink);font-weight:600}
-ul.checks{margin:0;padding:0;list-style:none;font-size:14px}ul.checks li{padding:3px 0 3px 24px;text-indent:-24px}
-code{background:var(--code);padding:1px 4px;border-radius:4px;font-size:.92em}
-@media (max-width:640px){summary{grid-template-columns:1fr auto}summary .bar{grid-column:1/-1}.hide-s{display:none}}
-"""
+def ended(cycle):
+    return cycle["done"].strip() not in ("", "–", "-")
+
+
+def callout(kind, fold, title, body):
+    """An Obsidian callout, folded (`-`) or open (`+`); `body` is a list of lines."""
+    return ["> [!%s]%s %s" % (kind, fold, title)] + [(">" + (" " + l if l else "")) for l in body] + [""]
+
+
+def table(header, rows):
+    return ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)] + [
+        "| " + " | ".join(cell(c) for c in row) + " |" for row in rows]
 
 
 def render(specs, cycles, backlog):
@@ -258,77 +235,63 @@ def render(specs, cycles, backlog):
     done = sum(t["status"] == "done" for t in tasks)
     dropped = sum(t["status"] == "dropped" for t in tasks)
     open_items = [b for b in backlog if b["status"] == "open"]
-    cycles_done = sum(1 for c in cycles if c["done"].strip() not in ("", "–", "-"))
-    out = ['<!doctype html><html lang="en"><head><meta charset="utf-8">',
-           '<meta name="viewport" content="width=device-width,initial-scale=1">',
-           "<title>Midnight Earth progress</title><style>%s</style></head><body><main>" % CSS,
-           "<h1>Midnight Earth progress</h1>",
-           '<p class="sub">Generated %s by <code>make dashboard</code> from the task notes.</p>' % date.today().isoformat(),
-           '<div class="stats">',
-           '<div class="stat"><b>%d / %d</b><span>dev cycles done</span></div>' % (cycles_done, len(cycles)),
-           '<div class="stat"><b>%d / %d</b><span>tasks done</span></div>' % (done, len(tasks) - dropped),
-           '<div class="stat"><b>%d</b><span>tasks to do</span></div>' % (len(tasks) - done - dropped),
-           '<div class="stat"><b>%d</b><span>open backlog items</span></div>' % len(open_items),
-           "</div>", "<h2>Cycles</h2>"]
+    out = ["---", "type: moc", "tags: [moc, dashboard, planning]", "status: evergreen",
+           'related: ["[[planning/cycles]]", "[[planning/backlog]]", "[[specs/specs-moc]]", '
+           '"[[decisions/0007-no-ticket-tracker]]"]',
+           "created: %s" % NOTE_CREATED, "updated: %s" % date.today().isoformat(),
+           "uid: %s" % NOTE_UID, "supersedes:", "---", "",
+           "# Dashboard", "",
+           "Written by `make dashboard` from every spec's `tasks.md`, [[planning/cycles]] and",
+           "[[planning/backlog]] ([[decisions/0007-no-ticket-tracker]]). Do not edit it: change the",
+           "source note and run `make dashboard` again.", ""]
+    out += table(["Dev cycles done", "Tasks done", "Tasks to do", "Open backlog items"],
+                 [["%d / %d" % (sum(ended(c) for c in cycles), len(cycles)),
+                   "%d / %d" % (done, len(tasks) - dropped), str(len(tasks) - done - dropped),
+                   str(len(open_items))]])
+    out += ["", "## Cycles", ""]
     for spec in sorted(specs, key=spec_order, reverse=True):
         st = [t for g in spec["groups"] for t in g["tasks"]]
         d = sum(t["status"] == "done" for t in st)
         x = sum(t["status"] == "dropped" for t in st)
         dcs = [c for c in cycles if spec["slug"] in c["slugs"]]
         complete = bool(st) and d + x == len(st)
-        tags = ", ".join(c["id"] for c in dcs) or "no dev cycle yet"
-        out.append("<details%s><summary><span class=\"name\">%s<span class=\"meta\">%s · %s</span></span>"
-                   "<span class=\"count\">%d / %d</span>%s</summary><div class=\"body\">"
-                   % ("" if complete else " open", inline(spec["title"]), html.escape(spec["slug"]),
-                      html.escape(tags), d, len(st) - x, bar(d, x, len(st))))
+        base = "specs/%s/" % spec["slug"]
+        body = ['<progress value="%d" max="%d"></progress> %s · [[%sspec|spec]] · [[%splan|plan]] · [[%stasks|tasks]]'
+                % (d, max(len(st) - x, 1), ", ".join(c["id"] for c in dcs) or "no dev cycle yet",
+                   base, base, base), ""]
+        for c in dcs:
+            body.append("- **%s %s** · %s → %s%s" % (
+                c["id"], c["theme"], c["started"] or "?", c["done"] if ended(c) else "in progress",
+                " · " + short(c["outcome"], 160) if c["outcome"] else ""))
         if dcs:
-            out.append('<ul class="dc">')
-            for c in dcs:
-                ended = c["done"].strip() not in ("", "–", "-")
-                out.append("<li><b>%s %s</b> · %s → %s · %s</li>" % (
-                    html.escape(c["id"]), inline(c["theme"]), html.escape(c["started"] or "?"),
-                    html.escape(c["done"]) if ended else "in progress",
-                    inline(short(c["outcome"], 160)) if c["outcome"] else ""))
-            out.append("</ul>")
+            body.append("")
         for group in spec["groups"]:
             if group["name"]:
-                out.append("<h3>%s</h3>" % inline(group["name"]))
-            out.append('<table><thead><tr><th>#</th><th>Task</th><th class="hide-s">Area</th>'
-                       '<th class="hide-s">Who</th><th>Status</th></tr></thead><tbody>')
-            for t in group["tasks"]:
-                out.append('<tr><td class="id">%s</td><td title="%s">%s</td><td class="nw hide-s">%s</td>'
-                           '<td class="nw hide-s">%s</td><td>%s</td></tr>'
-                           % (t["id"], html.escape(t["text"], quote=True), inline(short(t["text"])),
-                              inline(t["area"]), inline(t["who"]), pill(t["status"])))
-            out.append("</tbody></table>")
+                body += ["**%s**" % group["name"], ""]
+            body += table(["#", "Task", "Area", "Who", "Status"],
+                          [[t["id"], short(t["text"]), t["area"], t["who"], status(t["status"])]
+                           for t in group["tasks"]]) + [""]
         if spec["checks"]:
             ok = sum(c["done"] for c in spec["checks"])
-            out.append("<h3>Verification: %d of %d checked</h3><ul class=\"checks\">" % (ok, len(spec["checks"])))
-            for c in spec["checks"]:
-                out.append("<li>%s %s</li>" % ("☑" if c["done"] else "☐", inline(short(c["text"], 200))))
-            out.append("</ul>")
-        out.append("</div></details>")
+            body += ["**Verification: %d of %d checked**" % (ok, len(spec["checks"])), ""]
+            body += ["- %s %s" % ("☑" if c["done"] else "☐", short(c["text"], 200)) for c in spec["checks"]]
+        while body and not body[-1]:
+            body.pop()
+        out += callout("success" if complete else "todo", "-" if complete else "+",
+                       "[[%sspec|%s]] · %d / %d" % (base, spec["title"], d, len(st) - x), body)
     known = {s["slug"] for s in specs}
     loose = [c for c in cycles if not known.intersection(c["slugs"])]
     if loose:
-        out.append("<h2>Cycles with no task note</h2><details open><summary><span class=\"name\">%d cycles</span>"
-                   "<span></span><span></span></summary><div class=\"body\"><table><tbody>" % len(loose))
-        for c in loose:
-            out.append('<tr><td class="id">%s</td><td>%s</td><td class="nw">%s</td><td>%s</td></tr>' % (
-                html.escape(c["id"]), inline(c["theme"]), html.escape(c["done"]), inline(short(c["outcome"], 160))))
-        out.append("</tbody></table></div></details>")
-    out.append("<h2>Backlog</h2>")
-    for label, items, is_open in (("Open", open_items, True),
-                                  ("Closed", [b for b in backlog if b["status"] != "open"], False)):
-        out.append("<details%s><summary><span class=\"name\">%s</span><span class=\"count\">%d</span><span></span>"
-                   "</summary><div class=\"body\"><table><thead><tr><th>#</th><th>Item</th><th>Status</th>"
-                   "<th class=\"hide-s\">Where</th></tr></thead><tbody>" % (" open" if is_open else "", label, len(items)))
-        for b in items:
-            out.append('<tr><td class="id">%s</td><td>%s</td><td>%s</td><td class="hide-s">%s</td></tr>' % (
-                html.escape(b["id"]), inline(b["text"]), pill(b["status"]), inline(b["where"])))
-        out.append("</tbody></table></div></details>")
-    out.append("</main></body></html>\n")
-    return "\n".join(out)
+        out += callout("note", "-", "Cycles with no task note · %d" % len(loose),
+                       table(["#", "Theme", "Done", "Outcome"],
+                             [[c["id"], c["theme"], c["done"], short(c["outcome"], 160)] for c in loose]))
+    out += ["## Backlog", ""]
+    for kind, fold, label, items in (("todo", "+", "Open", open_items),
+                                     ("success", "-", "Closed", [b for b in backlog if b["status"] != "open"])):
+        out += callout(kind, fold, "%s · %d" % (label, len(items)),
+                       table(["#", "Item", "Status", "Where"],
+                             [[b["id"], b["text"], status(b["status"]), b["where"]] for b in items]))
+    return "\n".join(out).rstrip("\n") + "\n"
 
 
 def build(root):
@@ -353,7 +316,7 @@ def main(argv):
             return 1
         print("dashboard: %s is %s in %s" % (row_id(wanted), status, path))
         return 0
-    out = ROOT / "docs/dashboard.html"
+    out = ROOT / "docs/dashboard.md"
     if argv[:1] == ["--out"] and len(argv) == 2:
         out = Path(argv[1])
     elif argv:
