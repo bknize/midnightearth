@@ -8,7 +8,11 @@ restarted service resumes the open block and keeps its original wall-clock deadl
 
 The feature set of the current code is read from `feature_set_fn`; by default that is the
 feature set of the most recent finished fit of the current stamp (""  when there is none, in
-which case the champion is kept as it is).
+which case the champion's own feature set is kept). A champion whose stamp differs from the
+service's current stamp is dropped (R39).
+
+A service shutdown (`shutdown`) is not a stop: every stage returns at once, writing nothing and
+stopping nothing, so `state.json` stays exactly at its stage and the next start resumes it (R37).
 """
 import json
 import math
@@ -29,6 +33,7 @@ STATE_NAME = "state.json"
 STOP_NAME = "STOP"
 FINDINGS_NAME = "findings.jsonl"
 MIN_RUN_S = 60.0  # no labelling run is started with less than this left of its budget
+MAX_BOUNDARY_FAULTS = 5  # faults kept for the next entry's notes
 FLOOR_BLOCKS = 8  # the throughput floor is the median of this many full blocks
 GB = float(1024 ** 3)
 _WEIGHT_KNOBS = ("generator_weights", "rollout_weights")
@@ -106,7 +111,7 @@ def _blank_state() -> Dict[str, Any]:
         "pins": {}, "avoid": {}, "notes": [], "steering": None, "plateau_count": 0,
         "failed_count": 0, "seed_counter": 0, "seed_done": False, "config": {},
         "advisor": None, "last_plan": None, "last_run": None, "stamp": "", "feature_set": "",
-        "fault": "", "halt": False, "entry": None,
+        "fault": "", "halt": False, "entry": None, "last_fit_s": 0.0, "boundary_faults": [],
     }
 
 
@@ -134,8 +139,9 @@ class Autopilot:
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.RLock()
-        self.state: Dict[str, Any] = self._load_state()
+        self._start_lock = threading.Lock()
         self._halting = False  # set by shutdown(): leave the open block for the next start
+        self.state: Dict[str, Any] = self._load_state()
         if self.state.get("config"):
             self.cfg = AutopilotConfig.from_dict(self.state["config"])
             self._apply_judge_cap()
@@ -149,7 +155,8 @@ class Autopilot:
     def _default_judge(self) -> Any:
         work = Path(getattr(self.service, "root", ".")) / "work"
         return judge_mod.Judge(judge_mod.JudgeConfig(
-            worktree=work, godot_bin=os.environ.get("GODOT_BIN", "")))
+            worktree=work, godot_bin=os.environ.get("GODOT_BIN", ""),
+            reports_dir=str(self.dir / "judge")))
 
     def _default_feature_set(self) -> str:
         try:
@@ -185,12 +192,18 @@ class Autopilot:
         self.state["plan_notes"].append(text)
 
     def _fault(self, text: str) -> None:
+        if self._halting:  # a failure caused by the shutdown is not the block's fault
+            return
         old = self.state["fault"]
         self.state["fault"] = (old + "; " + text) if old else text
 
     # public
 
     def start(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        with self._start_lock:
+            return self._start(config)
+
+    def _start(self, config: Dict[str, Any]) -> Dict[str, Any]:
         if self.state.get("running") or (self._thread is not None and self._thread.is_alive()):
             return {"error": "autopilot is already running"}
         try:
@@ -209,7 +222,7 @@ class Autopilot:
         st["feature_set"] = self._feature_set_fn()
         has = bool(st["champion"])
         st.update(running=True, config=cfg.to_dict(), block=self.log.last_block() + 1,
-                  plan=self.advisor.default_plan(has), plan_source="default",
+                  plan=self._enforce(self.advisor.default_plan(has)), plan_source="default",
                   plan_notes=[note] if note else [], stage="label")
         st["kind"] = "seed" if (not has and cfg.candidates) else "full"
         self._halting = False
@@ -229,11 +242,21 @@ class Autopilot:
         if cap is not None:
             self.judge.config.cap = self.cfg.judge_cap
 
+    def _current_stamp(self) -> Optional[str]:
+        try:
+            stamp_fn = getattr(self.service, "_stamp_fn", None)
+            return str(stamp_fn()) if stamp_fn is not None else None
+        except Exception:
+            return None
+
     def _load_champion(self) -> Any:
-        fs = self._feature_set_fn()
-        if fs:
-            return judge_mod.champion_for(self.data_dir, fs)
-        return judge_mod.load_champion(self.data_dir), ""
+        """The champion, or None and a note when its feature set or stamp is not the current
+        code's: no fit of other code can be judged against it (R39)."""
+        champ = judge_mod.load_champion(self.data_dir)
+        if champ is None:
+            return None, ""
+        fs = self._feature_set_fn() or str(champ.get("feature_set", ""))
+        return judge_mod.champion_for(self.data_dir, fs, self._current_stamp())
 
     def stop(self) -> Dict[str, Any]:
         if not self.state.get("running"):
@@ -247,6 +270,12 @@ class Autopilot:
         service start resumes the open block with its remaining budget (R37)."""
         self._halting = True
         self._stop_event.set()
+        close = getattr(self.advisor, "close", None)
+        if close is not None:  # no llama-server child may outlive the service (R22)
+            try:
+                close()
+            except Exception:
+                pass
         self.join(timeout)
 
     def status(self) -> Dict[str, Any]:
@@ -264,7 +293,10 @@ class Autopilot:
 
     def resume_if_running(self) -> bool:
         if not self.state.get("running"):
+            self._clear_stop()  # a stop with nothing to stop would end the next start at once
             return False
+        if self._stop_requested():  # asked for before the service came back: honour it
+            self._note("a stop was requested before the autopilot resumed; stopping")
         self._spawn()
         return True
 
@@ -278,12 +310,26 @@ class Autopilot:
         self._thread.start()
 
     def _thread_main(self) -> None:
-        try:
-            self.run_loop()
-        except Exception as e:  # a bug in the loop itself: stop, with the reason recorded
-            self.state["running"] = False
-            self._fault("autopilot loop crashed: %s: %s" % (type(e).__name__, e))
-            self._save()
+        """Run the loop; an exception outside a block (the boundary work: findings append,
+        planning, steering) is recorded for the next entry and retried after a poll interval.
+        Only the stop rules (stop, disk floor, three failures) clear `running`."""
+        while True:
+            try:
+                self.run_loop()
+                return
+            except Exception as e:
+                faults: List[str] = self.state.setdefault("boundary_faults", [])
+                faults.append("boundary work failed: %s: %s" % (type(e).__name__, e))
+                del faults[:-MAX_BOUNDARY_FAULTS]
+                try:
+                    self._save()
+                except Exception:
+                    pass
+                if not self.state.get("running") or self._halting:
+                    return
+                self.sleep(max(self.cfg.poll_s, 0.0))
+                if self._halting:
+                    return
 
     # stop flag
 
@@ -321,7 +367,7 @@ class Autopilot:
 
     def run_loop(self) -> None:
         st = self.state
-        while st.get("running"):
+        while st.get("running") and not self._halting:
             if st["stage"] == "boundary" and st.get("entry"):
                 self._close_block()
                 continue
@@ -362,12 +408,12 @@ class Autopilot:
         except Exception as e:
             r = "error"
             self._fault("%s: %s" % (type(e).__name__, e))
-            if st["run_id"]:
+            if st["run_id"] and not self._halting:
                 try:
                     self.service.stop_run(st["run_id"])
                 except Exception:
                     pass
-        if r == "stop" and self._halting:
+        if self._halting:  # nothing is recorded, stopped or closed: the next start resumes
             self._save()
             return False
         self._compose_entry(r)
@@ -432,8 +478,30 @@ class Autopilot:
     def _fit_ok(self, fit_id: str) -> bool:
         return os.path.isfile(weights_path(self.data_dir, fit_id))
 
+    def _enforce(self, plan: Dict[str, Any]) -> Dict[str, Any]:
+        """A plan the autopilot is about to run, held to the pins and the bounds: pinned knobs
+        take their pinned value, an out-of-bounds number moves to the nearest end and a choice
+        to the first allowed. A value a passed trial put in `extras` and a fit-id weights name
+        stay as they are."""
+        st = self.state
+        out = dict(plan)
+        for name, v in list(out.items()):
+            if name not in knobs.KNOBS or name in st["pins"] or name.endswith("_weights"):
+                continue
+            if v in st["extras"].get(name, []):
+                continue
+            try:
+                if not knobs.in_bounds(name, v, st["bounds"]):
+                    out[name] = knobs.clamp(name, v, st["bounds"])
+            except TypeError:
+                pass
+        out.update(st["pins"])
+        return out
+
     def _plan_next(self, entry: Dict[str, Any]) -> None:
         st = self.state
+        if self._halting:
+            return
         steer_notes, steer_refused = self._apply_steering()
         has = bool(st["champion"])
         plan: Dict[str, Any]
@@ -445,22 +513,27 @@ class Autopilot:
         trial: Optional[List[Any]] = None
         tr = entry["trial"]
         if entry["kind"] == "trial" and tr and tr["outcome"] == "pass":
-            plan, source, advisor_info = dict(entry["plan"]), entry["plan_source"], entry["advisor"]
+            plan, source, advisor_info = (self._enforce(entry["plan"]), entry["plan_source"],
+                                          entry["advisor"])
             notes.append("trial passed: %s=%r now allowed" % (tr["knob"], tr["value"]))
         elif entry["kind"] == "trial" and tr:
-            plan = dict(st["last_plan"] or self.advisor.default_plan(has))
+            plan = self._enforce(st["last_plan"] or self.advisor.default_plan(has))
             source = "fallback"
             reason = entry["fault"] or "labels per minute %s below floor %s" % (
                 tr["labels_per_minute"], tr["floor"])
             refused.append({"knob": tr["knob"], "value": tr["value"], "reason": reason})
             notes.append("trial failed: fallback to the last plan")
         elif st["last_plan"] is None:
-            plan = self.advisor.default_plan(has)
+            plan = self._enforce(self.advisor.default_plan(has))
         else:
             plan, source, advisor_info, trial, refused, notes = self._advise(entry)
             if trial is not None:
                 kind = "trial"
-        notes = steer_notes + notes
+        if self._halting:  # the advisor was cut short: keep the boundary for the next start
+            self._save()
+            return
+        notes = steer_notes + list(st["boundary_faults"]) + notes
+        st["boundary_faults"] = []
         refused = steer_refused + refused
         st.update(block=st["block"] + 1, kind=kind, plan=plan, plan_source=source,
                   plan_notes=notes, refused=refused, trial=trial, advisor=advisor_info,
@@ -481,7 +554,7 @@ class Autopilot:
         try:
             advice = self.advisor.advise(st["block"] + 1, entries[-FLOOR_BLOCKS:], offered,
                                          st["extras"], pins, advisor_notes, plateau,
-                                         last_plan, has)
+                                         last_plan, has, self._stop_event)
         except Exception as e:
             return (last_plan, "fallback", None, None, [],
                     ["advisor raised %s: %s; kept the last plan" % (type(e).__name__, e)])
@@ -586,7 +659,9 @@ class Autopilot:
             st.update(stage="judge", fit_id=cand)
             self._save()
             champ_w = weights_path(self.data_dir, st["champion"]) if st["champion"] else None
-            j = self.judge.judge(weights_path(self.data_dir, cand), champ_w, self._stop_event)
+            j = self._judge(cand, champ_w)
+            if self._halting:
+                return "stop"
             became = False
             if not j.stopped:
                 self._judge_notes(cand, j)
@@ -647,6 +722,8 @@ class Autopilot:
     def _label(self, fit_wanted: bool, reserve_s: float) -> str:
         st = self.state
         service = self.service
+        if self._halting:
+            return "stop"
         if self._open():  # resumed after a restart
             run_id = str(st["run_id"])
             s = service.run_status(run_id)
@@ -674,6 +751,8 @@ class Autopilot:
                 st["stamp"] = reply["stamp"]
             self._save()
         final = self._await_run(run_id)
+        if self._halting:
+            return "stop"
         if "error" in final:
             self._fault("run_status: %s" % final["error"])
             return "error"
@@ -705,6 +784,8 @@ class Autopilot:
     def _await_run(self, run_id: str) -> Dict[str, Any]:
         sent = False
         while True:
+            if self._halting:  # the run stays as it is: the service marks it interrupted
+                return {}
             s: Dict[str, Any] = self.service.run_status(run_id)
             if "error" in s or s.get("state") not in ACTIVE:
                 return s
@@ -713,20 +794,32 @@ class Autopilot:
                 sent = True
             self.sleep(self.cfg.poll_s)
 
-    def _late(self) -> bool:
-        return self.clock() >= self.state["deadline"] + self.cfg.grace_minutes * 60.0
+    def _late(self, expected_s: float = 0.0) -> bool:
+        """Whether a stage expected to take `expected_s` would end past the deadline's grace."""
+        return self.clock() + expected_s >= self.state["deadline"] + self.cfg.grace_minutes * 60.0
+
+    def _judge(self, fit_id: str, champ_w: Optional[str]) -> Any:
+        """Judge a fit, each game held to what is left of the block's deadline plus grace."""
+        budget = self.state["deadline"] + self.cfg.grace_minutes * 60.0 - self.clock()
+        return self.judge.judge(weights_path(self.data_dir, fit_id), champ_w, self._stop_event,
+                                budget_s=budget)
 
     def _fit_stage(self) -> str:
         st = self.state
         it = st["iteration"]
+        if self._halting:
+            return "stop"
         if self._stop_requested():
             self._close_iteration()
             return "stop"
-        if self._late():
-            self._note("run %s: fit skipped, past the block deadline and grace" % it["run"])
+        if self._late(float(st.get("last_fit_s") or 0.0)):
+            self._note("run %s: fit skipped, it would end past the block deadline and grace"
+                       % it["run"])
             self._close_iteration()
             return "ok"
         reply = self.service.fit({"runs": [it["run"]], **knobs.fit_fragment(st["plan"])})
+        if self._halting:
+            return "stop"
         if "error" in reply:
             self._fault("fit: %s" % reply["error"])
             return "error"
@@ -736,14 +829,28 @@ class Autopilot:
             if reply.get(key):
                 st[key] = reply[key]
         self._save()
+        began = self.clock()
+        stop_seen: Optional[float] = None
         while True:
             s: Dict[str, Any] = self.service.run_status(fit_id)
             if "error" in s or s.get("state") not in LIVE_FIT:
                 break
+            if self._halting:  # the service stops the fit; the resumed block refits
+                return "stop"
+            if self._stop_requested():  # the fit cannot be interrupted: wait, but not for long
+                if stop_seen is None:
+                    stop_seen = self.clock()
+                elif self.clock() - stop_seen >= self.cfg.grace_minutes * 60.0:
+                    self._note("fit %s: stop requested; gave up waiting for it" % fit_id)
+                    self._close_iteration()
+                    return "stop"
             self.sleep(self.cfg.poll_s)
+        if self._halting:
+            return "stop"
         if "error" in s or s.get("state") != "done":
             self._fault("fit %s: %s" % (fit_id, s.get("error") or s.get("last_error") or s.get("state")))
             return "error"
+        st["last_fit_s"] = max(self.clock() - began, 0.0)
         report = self.service.get_report(fit_id)
         agreement = report.get("agreement") or {}
         it.update(fit=fit_id, agreement_fitted=float(agreement.get("fitted", 0.0)),
@@ -756,6 +863,8 @@ class Autopilot:
         st = self.state
         it = st["iteration"]
         fit_id = str(it["fit"])
+        if self._halting:
+            return "stop"
         if self._stop_requested():
             self._close_iteration()
             return "stop"
@@ -764,7 +873,9 @@ class Autopilot:
             self._close_iteration()
             return "ok"
         champ_w = weights_path(self.data_dir, st["champion"]) if st["champion"] else None
-        j = self.judge.judge(weights_path(self.data_dir, fit_id), champ_w, self._stop_event)
+        j = self._judge(fit_id, champ_w)
+        if self._halting:  # discarded: the resumed block judges the fit again
+            return "stop"
         it.update(judge_random=j.line_random, judge_champion=j.line_champion)
         if j.stopped:
             self._close_iteration()

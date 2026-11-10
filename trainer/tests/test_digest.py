@@ -120,15 +120,24 @@ class DigestTest(unittest.TestCase):
                        "depth=99", "try five"):
             self.assertIn(needle, md)
 
-    def test_bad_line_names_line_and_writes_nothing(self) -> None:
+    def test_bad_line_is_skipped_and_recorded(self) -> None:
         _write_fixture(self.dir / "findings.jsonl")
         with open(self.dir / "findings.jsonl", "ab") as f:
             f.write(b'{"block": 7, "kind": "ful')
         code, line = digest(self.dir)
+        self.assertEqual(code, 0)
+        self.assertIn("6 blocks", line)
+        fig = json.loads((self.dir / "figures.json").read_text())
+        self.assertEqual(len(fig["skipped_lines"]), 1)
+        self.assertIn("line 7", fig["skipped_lines"][0])
+        self.assertIn("Skipped lines", (self.dir / "figures.md").read_text())
+
+    def test_only_bad_lines_exit_one(self) -> None:
+        (self.dir / "findings.jsonl").write_bytes(b'{"block": 1, "kind": "ful\n')
+        code, line = digest(self.dir)
         self.assertEqual(code, 1)
-        self.assertIn("line 7", line)
+        self.assertIn("line 1", line)
         self.assertFalse((self.dir / "figures.json").exists())
-        self.assertFalse((self.dir / "figures.md").exists())
 
     def test_pull_script_one_scp(self) -> None:
         fixture = self.dir / "remote.jsonl"
