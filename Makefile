@@ -24,7 +24,7 @@ bot-selftest: ; @python3 -I scripts/bot/driver.py selftest
 # The bot trainer's unit tests (cycle 11 P19), outside `check`. No Godot.
 .PHONY: trainer-test
 trainer-test: ; @python3 -I -m unittest discover -s trainer/tests -t .
-# The progress dashboard (ADR 0007): docs/dashboard.html from every tasks.md, cycles.md and
+# The progress dashboard (ADR 0007): docs/dashboard.md from every tasks.md, cycles.md and
 # the backlog note. Run at the end of a cycle (`/cycle test`). No Godot.
 .PHONY: dashboard
 dashboard:  ; @python3 -I scripts/dashboard.py

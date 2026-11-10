@@ -25,7 +25,7 @@ If `make` stops with "You have not agreed to the Xcode license agreements", eith
 `export DEVELOPER_DIR=/Library/Developer/CommandLineTools`. `scripts/check.sh` works either way.
 Launch Claude Code through `scripts/claude-with-env.sh` so `.mcp.json` sees the tokens in `.env`.
 
-Work is planned in `docs/specs/<slug>/` and tracked there too (`docs/dashboard.html` is the overview); see `CLAUDE.md` for the rules.
+Work is planned in `docs/specs/<slug>/` and tracked there too (`docs/dashboard.md` is the overview); see `CLAUDE.md` for the rules.
 
 ## How work flows
 
@@ -119,6 +119,6 @@ a green gate, or `dropped`. Work that belongs to no spec (follow-ups, bugs, idea
 dev cycle. Only the orchestrator changes a status, when the event has actually happened;
 subagents report to it.
 
-`make dashboard` reads those notes and writes `docs/dashboard.html`: every cycle, its
+`make dashboard` reads those notes and writes the vault note `docs/dashboard.md`: every cycle, its
 tasks and verification boxes, and the backlog, on one static page. It runs at the end of
 each cycle, in `/cycle test`.
