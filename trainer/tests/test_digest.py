@@ -1,6 +1,7 @@
 """Tests for the Mac digest and the pull script (cycle 16 R40, R41, R43)."""
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -10,6 +11,10 @@ from typing import Any, Dict
 
 from trainer.digest import digest, judge_outcome
 from trainer.findings import FindingsLog, new_entry, new_iteration
+
+# The pull script is the Mac's (bash, scp); the PC runs the same suite without it.
+MAC_SCRIPT = unittest.skipIf(os.name == "nt" or shutil.which("bash") is None,
+                             "training-pull.sh runs on the Mac")
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -139,6 +144,7 @@ class DigestTest(unittest.TestCase):
         self.assertIn("line 1", line)
         self.assertFalse((self.dir / "figures.json").exists())
 
+    @MAC_SCRIPT
     def test_pull_script_one_scp(self) -> None:
         fixture = self.dir / "remote.jsonl"
         _write_fixture(fixture)
@@ -158,6 +164,7 @@ class DigestTest(unittest.TestCase):
         self.assertTrue((target / "figures.md").exists())
         self.assertIn("digest: 6 blocks", proc.stdout)
 
+    @MAC_SCRIPT
     def test_pull_script_failed_scp_keeps_last_copy(self) -> None:
         target = self.dir / "out"
         target.mkdir()

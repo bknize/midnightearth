@@ -839,7 +839,7 @@ class ProbeAndRateTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_MCP, "mcp is not installed")
 class McpTest(unittest.TestCase):
-    def test_eleven_tools_registered(self) -> None:
+    def test_fifteen_tools_registered(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             svc = Service(Path(d) / "data", Path(d) / "me", farm_factory=stub_farm,
                           stamp_fn=lambda: STAMP)
@@ -849,7 +849,8 @@ class McpTest(unittest.TestCase):
                 names = {t.name for t in getattr(tools, "tools", tools)}
                 self.assertEqual(names, {
                     "health", "sync_code", "start_run", "run_status", "stop_run", "resume_run",
-                    "list_runs", "get_report", "sample_positions", "fit", "get_artifact"})
+                    "list_runs", "get_report", "sample_positions", "fit", "get_artifact",
+                    "autopilot_start", "autopilot_stop", "autopilot_status", "get_findings"})
             finally:
                 svc.close()
 
