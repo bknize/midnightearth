@@ -361,7 +361,20 @@ class Service:
         self.restart_fn()
         return "scheduled"
 
+    def _autopilot_busy(self) -> Optional[Reply]:
+        """The refusal a hand-started run or fit gets while the autopilot runs (R36): the
+        collision would fault the autopilot's block."""
+        if self.autopilot.state.get("running"):
+            return {"error": "the training autopilot is running (block %s); stop it with "
+                             "autopilot_stop first" % self.autopilot.state.get("block")}
+        return None
+
     def start_run(self, config: Dict[str, Any]) -> Reply:
+        """The MCP entry: refused while the autopilot runs (it calls `start_run_internal`)."""
+        busy = self._autopilot_busy()
+        return busy if busy is not None else self.start_run_internal(config)
+
+    def start_run_internal(self, config: Dict[str, Any]) -> Reply:
         try:
             cfg = RunConfig.from_dict(config)
         except ValueError as e:
@@ -626,6 +639,11 @@ class Service:
         return self.data_dir / "fits" / fit_id
 
     def fit(self, config: Dict[str, Any]) -> Reply:
+        """The MCP entry: refused while the autopilot runs (it calls `fit_internal`)."""
+        busy = self._autopilot_busy()
+        return busy if busy is not None else self.fit_internal(config)
+
+    def fit_internal(self, config: Dict[str, Any]) -> Reply:
         """Validate a fit config and start the learner job; one fit at a time, and a labelling
         run may be active (the fit reads only finished runs)."""
         try:

@@ -116,6 +116,17 @@ def _refused_path(out_dir: Path, n: int) -> Path:
     return out_dir / ("refused-%d-%d.json" % (n, k))
 
 
+def _free_path(out_dir: Path, n: int) -> Path:
+    """`<n>.json`, or `<n>-<k>.json` with the first free k when it exists (a steering number
+    reused after a lost state save must never overwrite an archived steering)."""
+    path = out_dir / ("%d.json" % n)
+    k = 1
+    while path.exists():
+        k += 1
+        path = out_dir / ("%d-%d.json" % (n, k))
+    return path
+
+
 def take(data_dir: Any, inbox: Optional[Any], current: Dict[str, List[Any]], n: int,
          clock: Callable[[], float] = time.time, min_age_s: float = MIN_AGE_S
          ) -> Tuple[Optional[Steering], Optional[Dict[str, Any]]]:
@@ -145,7 +156,7 @@ def take(data_dir: Any, inbox: Optional[Any], current: Dict[str, List[Any]], n: 
         return None, None
     try:
         if steering is not None:
-            shutil.move(str(src), str(out_dir / ("%d.json" % n)))
+            shutil.move(str(src), str(_free_path(out_dir, n)))
             return steering, None
         shutil.move(str(src), str(_refused_path(out_dir, n)))
     except OSError:

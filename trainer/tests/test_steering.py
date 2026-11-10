@@ -271,6 +271,48 @@ class SteeringCase(unittest.TestCase):
         self.assertTrue(self.archive("refused-1-1.json").is_file())
         self.assertTrue(self.archive("refused-1-2.json").is_file())
 
+    def test_take_never_overwrites_an_archived_steering(self) -> None:
+        for _ in range(2):
+            self.send(self.valid(pin={"k": 12}))
+            new, _ = steering.take(self.tmp, self.inbox, knobs.default_bounds(), 1)
+            self.assertIsNotNone(new)
+        self.assertTrue(self.archive("1.json").is_file())
+        self.assertTrue(self.archive("1-2.json").is_file())
+
+    def test_advisor_raising_still_applies_pins_and_narrowed_bounds(self) -> None:
+        """R1: the fallback after an advisor error is held to this boundary's steering."""
+        self.assertNotIn("error", self.ap.start(dict(CFG)))
+        self.ap.state["last_plan"] = knobs.plan_defaults()  # positions 1000, k 8
+        self.send(self.valid(pin={"k": 12}, bounds={"positions": [100, 200]}))
+
+        def boom(*a: Any, **kw: Any) -> Advice:
+            raise RuntimeError("no advice")
+
+        self.advisor.advise = boom  # type: ignore[method-assign]
+        self.ap._plan_next({"kind": "full", "trial": None, "plan": {}})
+        plan = self.ap.state["plan"]
+        self.assertEqual((plan["k"], plan["positions"]), (12, 200))
+        self.assertEqual(self.ap.state["plan_source"], "fallback")
+
+    def test_steering_survives_a_crash_before_the_plan_is_saved(self) -> None:
+        """R2: state is saved when the steering is applied, with its note for the next entry."""
+        self.assertNotIn("error", self.ap.start(dict(CFG)))
+        self.send(self.valid(pin={"k": 12}))
+        self.ap._apply_steering()  # then the process dies, in the advisor call
+        again = Autopilot(self.service, self.advisor, FakeJudge(["pass"]), data_dir=self.tmp,
+                          clock=self.clock.now, sleep=self.clock.sleep,
+                          disk_free_gb=lambda: 100.0, feature_set_fn=lambda: "FS1",
+                          inbox=self.inbox)
+        self.assertEqual((again.state["steering"], again.state["pins"]), (1, {"k": 12}))
+        again._plan_next({"kind": "full", "trial": None, "plan": {}})
+        self.assertTrue(any("steering 1 applied" in n for n in again.state["plan_notes"]))
+        self.assertEqual(again.state["pending_notes"], [])
+        self.send(self.valid(pin={"k": 6}))
+        again._apply_steering()
+        self.assertEqual(again.state["steering"], 2)  # not a reused number 1
+        self.assertTrue(self.archive("1.json").is_file())
+        self.assertTrue(self.archive("2.json").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

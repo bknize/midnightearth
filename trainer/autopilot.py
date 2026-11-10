@@ -122,6 +122,7 @@ def _blank_state() -> Dict[str, Any]:
         "failed_count": 0, "seed_counter": 0, "seed_done": False, "config": {},
         "advisor": None, "last_plan": None, "last_run": None, "stamp": "", "feature_set": "",
         "fault": "", "halt": False, "entry": None, "last_fit_s": 0.0, "boundary_faults": [],
+        "pending_notes": [], "pending_refused": [],
     }
 
 
@@ -366,11 +367,18 @@ class Autopilot:
         n = (st["steering"] or 0) + 1
         new, refusal = steering.take(self.data_dir, self.inbox, st["bounds"], n)
         if refusal is not None:
-            return [], [refusal]
-        if new is None:
-            return [], []
-        st.update(bounds=new.bounds, pins=new.pins, avoid=new.avoid, notes=new.notes, steering=n)
-        return ["steering %d applied (approved by %s)" % (n, new.approved_by)], []
+            st["pending_refused"].append(refusal)
+        elif new is not None:
+            st.update(bounds=new.bounds, pins=new.pins, avoid=new.avoid, notes=new.notes,
+                      steering=n)
+            st["pending_notes"].append("steering %d applied (approved by %s)"
+                                       % (n, new.approved_by))
+        if refusal is not None or new is not None:
+            # The file is already archived: save now, so a kill during the advisor call (minutes)
+            # cannot lose the steering, its number or its note. They stay in state until the
+            # plan is written, and a resumed boundary carries them over.
+            self._save()
+        return list(st["pending_notes"]), list(st["pending_refused"])
 
     # the loop
 
@@ -485,7 +493,30 @@ class Autopilot:
     # planning at the boundary
 
     def _fit_ok(self, fit_id: str) -> bool:
-        return os.path.isfile(weights_path(self.data_dir, fit_id))
+        """A fit the plan may name: its weights exist and the store knows it as a finished fit
+        of the current stamp and feature set (as `knobs.validate` requires)."""
+        if not os.path.isfile(weights_path(self.data_dir, fit_id)):
+            return False
+        try:
+            rec = self.service.store.get_fit(fit_id)
+        except Exception:
+            return False
+        if not rec or rec.get("state") != "done":
+            return False
+        stamp = self._current_stamp()
+        if stamp is not None and rec.get("stamp") != stamp:
+            return False
+        feature_set = self.state.get("feature_set")
+        return not feature_set or rec.get("feature_set") == feature_set
+
+    def _fit_threshold(self) -> int:
+        """Positions a run needs to be fitted. Never more than the plan's `positions` knob
+        (a hard limit of 100 lets steering set it below `min_positions`), so a run that
+        completed its plan is always fitted; a run cut short below it is still skipped."""
+        planned = self.state["plan"].get("positions") if self.state.get("plan") else None
+        if isinstance(planned, int) and not isinstance(planned, bool):
+            return min(self.cfg.min_positions, planned)
+        return self.cfg.min_positions
 
     def _enforce(self, plan: Dict[str, Any]) -> Dict[str, Any]:
         """A plan the autopilot is about to run, held to the pins and the bounds: pinned knobs
@@ -543,6 +574,7 @@ class Autopilot:
             return
         notes = steer_notes + list(st["boundary_faults"]) + notes
         st["boundary_faults"] = []
+        st["pending_notes"], st["pending_refused"] = [], []
         refused = steer_refused + refused
         st.update(block=st["block"] + 1, kind=kind, plan=plan, plan_source=source,
                   plan_notes=notes, refused=refused, trial=trial, advisor=advisor_info,
@@ -565,7 +597,7 @@ class Autopilot:
                                          st["extras"], pins, advisor_notes, plateau,
                                          last_plan, has, self._stop_event)
         except Exception as e:
-            return (last_plan, "fallback", None, None, [],
+            return (self._enforce(last_plan), "fallback", None, None, [],
                     ["advisor raised %s: %s; kept the last plan" % (type(e).__name__, e)])
         proposed = dict(advice.plan) if isinstance(advice.plan, dict) else advice.plan
         avoided: List[Dict[str, Any]] = []
@@ -627,8 +659,8 @@ class Autopilot:
         if knob in knobs.FIT_KNOBS:
             if not self._open():
                 last = st["last_run"]
-                if not last:
-                    self._fault("trial %s: no finished run to fit" % knob)
+                if not last or int(last["positions"]) < self._fit_threshold():
+                    self._fault("trial %s: no finished run large enough to fit" % knob)
                     return "error"
                 st.update(run_id=last["run_id"], stage="fit", iteration={
                     "run": last["run_id"], "positions": last["positions"],
@@ -757,7 +789,8 @@ class Autopilot:
             cfg = self._run_config(reserve_s)
             st["seed_counter"] += 1
             self._save()
-            reply = service.start_run(cfg)
+            start = getattr(service, "start_run_internal", service.start_run)  # R36: not the MCP entry
+            reply = start(cfg)
             if "error" in reply:
                 self._fault("start_run: %s" % reply["error"])
                 return "error"
@@ -788,9 +821,10 @@ class Autopilot:
         if not fit_wanted:
             self._close_iteration()
             return "ok"
-        if positions < self.cfg.min_positions:
+        need = self._fit_threshold()
+        if positions < need:
             self._note("run %s: %d positions is below %d; not fitted"
-                       % (run_id, positions, self.cfg.min_positions))
+                       % (run_id, positions, need))
             self._close_iteration()
             return "ok"
         st["stage"] = "fit"
@@ -833,7 +867,8 @@ class Autopilot:
                        % it["run"])
             self._close_iteration()
             return "ok"
-        reply = self.service.fit({"runs": [it["run"]], **knobs.fit_fragment(st["plan"])})
+        fit = getattr(self.service, "fit_internal", self.service.fit)  # R36: not the MCP entry
+        reply = fit({"runs": [it["run"]], **knobs.fit_fragment(st["plan"])})
         if self._halting:
             return "stop"
         if "error" in reply:
