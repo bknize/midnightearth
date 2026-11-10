@@ -54,7 +54,15 @@ class Judgment:
 
 
 def _end(proc: Any) -> None:
-    """Terminate, then kill, a subprocess."""
+    """Terminate, then kill, a subprocess. On Windows the driver's Godot children would
+    outlive it, so the whole tree goes with `taskkill /T /F`."""
+    if os.name == "nt" and isinstance(getattr(proc, "pid", None), int):
+        try:
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=KILL_WAIT_S)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     try:
         proc.terminate()
         try:
