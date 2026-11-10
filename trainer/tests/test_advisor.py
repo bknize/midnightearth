@@ -171,6 +171,85 @@ class AdvisorTest(unittest.TestCase):
         self.assertEqual(cfg.port, 8080)
 
 
+class InterruptTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.data = Path(self._tmp.name)
+        self.handle = FakeHandle()
+        self.cfg = advisor.AdvisorConfig(server_path="/bin/llama-server",
+                                         model_path="/m/q.gguf", model_name="q.gguf")
+
+    def advise(self, adv: Any, stop: threading.Event) -> advisor.Advice:
+        return adv.advise(3, [], knobs.default_bounds(), {}, {}, [], False,
+                          knobs.plan_defaults(), True, stop)
+
+    def test_stop_during_health_wait(self) -> None:
+        stop = threading.Event()
+
+        def down(*args: Any) -> Any:
+            raise OSError("refused")
+
+        adv = advisor.Advisor(self.cfg, self.data, launch=lambda argv: self.handle, http=down,
+                              sleep=lambda s: stop.set())
+        a = self.advise(adv, stop)
+        self.assertEqual(a.source, "fallback")
+        self.assertIn("stopped", a.fallback_reason)
+        self.assertTrue(self.handle.terminated)
+        self.assertEqual(advisor._LIVE & {self.handle}, set())
+
+    def test_stop_abandons_a_pending_reply(self) -> None:
+        stop = threading.Event()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def http(method: str, url: str, body: Any, timeout: float) -> Any:
+            if method == "GET":
+                return 200, "{}"
+            threading.Timer(0.1, stop.set).start()
+            release.wait(10)
+            return 200, chat(GOOD)
+
+        adv = advisor.Advisor(self.cfg, self.data, launch=lambda argv: self.handle, http=http)
+        began = time.monotonic()
+        a = self.advise(adv, stop)
+        self.assertLess(time.monotonic() - began, 5.0)
+        self.assertEqual(a.source, "fallback")
+        self.assertTrue(self.handle.terminated)
+
+    def test_close_terminates_the_live_child(self) -> None:
+        holder: List[Any] = []
+
+        def down(*args: Any) -> Any:
+            raise OSError("refused")
+
+        def nap(s: float) -> None:
+            self.assertIn(self.handle, advisor._LIVE)
+            holder[0].close()
+            self.assertTrue(self.handle.terminated)
+            raise OSError("give up")
+
+        adv = advisor.Advisor(self.cfg, self.data, launch=lambda argv: self.handle, http=down,
+                              sleep=nap)
+        holder.append(adv)
+        self.advise(adv, threading.Event())
+        self.assertNotIn(self.handle, advisor._LIVE)
+
+    def test_file_advisor_close_reaches_the_child(self) -> None:
+        (self.data / "autopilot").mkdir(parents=True)
+        (self.data / "autopilot" / "config.json").write_text(json.dumps(
+            {"server_path": "x", "model_path": "m.gguf"}))
+        fa = advisor.FileAdvisor(self.data, launch=lambda argv: self.handle,
+                                 http=lambda *a: (200, "{}"))
+        stop = threading.Event()
+        fa.kwargs["sleep"] = lambda s: None
+        fa.kwargs["http"] = lambda method, url, body, timeout: (
+            (200, "{}") if method == "GET" else (stop.set() or fa.close() or (200, chat(GOOD))))
+        a = self.advise(fa, stop)
+        self.assertTrue(self.handle.terminated)
+        self.assertIn(a.source, ("fallback", "advisor"))
+
+
 class FallbackTest(unittest.TestCase):
     def entry(self, block: int, before: Any, after: Any, positions: int) -> Dict[str, Any]:
         e = findings.new_entry(block, plan={"positions": positions})

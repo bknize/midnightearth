@@ -1,9 +1,12 @@
 import json
+import os
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from unittest import mock
 
 from trainer import knobs, steering
 from trainer.autopilot import Autopilot
@@ -18,10 +21,10 @@ class RecordingAdvisor(FakeAdvisor):
 
     def advise(self, block: int, entries: List[Dict[str, Any]], bounds: Any, extras: Any,
                pins: Any, notes: Any, plateau: bool, last_plan: Any,
-               has_champion: bool) -> Advice:
+               has_champion: bool, stop: Any = None) -> Advice:
         self.args.append({"bounds": bounds, "pins": pins, "notes": list(notes)})
         return super().advise(block, entries, bounds, extras, pins, notes, plateau, last_plan,
-                              has_champion)
+                              has_champion, stop)
 
 
 class ParseCase(unittest.TestCase):
@@ -77,7 +80,9 @@ class SteeringCase(unittest.TestCase):
 
     def send(self, doc: Any) -> None:
         text = doc if isinstance(doc, str) else json.dumps(doc)
-        (self.inbox / "steering.json").write_text(text)
+        path = self.inbox / "steering.json"
+        path.write_text(text)
+        os.utime(path, (time.time() - 60, time.time() - 60))  # old enough to be taken
 
     def run_blocks(self, n: int) -> List[Dict[str, Any]]:
         self.advisor.stop_after = n
@@ -165,7 +170,7 @@ class SteeringCase(unittest.TestCase):
         self.ap.run_loop()
         es = self.ap.log.read()[0]
         self.assertTrue(self.archive("1.json").is_file())
-        self.assertTrue(self.archive("refused-2.json").is_file())
+        self.assertTrue(self.archive("refused-2-1.json").is_file())
         self.assertEqual(self.ap.state["steering"], 1)
         self.assertEqual(self.ap.state["pins"], {"k": 12})
         self.assertEqual(es[2]["refused"][0]["knob"], "steering")
@@ -179,6 +184,92 @@ class SteeringCase(unittest.TestCase):
 
     def test_missing_approved_by_refused_old_steering_kept(self) -> None:
         self.refuse_check(json.dumps({"pin": {"k": 3}}), "approved_by")
+
+    # pins and bounds on every plan path
+
+    def send_during_first_advice(self, doc: Any) -> None:
+        """Drop `doc` in the inbox once the first boundary has already looked at it."""
+        orig = self.advisor.advise
+
+        def advise(*a: Any, **kw: Any) -> Advice:
+            if not self.advisor.calls:
+                self.send(doc)
+            return orig(*a, **kw)
+
+        self.advisor.advise = advise  # type: ignore[method-assign]
+
+    def test_start_applies_carried_over_pins_and_bounds(self) -> None:
+        self.ap.start(dict(CFG))
+        self.ap.stop()
+        self.ap.run_loop()
+        self.ap.state["pins"] = {"k": 12}
+        self.ap.state["bounds"]["positions"] = [100, 200]
+        self.assertNotIn("error", self.ap.start(dict(CFG)))
+        self.assertEqual((self.ap.state["plan"]["k"], self.ap.state["plan"]["positions"]),
+                         (12, 200))
+
+    def test_default_plan_after_a_seed_block_is_pinned(self) -> None:
+        self.send(self.valid(pin={"k": 12}, bounds={"positions": [100, 200]}))
+        self.advisor.stop_after = 1
+        self.assertNotIn("error", self.ap.start({**CFG, "candidates": ["c1"]}))
+        self.ap.run_loop()
+        plan = self.ap.state["plan"]
+        self.assertEqual((plan["k"], plan["positions"]), (12, 200))
+
+    def test_trial_pass_reuse_is_pinned_and_keeps_the_trial_value(self) -> None:
+        self.advisor.script = [Advice(plan={"positions": 9000})]
+        self.send_during_first_advice(self.valid(pin={"k": 12}))
+        es = self.run_blocks(3)
+        self.assertEqual([e["kind"] for e in es], ["full", "trial", "full"])
+        self.assertEqual(es[2]["plan"]["k"], 12)
+        self.assertEqual(es[2]["plan"]["positions"], 9000)
+
+    def test_trial_fail_fallback_is_pinned_and_bounded(self) -> None:
+        self.service.lpm_fn = lambda cfg: 100.0 if cfg["positions"] <= 4000 else 5.0
+        self.advisor.script = [Advice(plan={"positions": 9000})]
+        self.send_during_first_advice(self.valid(pin={"k": 12}, bounds={"holdout": [0.2, 0.3]}))
+        es = self.run_blocks(3)
+        self.assertEqual(es[2]["plan_source"], "fallback")
+        self.assertEqual((es[2]["plan"]["k"], es[2]["plan"]["holdout"]), (12, 0.2))
+
+    # a file that cannot be taken yet
+
+    def test_unmovable_file_is_retried_at_the_next_boundary(self) -> None:
+        self.send(self.valid(pin={"k": 12}))
+        real = shutil.move
+        calls = [0]
+
+        def flaky(src: str, dst: str) -> Any:
+            calls[0] += 1
+            if calls[0] == 1:
+                raise PermissionError("still being written")
+            return real(src, dst)
+
+        with mock.patch("trainer.steering.shutil.move", flaky):
+            es = self.run_blocks(3)
+        self.assertIsNone(es[1]["steering"])
+        self.assertEqual(es[2]["steering"], 1)
+        self.assertEqual(es[2]["plan"]["k"], 12)
+        self.assertTrue(self.archive("1.json").is_file())
+
+    def test_young_file_is_left_alone(self) -> None:
+        path = self.inbox / "steering.json"
+        path.write_text(json.dumps(self.valid()))
+        now = path.stat().st_mtime
+        new, refusal = steering.take(self.tmp, self.inbox, knobs.default_bounds(), 1,
+                                     clock=lambda: now + 1.0)
+        self.assertEqual((new, refusal), (None, None))
+        self.assertTrue(path.is_file())
+        new, refusal = steering.take(self.tmp, self.inbox, knobs.default_bounds(), 1,
+                                     clock=lambda: now + 6.0)
+        self.assertIsNotNone(new)
+
+    def test_second_refusal_does_not_overwrite_the_first(self) -> None:
+        for _ in range(2):
+            self.send("{bad")
+            steering.take(self.tmp, self.inbox, knobs.default_bounds(), 1)
+        self.assertTrue(self.archive("refused-1-1.json").is_file())
+        self.assertTrue(self.archive("refused-1-2.json").is_file())
 
 
 if __name__ == "__main__":

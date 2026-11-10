@@ -2,7 +2,7 @@
 
 The Mac copies `steering.json` into the inbox (`~/me/inbox`, or the directory named by the
 environment variable TRAINER_INBOX). At a block boundary `take` validates it and moves it to
-`<data>/autopilot/steering/<n>.json`; an invalid file goes to `refused-<n>.json` and the
+`<data>/autopilot/steering/<n>.json`; an invalid file goes to `refused-<n>-<k>.json` and the
 autopilot keeps the steering already in force.
 
 Rules the autopilot applies once a steering is in force:
@@ -18,9 +18,10 @@ Rules the autopilot applies once a steering is in force:
 import json
 import os
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from trainer import knobs
 
@@ -103,23 +104,50 @@ def parse_steering(doc: Any, current_bounds: Dict[str, List[Any]]
                     date=str(date)), []
 
 
-def take(data_dir: Any, inbox: Optional[Any], current: Dict[str, List[Any]], n: int
+MIN_AGE_S = 5.0  # a file younger than this may still be arriving (scp is writing it)
+
+
+def _refused_path(out_dir: Path, n: int) -> Path:
+    """`refused-<n>-<k>.json` with the first k that is free, so a second refusal of the same
+    steering number never overwrites the first."""
+    k = 1
+    while (out_dir / ("refused-%d-%d.json" % (n, k))).exists():
+        k += 1
+    return out_dir / ("refused-%d-%d.json" % (n, k))
+
+
+def take(data_dir: Any, inbox: Optional[Any], current: Dict[str, List[Any]], n: int,
+         clock: Callable[[], float] = time.time, min_age_s: float = MIN_AGE_S
          ) -> Tuple[Optional[Steering], Optional[Dict[str, Any]]]:
-    """Take the inbox file if there is one. Valid: archived as steering/<n>.json, returned.
-    Invalid: archived as steering/refused-<n>.json, returned as a refusal record."""
+    """Take the inbox file if there is one that is at least `min_age_s` old. Valid: archived
+    as steering/<n>.json, returned. Invalid: archived as steering/refused-<n>-<k>.json,
+    returned as a refusal record. A file that cannot be read or moved (the copy is still
+    open on Windows) is left for the next boundary."""
     src = inbox_path(inbox)
-    if not src.is_file():
+    try:
+        if not src.is_file():
+            return None, None
+        if clock() - src.stat().st_mtime < min_age_s:
+            return None, None
+        out_dir = Path(data_dir) / "autopilot" / "steering"
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
         return None, None
-    out_dir = Path(data_dir) / "autopilot" / "steering"
-    out_dir.mkdir(parents=True, exist_ok=True)
     steering: Optional[Steering] = None
     try:
         doc = json.loads(src.read_text(encoding="utf-8-sig"))
         steering, problems = parse_steering(doc, current)
-    except (OSError, ValueError) as e:  # bad JSON or bad bytes
+    except UnicodeDecodeError as e:
         problems = ["steering: not readable JSON (%s)" % e]
-    if steering is not None:
-        shutil.move(str(src), str(out_dir / ("%d.json" % n)))
-        return steering, None
-    shutil.move(str(src), str(out_dir / ("refused-%d.json" % n)))
+    except ValueError as e:  # bad JSON
+        problems = ["steering: not readable JSON (%s)" % e]
+    except OSError:  # locked or vanished: try again at the next boundary
+        return None, None
+    try:
+        if steering is not None:
+            shutil.move(str(src), str(out_dir / ("%d.json" % n)))
+            return steering, None
+        shutil.move(str(src), str(_refused_path(out_dir, n)))
+    except OSError:
+        return None, None
     return None, {"knob": "steering", "value": n, "reason": "; ".join(problems)}

@@ -231,6 +231,9 @@ def render(fig: Dict[str, Any]) -> str:
     else:
         out.append("Block %s: `%s`" % (fig["last_plan_block"],
                                        json.dumps(fig["last_plan"], sort_keys=True)))
+    if fig.get("skipped_lines"):
+        out += ["", "## Skipped lines", ""]
+        out += ["- findings.jsonl %s" % p for p in fig["skipped_lines"]]
     out += ["", "Advisor's last reason: %s" % _f(fig["advisor_last_reason"]), ""]
     return "\n".join(out)
 
@@ -239,11 +242,12 @@ def digest(directory: Path) -> Tuple[int, str]:
     """Write figures.json and figures.md; returns (exit code, summary or error line)."""
     directory = Path(directory)
     entries, problems = FindingsLog(directory / "findings.jsonl").read()
-    if problems:
-        for p in problems:
-            print("digest: findings.jsonl " + p, file=sys.stderr)
+    for p in problems:  # a torn line stays in the log for good: warn, skip, carry on
+        print("digest: findings.jsonl " + p + " (skipped)", file=sys.stderr)
+    if problems and not entries:
         return 1, "digest: findings.jsonl " + problems[0]
     fig = compute(entries)
+    fig["skipped_lines"] = list(problems)
     (directory / "figures.json").write_text(
         json.dumps(fig, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (directory / "figures.md").write_text(render(fig), encoding="utf-8")

@@ -127,11 +127,14 @@ class FakeJudge:
     def __init__(self, script: List[str]) -> None:
         self.script = list(script)
         self.calls: List[Any] = []
+        self.budgets: List[Optional[float]] = []
         self.on_stop: Callable[[], None] = lambda: None
 
     def judge(self, fit_w: str, champ_w: Optional[str],
-              stop: Optional[threading.Event] = None) -> J.Judgment:
+              stop: Optional[threading.Event] = None,
+              budget_s: Optional[float] = None) -> J.Judgment:
         self.calls.append((fit_w, champ_w, stop))
+        self.budgets.append(budget_s)
         item = self.script.pop(0) if self.script else "fail"
         if item == "crash":
             raise Crash()
@@ -178,7 +181,7 @@ class FakeAdvisor:
 
     def advise(self, block: int, entries: List[Dict[str, Any]], bounds: Any, extras: Any,
                pins: Any, notes: Any, plateau: bool, last_plan: Any,
-               has_champion: bool) -> Advice:
+               has_champion: bool, stop: Any = None) -> Advice:
         self.calls.append({"block": block, "entries": entries, "plateau": plateau,
                            "last_plan": last_plan, "has_champion": has_champion})
         self._maybe_stop()
@@ -468,6 +471,213 @@ class AutopilotCase(unittest.TestCase):
         self.assertEqual(e["iterations"][0]["fit"], "f1")
         self.assertTrue(e["iterations"][0]["became_champion"])
         self.assertEqual(J.load_champion(self.tmp)["fit_id"], "f1")
+
+    # shutdown is not a stop (R37)
+
+    def shutdown_when(self, cond: Callable[[], bool]) -> None:
+        def hook() -> None:
+            if cond():
+                self.clock.hooks.remove(hook)
+                self.ap.shutdown()
+        self.clock.hooks.append(hook)
+
+    def halt_at(self, stage: str, **cfg: Any) -> None:
+        """Run until the shutdown hook fired; the block must be left open at `stage`."""
+        self.advisor.stop_after = 1
+        self.assertNotIn("error", self.ap.start({**CFG, **cfg}))
+        self.ap.run_loop()
+        st = self.ap.state
+        self.assertTrue(st["running"])
+        self.assertEqual((st["stage"], st["block"], st["deadline"]), (stage, 1, T0 + 3600))
+        self.assertEqual(self.service.stopped, [])
+        self.assertEqual(self.service.resumed, [])
+
+    def assert_resumed_block_one(self, ap2: Autopilot) -> Dict[str, Any]:
+        self.assertEqual((ap2.state["block"], ap2.state["deadline"]), (1, T0 + 3600))
+        ap2.run_loop()
+        es = ap2.log.read()[0]
+        self.assertEqual((es[0]["block"], es[0]["status"]), (1, "done"))
+        self.assertEqual(es[0]["fault"], "")
+        self.assertNotIn("failed", [e["status"] for e in es])
+        return es[0]
+
+    def test_shutdown_while_labelling_resumes_the_same_run(self) -> None:
+        self.shutdown_when(lambda: self.clock.t >= T0 + 120)
+        self.halt_at("label")
+        self.assertEqual(self.entries(), [])
+        self.assertEqual(self.ap.state["run_id"], "r1")
+        e = self.assert_resumed_block_one(self.restart())
+        self.assertEqual(self.service.resumed, ["r1"])
+        self.assertEqual(e["iterations"][0]["run"], "r1")
+
+    def test_shutdown_while_fitting_refits_after_resume(self) -> None:
+        self.shutdown_when(lambda: any(f["state"] == "running" for f in self.service.fits.values()))
+        self.halt_at("fit")
+        self.assertEqual(self.entries(), [])
+        e = self.assert_resumed_block_one(self.restart())
+        self.assertEqual(e["iterations"][0]["run"], "r1")
+        self.assertEqual(e["iterations"][0]["fit"], "f2")
+
+    def test_shutdown_while_judging_judges_again(self) -> None:
+        self.judge.script = ["stopped"]
+        self.judge.on_stop = self.ap.shutdown
+        self.halt_at("judge")
+        self.assertEqual(self.entries(), [])
+        self.assertEqual(self.ap.state["iterations"], [])
+        e = self.assert_resumed_block_one(self.restart(FakeJudge(["pass"])))
+        self.assertEqual(e["iterations"][0]["fit"], "f1")
+        self.assertTrue(e["iterations"][0]["became_champion"])
+
+    def test_shutdown_while_judging_seed_candidates(self) -> None:
+        self.judge.script = ["stopped"]
+        self.judge.on_stop = self.ap.shutdown
+        self.halt_at("judge", candidates=["c1"])
+        self.assertEqual((self.ap.state["fit_id"], self.ap.state["iterations"]), ("c1", []))
+        self.assertEqual(self.entries(), [])
+        e = self.assert_resumed_block_one(self.restart(FakeJudge(["pass"])))
+        self.assertEqual((e["kind"], e["champion_after"]), ("seed", "c1"))
+
+    def test_shutdown_at_the_advisor_boundary(self) -> None:
+        orig = self.advisor.advise
+
+        def advise(*a: Any, **kw: Any) -> Advice:
+            self.ap.shutdown()
+            return orig(*a, **kw)
+
+        self.advisor.advise = advise  # type: ignore[method-assign]
+        self.advisor.stop_after = 1
+        self.assertNotIn("error", self.ap.start(CFG))
+        self.ap.run_loop()
+        self.assertEqual([e["block"] for e in self.entries()], [1])
+        self.assertEqual((self.ap.state["stage"], self.ap.state["block"]), ("boundary", 1))
+        ap2 = self.restart()
+        ap2.run_loop()
+        es = ap2.log.read()[0]
+        self.assertEqual([(e["block"], e["status"]) for e in es], [(1, "done")])
+        self.assertEqual(ap2.state["block"], 2)  # planned once, on resume
+
+    def test_shutdown_failure_of_the_fit_is_not_recorded(self) -> None:
+        """A fit that fails because the service closed must not become a `failed` block."""
+        def fail_and_shutdown() -> None:
+            for f in self.service.fits.values():
+                f["state"] = "failed"
+            self.ap.shutdown()
+
+        self.shutdown_when(lambda: any(f["state"] == "running" for f in self.service.fits.values()))
+        self.clock.hooks.append(lambda: fail_and_shutdown() if self.service.fits else None)
+        self.halt_at("fit")
+        self.assertEqual((self.ap.state["fault"], self.ap.state["failed_count"]), ("", 0))
+        self.assertEqual(self.entries(), [])
+
+    # boundary faults
+
+    def test_findings_append_oserror_does_not_stop_the_loop(self) -> None:
+        real = self.ap.log.append
+        calls = [0]
+
+        def flaky(entry: Dict[str, Any]) -> Any:
+            calls[0] += 1
+            if calls[0] == 1:
+                raise OSError("disk full")
+            return real(entry)
+
+        self.ap.log.append = flaky  # type: ignore[method-assign]
+        self.advisor.stop_after = 3
+        self.assertNotIn("error", self.ap.start(CFG))
+        self.ap._thread_main()
+        es = self.entries()
+        self.assertEqual([e["block"] for e in es], [1, 2, 3])
+        self.assertTrue(any("disk full" in n for n in es[1]["plan_notes"]))
+        self.assertFalse(self.ap.state["running"])  # only the stop ended it
+
+    def test_plan_next_exception_is_retried(self) -> None:
+        real = self.advisor.advise
+        calls = [0]
+
+        def flaky(*a: Any, **kw: Any) -> Advice:
+            calls[0] += 1
+            if calls[0] == 1:
+                raise KeyError("boom")
+            return real(*a, **kw)
+
+        self.advisor.advise = flaky  # type: ignore[method-assign]
+        self.advisor.stop_after = 2
+        self.ap.start(CFG)
+        self.ap._thread_main()
+        self.assertEqual([e["block"] for e in self.entries()], [1, 2])
+
+    # champion stamp (R39)
+
+    def test_champion_of_another_stamp_is_dropped(self) -> None:
+        J.save_champion(self.tmp, "cX", "S0", "FS1", "a", "", 1)
+        setattr(self.service, "_stamp_fn", lambda: "S1")
+        self.assertNotIn("error", self.ap.start(CFG))
+        self.assertEqual(self.ap.state["champion"], "")
+        self.assertIn("champion cX dropped: stamp S0 differs from S1",
+                      self.ap.state["plan_notes"])
+        self.assertTrue((self.tmp / "autopilot" / "champion.dropped-S0.json").exists())
+
+    def test_champion_of_the_current_stamp_is_kept(self) -> None:
+        J.save_champion(self.tmp, "cX", "S1", "FS1", "a", "", 1)
+        setattr(self.service, "_stamp_fn", lambda: "S1")
+        self.ap.start(CFG)
+        self.assertEqual(self.ap.state["champion"], "cX")
+
+    def test_champion_dropped_when_no_feature_set_is_known(self) -> None:
+        J.save_champion(self.tmp, "cX", "S0", "FS1", "a", "", 1)
+        setattr(self.service, "_stamp_fn", lambda: "S1")
+        self.ap._feature_set_fn = lambda: ""
+        self.ap.start(CFG)
+        self.assertEqual(self.ap.state["champion"], "")
+
+    # bounds of one judge game, the fit, the budget (R5, R36)
+
+    def test_judge_gets_the_time_left_to_deadline_and_grace(self) -> None:
+        self.go(stop_after=1)
+        self.assertEqual(self.judge.budgets[0], 3600 + 1200 - 1560)  # the run and the fit have taken 1560 s
+
+    def test_fit_that_would_end_past_the_grace_is_skipped(self) -> None:
+        self.ap.start(CFG)
+        self.ap.state["deadline"] = T0 + 10
+        self.clock.t = T0 + 10 + 1100
+        self.assertFalse(self.ap._late(0.0))
+        self.assertTrue(self.ap._late(300.0))
+
+    def test_stop_during_an_uninterruptible_fit_gives_up_after_the_grace(self) -> None:
+        self.service.fit_s = 10 ** 7
+        self.clock.hooks.append(
+            lambda: self.ap.stop() if any(f["state"] == "running" for f in self.service.fits.values())
+            else None)
+        self.go()
+        e = self.entries()[0]
+        self.assertEqual(e["status"], "interrupted")
+        self.assertTrue(any("gave up waiting" in n for n in e["plan_notes"]))
+        self.assertLess(self.clock.t, T0 + 1500 + 1200 + 600)
+
+    # start and stop corners
+
+    def test_second_start_refused_while_the_thread_lives(self) -> None:
+        self.release = threading.Event()
+        self.ap._thread = threading.Thread(target=self.release.wait, daemon=True)
+        self.ap._thread.start()
+        self.addCleanup(self.release.set)
+        self.assertIn("already", self.ap.start(CFG)["error"])
+
+    def test_stop_before_resume_is_honoured(self) -> None:
+        self.shutdown_when(lambda: self.clock.t >= T0 + 120)
+        self.halt_at("label")
+        ap2 = self.restart()
+        ap2.stop()
+        ap2.run_loop()
+        self.assertEqual(ap2.log.read()[0][0]["status"], "interrupted")
+        self.assertFalse(ap2.state["running"])
+
+    def test_stale_stop_is_cleared_when_nothing_runs(self) -> None:
+        self.stop_file().parent.mkdir(parents=True, exist_ok=True)
+        self.stop_file().write_text("")
+        self.assertFalse(self.ap.resume_if_running())
+        self.assertFalse(self.stop_file().exists())
+        self.assertNotIn("error", self.ap.start(CFG))
 
 
 if __name__ == "__main__":

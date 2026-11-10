@@ -10,7 +10,9 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -18,6 +20,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from trainer.store import write_atomic
 
 Runner = Callable[[List[str], Path, Dict[str, str], float], Tuple[int, str]]
+MIN_GAME_S = 60.0  # a game is never given less than this, whatever the block has left
+POLL_S = 1.0
+KILL_WAIT_S = 10.0
+
+
+class GameStopped(Exception):
+    """The game's subprocess was terminated because the stop event was set."""
 
 CHAMPION_NAME = "champion.json"
 _RESULT = re.compile(r"\bresult=(PASS|FAIL|CAP)\b")
@@ -31,6 +40,7 @@ class JudgeConfig:
     worktree: Path = Path(".")
     godot_bin: str = ""
     python: str = "python"
+    reports_dir: str = ""  # the driver's --reports-dir; "" leaves its default (inside the worktree)
 
 
 @dataclass
@@ -43,13 +53,45 @@ class Judgment:
     stopped: bool = False
 
 
-def default_runner(argv: List[str], cwd: Path, env: Dict[str, str],
-                   timeout: float) -> Tuple[int, str]:
-    """Run `argv` in `cwd`; (exit code, stdout and stderr combined). Raises on timeout."""
-    proc = subprocess.run(argv, cwd=str(cwd), env=env, timeout=timeout, check=False,
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          universal_newlines=True)
-    return proc.returncode, proc.stdout or ""
+def _end(proc: Any) -> None:
+    """Terminate, then kill, a subprocess."""
+    try:
+        proc.terminate()
+        try:
+            proc.wait(KILL_WAIT_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(KILL_WAIT_S)
+    except OSError:
+        pass
+
+
+def default_runner(argv: List[str], cwd: Path, env: Dict[str, str], timeout: float,
+                   stop: Optional[threading.Event] = None, popen: Any = subprocess.Popen,
+                   clock: Callable[[], float] = time.monotonic,
+                   sleep: Optional[Callable[[float], None]] = None) -> Tuple[int, str]:
+    """Run `argv` in `cwd`, polling so that `stop` terminates it: (exit code, stdout and stderr
+    combined). Raises TimeoutError on timeout and GameStopped on a stop."""
+    nap = sleep if sleep is not None else (stop.wait if stop is not None else time.sleep)
+    with tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as out:
+        proc = popen(argv, cwd=str(cwd), env=env, stdout=out, stderr=subprocess.STDOUT,
+                     universal_newlines=True)
+        started = clock()
+        try:
+            while proc.poll() is None:
+                if stop is not None and stop.is_set():
+                    _end(proc)
+                    raise GameStopped()
+                if clock() - started >= timeout:
+                    _end(proc)
+                    raise TimeoutError("judge game timed out after %gs" % timeout)
+                nap(POLL_S)
+        except BaseException:
+            if proc.poll() is None:
+                _end(proc)
+            raise
+        out.seek(0)
+        return int(proc.returncode if proc.returncode is not None else 0), out.read()
 
 
 def last_result_line(output: str) -> str:
@@ -68,34 +110,74 @@ def outcome_of(result_line: str) -> str:
 
 
 class Judge:
-    def __init__(self, config: JudgeConfig, run: Optional[Runner] = None) -> None:
+    def __init__(self, config: JudgeConfig, run: Optional[Runner] = None,
+                 clock: Callable[[], float] = time.monotonic) -> None:
         self.config = config
-        self.run: Runner = run if run is not None else default_runner
+        self.run: Optional[Runner] = run  # None: the interruptible default runner
+        self.clock = clock
+        self._games = 0
 
-    def _argv(self, fit_path: str, other: str, champion_path: str) -> List[str]:
+    def _argv(self, fit_path: str, other: str, champion_path: str, label: str = "") -> List[str]:
         cfg = self.config
         argv = [cfg.python, "-I", "scripts/bot/driver.py", "eval", "--a", "linear",
                 "--weights-a", str(fit_path), "--b", other]
         if champion_path:
             argv += ["--weights-b", str(champion_path)]
-        return argv + ["--gainer", "--cap", str(cfg.cap)]
+        argv += ["--gainer", "--cap", str(cfg.cap)]
+        if cfg.reports_dir:
+            argv += ["--reports-dir", str(cfg.reports_dir)]
+        if label:
+            argv += ["--label", label]
+        return argv
 
-    def _game(self, fit_path: str, other: str, champion_path: str) -> Tuple[str, str]:
+    def _label(self, fit_path: str, other: str) -> str:
+        self._games += 1
+        p = Path(fit_path)
+        stem = re.sub(r"[^A-Za-z0-9_.-]", "_", p.parent.name or p.stem or "fit")
+        return "%s-vs-%s-%d" % (stem, other, self._games)
+
+    def _game(self, fit_path: str, other: str, champion_path: str,
+              timeout_s: float, stop: Optional[threading.Event]) -> Tuple[str, str]:
         env = dict(os.environ)
         if self.config.godot_bin:
             env["GODOT_BIN"] = self.config.godot_bin
+        argv = self._argv(fit_path, other, champion_path, self._label(fit_path, other))
         try:
-            _code, output = self.run(self._argv(fit_path, other, champion_path),
-                                     Path(self.config.worktree), env, self.config.timeout_s)
+            if self.config.reports_dir:
+                os.makedirs(self.config.reports_dir, exist_ok=True)
+            cwd = Path(self.config.worktree)
+            if self.run is not None:
+                _code, output = self.run(argv, cwd, env, timeout_s)
+            else:
+                _code, output = default_runner(argv, cwd, env, timeout_s, stop)
+        except GameStopped:
+            return "", "stopped"
         except Exception:  # timeout, missing binary: an error outcome, never a raise
             return "", "error"
         result_line = last_result_line(output)
         return result_line, outcome_of(result_line)
 
     def judge(self, fit_weights_path: str, champion_weights_path: Optional[str],
-              stop: Optional[threading.Event] = None) -> Judgment:
+              stop: Optional[threading.Event] = None,
+              budget_s: Optional[float] = None) -> Judgment:
+        """Play the games. `budget_s` is the time the caller can spare for all of them: each game
+        gets the configured timeout or what is left of the budget, whichever is less (never
+        under MIN_GAME_S). A stop terminates the running game: `stopped`, never an error."""
         j = Judgment()
-        j.line_random, j.outcome_random = self._game(fit_weights_path, "random", "")
+        started = self.clock()
+
+        def timeout() -> float:
+            if budget_s is None:
+                return self.config.timeout_s
+            left = budget_s - (self.clock() - started)
+            return min(self.config.timeout_s, max(MIN_GAME_S, left))
+
+        j.line_random, j.outcome_random = self._game(fit_weights_path, "random", "",
+                                                     timeout(), stop)
+        if j.outcome_random == "stopped":
+            j.outcome_random = "skipped"
+            j.stopped = True
+            return j
         if j.outcome_random != "pass":
             return j
         if not champion_weights_path:
@@ -104,8 +186,12 @@ class Judge:
         if stop is not None and stop.is_set():  # a safe point between judge games (R36)
             j.stopped = True
             return j
-        j.line_champion, j.outcome_champion = self._game(fit_weights_path, "linear",
-                                                         champion_weights_path)
+        j.line_champion, j.outcome_champion = self._game(
+            fit_weights_path, "linear", champion_weights_path, timeout(), stop)
+        if j.outcome_champion == "stopped":
+            j.outcome_champion = "skipped"
+            j.stopped = True
+            return j
         j.passed = j.outcome_champion == "pass"
         return j
 
@@ -141,13 +227,17 @@ def clear_champion(data_dir: Path) -> None:
         pass
 
 
-def champion_for(data_dir: Path, feature_set: str) -> Tuple[Optional[Dict[str, Any]], str]:
-    """The champion when its feature set is `feature_set`. Otherwise None and a note, and the
-    file is renamed to `champion.dropped-<stamp>.json` (R39)."""
+def champion_for(data_dir: Path, feature_set: str,
+                 stamp: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], str]:
+    """The champion when its feature set is `feature_set` (and, when `stamp` is given, its code
+    stamp is `stamp`: a fit of other code cannot be judged against). Otherwise None and a note,
+    and the file is renamed to `champion.dropped-<stamp>.json` (R39)."""
     champ = load_champion(data_dir)
     if champ is None:
         return None, ""
-    if str(champ.get("feature_set", "")) == feature_set:
+    fs_ok = str(champ.get("feature_set", "")) == feature_set
+    stamp_ok = stamp is None or str(champ.get("stamp", "")) == stamp
+    if fs_ok and stamp_ok:
         return champ, ""
     path = champion_path(data_dir)
     tag = str(champ.get("stamp", "")) or "unknown"
@@ -157,6 +247,10 @@ def champion_for(data_dir: Path, feature_set: str) -> Tuple[Optional[Dict[str, A
         n += 1
         target = path.with_name("champion.dropped-%s-%d.json" % (tag, n))
     os.replace(path, target)
-    note = "champion %s dropped: feature set %s differs from %s" % (
-        champ.get("fit_id", ""), champ.get("feature_set", ""), feature_set)
+    if not fs_ok:
+        note = "champion %s dropped: feature set %s differs from %s" % (
+            champ.get("fit_id", ""), champ.get("feature_set", ""), feature_set)
+    else:
+        note = "champion %s dropped: stamp %s differs from %s" % (
+            champ.get("fit_id", ""), champ.get("stamp", ""), stamp)
     return None, note

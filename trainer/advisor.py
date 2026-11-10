@@ -3,15 +3,17 @@
 At a block boundary: start llama-server, wait for /health, post one chat completion with a
 JSON-schema reply, stop the server (always), write the record, and fall back to a known plan
 when anything goes wrong. Knob bounds and trials are `knobs.validate`'s job, not this module's."""
+import atexit
 import hashlib
 import json
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from trainer import knobs, store
 
@@ -20,6 +22,27 @@ DEFAULT_SERVER_ARGS: List[str] = ["-c", "40960", "-np", "4", "-fa", "on", "-ctk"
 HISTORY_ENTRIES = 8
 HEALTH_POLL_S = 1.0
 STOP_WAIT_S = 20.0
+ABANDON_POLL_S = 0.2
+
+_LIVE: Set[Any] = set()  # llama-server children not yet stopped; the atexit hook ends them
+_LIVE_LOCK = threading.Lock()
+
+
+def _kill_live() -> None:
+    with _LIVE_LOCK:
+        handles = list(_LIVE)
+    for handle in handles:
+        try:
+            handle.terminate()
+        except OSError:
+            pass
+
+
+atexit.register(_kill_live)
+
+
+class Abandoned(Exception):
+    """The caller's stop event was set while the advisor waited."""
 
 SYSTEM_TEXT = (
     "You plan the next training block of a card-game bot. Each block labels positions with a "
@@ -235,6 +258,13 @@ class Advisor:
         self.http = http or _default_http
         self.clock = clock or time.monotonic
         self.sleep = sleep or time.sleep
+        self._handle: Any = None
+
+    def close(self) -> None:
+        """Terminate the llama-server child if there is one (safe from another thread)."""
+        handle = self._handle
+        if handle is not None:
+            self._stop(handle)
 
     @staticmethod
     def default_plan(has_champion: bool) -> Dict[str, Any]:
@@ -248,9 +278,11 @@ class Advisor:
     def _url(self, path: str) -> str:
         return "http://%s:%d%s" % (self.config.host, self.config.port, path)
 
-    def _wait_healthy(self, handle: Any) -> str:
+    def _wait_healthy(self, handle: Any, stop: Optional[threading.Event] = None) -> str:
         deadline = self.clock() + self.config.health_timeout_s
         while True:
+            if stop is not None and stop.is_set():
+                raise Abandoned()
             if handle.poll() is not None:
                 return "server exited before it was healthy"
             try:
@@ -263,8 +295,34 @@ class Advisor:
                 return "server not healthy within %ss" % self.config.health_timeout_s
             self.sleep(HEALTH_POLL_S)
 
-    def _ask(self, messages: List[Dict[str, str]], pins: Any,
-             raws: List[str]) -> Tuple[Optional[Dict[str, Any]], str]:
+    def _post(self, body: bytes, stop: Optional[threading.Event]) -> Tuple[int, str]:
+        """The chat request; with a stop event it runs on a helper thread that is abandoned
+        (not waited for) the moment the event is set."""
+        url = self._url("/v1/chat/completions")
+        timeout = self.config.reply_timeout_s
+        if stop is None:
+            return self.http("POST", url, body, timeout)
+        box: Dict[str, Any] = {}
+
+        def work() -> None:
+            try:
+                box["reply"] = self.http("POST", url, body, timeout)
+            except BaseException as exc:  # handed to the waiting thread
+                box["error"] = exc
+
+        worker = threading.Thread(target=work, daemon=True)
+        worker.start()
+        while worker.is_alive():
+            worker.join(ABANDON_POLL_S)
+            if stop.is_set():
+                raise Abandoned()
+        if "error" in box:
+            raise box["error"]
+        reply: Tuple[int, str] = box["reply"]
+        return reply
+
+    def _ask(self, messages: List[Dict[str, str]], pins: Any, raws: List[str],
+             stop: Optional[threading.Event] = None) -> Tuple[Optional[Dict[str, Any]], str]:
         body = json.dumps({
             "messages": messages, "temperature": 0.2,
             "response_format": {"type": "json_schema",
@@ -274,8 +332,7 @@ class Advisor:
         problem = ""
         for _attempt in range(2):
             try:
-                status, text = self.http("POST", self._url("/v1/chat/completions"), body,
-                                         self.config.reply_timeout_s)
+                status, text = self._post(body, stop)
             except OSError as exc:  # timeouts and connection errors
                 return None, "request failed: %s" % (str(exc) or type(exc).__name__)
             if status != 200:
@@ -292,6 +349,10 @@ class Advisor:
         return None, "invalid reply twice: " + problem
 
     def _stop(self, handle: Any) -> None:
+        with _LIVE_LOCK:
+            _LIVE.discard(handle)
+        if self._handle is handle:
+            self._handle = None
         try:
             handle.terminate()
             try:
@@ -305,7 +366,8 @@ class Advisor:
     def advise(self, block: int, entries: Sequence[Dict[str, Any]],
                bounds: Dict[str, List[Any]], extras: Dict[str, List[Any]],
                pins: Dict[str, Any], notes: Sequence[str], plateau: bool,
-               last_plan: Dict[str, Any], has_champion: bool) -> Advice:
+               last_plan: Dict[str, Any], has_champion: bool,
+               stop: Optional[threading.Event] = None) -> Advice:
         start = self.clock()
         c = self.config
         messages = build_prompt(entries, bounds, extras, pins, notes, plateau, last_plan)
@@ -321,9 +383,14 @@ class Advisor:
             handle: Any = None
             try:
                 handle = self.launch(self._argv())
-                problem = self._wait_healthy(handle)
+                self._handle = handle
+                with _LIVE_LOCK:
+                    _LIVE.add(handle)
+                problem = self._wait_healthy(handle, stop)
                 if not problem:
-                    reply, problem = self._ask(messages, pins, raws)
+                    reply, problem = self._ask(messages, pins, raws, stop)
+            except Abandoned:
+                problem = "advisor stopped by a shutdown or stop"
             except (OSError, ValueError) as exc:
                 problem = "advisor failed: %s" % exc
             finally:
@@ -370,6 +437,13 @@ class FileAdvisor:
         self.data_dir = Path(data_dir)
         self.path = self.data_dir / "autopilot" / "config.json"
         self.kwargs = advisor_kwargs
+        self._current: Optional[Advisor] = None
+
+    def close(self) -> None:
+        """Terminate the llama-server child of the advise call in flight, if any."""
+        current = self._current
+        if current is not None:
+            current.close()
 
     @staticmethod
     def default_plan(has_champion: bool) -> Dict[str, Any]:
@@ -378,7 +452,8 @@ class FileAdvisor:
     def advise(self, block: int, entries: Sequence[Dict[str, Any]],
                bounds: Dict[str, List[Any]], extras: Dict[str, List[Any]],
                pins: Dict[str, Any], notes: Sequence[str], plateau: bool,
-               last_plan: Dict[str, Any], has_champion: bool) -> Advice:
+               last_plan: Dict[str, Any], has_champion: bool,
+               stop: Optional[threading.Event] = None) -> Advice:
         try:
             config = load_config(self.path)
         except FileNotFoundError:
@@ -386,8 +461,9 @@ class FileAdvisor:
         except (OSError, ValueError) as exc:
             problem = str(exc)
         else:
-            return Advisor(config, self.data_dir, **self.kwargs).advise(
-                block, entries, bounds, extras, pins, notes, plateau, last_plan, has_champion)
+            self._current = Advisor(config, self.data_dir, **self.kwargs)
+            return self._current.advise(block, entries, bounds, extras, pins, notes, plateau,
+                                        last_plan, has_champion, stop)
         plan, which = fallback_plan(entries, has_champion)
         return Advice(plan=plan, source="fallback",
                       fallback_reason="%s (fell back to the %s)" % (problem, which))
