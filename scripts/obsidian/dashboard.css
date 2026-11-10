@@ -1,0 +1,75 @@
+/* Styles the generated note docs/dashboard.md (it carries `cssclasses: [dashboard]`).
+   Install: copy this file to docs/.obsidian/snippets/dashboard.css, then turn it on under
+   Settings > Appearance > CSS snippets. It affects no other note. */
+
+.dashboard {
+  --file-line-width: 1100px;
+}
+
+.dashboard table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.dashboard th {
+  text-align: left;
+  font-size: 0.8em;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.dashboard td {
+  border: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 5px 10px 5px 6px;
+  vertical-align: top;
+}
+
+.dashboard tbody tr:nth-child(even) {
+  background: var(--background-secondary);
+}
+
+.dashboard tbody tr:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* the id column, and Area / Who / Status, stay on one line */
+.dashboard td:first-child {
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard .st {
+  display: inline-block;
+  padding: 0 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.dashboard .st-done { color: var(--color-green); }
+.dashboard .st-todo,
+.dashboard .st-open { color: var(--color-orange); font-weight: 600; }
+.dashboard .st-dropped { color: var(--text-faint); }
+
+.dashboard progress {
+  width: 120px;
+  height: 8px;
+  vertical-align: middle;
+  accent-color: var(--color-green);
+}
+
+.dashboard .callout {
+  padding-bottom: 4px;
+}
+
+.dashboard .callout-content {
+  overflow-x: auto;
+}

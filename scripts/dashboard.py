@@ -10,7 +10,9 @@
 Sources: every docs/specs/<slug>/tasks.md (the task table's Status column and the
 verification checkboxes), docs/planning/cycles.md (the DC rows) and
 docs/planning/backlog.md. Standard library only. The output is a vault note: wikilinks to
-every spec, plan and tasks note, one folding callout per spec and for the backlog.
+every spec, plan and tasks note, one folding callout per spec and for the backlog. It carries
+`cssclasses: [dashboard]`, which scripts/obsidian/dashboard.css styles once it is installed as a
+vault snippet.
 
 Exit codes: 0 written or set, 1 the row or a source was not found, 2 bad usage.
 """
@@ -213,7 +215,8 @@ def cell(text):
 
 
 def status(value):
-    return value if value in ("done", "dropped") else "**%s**" % value
+    """A span the snippet scripts/obsidian/dashboard.css colours; plain text without it."""
+    return '<span class="st st-%s">%s</span>' % (value, value) if re.fullmatch(r"[a-z]+", value) else value
 
 
 def ended(cycle):
@@ -235,7 +238,7 @@ def render(specs, cycles, backlog):
     done = sum(t["status"] == "done" for t in tasks)
     dropped = sum(t["status"] == "dropped" for t in tasks)
     open_items = [b for b in backlog if b["status"] == "open"]
-    out = ["---", "type: moc", "tags: [moc, dashboard, planning]", "status: evergreen",
+    out = ["---", "cssclasses: [dashboard]", "type: moc", "tags: [moc, dashboard, planning]", "status: evergreen",
            'related: ["[[planning/cycles]]", "[[planning/backlog]]", "[[specs/specs-moc]]", '
            '"[[decisions/0007-no-ticket-tracker]]"]',
            "created: %s" % NOTE_CREATED, "updated: %s" % date.today().isoformat(),
